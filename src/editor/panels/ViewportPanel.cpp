@@ -48,6 +48,8 @@ uniform float uSunIntensity;
 uniform vec3  uAmbient;       // ambient colour * intensity
 uniform vec3  uViewPos;
 uniform bool  uSelected;
+uniform int   uMaterial;      // 0 plastic, 1 metal, 2 neon, 3 wood
+uniform float uAlpha;         // 1 = opaque
 
 uniform bool  uFogEnabled;
 uniform vec3  uFogColor;
@@ -57,15 +59,26 @@ out vec4 FragColor;
 
 void main() {
     vec3 N = normalize(vNormal);
-    vec3 L = normalize(uSunDir);
     vec3 V = normalize(uViewPos - vWorldPos);
+
+    // Neon: unlit, emissive — glows regardless of the sun.
+    if (uMaterial == 2) {
+        FragColor = vec4(uColor * 1.5, uAlpha);
+        return;
+    }
+
+    vec3 L = normalize(uSunDir);
     vec3 H = normalize(L + V);
-
     float diff = max(dot(N, L), 0.0);
-    float spec = pow(max(dot(N, H), 0.0), 32.0) * 0.3;
-    vec3  sun  = uSunColor * uSunIntensity;
 
-    vec3 base = uColor * (uAmbient + sun * diff) + sun * spec;
+    // Per-material specular response.
+    float specPow = 32.0, specScale = 0.30;
+    if      (uMaterial == 1) { specPow = 80.0; specScale = 0.90; }  // metal
+    else if (uMaterial == 3) { specPow =  8.0; specScale = 0.04; }  // wood (matte)
+
+    float spec = pow(max(dot(N, H), 0.0), specPow) * specScale;
+    vec3  sun  = uSunColor * uSunIntensity;
+    vec3  base = uColor * (uAmbient + sun * diff) + sun * spec;
 
     if (uSelected) {
         // Fresnel-style rim glow in editor orange for the active object.
@@ -79,7 +92,7 @@ void main() {
         base = mix(base, uFogColor, f);
     }
 
-    FragColor = vec4(base, 1.0);
+    FragColor = vec4(base, uAlpha);
 }
 )";
 
@@ -435,13 +448,24 @@ void ViewportPanel::drawScene() {
 
     m_scene->forEach([&](SceneNode* node) {
         if (!node->mesh || !node->visible) return;
+        float alpha = 1.0f - node->transparency;
+        if (alpha <= 0.001f) return;   // fully transparent — nothing to draw
+
         glm::mat4 model = node->worldMatrix();
         glm::mat3 nrm   = glm::transpose(glm::inverse(glm::mat3(model)));
         m_shader->setMat4("uModel", model);
         m_shader->setMat3("uNormalMat", nrm);
         m_shader->setVec3("uColor", node->color);
         m_shader->setBool("uSelected", node->selected);
+        m_shader->setInt("uMaterial", (int)node->material);
+        m_shader->setFloat("uAlpha", alpha);
+
+        // Don't let translucent parts occlude what's behind them via the depth
+        // buffer (blending is enabled globally).
+        bool translucent = alpha < 0.999f;
+        if (translucent) glDepthMask(GL_FALSE);
         node->mesh->draw();
+        if (translucent) glDepthMask(GL_TRUE);
     });
 
     glBindVertexArray(0);

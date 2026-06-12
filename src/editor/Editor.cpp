@@ -3,6 +3,7 @@
 #include "panels/OutlinerPanel.h"
 #include "panels/PropertiesPanel.h"
 #include "panels/EnvironmentPanel.h"
+#include "panels/ToolboxPanel.h"
 #include "../scene/Scene.h"
 #include "../renderer/Primitives.h"
 
@@ -19,6 +20,8 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_outliner    = std::make_unique<OutlinerPanel>(scene);
     m_properties  = std::make_unique<PropertiesPanel>(scene);
     m_environment = std::make_unique<EnvironmentPanel>(scene);
+    m_toolbox     = std::make_unique<ToolboxPanel>(
+        [this](PrimitiveType type) { spawnPrimitive(type); });
 
     // Default scene objects
     auto cube = scene->addNode("Cube", PrimitiveType::Cube, Primitives::createCube());
@@ -38,6 +41,7 @@ void Editor::render(float dt) {
     m_outliner->render();
     m_properties->render();
     m_environment->render();
+    m_toolbox->render();
 }
 
 SceneNode* Editor::addPrimitive(const char* label, PrimitiveType type,
@@ -50,16 +54,31 @@ SceneNode* Editor::addPrimitive(const char* label, PrimitiveType type,
     return node;
 }
 
+void Editor::spawnPrimitive(PrimitiveType type) {
+    switch (type) {
+        case PrimitiveType::Cube:     addPrimitive("Cube",     type, Primitives::createCube());     break;
+        case PrimitiveType::Sphere:   addPrimitive("Sphere",   type, Primitives::createSphere());   break;
+        case PrimitiveType::Plane:    addPrimitive("Plane",    type, Primitives::createPlane());     break;
+        case PrimitiveType::Cylinder: addPrimitive("Cylinder", type, Primitives::createCylinder()); break;
+        default: break;
+    }
+}
+
 void Editor::duplicateSelected() {
     SceneNode* sel = m_scene->selected();
     if (!sel || sel == m_scene->root()) return;
 
     // Share the mesh GPU buffers — they are immutable once uploaded.
     auto* dup = m_scene->addNode(sel->name + " Copy", sel->primitiveType, sel->mesh);
-    dup->transform = sel->transform;
+    dup->transform    = sel->transform;
     dup->transform.position.x += 1.0f;   // nudge so the copy is visible
-    dup->color   = sel->color;
-    dup->visible = sel->visible;
+    dup->color        = sel->color;
+    dup->visible      = sel->visible;
+    dup->transparency = sel->transparency;
+    dup->material     = sel->material;
+    dup->anchored     = sel->anchored;
+    dup->canCollide   = sel->canCollide;
+    dup->castShadow   = sel->castShadow;
     m_scene->select(dup);
 }
 
@@ -129,6 +148,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28f, &right,  &center);
 
         ImGui::DockBuilderDockWindow("Outliner",    left);
+        ImGui::DockBuilderDockWindow("Toolbox",     left);
         ImGui::DockBuilderDockWindow("Viewport",    center);
         ImGui::DockBuilderDockWindow("Properties",  right);
         ImGui::DockBuilderDockWindow("Environment", right);
@@ -155,10 +175,10 @@ void Editor::renderMenuBar() {
     }
 
     if (ImGui::BeginMenu("Add")) {
-        if (ImGui::MenuItem("Cube"))     addPrimitive("Cube",     PrimitiveType::Cube,     Primitives::createCube());
-        if (ImGui::MenuItem("Sphere"))   addPrimitive("Sphere",   PrimitiveType::Sphere,   Primitives::createSphere());
-        if (ImGui::MenuItem("Plane"))    addPrimitive("Plane",    PrimitiveType::Plane,    Primitives::createPlane());
-        if (ImGui::MenuItem("Cylinder")) addPrimitive("Cylinder", PrimitiveType::Cylinder, Primitives::createCylinder());
+        if (ImGui::MenuItem("Cube"))     spawnPrimitive(PrimitiveType::Cube);
+        if (ImGui::MenuItem("Sphere"))   spawnPrimitive(PrimitiveType::Sphere);
+        if (ImGui::MenuItem("Plane"))    spawnPrimitive(PrimitiveType::Plane);
+        if (ImGui::MenuItem("Cylinder")) spawnPrimitive(PrimitiveType::Cylinder);
         ImGui::EndMenu();
     }
 
@@ -220,13 +240,13 @@ void Editor::renderToolbar() {
     ImGui::Checkbox("Snap", &m_state.snapEnabled);
     sep();
 
-    if (ImGui::Button("+ Cube"))     addPrimitive("Cube",     PrimitiveType::Cube,     Primitives::createCube());
+    if (ImGui::Button("+ Cube"))     spawnPrimitive(PrimitiveType::Cube);
     ImGui::SameLine();
-    if (ImGui::Button("+ Sphere"))   addPrimitive("Sphere",   PrimitiveType::Sphere,   Primitives::createSphere());
+    if (ImGui::Button("+ Sphere"))   spawnPrimitive(PrimitiveType::Sphere);
     ImGui::SameLine();
-    if (ImGui::Button("+ Plane"))    addPrimitive("Plane",    PrimitiveType::Plane,    Primitives::createPlane());
+    if (ImGui::Button("+ Plane"))    spawnPrimitive(PrimitiveType::Plane);
     ImGui::SameLine();
-    if (ImGui::Button("+ Cylinder")) addPrimitive("Cylinder", PrimitiveType::Cylinder, Primitives::createCylinder());
+    if (ImGui::Button("+ Cylinder")) spawnPrimitive(PrimitiveType::Cylinder);
     sep();
 
     bool hasSel = m_scene->selected() && m_scene->selected() != m_scene->root();

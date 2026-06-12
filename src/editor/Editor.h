@@ -11,6 +11,7 @@ class ViewportPanel;
 class OutlinerPanel;
 class PropertiesPanel;
 class EnvironmentPanel;
+class ToolboxPanel;
 
 class Editor {
 public:
@@ -27,6 +28,7 @@ private:
 
     SceneNode* addPrimitive(const char* label, PrimitiveType type,
                             std::shared_ptr<Mesh> mesh);
+    void spawnPrimitive(PrimitiveType type);
     void duplicateSelected();
     void deleteSelected();
     void newScene();
@@ -38,6 +40,7 @@ private:
     std::unique_ptr<OutlinerPanel>    m_outliner;
     std::unique_ptr<PropertiesPanel>  m_properties;
     std::unique_ptr<EnvironmentPanel> m_environment;
+    std::unique_ptr<ToolboxPanel>     m_toolbox;
 
     bool m_firstLayout = true;
     int  m_objCounter  = 0;

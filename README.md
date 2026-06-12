@@ -10,8 +10,11 @@ ImGui (docking branch) and ImGuizmo. The window has a top **toolbar**, a bottom
   scale gizmo to transform it.
 - **Outliner** — scene hierarchy; click to select, right-click for
   hide/show/delete.
+- **Toolbox** — a palette of insertable parts (Cube / Sphere / Plane /
+  Cylinder).
 - **Properties** — inspector for the selected node: name, visibility,
-  transform (position / rotation / scale) and base colour.
+  transform, **Appearance** (colour, material — Plastic / Metal / Neon / Wood,
+  transparency) and **Behavior** (anchored, can-collide, cast-shadow).
 - **Environment** — lighting & atmosphere (like Roblox's Lighting service):
   sun direction/colour/intensity, ambient sky-light, sky gradient colours and
   fog, with one-click **Day / Sunset / Night / Overcast** presets.
@@ -80,5 +83,5 @@ src/
     EditorState.h      shared UI state (active tool, gizmo space, snapping)
     Theme.*            cohesive dark theme + system font loading
     panels/            Viewport (sky/light/fog, gizmos, picking), Outliner,
-                       Properties, Environment
+                       Toolbox, Properties, Environment
 ```

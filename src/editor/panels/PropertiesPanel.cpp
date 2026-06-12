@@ -41,9 +41,23 @@ void PropertiesPanel::render() {
         }
     }
 
-    // --- Material ---
-    if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::ColorEdit3("Base Color", &node->color.x);
+    // --- Appearance ---
+    if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::ColorEdit3("Color", &node->color.x);
+
+        const char* materials[] = { "Plastic", "Metal", "Neon", "Wood" };
+        int mat = (int)node->material;
+        if (ImGui::Combo("Material", &mat, materials, IM_ARRAYSIZE(materials)))
+            node->material = (Material)mat;
+
+        ImGui::SliderFloat("Transparency", &node->transparency, 0.0f, 1.0f);
+    }
+
+    // --- Behavior ---
+    if (ImGui::CollapsingHeader("Behavior", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Anchored",    &node->anchored);
+        ImGui::Checkbox("Can Collide", &node->canCollide);
+        ImGui::Checkbox("Cast Shadow", &node->castShadow);
     }
 
     ImGui::End();
