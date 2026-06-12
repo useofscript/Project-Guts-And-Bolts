@@ -1,8 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
-project(GameEngine VERSION 0.1.0 LANGUAGES CXX)
+project(GutsAndBolts VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Windows resource compilation (embeds the application icon). The -I lets the
+# resource compiler resolve "engine.ico" referenced from resources/app.rc.
+if(WIN32)
+    enable_language(RC)
+    set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I \"${CMAKE_CURRENT_SOURCE_DIR}/resources\"")
+endif()
 
 include(FetchContent)
 
@@ -58,26 +65,30 @@ set(ENGINE_SOURCES
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
 
-add_executable(GameEngine ${ENGINE_SOURCES})
+if(WIN32)
+    list(APPEND ENGINE_SOURCES resources/app.rc)
+endif()
 
-target_include_directories(GameEngine PRIVATE
+add_executable(GutsAndBolts ${ENGINE_SOURCES})
+
+target_include_directories(GutsAndBolts PRIVATE
     src/
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
 )
 
-target_link_libraries(GameEngine PRIVATE
+target_link_libraries(GutsAndBolts PRIVATE
     glfw
     GLEW::GLEW
     OpenGL::GL
 )
 
 if(WIN32)
-    target_link_libraries(GameEngine PRIVATE dbghelp)
+    target_link_libraries(GutsAndBolts PRIVATE dbghelp)
 endif()
 
-target_compile_definitions(GameEngine PRIVATE GLM_ENABLE_EXPERIMENTAL)
+target_compile_definitions(GutsAndBolts PRIVATE GLM_ENABLE_EXPERIMENTAL)
 
 # When building with MinGW, the executable depends on runtime DLLs that live in
 # the compiler's bin directory (libstdc++, libgcc, glfw3, glew). Copy them next
@@ -93,9 +104,9 @@ if(MINGW)
     )
     foreach(dll ${RUNTIME_DLLS})
         if(EXISTS "${MINGW_BIN}/${dll}")
-            add_custom_command(TARGET GameEngine POST_BUILD
+            add_custom_command(TARGET GutsAndBolts POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${MINGW_BIN}/${dll}" "$<TARGET_FILE_DIR:GameEngine>"
+                        "${MINGW_BIN}/${dll}" "$<TARGET_FILE_DIR:GutsAndBolts>"
                 VERBATIM)
         endif()
     endforeach()

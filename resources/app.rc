@@ -1,0 +1,3 @@
+// Windows application icon. Resource id 1 is loaded at runtime via
+// LoadImage(..., MAKEINTRESOURCE(1), ...) and is what Explorer/the taskbar show.
+1 ICON "engine.ico"

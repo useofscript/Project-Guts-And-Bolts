@@ -10,6 +10,17 @@
 #include <backends/imgui_impl_opengl3.h>
 #include <stdexcept>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#endif
+
 Application::Application() {
     initWindow();
     initGL();
@@ -30,12 +41,24 @@ void Application::initWindow() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    m_window = glfwCreateWindow(m_width, m_height, "GameEngine", nullptr, nullptr);
+    m_window = glfwCreateWindow(m_width, m_height, "Guts and Bolts", nullptr, nullptr);
     if (!m_window)
         throw std::runtime_error("Failed to create window");
 
     glfwMakeContextCurrent(m_window);
     glfwSwapInterval(1);
+
+#ifdef _WIN32
+    // Use the embedded application icon (resource id 1) for the title bar and
+    // taskbar, so it matches the .exe icon shown in Explorer.
+    if (HICON hIcon = (HICON)LoadImageW(GetModuleHandleW(nullptr),
+                                        MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                        0, 0, LR_DEFAULTSIZE | LR_SHARED)) {
+        HWND hwnd = glfwGetWin32Window(m_window);
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+    }
+#endif
 }
 
 void Application::initGL() {

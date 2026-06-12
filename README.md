@@ -1,4 +1,4 @@
-# GameEngine
+# Guts and Bolts
 
 A small Roblox-Studio-style OpenGL scene editor, built on GLFW, GLEW, GLM, Dear
 ImGui (docking branch) and ImGuizmo. The window has a top **toolbar**, a bottom
@@ -50,7 +50,7 @@ each build.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="C:/msys64/mingw64"
 cmake --build build
-./build/GameEngine.exe
+./build/GutsAndBolts.exe
 ```
 
 If `cmake`/`ninja`/`g++` are not on your `PATH`, prepend the MSYS2 bin
