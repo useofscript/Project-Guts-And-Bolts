@@ -133,11 +133,14 @@ ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* stat
     m_shader     = std::make_unique<Shader>(kLitVert,  kLitFrag);
     m_gridShader = std::make_unique<Shader>(kGridVert, kGridFrag);
     buildGrid();
+    buildAxes();
 }
 
 ViewportPanel::~ViewportPanel() {
     if (m_gridVbo) glDeleteBuffers(1, &m_gridVbo);
     if (m_gridVao) glDeleteVertexArrays(1, &m_gridVao);
+    if (m_axisVbo) glDeleteBuffers(1, &m_axisVbo);
+    if (m_axisVao) glDeleteVertexArrays(1, &m_axisVao);
 }
 
 void ViewportPanel::buildGrid() {
@@ -160,6 +163,22 @@ void ViewportPanel::buildGrid() {
     glBindBuffer(GL_ARRAY_BUFFER, m_gridVbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(lines.size() * sizeof(glm::vec3)),
                  lines.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glBindVertexArray(0);
+}
+
+void ViewportPanel::buildAxes() {
+    // Two coloured centre lines (X and Z) in their own VAO, drawn as two ranges.
+    const glm::vec3 verts[] = {
+        {-10, 0, 0}, {10, 0, 0},   // X axis  (range 0..2)
+        {0, 0, -10}, {0, 0, 10},   // Z axis  (range 2..4)
+    };
+    glGenVertexArrays(1, &m_axisVao);
+    glGenBuffers(1, &m_axisVbo);
+    glBindVertexArray(m_axisVao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_axisVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
     glBindVertexArray(0);
@@ -306,22 +325,12 @@ void ViewportPanel::drawScene() {
     glBindVertexArray(m_gridVao);
     glDrawArrays(GL_LINES, 0, m_gridVertexCount);
 
-    // Coloured centre axes (X = red, Z = blue).
-    glm::vec3 axes[] = {
-        {-10, 0, 0}, {10, 0, 0},   // X
-        {0, 0, -10}, {0, 0, 10},   // Z
-    };
-    GLuint axisVbo;
-    glGenBuffers(1, &axisVbo);
-    glBindBuffer(GL_ARRAY_BUFFER, axisVbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(axes), axes, GL_STREAM_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    // Coloured centre axes (X = red, Z = blue), from a persistent VAO.
+    glBindVertexArray(m_axisVao);
     m_gridShader->setVec3("uColor", {0.75f, 0.25f, 0.25f});
     glDrawArrays(GL_LINES, 0, 2);
     m_gridShader->setVec3("uColor", {0.25f, 0.45f, 0.80f});
     glDrawArrays(GL_LINES, 2, 2);
-    glDeleteBuffers(1, &axisVbo);
 
     // --- Lit scene geometry ---
     m_shader->bind();

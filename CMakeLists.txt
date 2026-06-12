@@ -34,6 +34,7 @@ find_package(OpenGL REQUIRED)
 
 set(ENGINE_SOURCES
     src/main.cpp
+    src/core/CrashHandler.cpp
     src/Application.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
@@ -42,6 +43,7 @@ set(ENGINE_SOURCES
     src/scene/SceneNode.cpp
     src/scene/Scene.cpp
     src/editor/Editor.cpp
+    src/editor/Theme.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/OutlinerPanel.cpp
     src/editor/panels/PropertiesPanel.cpp
@@ -69,6 +71,10 @@ target_link_libraries(GameEngine PRIVATE
     GLEW::GLEW
     OpenGL::GL
 )
+
+if(WIN32)
+    target_link_libraries(GameEngine PRIVATE dbghelp)
+endif()
 
 target_compile_definitions(GameEngine PRIVATE GLM_ENABLE_EXPERIMENTAL)
 

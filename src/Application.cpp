@@ -1,6 +1,7 @@
 #include "Application.h"
 #include "scene/Scene.h"
 #include "editor/Editor.h"
+#include "editor/Theme.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -53,17 +54,8 @@ void Application::initImGui() {
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.IniFilename = "editor_layout.ini";
 
-    ImGui::StyleColorsDark();
-    // Slightly refined dark theme
-    ImGuiStyle& s = ImGui::GetStyle();
-    s.WindowRounding   = 4.0f;
-    s.FrameRounding    = 3.0f;
-    s.GrabRounding     = 3.0f;
-    s.WindowBorderSize = 1.0f;
-    s.Colors[ImGuiCol_WindowBg]       = {0.13f, 0.14f, 0.15f, 1.0f};
-    s.Colors[ImGuiCol_Header]         = {0.20f, 0.22f, 0.27f, 1.0f};
-    s.Colors[ImGuiCol_HeaderHovered]  = {0.26f, 0.59f, 0.98f, 0.80f};
-    s.Colors[ImGuiCol_HeaderActive]   = {0.26f, 0.59f, 0.98f, 1.00f};
+    EditorTheme::loadFonts();
+    EditorTheme::apply();
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
     ImGui_ImplOpenGL3_Init("#version 450");

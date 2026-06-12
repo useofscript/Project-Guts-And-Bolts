@@ -20,3 +20,6 @@ cmake_install.cmake
 # Runtime-generated ImGui layout
 editor_layout.ini
 imgui.ini
+
+# Crash handler output
+crash_log.txt

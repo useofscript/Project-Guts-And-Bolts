@@ -99,11 +99,13 @@ void Editor::buildDockspace() {
         ImGuiWindowFlags_NoMove           | ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoNavFocus       | ImGuiWindowFlags_MenuBar;
 
+    // Push WindowPadding first so it survives the early pop below and keeps the
+    // host body edge-to-edge (the toolbar/status strips add their own padding).
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(0,0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(0,0));
     ImGui::Begin("##DockHost", nullptr, hostFlags);
-    ImGui::PopStyleVar(3);
+    ImGui::PopStyleVar(2);  // rounding + border; WindowPadding(0,0) stays active
 
     renderMenuBar();
     renderToolbar();
@@ -131,6 +133,7 @@ void Editor::buildDockspace() {
 
     renderStatusBar();
 
+    ImGui::PopStyleVar();   // WindowPadding
     ImGui::End();
 }
 
@@ -171,7 +174,16 @@ void Editor::renderMenuBar() {
 }
 
 void Editor::renderToolbar() {
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 6));
+    const ImVec4 kBarBg = {0.086f, 0.094f, 0.114f, 1.0f};
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kBarBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,  ImVec2(10, 6));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 7));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(6, 7));
+
+    float barH = ImGui::GetFrameHeight() + 14.0f;
+    ImGui::BeginChild("##toolbar", ImVec2(0, barH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     auto toolBtn = [&](const char* label, GizmoTool t, const char* tip) {
         bool active = (m_state.tool == t);
@@ -220,30 +232,48 @@ void Editor::renderToolbar() {
     if (ImGui::Button("Delete"))    deleteSelected();
     ImGui::EndDisabled();
 
-    ImGui::PopStyleVar();
-    ImGui::Separator();
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor();
 }
 
 void Editor::renderStatusBar() {
+    const ImVec4 kBarBg  = {0.086f, 0.094f, 0.114f, 1.0f};
+    const ImVec4 kAccent = {0.40f, 0.66f, 1.00f, 1.0f};
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kBarBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 5));
+    ImGui::BeginChild("##statusbar", ImVec2(0, 0), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
     const char* toolName =
         m_state.tool == GizmoTool::Select    ? "Select" :
         m_state.tool == GizmoTool::Translate ? "Move"   :
         m_state.tool == GizmoTool::Rotate    ? "Rotate" : "Scale";
 
-    ImGui::Text("Tool: %s", toolName);
-    ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
+    ImGui::TextDisabled("Tool:");
+    ImGui::SameLine();
+    ImGui::TextColored(kAccent, "%s", toolName);
+    ImGui::SameLine(); ImGui::TextDisabled("   "); ImGui::SameLine();
 
-    if (SceneNode* sel = m_scene->selected())
-        ImGui::Text("Selected: %s", sel->name.c_str());
-    else
+    if (SceneNode* sel = m_scene->selected()) {
+        ImGui::TextDisabled("Selected:");
+        ImGui::SameLine();
+        ImGui::TextUnformatted(sel->name.c_str());
+    } else {
         ImGui::TextDisabled("Nothing selected");
+    }
 
     ImGui::SameLine();
-    const char* hint = "      [Q] Select  [W] Move  [E] Rotate  [R] Scale   "
-                       "MMB orbit   Shift+MMB pan   Wheel zoom   "
+    const char* hint = "[Q] Select   [W] Move   [E] Rotate   [R] Scale     "
+                       "MMB orbit   Shift+MMB pan   Wheel zoom     "
                        "Click select   F focus   Del delete   Ctrl+D duplicate";
     float avail = ImGui::GetContentRegionAvail().x;
     float tw    = ImGui::CalcTextSize(hint).x;
     if (tw < avail) ImGui::SameLine(ImGui::GetCursorPosX() + (avail - tw));
     ImGui::TextDisabled("%s", hint);
+
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
 }

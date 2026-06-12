@@ -25,6 +25,7 @@ private:
     void handleInput();
     void drawScene();
     void buildGrid();
+    void buildAxes();
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);
     void pickAt(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
@@ -41,6 +42,7 @@ private:
     std::unique_ptr<Shader> m_gridShader;
 
     unsigned int m_gridVao = 0, m_gridVbo = 0;
+    unsigned int m_axisVao = 0, m_axisVbo = 0;
     int          m_gridVertexCount = 0;
 
     int  m_viewW = 0, m_viewH = 0;
