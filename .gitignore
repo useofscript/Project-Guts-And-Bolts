@@ -1,0 +1,22 @@
+# Build output
+/build/
+*.exe
+*.obj
+*.o
+*.a
+*.lib
+*.pdb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Editor / IDE
+.vs/
+.vscode/
+.idea/
+
+# Runtime-generated ImGui layout
+editor_layout.ini
+imgui.ini
