@@ -2,15 +2,19 @@
 
 A small Roblox-Studio-style OpenGL scene editor, built on GLFW, GLEW, GLM, Dear
 ImGui (docking branch) and ImGuizmo. The window has a top **toolbar**, a bottom
-**status/help bar**, and three docked panels:
+**status/help bar**, and docked panels:
 
-- **Viewport** — renders the scene to an off-screen framebuffer with a lit
-  shader, an origin grid and coloured axes. Click an object to select it and
-  drag the move / rotate / scale gizmo to transform it.
+- **Viewport** — renders the scene to an off-screen framebuffer with a
+  procedural sky, a sun-driven lit shader, distance fog, an origin grid and
+  coloured axes. Click an object to select it and drag the move / rotate /
+  scale gizmo to transform it.
 - **Outliner** — scene hierarchy; click to select, right-click for
   hide/show/delete.
 - **Properties** — inspector for the selected node: name, visibility,
   transform (position / rotation / scale) and base colour.
+- **Environment** — lighting & atmosphere (like Roblox's Lighting service):
+  sun direction/colour/intensity, ambient sky-light, sky gradient colours and
+  fog, with one-click **Day / Sunset / Night / Overcast** presets.
 
 Add primitives from the toolbar (`+ Cube`, `+ Sphere`, …) or the **Add** menu.
 
@@ -67,11 +71,14 @@ cmake --build build
 
 ```
 src/
+  core/                CrashHandler (symbolized backtrace on fault, Windows)
   Application.*        window / GL / ImGui bootstrap and main loop
   renderer/            Shader, Mesh, Camera, Framebuffer, Primitives
-  scene/               Scene graph (Scene, SceneNode, Transform)
+  scene/               Scene graph (Scene, SceneNode, Transform) + Environment
   editor/
     Editor.*           dockspace, menu bar, toolbar, status bar, shortcuts
     EditorState.h      shared UI state (active tool, gizmo space, snapping)
-    panels/            Viewport (gizmos + picking), Outliner, Properties
+    Theme.*            cohesive dark theme + system font loading
+    panels/            Viewport (sky/light/fog, gizmos, picking), Outliner,
+                       Properties, Environment
 ```

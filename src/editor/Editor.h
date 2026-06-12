@@ -10,6 +10,7 @@ class Mesh;
 class ViewportPanel;
 class OutlinerPanel;
 class PropertiesPanel;
+class EnvironmentPanel;
 
 class Editor {
 public:
@@ -33,9 +34,10 @@ private:
     GLFWwindow*                      m_window;
     Scene*                           m_scene;
     EditorState                      m_state;
-    std::unique_ptr<ViewportPanel>   m_viewport;
-    std::unique_ptr<OutlinerPanel>   m_outliner;
-    std::unique_ptr<PropertiesPanel> m_properties;
+    std::unique_ptr<ViewportPanel>    m_viewport;
+    std::unique_ptr<OutlinerPanel>    m_outliner;
+    std::unique_ptr<PropertiesPanel>  m_properties;
+    std::unique_ptr<EnvironmentPanel> m_environment;
 
     bool m_firstLayout = true;
     int  m_objCounter  = 0;

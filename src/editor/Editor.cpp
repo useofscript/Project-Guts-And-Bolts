@@ -2,6 +2,7 @@
 #include "panels/ViewportPanel.h"
 #include "panels/OutlinerPanel.h"
 #include "panels/PropertiesPanel.h"
+#include "panels/EnvironmentPanel.h"
 #include "../scene/Scene.h"
 #include "../renderer/Primitives.h"
 
@@ -14,9 +15,10 @@
 
 Editor::Editor(GLFWwindow* window, Scene* scene)
     : m_window(window), m_scene(scene) {
-    m_viewport   = std::make_unique<ViewportPanel>(window, scene, &m_state);
-    m_outliner   = std::make_unique<OutlinerPanel>(scene);
-    m_properties = std::make_unique<PropertiesPanel>(scene);
+    m_viewport    = std::make_unique<ViewportPanel>(window, scene, &m_state);
+    m_outliner    = std::make_unique<OutlinerPanel>(scene);
+    m_properties  = std::make_unique<PropertiesPanel>(scene);
+    m_environment = std::make_unique<EnvironmentPanel>(scene);
 
     // Default scene objects
     auto cube = scene->addNode("Cube", PrimitiveType::Cube, Primitives::createCube());
@@ -35,6 +37,7 @@ void Editor::render(float dt) {
     m_viewport->render(dt);
     m_outliner->render();
     m_properties->render();
+    m_environment->render();
 }
 
 SceneNode* Editor::addPrimitive(const char* label, PrimitiveType type,
@@ -125,9 +128,10 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderSplitNode(dsId,   ImGuiDir_Left,  0.20f, &left,   &center);
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28f, &right,  &center);
 
-        ImGui::DockBuilderDockWindow("Outliner",   left);
-        ImGui::DockBuilderDockWindow("Viewport",   center);
-        ImGui::DockBuilderDockWindow("Properties", right);
+        ImGui::DockBuilderDockWindow("Outliner",    left);
+        ImGui::DockBuilderDockWindow("Viewport",    center);
+        ImGui::DockBuilderDockWindow("Properties",  right);
+        ImGui::DockBuilderDockWindow("Environment", right);
         ImGui::DockBuilderFinish(dsId);
     }
 

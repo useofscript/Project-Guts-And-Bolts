@@ -47,6 +47,7 @@ set(ENGINE_SOURCES
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/OutlinerPanel.cpp
     src/editor/panels/PropertiesPanel.cpp
+    src/editor/panels/EnvironmentPanel.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp

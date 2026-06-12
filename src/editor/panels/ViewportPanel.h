@@ -26,6 +26,7 @@ private:
     void drawScene();
     void buildGrid();
     void buildAxes();
+    void buildSky();
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);
     void pickAt(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
@@ -40,9 +41,11 @@ private:
     Framebuffer             m_fbo;
     std::unique_ptr<Shader> m_shader;
     std::unique_ptr<Shader> m_gridShader;
+    std::unique_ptr<Shader> m_skyShader;
 
     unsigned int m_gridVao = 0, m_gridVbo = 0;
     unsigned int m_axisVao = 0, m_axisVbo = 0;
+    unsigned int m_skyVao  = 0;
     int          m_gridVertexCount = 0;
 
     int  m_viewW = 0, m_viewH = 0;

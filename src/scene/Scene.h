@@ -1,5 +1,6 @@
 #pragma once
 #include "SceneNode.h"
+#include "Environment.h"
 #include <functional>
 #include <memory>
 
@@ -7,8 +8,9 @@ class Scene {
 public:
     Scene();
 
-    SceneNode* root()     { return m_root.get(); }
-    SceneNode* selected() { return m_selected; }
+    SceneNode*   root()        { return m_root.get(); }
+    SceneNode*   selected()    { return m_selected; }
+    Environment& environment() { return m_env; }
 
     void select  (SceneNode* node);
     void deselect();
@@ -23,4 +25,5 @@ private:
 
     std::unique_ptr<SceneNode> m_root;
     SceneNode*                 m_selected = nullptr;
+    Environment                m_env;
 };

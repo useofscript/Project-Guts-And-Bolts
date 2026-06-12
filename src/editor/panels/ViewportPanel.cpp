@@ -42,30 +42,87 @@ in vec3 vNormal;
 in vec3 vWorldPos;
 
 uniform vec3  uColor;
-uniform vec3  uLightDir;   // points from surface toward light
+uniform vec3  uSunDir;        // surface -> sun, normalized
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+uniform vec3  uAmbient;       // ambient colour * intensity
 uniform vec3  uViewPos;
 uniform bool  uSelected;
+
+uniform bool  uFogEnabled;
+uniform vec3  uFogColor;
+uniform float uFogDensity;
 
 out vec4 FragColor;
 
 void main() {
     vec3 N = normalize(vNormal);
-    vec3 L = normalize(uLightDir);
+    vec3 L = normalize(uSunDir);
     vec3 V = normalize(uViewPos - vWorldPos);
     vec3 H = normalize(L + V);
 
     float diff = max(dot(N, L), 0.0);
-    float spec = pow(max(dot(N, H), 0.0), 32.0) * 0.25;
-    float ambient = 0.28;
+    float spec = pow(max(dot(N, H), 0.0), 32.0) * 0.3;
+    vec3  sun  = uSunColor * uSunIntensity;
 
-    vec3 base = uColor * (ambient + diff) + vec3(spec);
+    vec3 base = uColor * (uAmbient + sun * diff) + sun * spec;
 
     if (uSelected) {
         // Fresnel-style rim glow in editor orange for the active object.
         float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
         base = mix(base, vec3(1.0, 0.55, 0.15), rim * 0.8);
     }
+
+    if (uFogEnabled) {
+        float dist = length(uViewPos - vWorldPos);
+        float f = clamp(1.0 - exp(-uFogDensity * dist), 0.0, 1.0);
+        base = mix(base, uFogColor, f);
+    }
+
     FragColor = vec4(base, 1.0);
+}
+)";
+
+const char* kSkyVert = R"(#version 450 core
+// Fullscreen triangle generated from gl_VertexID — no vertex buffer needed.
+out vec2 vNdc;
+void main() {
+    float x = float((gl_VertexID & 1) << 2) - 1.0;  // -1, 3, -1
+    float y = float((gl_VertexID & 2) << 1) - 1.0;  // -1, -1, 3
+    vNdc = vec2(x, y);
+    gl_Position = vec4(x, y, 0.0, 1.0);
+}
+)";
+
+const char* kSkyFrag = R"(#version 450 core
+in vec2 vNdc;
+uniform mat4  uInvViewProj;
+uniform vec3  uZenith;
+uniform vec3  uHorizon;
+uniform vec3  uGround;
+uniform vec3  uSunDir;
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+out vec4 FragColor;
+
+void main() {
+    // Reconstruct the world-space view ray for this pixel.
+    vec4 near = uInvViewProj * vec4(vNdc, -1.0, 1.0);
+    vec4 far  = uInvViewProj * vec4(vNdc,  1.0, 1.0);
+    vec3 dir  = normalize(far.xyz / far.w - near.xyz / near.w);
+
+    float t = dir.y;
+    vec3 sky;
+    if (t > 0.0) sky = mix(uHorizon, uZenith, pow(clamp(t, 0.0, 1.0), 0.45));
+    else         sky = mix(uHorizon, uGround, pow(clamp(-t, 0.0, 1.0), 0.5));
+
+    // Sun disc + soft glow.
+    float d    = max(dot(dir, normalize(uSunDir)), 0.0);
+    float disc = smoothstep(0.9990, 0.9996, d);
+    float glow = pow(d, 250.0) * 0.6 + pow(d, 12.0) * 0.15;
+    sky += uSunColor * (disc * 4.0 + glow) * uSunIntensity;
+
+    FragColor = vec4(sky, 1.0);
 }
 )";
 
@@ -132,8 +189,10 @@ ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* stat
     : m_window(window), m_scene(scene), m_state(state) {
     m_shader     = std::make_unique<Shader>(kLitVert,  kLitFrag);
     m_gridShader = std::make_unique<Shader>(kGridVert, kGridFrag);
+    m_skyShader  = std::make_unique<Shader>(kSkyVert,  kSkyFrag);
     buildGrid();
     buildAxes();
+    buildSky();
 }
 
 ViewportPanel::~ViewportPanel() {
@@ -141,6 +200,7 @@ ViewportPanel::~ViewportPanel() {
     if (m_gridVao) glDeleteVertexArrays(1, &m_gridVao);
     if (m_axisVbo) glDeleteBuffers(1, &m_axisVbo);
     if (m_axisVao) glDeleteVertexArrays(1, &m_axisVao);
+    if (m_skyVao)  glDeleteVertexArrays(1, &m_skyVao);
 }
 
 void ViewportPanel::buildGrid() {
@@ -182,6 +242,12 @@ void ViewportPanel::buildAxes() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
     glBindVertexArray(0);
+}
+
+void ViewportPanel::buildSky() {
+    // The sky shader synthesises its own vertices, but core-profile draws still
+    // require a bound (empty) VAO.
+    glGenVertexArrays(1, &m_skyVao);
 }
 
 void ViewportPanel::resetCamera() {
@@ -309,13 +375,35 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
 }
 
 void ViewportPanel::drawScene() {
+    const Environment& env = m_scene->environment();
+    glm::vec3 sunDir = env.sunDirection();
+
     m_fbo.bind();
     glEnable(GL_DEPTH_TEST);
-    glClearColor(0.11f, 0.12f, 0.14f, 1.0f);
+    glClearColor(env.skyHorizon.r, env.skyHorizon.g, env.skyHorizon.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glm::mat4 view = m_camera.view();
     glm::mat4 proj = m_camera.projection();
+
+    // --- Procedural sky (drawn first, behind everything) ---
+    if (env.showSky) {
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        m_skyShader->bind();
+        m_skyShader->setMat4("uInvViewProj", glm::inverse(proj * view));
+        m_skyShader->setVec3("uZenith",  env.skyZenith);
+        m_skyShader->setVec3("uHorizon", env.skyHorizon);
+        m_skyShader->setVec3("uGround",  env.skyGround);
+        m_skyShader->setVec3("uSunDir",  sunDir);
+        m_skyShader->setVec3("uSunColor", env.sunColor);
+        m_skyShader->setFloat("uSunIntensity", env.sunIntensity);
+        glBindVertexArray(m_skyVao);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindVertexArray(0);
+        glDepthMask(GL_TRUE);
+        glEnable(GL_DEPTH_TEST);
+    }
 
     // --- Grid + axes ---
     m_gridShader->bind();
@@ -336,8 +424,14 @@ void ViewportPanel::drawScene() {
     m_shader->bind();
     m_shader->setMat4("uView", view);
     m_shader->setMat4("uProj", proj);
-    m_shader->setVec3("uLightDir", glm::normalize(glm::vec3{0.4f, 1.0f, 0.6f}));
+    m_shader->setVec3("uSunDir", sunDir);
+    m_shader->setVec3("uSunColor", env.sunColor);
+    m_shader->setFloat("uSunIntensity", env.sunIntensity);
+    m_shader->setVec3("uAmbient", env.ambientColor * env.ambientIntensity);
     m_shader->setVec3("uViewPos", m_camera.position());
+    m_shader->setBool("uFogEnabled", env.fogEnabled);
+    m_shader->setVec3("uFogColor", env.fogColor);
+    m_shader->setFloat("uFogDensity", env.fogDensity);
 
     m_scene->forEach([&](SceneNode* node) {
         if (!node->mesh || !node->visible) return;
