@@ -26,6 +26,7 @@ void EnvironmentPanel::render() {
         ImGui::SliderFloat("Elevation", &e.sunElevation, -90.0f, 90.0f, "%.0f\xc2\xb0");
         ImGui::ColorEdit3 ("Color##sun",     &e.sunColor.x);
         ImGui::SliderFloat("Intensity##sun", &e.sunIntensity, 0.0f, 4.0f);
+        ImGui::Checkbox   ("Cast Shadows",   &e.shadows);
     }
 
     if (ImGui::CollapsingHeader("Ambient", ImGuiTreeNodeFlags_DefaultOpen)) {

@@ -55,7 +55,29 @@ uniform bool  uFogEnabled;
 uniform vec3  uFogColor;
 uniform float uFogDensity;
 
+uniform bool      uShadowsEnabled;
+uniform mat4      uLightSpace;
+uniform sampler2D uShadowMap;
+
 out vec4 FragColor;
+
+// Returns 1.0 = fully lit, 0.0 = fully shadowed (3x3 PCF).
+float sunVisibility(vec3 N, vec3 L) {
+    vec4 lc = uLightSpace * vec4(vWorldPos, 1.0);
+    vec3 p  = lc.xyz / lc.w * 0.5 + 0.5;
+    if (p.z > 1.0) return 1.0;
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
+
+    float bias = max(0.0025 * (1.0 - dot(N, L)), 0.0008);
+    vec2  texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y) {
+            float d = texture(uShadowMap, p.xy + vec2(x, y) * texel).r;
+            shadow += (p.z - bias > d) ? 1.0 : 0.0;
+        }
+    return 1.0 - shadow / 9.0;
+}
 
 void main() {
     vec3 N = normalize(vNormal);
@@ -78,7 +100,8 @@ void main() {
 
     float spec = pow(max(dot(N, H), 0.0), specPow) * specScale;
     vec3  sun  = uSunColor * uSunIntensity;
-    vec3  base = uColor * (uAmbient + sun * diff) + sun * spec;
+    float vis  = uShadowsEnabled ? sunVisibility(N, L) : 1.0;
+    vec3  base = uColor * (uAmbient + sun * diff * vis) + sun * spec * vis;
 
     if (uSelected) {
         // Fresnel-style rim glow in editor orange for the active object.
@@ -161,6 +184,17 @@ void main() {
 }
 )";
 
+const char* kDepthVert = R"(#version 450 core
+layout(location=0) in vec3 aPos;
+uniform mat4 uLightSpace;
+uniform mat4 uModel;
+void main() { gl_Position = uLightSpace * uModel * vec4(aPos, 1.0); }
+)";
+
+const char* kDepthFrag = R"(#version 450 core
+void main() {}
+)";
+
 // Canonical local-space bounds of each primitive, used as a pick proxy. All
 // primitives fit in the unit cube; the plane is given a little thickness so a
 // near-horizontal ray can still hit it.
@@ -200,9 +234,11 @@ bool rayAABB(const glm::vec3& ro, const glm::vec3& rd,
 
 ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* state)
     : m_window(window), m_scene(scene), m_state(state) {
-    m_shader     = std::make_unique<Shader>(kLitVert,  kLitFrag);
-    m_gridShader = std::make_unique<Shader>(kGridVert, kGridFrag);
-    m_skyShader  = std::make_unique<Shader>(kSkyVert,  kSkyFrag);
+    m_shader      = std::make_unique<Shader>(kLitVert,   kLitFrag);
+    m_gridShader  = std::make_unique<Shader>(kGridVert,  kGridFrag);
+    m_skyShader   = std::make_unique<Shader>(kSkyVert,   kSkyFrag);
+    m_depthShader = std::make_unique<Shader>(kDepthVert, kDepthFrag);
+    m_shadow.init(2048);
     buildGrid();
     buildAxes();
     buildSky();
@@ -270,6 +306,10 @@ void ViewportPanel::resetCamera() {
     m_camera.pivot    = {0, 0, 0};
 }
 
+float ViewportPanel::cameraYaw() const { return m_camera.yaw; }
+
+void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; }
+
 void ViewportPanel::focusSelected() {
     if (SceneNode* sel = m_scene->selected())
         m_camera.pivot = glm::vec3(sel->worldMatrix()[3]);
@@ -316,7 +356,7 @@ void ViewportPanel::pickAt(const glm::vec2& mouse, const glm::vec2& imgMin,
     float      bestDist = std::numeric_limits<float>::max();
 
     m_scene->forEach([&](SceneNode* node) {
-        if (!node->mesh || !node->visible) return;
+        if (!node->mesh || !node->visible || node->internal) return;
 
         glm::mat4 world = node->worldMatrix();
         glm::mat4 inv   = glm::inverse(world);
@@ -387,9 +427,40 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     }
 }
 
+void ViewportPanel::renderShadowPass(const glm::mat4& lightSpace) {
+    m_shadow.bindForWrite();
+    glEnable(GL_DEPTH_TEST);
+    // Cull front faces while filling the shadow map to reduce surface acne.
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_FRONT);
+
+    m_depthShader->bind();
+    m_depthShader->setMat4("uLightSpace", lightSpace);
+    m_scene->forEach([&](SceneNode* node) {
+        if (!node->mesh || !node->visible || !node->castShadow) return;
+        if (node->transparency > 0.5f) return;   // mostly see-through: skip
+        m_depthShader->setMat4("uModel", node->worldMatrix());
+        node->mesh->draw();
+    });
+
+    glDisable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+}
+
 void ViewportPanel::drawScene() {
     const Environment& env = m_scene->environment();
     glm::vec3 sunDir = env.sunDirection();
+
+    // --- Shadow map (rendered from the sun's point of view) ---
+    glm::vec3 shadowCenter(0.0f, 0.5f, 0.0f);
+    float     shadowExtent = 14.0f, shadowDist = 25.0f;
+    glm::mat4 lightView = glm::lookAt(shadowCenter + sunDir * shadowDist,
+                                      shadowCenter, glm::vec3(0, 1, 0));
+    glm::mat4 lightProj = glm::ortho(-shadowExtent, shadowExtent,
+                                     -shadowExtent, shadowExtent,
+                                     0.1f, shadowDist * 2.0f);
+    glm::mat4 lightSpace = lightProj * lightView;
+    if (env.shadows) renderShadowPass(lightSpace);
 
     m_fbo.bind();
     glEnable(GL_DEPTH_TEST);
@@ -445,6 +516,10 @@ void ViewportPanel::drawScene() {
     m_shader->setBool("uFogEnabled", env.fogEnabled);
     m_shader->setVec3("uFogColor", env.fogColor);
     m_shader->setFloat("uFogDensity", env.fogDensity);
+    m_shader->setBool("uShadowsEnabled", env.shadows);
+    m_shader->setMat4("uLightSpace", lightSpace);
+    m_shadow.bindForRead(0);
+    m_shader->setInt("uShadowMap", 0);
 
     m_scene->forEach([&](SceneNode* node) {
         if (!node->mesh || !node->visible) return;

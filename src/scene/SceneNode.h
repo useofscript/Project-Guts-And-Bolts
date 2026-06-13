@@ -29,6 +29,7 @@ public:
     glm::vec3             color    = {0.65f, 0.65f, 0.80f};
     bool                  selected = false;
     bool                  visible  = true;
+    bool                  internal = false;  // hidden from the outliner / picking
 
     // Appearance
     float    transparency = 0.0f;            // 0 = opaque, 1 = invisible

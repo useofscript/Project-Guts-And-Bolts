@@ -11,6 +11,7 @@ struct Environment {
     float     sunElevation   = 55.0f;   // degrees above the horizon
     glm::vec3 sunColor       = {1.00f, 0.96f, 0.88f};
     float     sunIntensity   = 1.15f;
+    bool      shadows        = true;    // sun casts shadows
 
     // Ambient / sky fill light ------------------------------------------------
     glm::vec3 ambientColor      = {0.40f, 0.45f, 0.55f};

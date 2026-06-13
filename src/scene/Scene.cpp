@@ -2,6 +2,10 @@
 
 Scene::Scene() {
     m_root = std::make_unique<SceneNode>("Scene");
+
+    m_player = std::make_unique<Player>();
+    m_player->setSpawn({2.0f, 0.0f, 0.0f});
+    m_player->build(this);
 }
 
 void Scene::select(SceneNode* node) {

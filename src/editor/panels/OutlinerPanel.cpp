@@ -7,6 +7,8 @@
 OutlinerPanel::OutlinerPanel(Scene* scene) : m_scene(scene) {}
 
 void OutlinerPanel::drawNode(SceneNode* node) {
+    if (node->internal) return;   // hidden helper geometry (e.g. the face)
+
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow |
         ImGuiTreeNodeFlags_SpanAvailWidth |
@@ -33,8 +35,9 @@ void OutlinerPanel::drawNode(SceneNode* node) {
         if (ImGui::MenuItem(node->visible ? "Hide" : "Show"))
             node->visible = !node->visible;
         ImGui::Separator();
-        bool isRoot = (node == m_scene->root());
-        if (ImGui::MenuItem("Delete", nullptr, false, !isRoot))
+        bool protectedNode = (node == m_scene->root()) ||
+                             (m_scene->player() && node == m_scene->player()->root());
+        if (ImGui::MenuItem("Delete", nullptr, false, !protectedNode))
             m_pendingDelete = node;
         ImGui::EndPopup();
     }

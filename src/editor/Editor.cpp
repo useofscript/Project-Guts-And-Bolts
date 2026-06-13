@@ -4,8 +4,14 @@
 #include "panels/PropertiesPanel.h"
 #include "panels/EnvironmentPanel.h"
 #include "panels/ToolboxPanel.h"
+#include "panels/PlayerPanel.h"
 #include "../scene/Scene.h"
+#include "../scene/Player.h"
 #include "../renderer/Primitives.h"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <cmath>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -22,6 +28,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_environment = std::make_unique<EnvironmentPanel>(scene);
     m_toolbox     = std::make_unique<ToolboxPanel>(
         [this](PrimitiveType type) { spawnPrimitive(type); });
+    m_player      = std::make_unique<PlayerPanel>(scene);
 
     // Default scene objects
     auto cube = scene->addNode("Cube", PrimitiveType::Cube, Primitives::createCube());
@@ -36,12 +43,48 @@ Editor::~Editor() = default;
 void Editor::render(float dt) {
     ImGuizmo::BeginFrame();
     handleShortcuts();
+    if (m_playing) updatePlay(dt);
     buildDockspace();
     m_viewport->render(dt);
     m_outliner->render();
     m_properties->render();
     m_environment->render();
     m_toolbox->render();
+    m_player->render();
+}
+
+void Editor::togglePlay() {
+    m_playing = !m_playing;
+    if (!m_playing) {
+        if (Player* p = m_scene->player()) p->reset();
+    }
+}
+
+void Editor::updatePlay(float dt) {
+    Player* p = m_scene->player();
+    if (!p) return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    glm::vec3 move(0.0f);
+    bool jump = false;
+
+    if (!io.WantTextInput) {
+        // Movement is relative to where the camera is looking.
+        float yaw = glm::radians(m_viewport->cameraYaw());
+        glm::vec3 fwd   = glm::normalize(glm::vec3(-std::cos(yaw), 0.0f, -std::sin(yaw)));
+        glm::vec3 right = glm::vec3(-fwd.z, 0.0f, fwd.x);
+        if (ImGui::IsKeyDown(ImGuiKey_W)) move += fwd;
+        if (ImGui::IsKeyDown(ImGuiKey_S)) move -= fwd;
+        if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
+        if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
+        jump = ImGui::IsKeyDown(ImGuiKey_Space);
+    }
+
+    p->update(dt, move, jump);
+
+    // Follow camera: keep the character framed.
+    if (SceneNode* root = p->root())
+        m_viewport->frameOn(glm::vec3(root->worldMatrix()[3]) + glm::vec3(0, 1.0f, 0));
 }
 
 SceneNode* Editor::addPrimitive(const char* label, PrimitiveType type,
@@ -89,8 +132,10 @@ void Editor::deleteSelected() {
 
 void Editor::newScene() {
     SceneNode* root = m_scene->root();
+    SceneNode* playerRoot = m_scene->player() ? m_scene->player()->root() : nullptr;
     std::vector<SceneNode*> kids;
-    for (auto& c : root->children) kids.push_back(c.get());
+    for (auto& c : root->children)
+        if (c.get() != playerRoot) kids.push_back(c.get());   // keep the player
     for (auto* k : kids) m_scene->removeNode(k);
     m_objCounter = 0;
 }
@@ -98,6 +143,14 @@ void Editor::newScene() {
 void Editor::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;   // don't steal keys while editing a field
+
+    if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { togglePlay(); return; }
+
+    if (m_playing) {
+        // In playtest mode WASD drives the character, not the editor tools.
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) togglePlay();
+        return;
+    }
 
     if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) m_state.tool = GizmoTool::Select;
     if (ImGui::IsKeyPressed(ImGuiKey_W, false)) m_state.tool = GizmoTool::Translate;
@@ -152,6 +205,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderDockWindow("Viewport",    center);
         ImGui::DockBuilderDockWindow("Properties",  right);
         ImGui::DockBuilderDockWindow("Environment", right);
+        ImGui::DockBuilderDockWindow("Player",      right);
         ImGui::DockBuilderFinish(dsId);
     }
 
@@ -226,6 +280,21 @@ void Editor::renderToolbar() {
         ImGui::TextDisabled("|");
         ImGui::SameLine();
     };
+
+    // Play / Stop (playtest mode).
+    {
+        ImVec4 col = m_playing ? ImVec4(0.80f, 0.27f, 0.27f, 1.0f)
+                               : ImVec4(0.20f, 0.65f, 0.32f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, col);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                              ImVec4(col.x + 0.08f, col.y + 0.08f, col.z + 0.08f, 1.0f));
+        if (ImGui::Button(m_playing ? "Stop" : "Play")) togglePlay();
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s playtest  (F5)", m_playing ? "Stop" : "Start");
+        ImGui::SameLine();
+    }
+    sep();
 
     toolBtn("Select", GizmoTool::Select,    "Select / pick objects  (Q)");
     toolBtn("Move",   GizmoTool::Translate, "Move tool  (W)");

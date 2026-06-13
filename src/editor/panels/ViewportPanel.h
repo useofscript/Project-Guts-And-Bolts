@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include "../../renderer/Camera.h"
 #include "../../renderer/Framebuffer.h"
+#include "../../renderer/ShadowMap.h"
 
 struct GLFWwindow;
 struct EditorState;
@@ -21,9 +22,13 @@ public:
     void render(float dt);
     void resetCamera();
 
+    float cameraYaw() const;                  // for camera-relative controls
+    void  frameOn(const glm::vec3& target);   // point the camera at a target
+
 private:
     void handleInput();
     void drawScene();
+    void renderShadowPass(const glm::mat4& lightSpace);
     void buildGrid();
     void buildAxes();
     void buildSky();
@@ -42,6 +47,8 @@ private:
     std::unique_ptr<Shader> m_shader;
     std::unique_ptr<Shader> m_gridShader;
     std::unique_ptr<Shader> m_skyShader;
+    std::unique_ptr<Shader> m_depthShader;
+    ShadowMap               m_shadow;
 
     unsigned int m_gridVao = 0, m_gridVbo = 0;
     unsigned int m_axisVao = 0, m_axisVbo = 0;

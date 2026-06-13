@@ -47,8 +47,10 @@ set(ENGINE_SOURCES
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp
     src/renderer/Framebuffer.cpp
+    src/renderer/ShadowMap.cpp
     src/scene/SceneNode.cpp
     src/scene/Scene.cpp
+    src/scene/Player.cpp
     src/editor/Editor.cpp
     src/editor/Theme.cpp
     src/editor/panels/ViewportPanel.cpp
@@ -56,6 +58,7 @@ set(ENGINE_SOURCES
     src/editor/panels/PropertiesPanel.cpp
     src/editor/panels/EnvironmentPanel.cpp
     src/editor/panels/ToolboxPanel.cpp
+    src/editor/panels/PlayerPanel.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
