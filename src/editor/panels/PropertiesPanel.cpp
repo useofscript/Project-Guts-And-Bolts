@@ -2,6 +2,7 @@
 #include "../../scene/Scene.h"
 #include "../../scene/SceneNode.h"
 #include "../../renderer/MeshLibrary.h"
+#include "../../core/Audio.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -23,6 +24,8 @@ void PropertiesPanel::render() {
     const char* cls = node == m_scene->root()          ? "Workspace"
                     : node->kind == NodeKind::Script   ? "Script"
                     : node->kind == NodeKind::Light    ? (node->lightType == LightType::Spot ? "SpotLight" : "PointLight")
+                    : node->kind == NodeKind::Sound    ? "Sound"
+                    : node->kind == NodeKind::ForceField ? "ForceField"
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
@@ -40,6 +43,31 @@ void PropertiesPanel::render() {
         ImGui::TextDisabled("Runs when you press Play.");
         ImGui::TextDisabled("Inside the code, 'script.Parent' is the");
         ImGui::TextDisabled("object this script is inside of.");
+        ImGui::End();
+        return;
+    }
+
+    if (node->isSound()) {
+        if (ImGui::BeginCombo("Sound", node->soundId.c_str())) {
+            for (const auto& name : Audio::builtinNames())
+                if (ImGui::Selectable(name.c_str(), node->soundId == name)) node->soundId = name;
+            ImGui::EndCombo();
+        }
+        ImGui::InputText("File", &node->soundId);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A built-in name, or a .wav / .mp3 / .flac file in the games folder\n(e.g. music/theme.mp3)");
+        ImGui::SliderFloat("Volume", &node->volume, 0.0f, 2.0f);
+        ImGui::SliderFloat("Pitch", &node->pitch, 0.25f, 3.0f);
+        ImGui::Checkbox("Looped", &node->looped);
+        ImGui::SameLine();
+        ImGui::Checkbox("Autoplay", &node->autoplay);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Starts playing when the game starts (great for music)");
+        static int preview = 0;
+        if (ImGui::Button(Audio::isPlaying(preview) ? "Stop preview" : "Preview")) {
+            if (Audio::isPlaying(preview)) Audio::stop(preview);
+            else preview = Audio::play(node->soundId, node->volume, node->pitch, false);
+        }
+        ImGui::TextDisabled("Scripts: script.Parent:Play()  /  Sounds.Play(\"coin\")");
         ImGui::End();
         return;
     }

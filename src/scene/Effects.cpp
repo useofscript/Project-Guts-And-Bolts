@@ -3,6 +3,7 @@
 #include "SceneNode.h"
 #include "Player.h"
 #include "Physics.h"
+#include "../core/Audio.h"
 
 #include <algorithm>
 #include <vector>
@@ -12,6 +13,7 @@ namespace Effects {
 void explode(Scene& scene, const glm::vec3& pos, float radius, float power) {
     radius = std::max(0.5f, radius);
     scene.particles().explosion(pos, radius);
+    Audio::play("explosion", std::min(1.0f, 0.5f + radius * 0.06f), 1.1f - std::min(0.4f, radius * 0.02f), false, &pos);
     scene.pushFx(FxEvent::Explosion, pos, radius);
 
     // Throw unanchored parts away from the blast.

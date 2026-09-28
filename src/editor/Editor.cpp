@@ -52,6 +52,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     actions.addScript    = [this] { addScript(m_scene->selected()); };
     actions.addModel     = [this] { addModel(); };
     actions.addLight     = [this](LightType t) { addLight(t); };
+    actions.addSound     = [this] { addSound(); };
     actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
     m_toolbox = std::make_unique<ToolboxPanel>(actions);
 
@@ -223,6 +224,14 @@ void Editor::addLight(LightType type) {
         l->transform.position = spawnPoint() + glm::vec3(0, 4, 0);
     }
     m_scene->select(m_scene->insert(std::move(l), parent));
+}
+
+void Editor::addSound() {
+    SceneNode* parent = m_scene->selected();
+    if (!parent || parent->isScript() || parent->isSound() || m_scene->isCharacterPart(parent))
+        parent = m_scene->root();
+    auto s = std::make_unique<SceneNode>("Sound", NodeKind::Sound);
+    m_scene->select(m_scene->insert(std::move(s), parent));
 }
 
 void Editor::openScript(SceneNode* script) {
@@ -484,6 +493,7 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Model"))  addModel();
         if (ImGui::MenuItem("Point Light")) addLight(LightType::Point);
         if (ImGui::MenuItem("Spot Light"))  addLight(LightType::Spot);
+        if (ImGui::MenuItem("Sound"))       addSound();
         ImGui::Separator();
         if (ImGui::BeginMenu("Ready-made")) {
             for (const PremadeInfo& p : premadeList()) {

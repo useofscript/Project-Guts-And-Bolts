@@ -12,6 +12,7 @@ public:
         std::function<void()>              addScript;
         std::function<void()>              addModel;
         std::function<void(LightType)>     addLight;
+        std::function<void()>              addSound;
         std::function<void(Premade)>       spawnPremade;
     };
 

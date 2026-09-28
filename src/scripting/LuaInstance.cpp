@@ -6,6 +6,7 @@
 #include "../scene/SceneNode.h"
 #include "../scene/Serializer.h"
 #include "../renderer/MeshLibrary.h"
+#include "../core/Audio.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/euler_angles.hpp>
@@ -65,6 +66,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
+        case NodeKind::Sound:      return "Sound";
         default:               return "Part";
     }
 }
@@ -204,6 +206,26 @@ int m_Clone(lua_State* L) {
     return 1;
 }
 
+// sound:Play() / sound:Stop()
+void startSound(lua_State* L, SceneNode* n) {
+    Audio::stop(n->audioHandle);
+    bool in3d = n->parent && n->parent->isPart();
+    glm::vec3 at = in3d ? glm::vec3(n->parent->worldMatrix()[3]) : glm::vec3(0.0f);
+    n->audioHandle = Audio::play(n->soundId, n->volume, n->pitch, n->looped, in3d ? &at : nullptr);
+    if (!n->looped) E(L)->scene()->pushFx(FxEvent::Sound, at, n->volume, n->soundId);   // multiplayer
+}
+int m_Play(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (!n->isSound()) return luaL_error(L, "Play only works on Sound objects");
+    startSound(L, n);
+    return 0;
+}
+int m_Stop(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (n->isSound()) { Audio::stop(n->audioHandle); n->audioHandle = 0; }
+    return 0;
+}
+
 // character:BreakJoints() — kill the character violently.
 int m_BreakJoints(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
@@ -245,6 +267,7 @@ const luaL_Reg kMethods[] = {
     {"ClearAllChildren", m_ClearAllChildren}, {"Clone", m_Clone}, {"IsA", m_IsA},
     {"IsDescendantOf", m_IsDescendantOf}, {"GetFullName", m_GetFullName},
     {"GetPivot", m_GetPivot}, {"PivotTo", m_PivotTo}, {"BreakJoints", m_BreakJoints},
+    {"Play", m_Play}, {"Stop", m_Stop},
     {nullptr, nullptr}};
 
 // ===========================================================================
@@ -299,6 +322,13 @@ int inst_index(lua_State* L) {
         if (is(k, "Enabled"))  { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "Disabled")) { lua_pushboolean(L, !n->enabled); return 1; }
         if (is(k, "Source"))   { lua_pushstring(L, n->source.c_str()); return 1; }
+    }
+    if (n->isSound()) {
+        if (is(k, "SoundId"))       { lua_pushstring(L, n->soundId.c_str()); return 1; }
+        if (is(k, "Volume"))        { lua_pushnumber(L, n->volume); return 1; }
+        if (is(k, "PlaybackSpeed") || is(k, "Pitch")) { lua_pushnumber(L, n->pitch); return 1; }
+        if (is(k, "Looped"))        { lua_pushboolean(L, n->looped); return 1; }
+        if (is(k, "Playing") || is(k, "IsPlaying")) { lua_pushboolean(L, Audio::isPlaying(n->audioHandle)); return 1; }
     }
     if (n->isLight()) {
         if (is(k, "Enabled"))    { lua_pushboolean(L, n->enabled); return 1; }
@@ -381,6 +411,17 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Enabled"))  { n->enabled = lua_toboolean(L, 3); return 0; }
         if (is(k, "Disabled")) { n->enabled = !lua_toboolean(L, 3); return 0; }
     }
+    if (n->isSound()) {
+        if (is(k, "SoundId"))  { n->soundId = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "Volume"))   { n->volume = std::max(0.0f, (float)luaL_checknumber(L, 3)); Audio::setVolume(n->audioHandle, n->volume); return 0; }
+        if (is(k, "PlaybackSpeed") || is(k, "Pitch")) { n->pitch = std::max(0.05f, (float)luaL_checknumber(L, 3)); Audio::setPitch(n->audioHandle, n->pitch); return 0; }
+        if (is(k, "Looped"))   { n->looped = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Playing"))  {
+            if (lua_toboolean(L, 3)) startSound(L, n);
+            else { Audio::stop(n->audioHandle); n->audioHandle = 0; }
+            return 0;
+        }
+    }
     if (n->isLight()) {
         if (is(k, "Enabled"))    { n->enabled = lua_toboolean(L, 3); return 0; }
         if (is(k, "Brightness")) { n->brightness = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
@@ -425,6 +466,8 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Model);
     } else if (cls == "Script") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Script);
+    } else if (cls == "Sound") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Sound);
     } else if (cls == "ForceField") {
         n = std::make_unique<SceneNode>(cls, NodeKind::ForceField);
     } else if (cls == "PointLight" || cls == "SpotLight") {

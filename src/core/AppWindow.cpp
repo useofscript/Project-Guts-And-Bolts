@@ -1,5 +1,6 @@
 #include "AppWindow.h"
 #include "Settings.h"
+#include "Audio.h"
 #include "../editor/Theme.h"
 #include "../renderer/MeshLibrary.h"
 
@@ -78,9 +79,11 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     ImGui_ImplOpenGL3_Init("#version 410");
 
     m_lastTime = m_nextFrame = glfwGetTime();
+    Audio::init();
 }
 
 AppWindow::~AppWindow() {
+    Audio::shutdown();
     // GPU resources must be released while the GL context still exists.
     MeshLibrary::clear();
     ImGui_ImplOpenGL3_Shutdown();
@@ -104,6 +107,7 @@ float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     m_lastTime = now;
 
     glfwPollEvents();
+    Audio::update();
 
     int w, h;
     glfwGetFramebufferSize(m_window, &w, &h);

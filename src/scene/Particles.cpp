@@ -1,5 +1,6 @@
 #include "Particles.h"
 #include "Physics.h"
+#include "../core/Audio.h"
 
 #include <algorithm>
 #include <cmath>
@@ -108,6 +109,7 @@ void ParticleSystem::explosion(const glm::vec3& pos, float radius) {
 }
 
 void ParticleSystem::update(float dt, float gravity, const Physics& physics) {
+    m_splatSound -= dt;
     for (auto& p : m_items) {
         p.life -= dt;
         if (p.kind == Particle::Splat) continue;
@@ -151,6 +153,10 @@ void ParticleSystem::update(float dt, float gravity, const Physics& physics) {
                 p.vel = p.spin = glm::vec3(0.0f);
                 p.life = p.maxLife = rnd(25.0f, 40.0f);
                 ++m_splats;
+                if (m_splatSound <= 0.0f) {    // a few squelches, not hundreds
+                    Audio::play("splat", 0.25f, 0.8f + 0.4f * (rnd(0, 1)), false, &p.pos);
+                    m_splatSound = 0.07f;
+                }
             } else {
                 // Chunks and bolts bounce, then settle.
                 if (push > 0.0f) p.pos.y += push;

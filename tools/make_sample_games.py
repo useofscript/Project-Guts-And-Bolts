@@ -104,6 +104,7 @@ finish.Touched:Connect(function(hit)
     if won or not hit.Parent:FindFirstChild("Humanoid") then return end
     won = true
     Gui.Message("YOU WIN! Time: " .. string.format("%.1f", time()) .. "s", 6)
+    Sounds.Play("win")
     for i = 1, 6 do
         Effects.Sparks(finish.Position + Vector3.new(math.random(-3, 3), 1, math.random(-3, 3)), 40)
         wait(0.2)

@@ -1,6 +1,7 @@
 #include "GameSession.h"
 #include "../scene/Scene.h"
 #include "../scene/Player.h"
+#include "../core/Audio.h"
 
 #include <imgui.h>
 #include <glm/glm.hpp>
@@ -15,11 +16,19 @@ void GameSession::start() {
     m_scene->particles().clear();
     if (Player* p = m_scene->player()) p->beginPlay();
     m_running = true;
+    // Sounds marked "Autoplay" (e.g. background music) start with the game.
+    m_scene->forEach([](SceneNode* n) {
+        if (!n->isSound() || !n->autoplay) return;
+        glm::vec3 at = n->parent ? glm::vec3(n->parent->worldMatrix()[3]) : glm::vec3(0.0f);
+        bool in3d = n->parent && n->parent->isPart();
+        n->audioHandle = Audio::play(n->soundId, n->volume, n->pitch, n->looped, in3d ? &at : nullptr);
+    });
     if (m_role != Role::Client) m_scripts.start();
 }
 
 void GameSession::stop() {
     m_scripts.stop();
+    Audio::stopAll();
     if (Player* p = m_scene->player()) p->endPlay();
     m_physics.reset();
     m_scene->particles().clear();
@@ -63,6 +72,12 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
         p->update(dt, move, jump, m_physics);
         if (p->consumeDied()) m_scripts.fireDied(p->rootId());
     }
+
+    // Sounds inside moving parts follow them.
+    m_scene->forEach([](SceneNode* n) {
+        if (n->isSound() && n->audioHandle && n->parent && n->parent->isPart())
+            Audio::setPosition(n->audioHandle, glm::vec3(n->parent->worldMatrix()[3]));
+    });
 
     // Blood, oil, sparks, smoke...
     m_scene->particles().update(dt, m_scene->world().gravity, m_physics);

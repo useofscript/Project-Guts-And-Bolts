@@ -44,6 +44,7 @@ pad.Touched:Connect(function(hit)
     local root = character:FindFirstChild("HumanoidRootPart")
     if root and character:FindFirstChild("Humanoid") then
         root.AssemblyLinearVelocity = Vector3.new(0, launchSpeed, 0)
+        Sounds.Play("boing", pad.Position)
     end
 end)
 )";
@@ -62,6 +63,7 @@ coin.Touched:Connect(function(hit)
         collected = true
         _G.coins = _G.coins + 1
         Gui.Label("Coins", "Coins: " .. _G.coins)
+        Sounds.Play("coin", coin.Position)
         coin:Destroy()
     end
 end)
@@ -117,6 +119,7 @@ pad.Touched:Connect(function(hit)
         local normal = humanoid.WalkSpeed
         humanoid.WalkSpeed = normal * 2.5
         Gui.Message("Speed boost!", 2)
+        Sounds.Play("boing", pad.Position)
         wait(5)
         humanoid.WalkSpeed = normal
         boosted = false
@@ -130,6 +133,7 @@ local presses = 0
 
 button.Clicked:Connect(function()
     presses = presses + 1
+    Sounds.Play("click", button.Position)
     button.Color = Color3.fromHSV(math.random(), 0.8, 1)
     Gui.Message("Button pressed " .. presses .. " times!", 2)
 end)
@@ -430,6 +434,13 @@ const std::vector<Snippet>& snippetList() {
          "script.Parent.Color = Color3.fromRGB(0, 170, 255)\n"},
         {"Move a part",
          "local part = script.Parent\npart.Position = part.Position + Vector3.new(0, 5, 0)   -- 5 up\n"},
+        {"Play a sound",
+         "Sounds.Play(\"coin\")                          -- quick sound effect\n"
+         "-- Built-in: jump, coin, oof, explosion, splat, click, hit, win, boing, spawn\n"
+         "local music = Instance.new(\"Sound\", workspace)\n"
+         "music.SoundId = \"win\"   -- or a file in the games folder, like \"music/theme.mp3\"\n"
+         "music.Volume = 0.5\n"
+         "music:Play()\n"},
         {"Show text on screen",
          "Gui.Label(\"Score\", \"Score: 0\")          -- a line in the corner\nGui.Message(\"Welcome to my game!\", 3)   -- big text for 3 seconds\n"},
         {"Player health and speed",

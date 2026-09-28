@@ -7,6 +7,7 @@
 #include "../scene/Physics.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
+#include "../core/Audio.h"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -127,11 +128,17 @@ void replayFx(Scene& scene, const json& list) {
         glm::vec3 p = vec3(f.value("p", json()));
         float amount = f.value("n", 10.0f);
         switch ((FxEvent::Type)type) {
-            case FxEvent::Explosion: ps.explosion(p, amount); break;
+            case FxEvent::Explosion: ps.explosion(p, amount); Audio::play("explosion", 1.0f, 1.0f, false, &p); break;
             case FxEvent::Sparks:    ps.sparks(p, (int)amount); break;
             case FxEvent::Blood:     if (scene.goreEnabled()) ps.spray(GoreKind::Blood, p, {0, 1, 0}, (int)amount, 3.0f); break;
             case FxEvent::Oil:       if (scene.goreEnabled()) ps.spray(GoreKind::Oil, p, {0, 1, 0}, (int)amount, 3.0f); break;
             case FxEvent::Gibs:      if (scene.goreEnabled()) ps.gibs(scene.goreKind(), p, {0, 2, 0}, (int)amount); break;
+            case FxEvent::Sound: {
+                std::string name = f.value("s", std::string());
+                if (f.value("pos3d", true)) Audio::play(name, amount, 1.0f, false, &p);
+                else                        Audio::play(name, amount);
+                break;
+            }
         }
     }
 }
@@ -398,7 +405,8 @@ std::string NetServer::worldMessage(bool) {
 
     if (!m_scene->fxQueue.empty()) {
         json fx = json::array();
-        for (const FxEvent& f : m_scene->fxQueue) fx.push_back({{"k", (int)f.type}, {"p", vec3(f.pos)}, {"n", f.amount}});
+        for (const FxEvent& f : m_scene->fxQueue)
+            fx.push_back({{"k", (int)f.type}, {"p", vec3(f.pos)}, {"n", f.amount}, {"s", f.name}});
         msg["fx"] = fx;
         m_scene->fxQueue.clear();
     }

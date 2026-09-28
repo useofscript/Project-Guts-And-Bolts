@@ -14,7 +14,8 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder };
 //   Script — Lua code that runs when you press Play (script.Parent = its parent)
 //   Light  — a PointLight / SpotLight, usually placed inside a part
 //   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
-enum class NodeKind { Part, Model, Script, Light, ForceField };
+//   Sound  — a sound effect or music (inside a part = it comes from there)
+enum class NodeKind { Part, Model, Script, Light, ForceField, Sound };
 
 enum class LightType { Point, Spot };
 
@@ -66,6 +67,14 @@ public:
     float       range      = 14.0f;
     float       spotAngle  = 60.0f;       // cone width in degrees (spot lights)
 
+    // Sound (kind == Sound)
+    std::string soundId  = "coin";         // built-in name or a file in the games folder
+    float       volume   = 0.6f;
+    float       pitch    = 1.0f;
+    bool        looped   = false;
+    bool        autoplay = false;          // start playing when the game starts
+    int         audioHandle = 0;           // runtime only
+
     // Runtime-only physics state (not saved).
     glm::vec3   velocity = {0.0f, 0.0f, 0.0f};
 
@@ -75,6 +84,7 @@ public:
     bool isPart()   const { return kind == NodeKind::Part && mesh != nullptr; }
     bool isScript() const { return kind == NodeKind::Script; }
     bool isLight()  const { return kind == NodeKind::Light; }
+    bool isSound()  const { return kind == NodeKind::Sound; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;

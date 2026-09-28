@@ -41,4 +41,5 @@ private:
     void add(const Particle& p);
     std::vector<Particle> m_items;
     int m_splats = 0;
+    float m_splatSound = 0.0f;
 };

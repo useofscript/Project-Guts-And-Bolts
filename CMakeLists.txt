@@ -58,6 +58,16 @@ if(NOT WIN32)
     target_compile_definitions(lua_static PRIVATE LUA_USE_POSIX)   # safe temp files, etc.
 endif()
 
+# miniaudio — sound on every platform, in a single header.
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        0.11.25
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(miniaudio)
+
 # JSON (scene files, undo history, copy / paste).
 FetchContent_Declare(
     json
@@ -102,6 +112,7 @@ add_library(gb_engine STATIC
     src/core/Settings.cpp
     src/core/Paths.cpp
     src/core/AppWindow.cpp
+    src/core/Audio.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp
@@ -127,7 +138,12 @@ add_library(gb_engine STATIC
     src/net/NetGame.cpp
     src/editor/Theme.cpp
 )
-target_include_directories(gb_engine PUBLIC src/)
+target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR})
+find_package(Threads REQUIRED)
+target_link_libraries(gb_engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+if(APPLE)
+    target_link_libraries(gb_engine PUBLIC "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
+endif()
 target_link_libraries(gb_engine PUBLIC
     gb_imgui
     glfw

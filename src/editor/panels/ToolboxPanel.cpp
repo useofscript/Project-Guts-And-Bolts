@@ -33,6 +33,10 @@ void ToolboxPanel::render() {
         if (ImGui::Button("+ Model", ImVec2(btnW, 40)) && m_do.addModel) m_do.addModel();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("An empty folder for grouping objects");
+        if (ImGui::Button("+ Sound", ImVec2(btnW, 40)) && m_do.addSound) m_do.addSound();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A sound effect or music. Inside a part, it plays from that spot.\n"
+                              "Tick Autoplay + Looped for background music.");
     }
 
     if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen)) {

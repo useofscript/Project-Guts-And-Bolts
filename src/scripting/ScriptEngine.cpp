@@ -4,6 +4,7 @@
 #include "../scene/SceneNode.h"
 #include "../core/Log.h"
 #include "../scene/Effects.h"
+#include "../core/Audio.h"
 
 #include <imgui.h>
 #include <glm/glm.hpp>
@@ -263,6 +264,22 @@ int fx_sparks(lua_State* L) {
     return 0;
 }
 
+// Sounds.Play(name, position, volume) — quick one-off sound effects.
+int snd_play(lua_State* L) {
+    std::string name = luaL_checkstring(L, 1);
+    glm::vec3* pos = LuaApi::toVector3(L, 2);
+    float volume = (float)luaL_optnumber(L, 3, 0.7);
+    Audio::play(name, volume, 1.0f, false, pos);
+    LuaApi::engine(L)->scene()->pushFx(FxEvent::Sound, pos ? *pos : glm::vec3(0.0f), volume, name);
+    return 0;
+}
+int snd_list(lua_State* L) {
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& n : Audio::builtinNames()) { lua_pushstring(L, n.c_str()); lua_rawseti(L, -2, i++); }
+    return 1;
+}
+
 void timeoutHook(lua_State* L, lua_Debug*) { LuaApi::engine(L)->checkTimeout(L); }
 
 } // namespace
@@ -339,6 +356,10 @@ void ScriptEngine::start() {
     LuaApi::pushSignal(L, SignalKind::PlayerRemoving, 0); lua_setglobal(L, "__gb_playerRemoving");
 
     lua_register(L, "Explode", l_explode);
+    lua_newtable(L);
+    lua_pushcfunction(L, snd_play); lua_setfield(L, -2, "Play");
+    lua_pushcfunction(L, snd_list); lua_setfield(L, -2, "List");
+    lua_setglobal(L, "Sounds");
     lua_newtable(L);
     lua_pushcfunction(L, l_explode);  lua_setfield(L, -2, "Explosion");
     lua_pushcfunction(L, fx_blood);   lua_setfield(L, -2, "Blood");

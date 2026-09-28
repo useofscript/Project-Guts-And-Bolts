@@ -41,6 +41,7 @@ private:
     void       addScript(SceneNode* parent);
     void       addModel();
     void       addLight(LightType type);
+    void       addSound();
     void       openScript(SceneNode* script);
     void       duplicateSelected();
     void       deleteSelected();

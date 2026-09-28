@@ -1367,7 +1367,7 @@
               1,
               1
             ],
-            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
             "enabled": true
           }
         ]
@@ -1422,7 +1422,7 @@
               1,
               1
             ],
-            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
             "enabled": true
           }
         ]
@@ -1477,7 +1477,7 @@
               1,
               1
             ],
-            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
             "enabled": true
           }
         ]

@@ -33,6 +33,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return "Light";
         case NodeKind::ForceField: return "ForceField";
+        case NodeKind::Sound:  return "Sound";
         default:               return "Part";
     }
 }
@@ -41,6 +42,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Script") return NodeKind::Script;
     if (s == "Light")  return NodeKind::Light;
     if (s == "ForceField") return NodeKind::ForceField;
+    if (s == "Sound")  return NodeKind::Sound;
     return NodeKind::Part;
 }
 
@@ -87,6 +89,10 @@ json toJson(const SceneNode& n) {
         j["source"]  = n.source;
         j["enabled"] = n.enabled;
     }
+    if (n.kind == NodeKind::Sound) {
+        j["soundId"] = n.soundId; j["volume"] = n.volume; j["pitch"] = n.pitch;
+        j["looped"] = n.looped; j["autoplay"] = n.autoplay;
+    }
     if (n.kind == NodeKind::Light) {
         j["lightType"]  = n.lightType == LightType::Spot ? "Spot" : "Point";
         j["color"]      = vec(n.color);
@@ -130,6 +136,13 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->brightness = get<float>(j, "brightness", 2.0f);
         n->range      = get<float>(j, "range", 14.0f);
         n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
+    if (n->kind == NodeKind::Sound) {
+        n->soundId  = get<std::string>(j, "soundId", "coin");
+        n->volume   = get<float>(j, "volume", 0.6f);
+        n->pitch    = get<float>(j, "pitch", 1.0f);
+        n->looped   = get<bool>(j, "looped", false);
+        n->autoplay = get<bool>(j, "autoplay", false);
     }
     n->source        = get<std::string>(j, "source", "");
     n->enabled = get<bool>(j, "enabled", true);

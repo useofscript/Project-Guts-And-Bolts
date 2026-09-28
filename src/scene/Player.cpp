@@ -3,6 +3,7 @@
 #include "SceneNode.h"
 #include "Physics.h"
 #include "../renderer/MeshLibrary.h"
+#include "../core/Audio.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -357,7 +358,13 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     }
 
     // Took damage since last frame (scripts, traps, explosions)?
-    if (m_humanoid.health < m_lastHealth - 0.5f) bleed(m_lastHealth - m_humanoid.health);
+    if (m_humanoid.health < m_lastHealth - 0.5f) {
+        bleed(m_lastHealth - m_humanoid.health);
+        if (m_humanoid.health > 0.0f) {
+            glm::vec3 at = r->transform.position + glm::vec3(0, 1.5f, 0);
+            Audio::play("hit", 0.6f, 1.0f, false, &at);
+        }
+    }
     m_lastHealth = m_humanoid.health;
     if (m_humanoid.health <= 0.0f) { startDeath(); return; }
 
@@ -387,7 +394,12 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     }
 
     // Gravity + jumping.
-    if (m_grounded && jump) { m_velocity.y = m_humanoid.jumpPower; m_grounded = false; }
+    if (m_grounded && jump) {
+        m_velocity.y = m_humanoid.jumpPower;
+        m_grounded = false;
+        glm::vec3 at = pos + glm::vec3(0, 1, 0);
+        Audio::play("jump", 0.35f, 1.0f, false, &at);
+    }
     m_velocity.y -= m_scene->world().gravity * dt;
 
     // Walking plus any leftover push (from jump pads, etc.), which fades out.
@@ -465,6 +477,10 @@ void Player::startDeath() {
     m_spawnFF = 0;
     m_dead = true;
     m_diedFlag = true;
+    {
+        glm::vec3 at = r->transform.position + glm::vec3(0, 2, 0);
+        Audio::play("oof", 0.8f, 1.0f, false, &at);
+    }
     m_deadTime = 0.0f;
     m_debris.clear();
 

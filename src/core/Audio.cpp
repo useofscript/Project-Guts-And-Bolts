@@ -1,0 +1,268 @@
+#define MINIAUDIO_IMPLEMENTATION
+#define MA_NO_ENCODING
+#include <miniaudio.h>
+
+#include "Audio.h"
+#include "Paths.h"
+#include "Log.h"
+
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <map>
+#include <memory>
+#include <random>
+
+namespace Audio {
+
+namespace {
+
+constexpr int   kRate = 44100;
+constexpr float kPi   = 3.14159265f;
+
+using Samples = std::vector<float>;
+
+// ---------------------------------------------------------------------------
+// Sound synthesis: every built-in effect is made from sine / square / noise.
+// ---------------------------------------------------------------------------
+
+std::mt19937& rng() { static std::mt19937 r{77u}; return r; }
+float noise() { return std::uniform_real_distribution<float>(-1.0f, 1.0f)(rng()); }
+
+Samples make(float seconds) { return Samples((size_t)(seconds * kRate), 0.0f); }
+
+float env(float t, float attack, float length) {
+    if (t < attack) return t / attack;
+    float k = 1.0f - (t - attack) / std::max(1e-4f, length - attack);
+    return std::max(0.0f, k * k);
+}
+
+// A tone that slides from f0 to f1. shape: 0 sine, 1 square, 2 saw.
+void tone(Samples& s, float start, float len, float f0, float f1, int shape, float amp) {
+    float phase = 0.0f;
+    size_t a = (size_t)(start * kRate), n = (size_t)(len * kRate);
+    for (size_t i = 0; i < n && a + i < s.size(); ++i) {
+        float t = (float)i / kRate;
+        float f = f0 + (f1 - f0) * (t / len);
+        phase += f / kRate;
+        phase -= std::floor(phase);
+        float v = shape == 0 ? std::sin(phase * 2 * kPi)
+                : shape == 1 ? (phase < 0.5f ? 1.0f : -1.0f) * 0.6f
+                             : (phase * 2.0f - 1.0f) * 0.7f;
+        s[a + i] += v * amp * env(t, 0.005f, len);
+    }
+}
+
+// Noise through a sweeping low-pass filter.
+void rumble(Samples& s, float start, float len, float cutoff0, float cutoff1, float amp) {
+    float lp = 0.0f;
+    size_t a = (size_t)(start * kRate), n = (size_t)(len * kRate);
+    for (size_t i = 0; i < n && a + i < s.size(); ++i) {
+        float t = (float)i / kRate;
+        float fc = cutoff0 + (cutoff1 - cutoff0) * (t / len);
+        float k = 1.0f - std::exp(-2.0f * kPi * fc / kRate);
+        lp += (noise() - lp) * k;
+        s[a + i] += lp * amp * env(t, 0.004f, len);
+    }
+}
+
+// Band-pass "formant" filter, for the voice-like oof.
+Samples formant(const Samples& in, float freq, float q) {
+    Samples out(in.size());
+    float w = 2 * kPi * freq / kRate, alpha = std::sin(w) / (2 * q);
+    float b0 = alpha, b2 = -alpha, a0 = 1 + alpha, a1 = -2 * std::cos(w), a2 = 1 - alpha;
+    float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (size_t i = 0; i < in.size(); ++i) {
+        float y = (b0 * in[i] + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+        x2 = x1; x1 = in[i]; y2 = y1; y1 = y;
+        out[i] = y;
+    }
+    return out;
+}
+
+void normalize(Samples& s, float peak = 0.9f) {
+    float m = 1e-6f;
+    for (float v : s) m = std::max(m, std::abs(v));
+    for (float& v : s) v *= peak / m;
+}
+
+std::map<std::string, Samples> synthesize() {
+    std::map<std::string, Samples> out;
+
+    { Samples s = make(0.18f); tone(s, 0, 0.18f, 320, 760, 1, 0.8f); out["jump"] = s; }
+    { Samples s = make(0.45f); tone(s, 0, 0.08f, 988, 988, 1, 0.7f); tone(s, 0.08f, 0.37f, 1319, 1319, 1, 0.7f); out["coin"] = s; }
+    {   // "Oof": a falling buzzy voice through two mouth-like formants.
+        Samples src = make(0.42f);
+        tone(src, 0, 0.42f, 185, 95, 2, 1.0f);
+        Samples a = formant(src, 520, 4.0f), b = formant(src, 900, 5.0f);
+        Samples s(src.size());
+        for (size_t i = 0; i < s.size(); ++i) s[i] = a[i] + b[i] * 0.6f + src[i] * 0.08f;
+        normalize(s, 0.85f);
+        out["oof"] = s;
+    }
+    { Samples s = make(1.6f); rumble(s, 0, 1.6f, 2400, 90, 1.0f); tone(s, 0, 1.2f, 70, 35, 0, 0.6f); normalize(s); out["explosion"] = s; }
+    { Samples s = make(0.16f); rumble(s, 0, 0.16f, 1800, 300, 1.0f); tone(s, 0, 0.1f, 160, 70, 0, 0.5f); normalize(s, 0.7f); out["splat"] = s; }
+    { Samples s = make(0.03f); rumble(s, 0, 0.03f, 6000, 3000, 1.0f); normalize(s, 0.5f); out["click"] = s; }
+    { Samples s = make(0.2f); tone(s, 0, 0.2f, 140, 60, 0, 0.9f); rumble(s, 0, 0.08f, 3000, 500, 0.5f); normalize(s, 0.8f); out["hit"] = s; }
+    {   Samples s = make(0.9f);
+        const float notes[] = {523.25f, 659.25f, 783.99f, 1046.5f};
+        for (int i = 0; i < 4; ++i) tone(s, i * 0.12f, i == 3 ? 0.5f : 0.14f, notes[i], notes[i], 1, 0.6f);
+        out["win"] = s; }
+    {   Samples s = make(0.5f);
+        float phase = 0;
+        for (size_t i = 0; i < s.size(); ++i) {
+            float t = (float)i / kRate;
+            float f = 180 + 520 * std::sin(std::min(1.0f, t / 0.5f) * kPi) + 25 * std::sin(t * 60);
+            phase += f / kRate;
+            s[i] = std::sin(phase * 2 * kPi) * env(t, 0.01f, 0.5f) * 0.8f;
+        }
+        out["boing"] = s; }
+    {   Samples s = make(0.7f);
+        for (int i = 0; i < 6; ++i) tone(s, i * 0.07f, 0.3f, 600.0f * std::pow(1.26f, (float)i), 600.0f * std::pow(1.26f, (float)i), 0, 0.35f);
+        out["spawn"] = s; }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+
+struct Instance {
+    int               handle;
+    ma_sound          sound;
+    ma_audio_buffer   buffer;
+    bool              usesBuffer = false;
+};
+
+bool                                    g_ready = false;
+ma_engine                               g_engine;
+std::map<std::string, Samples>          g_builtin;
+std::map<int, std::unique_ptr<Instance>> g_playing;
+int                                     g_next = 1;
+
+void destroy(Instance& in) {
+    ma_sound_uninit(&in.sound);
+    if (in.usesBuffer) ma_audio_buffer_uninit(&in.buffer);
+}
+
+Instance* find(int handle) {
+    auto it = g_playing.find(handle);
+    return it == g_playing.end() ? nullptr : it->second.get();
+}
+
+} // namespace
+
+const std::vector<std::string>& builtinNames() {
+    static const std::vector<std::string> names = {
+        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn"};
+    return names;
+}
+
+void init() {
+    if (g_ready) return;
+    ma_engine_config cfg = ma_engine_config_init();
+    if (ma_engine_init(&cfg, &g_engine) != MA_SUCCESS) {
+        Log::system("No sound device found - playing without sound.");
+        return;
+    }
+    g_builtin = synthesize();
+    g_ready = true;
+}
+
+void shutdown() {
+    if (!g_ready) return;
+    stopAll();
+    ma_engine_uninit(&g_engine);
+    g_ready = false;
+}
+
+void update() {
+    if (!g_ready) return;
+    for (auto it = g_playing.begin(); it != g_playing.end();) {
+        Instance& in = *it->second;
+        if (!ma_sound_is_looping(&in.sound) && ma_sound_at_end(&in.sound)) {
+            destroy(in);
+            it = g_playing.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+int play(const std::string& soundId, float volume, float pitch, bool loop, const glm::vec3* position) {
+    if (!g_ready || soundId.empty()) return 0;
+    if (g_playing.size() > 96) return 0;   // don't let a runaway script flood the mixer
+
+    auto in = std::make_unique<Instance>();
+    in->handle = g_next++;
+    ma_uint32 flags = position ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION;
+
+    auto builtin = g_builtin.find(soundId);
+    if (builtin != g_builtin.end()) {
+        const Samples& s = builtin->second;
+        ma_audio_buffer_config bc = ma_audio_buffer_config_init(ma_format_f32, 1, s.size(), s.data(), nullptr);
+        bc.sampleRate = kRate;
+        if (ma_audio_buffer_init(&bc, &in->buffer) != MA_SUCCESS) return 0;
+        in->usesBuffer = true;
+        if (ma_sound_init_from_data_source(&g_engine, &in->buffer, flags, nullptr, &in->sound) != MA_SUCCESS) {
+            ma_audio_buffer_uninit(&in->buffer);
+            return 0;
+        }
+    } else {
+        // A file: look in the games folder first, then treat it as a full path.
+        std::filesystem::path p = Paths::gamesFolder() / soundId;
+        std::error_code ec;
+        if (!std::filesystem::exists(p, ec)) p = soundId;
+        if (ma_sound_init_from_file(&g_engine, p.string().c_str(), flags | MA_SOUND_FLAG_STREAM, nullptr, nullptr,
+                                    &in->sound) != MA_SUCCESS) {
+            Log::warn("Couldn't play sound \"" + soundId + "\" (use a built-in name or a .wav / .mp3 / .flac file)");
+            return 0;
+        }
+    }
+
+    ma_sound_set_volume(&in->sound, std::max(0.0f, volume));
+    ma_sound_set_pitch(&in->sound, std::max(0.05f, pitch));
+    ma_sound_set_looping(&in->sound, loop);
+    if (position) {
+        ma_sound_set_position(&in->sound, position->x, position->y, position->z);
+        ma_sound_set_min_distance(&in->sound, 6.0f);
+        ma_sound_set_max_distance(&in->sound, 120.0f);
+    }
+    ma_sound_start(&in->sound);
+    int h = in->handle;
+    g_playing[h] = std::move(in);
+    return h;
+}
+
+void stop(int handle) {
+    auto it = g_playing.find(handle);
+    if (it == g_playing.end()) return;
+    destroy(*it->second);
+    g_playing.erase(it);
+}
+
+void stopAll() {
+    for (auto& [h, in] : g_playing) destroy(*in);
+    g_playing.clear();
+}
+
+bool isPlaying(int handle) {
+    Instance* in = find(handle);
+    return in && ma_sound_is_playing(&in->sound);
+}
+
+void setVolume(int handle, float v) { if (Instance* in = find(handle)) ma_sound_set_volume(&in->sound, std::max(0.0f, v)); }
+void setPitch(int handle, float p)  { if (Instance* in = find(handle)) ma_sound_set_pitch(&in->sound, std::max(0.05f, p)); }
+void setPosition(int handle, const glm::vec3& p) {
+    if (Instance* in = find(handle)) ma_sound_set_position(&in->sound, p.x, p.y, p.z);
+}
+
+void setListener(const glm::vec3& p, const glm::vec3& f) {
+    if (!g_ready) return;
+    ma_engine_listener_set_position(&g_engine, 0, p.x, p.y, p.z);
+    ma_engine_listener_set_direction(&g_engine, 0, f.x, f.y, f.z);
+}
+
+void setMasterVolume(float v) {
+    if (g_ready) ma_engine_set_volume(&g_engine, std::clamp(v, 0.0f, 1.0f));
+}
+
+} // namespace Audio

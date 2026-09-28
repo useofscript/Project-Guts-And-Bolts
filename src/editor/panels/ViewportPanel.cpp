@@ -5,6 +5,7 @@
 #include "../../scene/Physics.h"
 #include "../../game/GameSession.h"
 #include "../../game/Hud.h"
+#include "../../core/Audio.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -136,6 +137,7 @@ void ViewportPanel::render(float dt) {
         }
         bool playing = m_session != nullptr;
         m_renderer.render(*m_scene, m_camera, m_fbo, !playing);
+        Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();
         // Flip V so the framebuffer texture is the right way up in ImGui.

@@ -11,6 +11,7 @@
 #include "../scene/Physics.h"
 #include "../scene/Serializer.h"
 #include "../net/NetGame.h"
+#include "../core/Audio.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -779,6 +780,7 @@ void PlayerApp::drawGame(float dt) {
     m_view.resize((int)size.x, (int)size.y);
     m_camera.resize((int)size.x, (int)size.y);
     m_renderer->render(*m_scene, m_camera, m_view, false);
+    Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
     ImGui::Image((ImTextureID)(intptr_t)m_view.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
 
     // Clicking parts (for part.Clicked in scripts).

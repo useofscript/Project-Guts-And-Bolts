@@ -42,9 +42,10 @@ struct RemoteCharacter {
 
 // A visual effect to show on every player's screen (multiplayer).
 struct FxEvent {
-    enum Type { Explosion, Blood, Oil, Gibs, Sparks } type;
+    enum Type { Explosion, Blood, Oil, Gibs, Sparks, Sound } type;
     glm::vec3 pos;
-    float     amount;
+    float     amount;              // Sound: volume
+    std::string name = {};         // Sound: which sound
 };
 
 // Shown on the game's card in the Guts&BoltsPlayer app.
@@ -102,8 +103,8 @@ public:
     // Effects the host should show on everyone's screen.
     bool                  recordFx = false;
     std::vector<FxEvent>  fxQueue;
-    void pushFx(FxEvent::Type t, const glm::vec3& p, float amount) {
-        if (recordFx) fxQueue.push_back({t, p, amount});
+    void pushFx(FxEvent::Type t, const glm::vec3& p, float amount, const std::string& name = {}) {
+        if (recordFx) fxQueue.push_back({t, p, amount, name});
     }
 
     // Wipe everything and build the default starting place.
