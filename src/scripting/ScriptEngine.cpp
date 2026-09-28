@@ -528,6 +528,38 @@ bool ScriptEngine::runCommand(const std::string& code, std::string& error) {
     return true;
 }
 
+bool ScriptEngine::runChunk(const std::string& code, const std::string& chunkName, std::string& error) {
+    if (!m_L) { error = "not running"; return false; }
+    lua_State* L = m_L;
+    int top = lua_gettop(L);
+    if (luaL_loadbuffer(L, code.data(), code.size(), ("=" + chunkName).c_str()) != LUA_OK) {
+        error = lua_tostring(L, -1);
+        lua_settop(L, top);
+        return false;
+    }
+    m_resumeStart = nowSeconds();
+    ++m_depth;
+    int status = lua_pcall(L, 0, 0, 0);
+    --m_depth;
+    if (status != LUA_OK) error = lua_tostring(L, -1) ? lua_tostring(L, -1) : "error";
+    lua_settop(L, top);
+    return status == LUA_OK;
+}
+
+bool ScriptEngine::callRef(int ref, std::string& error) {
+    if (!m_L) { error = "not running"; return false; }
+    lua_State* L = m_L;
+    int top = lua_gettop(L);
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+    m_resumeStart = nowSeconds();
+    ++m_depth;
+    int status = lua_pcall(L, 0, 0, 0);
+    --m_depth;
+    if (status != LUA_OK) error = lua_tostring(L, -1) ? lua_tostring(L, -1) : "error";
+    lua_settop(L, top);
+    return status == LUA_OK;
+}
+
 void ScriptEngine::runScript(SceneNode* script) {
     lua_State* L = m_L;
     std::string chunk = "=" + script->fullName();

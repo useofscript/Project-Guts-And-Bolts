@@ -6,6 +6,7 @@
 #include "../scene/Scene.h"
 #include "../scene/Physics.h"
 #include "../scene/EditMesh.h"
+#include "Plugins.h"
 #include "../core/Log.h"
 
 #include <imgui.h>
@@ -150,9 +151,9 @@ void Editor::renderToolbar() {
     bg->AddRectFilled(ImVec2(origin.x, origin.y + tabsH), ImVec2(origin.x + width, origin.y + tabsH + ribbonH), kRibbonBg);
     bg->AddLine(ImVec2(origin.x, origin.y + tabsH + ribbonH - 1), ImVec2(origin.x + width, origin.y + tabsH + ribbonH - 1),
                 IM_COL32(26, 26, 26, 255));
-    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "MESH"};
+    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "PLUGINS", "MESH"};
     const bool modeling = m_state.mode == StudioMode::Modeling;
-    int tabCount = modeling ? 5 : 4;   // MESH only shows up in Modeling mode
+    int tabCount = modeling ? 6 : 5;   // MESH only shows up in Modeling mode
     float x = origin.x + 10;
     for (int i = 0; i < tabCount; ++i) {
         ImVec2 ts = ImGui::CalcTextSize(tabs[i]);
@@ -169,7 +170,7 @@ void Editor::renderToolbar() {
             bg->AddRectFilled(a, b, IM_COL32(55, 55, 55, 255));
         }
         bg->AddText(ImVec2(a.x + 12, a.y + (tabsH - ts.y) * 0.5f),
-                    i == 4 ? IM_COL32(255, 170, 70, 255) : on ? IM_COL32(255, 255, 255, 255) : IM_COL32(180, 180, 180, 255), tabs[i]);
+                    i == 5 ? IM_COL32(255, 170, 70, 255) : on ? IM_COL32(255, 255, 255, 255) : IM_COL32(180, 180, 180, 255), tabs[i]);
         x = b.x + 2;
     }
 
@@ -362,7 +363,10 @@ void Editor::renderToolbar() {
         }
         break;
     }
-    case 4: {   // MESH (Modeling mode)
+    case 4:     // PLUGINS
+        renderPluginsTab();
+        break;
+    case 5: {   // MESH (Modeling mode)
         ModelingState& ms = m_state.modeling;
         {
             Group g("Pick");
@@ -426,4 +430,30 @@ void Editor::renderToolbar() {
     ImGui::PopStyleVar();
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + tabsH + ribbonH));
     ImGui::Dummy(ImVec2(0, 0));
+}
+
+// The PLUGINS tab: every plugin's buttons, plus the Marketplace.
+void Editor::renderPluginsTab() {
+    auto& list = m_plugins->list();
+    for (size_t i = 0; i < list.size(); ++i) {
+        Plugins::Plugin& p = *list[i];
+        Group g(p.name.c_str());
+        if (p.buttons.empty()) {
+            bigButton(p.error.empty() ? "(no buttons)" : "Error", Icons::Id::Script, false, false,
+                      p.error.empty() ? "This plugin didn't add any buttons" : p.error.c_str());
+        }
+        for (size_t b = 0; b < p.buttons.size(); ++b) {
+            ImGui::PushID((int)(i * 100 + b));
+            if (bigButton(p.buttons[b].label.c_str(), Icons::Id::Insert, false, !m_playing,
+                          p.buttons[b].tip.empty() ? nullptr : p.buttons[b].tip.c_str()))
+                m_plugins->click(i, b);
+            ImGui::PopID();
+        }
+    }
+    Group g("Manage");
+    if (bigButton("Marketplace", Icons::Id::Toolbox, m_showMarketplace, true, "Get plugins and audio people uploaded"))
+        m_showMarketplace = !m_showMarketplace;
+    if (bigButton("Reload", Icons::Id::Rotate, false, true, "Load the plugins folder again")) m_plugins->reload();
+    std::string where = "Plugins folder:\n" + Plugins::folder().string() + "\n\nPut .lua plugin files there.";
+    bigButton("Folder", Icons::Id::Folder, false, true, where.c_str());
 }

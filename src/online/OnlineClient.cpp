@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <chrono>
 #include <cstdlib>
 #include <deque>
@@ -33,8 +34,10 @@ struct State {
 };
 
 State& S() {
-    static State s;
-    return s;
+    // Never destroyed: a request still running in the background when the app
+    // quits can finish safely.
+    static State* s = new State;
+    return *s;
 }
 
 double clockSeconds() {

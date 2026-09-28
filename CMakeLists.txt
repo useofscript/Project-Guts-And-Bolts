@@ -308,6 +308,8 @@ set(EDITOR_SOURCES
     src/editor/Icons.cpp
     src/editor/panels/ViewportModeling.cpp
     src/editor/EditorModes.cpp
+    src/editor/EditorOnline.cpp
+    src/editor/Plugins.cpp
     src/editor/Premades.cpp
     src/editor/TeamCreate.cpp
     src/editor/panels/ViewportPanel.cpp
@@ -357,6 +359,13 @@ target_link_libraries(GutsAndBoltsServer PRIVATE nlohmann_json::nlohmann_json mo
 if(WIN32)
     target_link_libraries(GutsAndBoltsServer PRIVATE ws2_32 bcrypt)
 endif()
+
+# Studio's sample plugins.
+add_custom_command(TARGET GutsAndBolts POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:GutsAndBolts>/plugins"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/plugins"
+            "$<TARGET_FILE_DIR:GutsAndBolts>/plugins"
+    VERBATIM)
 
 # Ship the sample games and official catalog items next to the programs.
 foreach(app GutsAndBolts GutsAndBoltsPlayer)

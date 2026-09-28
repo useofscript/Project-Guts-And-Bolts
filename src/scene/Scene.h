@@ -53,6 +53,7 @@ struct GameInfo {
     std::string title       = "My Game";
     std::string description = "A game made with Guts and Bolts.";
     std::string author      = "Builder";
+    std::string publishedId;   // the game's id on the Guts&Bolts server, once published
 };
 
 class Scene {

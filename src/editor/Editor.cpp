@@ -1,5 +1,7 @@
 #include "Editor.h"
 #include "../scene/EditMesh.h"
+#include "../online/OnlineClient.h"
+#include "Plugins.h"
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
 #include "Theme.h"
@@ -91,15 +93,19 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
 
     resetHistory();
     Log::system("Welcome to Guts and Bolts! Press Play (F5) to test your game.");
+    m_plugins = std::make_unique<Plugins>(scene);
+    m_plugins->reload();
 }
 
 // Out-of-line so the panel types are complete here.
 Editor::~Editor() {
+    m_plugins.reset();
     m_team.reset();
     if (m_session) m_session->stop();
 }
 
 void Editor::render(float dt) {
+    Online::update();   // replies from the Guts&Bolts server
     ImGuizmo::BeginFrame();
     // Docked tabs appear over a few frames; make sure the 3D view ends up on top.
     if (++m_frame <= 3) m_viewport->focus();
@@ -132,6 +138,10 @@ void Editor::render(float dt) {
     if (m_showPanel[kPanelPlayer])     m_player->render();
     if (m_showPanel[kPanelOutput])     m_output->render();
     if (m_showPanel[kPanelScript])     m_scriptEditor->render();
+    m_scriptEditor->renderFindAll();
+    renderServerDialog();
+    renderPublishDialog();
+    renderMarketplace();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
     renderInsertObject();
     renderDialogs();
@@ -1030,6 +1040,11 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem(m_team->active() ? "Team Create (on)..." : "Team Create...")) m_openTeam = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
+        ImGui::Separator();
+        if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
+        if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
+        if (ImGui::MenuItem("Marketplace (plugins, audio)")) m_showMarketplace = true;
+        ImGui::Separator();
         if (ImGui::MenuItem("Play in Guts&BoltsPlayer")) {
             if (m_path.empty()) {
                 Log::warn("Save your game first (File > Save), then try again.");

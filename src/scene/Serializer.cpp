@@ -292,6 +292,7 @@ json settingsJson(Scene& scene) {
     j["version"] = 2;
     j["info"] = {{"title", scene.info().title}, {"description", scene.info().description},
                  {"author", scene.info().author}};
+    if (!scene.info().publishedId.empty()) j["info"]["published"] = scene.info().publishedId;
     j["environment"] = envToJson(scene.environment());
     const WorldSettings& ws = scene.world();
     j["world"] = {{"gravity", ws.gravity}, {"fallenPartsHeight", ws.fallenPartsHeight},
@@ -316,6 +317,7 @@ void applySettings(Scene& scene, const json& j) {
         info.title       = get<std::string>(j["info"], "title", info.title);
         info.description = get<std::string>(j["info"], "description", info.description);
         info.author      = get<std::string>(j["info"], "author", info.author);
+        info.publishedId = get<std::string>(j["info"], "published", std::string());
     }
     scene.info() = info;
 

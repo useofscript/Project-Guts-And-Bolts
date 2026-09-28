@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <nlohmann/json.hpp>
 #include "EditorState.h"
 #include "Premades.h"
 #include "../scene/SceneNode.h"
@@ -19,6 +20,7 @@ class PlayerPanel;
 class OutputPanel;
 class ScriptEditorPanel;
 class TeamCreate;
+class Plugins;
 
 class Editor {
 public:
@@ -76,6 +78,11 @@ private:
     void       meshOp(MeshOp op);
     void       handleModelingKeys();
     void       addMeshPart();
+    // Online: the Guts&Bolts server, publishing and the Marketplace (EditorOnline.cpp)
+    void       renderServerDialog();
+    void       renderPublishDialog();
+    void       renderMarketplace();
+    void       renderPluginsTab();
     void       insertObject(const std::string& what, SceneNode* parent);
     void       renderInsertObject();
     void       renderCommandBar();
@@ -116,6 +123,13 @@ private:
     std::unique_ptr<OutputPanel>       m_output;
     std::unique_ptr<ScriptEditorPanel> m_scriptEditor;
     std::unique_ptr<TeamCreate>        m_team;
+    std::unique_ptr<Plugins>           m_plugins;
+    // Online
+    bool        m_openServer = false, m_openPublish = false, m_showMarketplace = false;
+    std::string m_serverInput, m_publishName, m_publishDesc, m_publishMsg, m_marketMsg, m_marketQuery;
+    int         m_marketTab = 0, m_publishPluginIndex = 0, m_publishPluginPrice = 0;
+    bool        m_marketLoaded = false, m_onlineBusy = false;
+    nlohmann::json m_marketPlugins = nlohmann::json::array(), m_marketAudio = nlohmann::json::array();
     bool        m_openTeam = false;
     std::string m_teamAddress;
     std::string m_teamChat;

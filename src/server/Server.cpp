@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <iterator>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -432,6 +434,30 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         else saveUsers();
         log(me.name + " uploaded " + kind + " \"" + title + "\" (" + std::to_string(data.size()) + " bytes)");
         json r = okay(); r["asset"] = publicAsset(a); r["me"] = meJson(me); r["fee"] = fee; return r;
+    }
+    if (name == "update") {
+        // The creator replaces their upload (a new version of a game or plugin).
+        auto it = m_assets.find(str("id"));
+        if (it == m_assets.end()) return fail("That doesn't exist (any more).");
+        Asset& a = it->second;
+        if (a.creator != me.id) return fail("You can only update your own things.");
+        std::string data;
+        if (!Online::base64Decode(str("data"), data)) return fail("The upload got scrambled. Try again.");
+        if (data.size() > Online::maxSize(a.kind)) return fail("That's too big.");
+        if (a.kind == "game" && !json::accept(data)) return fail("That isn't a Guts&Bolts game file.");
+        if (!Online::isClothing(a.kind) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
+        std::string title = Online::cleanText(str("name"), 50);
+        if (!title.empty()) a.name = title;
+        if (args.contains("description")) a.description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("price") && a.kind != "game") {
+            long long price = std::clamp(num("price"), 0LL, 1000000LL);
+            if (price > 0 && !isVerified(me)) return fail("Only Verified creators can sell things.");
+            a.price = price;
+        }
+        if (!Online::isClothing(a.kind)) a.size = data.size();
+        saveAssets();
+        log(me.name + " updated " + a.kind + " \"" + a.name + "\"");
+        json r = okay(); r["asset"] = publicAsset(a); return r;
     }
     if (name == "list") {
         std::string kind = str("kind"), q = lower(Online::cleanText(str("query"), 64)), creator = lower(str("creator"));

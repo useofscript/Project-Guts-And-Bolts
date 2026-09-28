@@ -17,6 +17,9 @@ Options:
   --check     just print what was detected and exit
   --build-dir <folder>   where to build (default: ./build)
   --no-shortcuts         don't create shortcuts
+  --staff     (project owner) make this computer's account the official "Guts" account
+  --server    start the Guts&Bolts server here (keeps accounts, Bolts and uploads in ./server_data)
+  --port <n>  the server's port (default 7780)
 """
 
 import getpass
@@ -679,6 +682,10 @@ def parse_args(argv):
             args["relaunch"] = next(it, None)
         elif a == "--staff":
             args["staff"] = True
+        elif a == "--server":
+            args["server"] = True
+        elif a == "--port":
+            args["port"] = next(it, None)
     return args
 
 
@@ -694,6 +701,25 @@ def make_staff_account(args):
     return 0
 
 
+def run_server(args):
+    """Start the Guts&Bolts server (accounts, Bolts, uploads) on this computer."""
+    inst = Installer(ConsoleUI(), build_dir=args.get("build_dir"))
+    exe = inst.exe_path("GutsAndBoltsServer")
+    if not exe.exists():
+        print("Build Guts and Bolts first (run the installer), then try again.")
+        return 1
+    data = Path(__file__).resolve().parent / "server_data"
+    cmd = [str(exe), "--data", str(data)]
+    if args.get("port"):
+        cmd += ["--port", str(args["port"])]
+    print("Starting the Guts&Bolts server. Keep this window open while people play.")
+    print("Everything it stores goes in: " + str(data) + "\n")
+    try:
+        return subprocess.call(cmd, cwd=exe.parent)
+    except KeyboardInterrupt:
+        return 0
+
+
 def main():
     args = parse_args(sys.argv[1:])
     if args.get("check"):
@@ -702,6 +728,8 @@ def main():
         return 0
     if args.get("staff"):
         return make_staff_account(args)
+    if args.get("server"):
+        return run_server(args)
     if args.get("cli"):
         return run_console(args)
     try:

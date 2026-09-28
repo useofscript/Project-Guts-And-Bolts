@@ -32,6 +32,10 @@ public:
     void start(bool runScripts = true);   // create a fresh Lua world (and run all Scripts)
     // Studio's Command Bar: run some Lua right now (the engine must be started).
     bool runCommand(const std::string& code, std::string& error);
+    // Studio plugins: run a whole file, and later call functions it handed us (registry refs).
+    bool runChunk(const std::string& code, const std::string& chunkName, std::string& error);
+    bool callRef(int ref, std::string& error);
+    struct lua_State* lua() { return m_L; }
     void stop();                  // tear everything down
     bool running() const { return m_L != nullptr; }
 

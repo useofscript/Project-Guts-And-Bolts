@@ -10,7 +10,7 @@
 
 namespace {
 // "ctrl+shift+left" -> modifiers + key (test helper).
-struct Chord { bool ctrl = false, shift = false, alt = false; ImGuiKey key = ImGuiKey_None; };
+struct Chord { bool ctrl = false, shift = false, alt = false; ImGuiKey key = ImGuiKey_None; std::string text; };
 Chord parseChord(const std::string& text) {
     Chord c;
     std::stringstream ss(text);
@@ -53,7 +53,21 @@ Application::~Application() {
 void Application::run() {
     int frame = 0;
     std::vector<Chord> chords;
-    { std::stringstream ss(m_opts.testKeys); std::string w; while (ss >> w) chords.push_back(parseChord(w)); }
+    {
+        // "type:hello_world" types text ('_' = space); anything else is a key chord.
+        std::stringstream ss(m_opts.testKeys);
+        std::string w;
+        while (ss >> w) {
+            if (w.rfind("type:", 0) == 0) {
+                Chord c;
+                c.text = w.substr(5);
+                std::replace(c.text.begin(), c.text.end(), '_', ' ');
+                chords.push_back(c);
+            } else {
+                chords.push_back(parseChord(w));
+            }
+        }
+    }
     // Test helper: mouse actions, one every 8 frames from frame 60.
     struct MouseAct { bool shift = false; float x0, y0, x1, y1; };
     std::vector<MouseAct> mouse;
@@ -107,7 +121,8 @@ void Application::run() {
                 io.AddKeyEvent(ImGuiKey_LeftShift, down && c.shift);
                 io.AddKeyEvent(ImGuiMod_Alt, down && c.alt);
                 io.AddKeyEvent(ImGuiKey_LeftAlt, down && c.alt);
-                io.AddKeyEvent(c.key, down);
+                if (!c.text.empty()) { if (down) io.AddInputCharactersUTF8(c.text.c_str()); }
+                else io.AddKeyEvent(c.key, down);
             }
         });
         if (m_opts.play && frame == 3) m_editor->togglePlay();

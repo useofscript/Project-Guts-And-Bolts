@@ -46,7 +46,7 @@ void Editor::enterModeling() {
     m_state.modeling.sel.assign(n->editMesh->verts.size(), 0);
     m_state.mode = StudioMode::Modeling;
     m_state.connectTool = -1;
-    m_ribbonTab = 4;   // MESH
+    m_ribbonTab = 5;   // MESH
     m_viewport->focus();
 }
 
@@ -55,7 +55,7 @@ void Editor::exitModeling() {
     m_state.modeling.node = 0;
     m_state.modeling.sel.clear();
     if (m_state.mode == StudioMode::Modeling) m_state.mode = StudioMode::Build;
-    if (m_ribbonTab == 4) m_ribbonTab = 0;
+    if (m_ribbonTab == 5) m_ribbonTab = 0;
 }
 
 // Leave Modeling mode if the part went away (deleted, undone) or something

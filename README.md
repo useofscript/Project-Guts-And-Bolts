@@ -99,8 +99,11 @@ The panels:
   and presets (Day, Sunset, Night, Overcast, Horror).
 - **Player**: walk speed, jump power, health, outfit and hat, plus the game's
   **Death & Gore** rules.
-- **Script Editor**: Lua code with a live mistake checker and an
-  **Insert code...** menu of ready-to-use snippets.
+- **Script Editor**: Lua code with a live mistake checker, an
+  **Insert code...** menu of ready-to-use snippets, **autocomplete** (suggestions
+  pop up as you type; `Tab` uses one, `Ctrl+Up/Down` picks), **Find / Replace**
+  (`Ctrl+F` / `Ctrl+H`, `F3` for the next one) and **Find in All Scripts**
+  (`Ctrl+Shift+F`: click a result to jump straight to it).
 - **Output**: what your scripts `print()`, plus any errors (in red, with the
   line number).
 - **Command Bar**: type a line of Lua and press Enter to run it on your game
@@ -162,6 +165,31 @@ between four modes:
 
 **Stop** (`Shift+F5` or `Esc`) goes back to Build mode, and everything goes
 back exactly how it was before you pressed Simulate or Play.
+
+### Plugins
+
+Plugins are small Lua files that add buttons to Studio's **PLUGINS** tab.
+They go in the `plugins` folder next to Studio, and two samples come with it
+(**Random Colors** and **Stack Tower**). A plugin can use everything scripts
+can, plus `plugin:Button(name, tooltip, function)` to add a button and
+`Selection:Get()` / `Selection:Set({...})` for what you've picked:
+
+```lua
+plugin:Button("Paint Red", "Make the selected parts red", function()
+    for _, part in ipairs(Selection:Get()) do
+        part.Color = Color3.new(1, 0, 0)
+    end
+end)
+```
+
+Anything a plugin changes can be undone with Ctrl+Z. With a server,
+**PLUGINS > Marketplace** lets you install plugins other people published
+(buying them first if they cost Bolts), add uploaded audio to your game, and
+publish your own plugins.
+
+Studio's **File** menu also has **Publish to Guts&Bolts...**. It puts your
+game on the server so everyone can play it, and later **updates** it with
+your new version.
 
 ### Controls
 
@@ -309,15 +337,82 @@ public half is your **account ID** (safe to share). The secret half stays in
 - **Guts** is the official staff account. Nobody else can use that name, and
   it wears the **Administrator** badge: a red shield with a bolt that floats
   next to its name in the player list and chat.
-- **Official badges** (Administrator, Tester, Bug Hunter, Featured Creator)
-  are signed by the staff account, so they can't be faked or copied to someone
-  else. Staff make a badge code on the **Staff** page for a player's account
-  ID; the player pastes it into **Avatar > Redeem**.
+- **Official badges** (Administrator, Tester, Bug Hunter, Featured Creator,
+  Verified, Staff) are signed by the staff account, so they can't be faked or
+  copied to someone else. Staff make a badge code on the **Staff** page for a
+  player's account ID; the player pastes it into **Avatar > Redeem**. (With a
+  server, staff can do it straight from the Staff page instead - see below.)
+- **Verified** people get a blue check next to their name everywhere (player
+  list, chat, the site, their creations). On a server, Verified creators can
+  publish anything: uploading hats, shirts, pants, audio and plugins is
+  **free** for them, they have no daily upload limit, and they can **sell**
+  what they make for Bolts. Only staff can verify people.
+- **Staff** badge: the official Guts account can make other people Staff.
+  Staff can verify people too (their Verified badges carry their own signed
+  Staff badge, so everyone can check them).
 - **Catalog items** are signed files in the `catalog` folder. The app ignores
   any item the staff account didn't sign. Each item is free or has a price in
   **Bolts** (see below).
 
+### Guts&Bolts server (storing things online)
+
+To keep everyone's accounts, Bolts, badges and uploads in one place, run the
+**Guts&Bolts server** on a computer:
+
+1. **Start it.** Double-click `tools/Start Server.bat` (Windows) or
+   `tools/Start Server.command` (Mac), or run `python3 install.py --server`.
+   A window opens and says which address and port (7780) it's on. Keep that
+   window open while people play. Everything it stores goes in the
+   `server_data` folder; back that folder up to keep it safe.
+2. **Connect the apps.** On the site, click the server button on the banner
+   (on phones, **Offline** in the nav bar). In Studio, use **File >
+   Guts&Bolts Server...**. Type the server's address, like `192.168.1.20`
+   (same Wi-Fi) or `myserver.com:7780`, and click **Connect**. Leave it empty
+   to play offline.
+3. **Let friends outside your house connect** (optional). Either forward port
+   7780 on your router to the server computer and give friends your public
+   IP, or run the server on a rented Linux server (a "VPS") and give out its
+   address. On Linux you can also run `GutsAndBoltsServer --data /path/to/data`
+   directly (`--port`, `--name "My Server"` and `--official <staff account ID>`
+   work too).
+
+The staff account is found automatically on the computer where you set it up.
+On another computer, start the server once with `--official <your account ID>`
+(it remembers it in `server_data/server.json`).
+
+**What the server keeps:**
+
+- **Accounts:** names, badges (Verified, Staff...), and a Bolts balance with
+  its history.
+- **Uploads:**
+  - hats, shirts and pants (the online **Catalog**);
+  - audio (in Studio's **Marketplace**; sounds play as `gb:<id>`);
+  - **plugins** (Studio's Marketplace);
+  - **games** (Studio's **File > Publish to Guts&Bolts**; they show up under
+    **Online Games** on the site's home page).
+- **Who owns what.**
+
+On the site, the **Create** page uploads hats, shirts, pants, audio and
+plugins:
+
+- **Verified creators:** free, with no limit. They can set a price, and they
+  get 70% of every sale.
+- **Everyone else:** a small fee (10 Bolts for clothes, 20 for audio and
+  plugins), 5 uploads a day, and everything they make is free.
+
+The **Staff** page gets a server section where you can search for people and
+**Verify** / **Unverify** them with one click. The official account can also
+make people **Staff**, give or take Bolts, and ban.
+
+Every request the apps send is signed with the player's account key, so the
+server always knows who is asking. Nobody can spend someone else's Bolts or
+pretend to be staff. The server doesn't use encryption (TLS), so treat
+everything on it as public: don't upload anything secret.
+
 ### Bolts (the currency)
+
+(With a server, your Bolts live on the server instead, and everything below
+works the same, just online.)
 
 **Bolts** are the Guts&Bolts currency, like Robux on the old Roblox site. Your
 balance shows in the top-right of the site; click it (or **Bolts** in the nav

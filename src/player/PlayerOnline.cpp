@@ -15,6 +15,7 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <ctime>
 #include <fstream>
