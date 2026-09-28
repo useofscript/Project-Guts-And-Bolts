@@ -2,6 +2,7 @@
 /build/
 *.exe
 *.obj
+!assets/models/*.obj
 *.o
 *.a
 *.lib
