@@ -178,6 +178,79 @@ std::string randomHex(int bytes) {
     return toHex(b.data(), b.size());
 }
 
+namespace {
+void writeKey(const Keys& k) {
+    std::error_code ec;
+    fs::create_directories(folder(), ec);
+    std::ofstream out(keyFile(), std::ios::trunc);
+    if (out) out << toHex(k.secret, 64) << "\n";
+    out.close();
+#ifndef _WIN32
+    fs::permissions(keyFile(), fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace, ec);
+#endif
+}
+} // namespace
+
+bool passwordKeys(const std::string& password, const std::string& saltHex, std::string& lockKeyHex, std::string& authHex) {
+    uint8_t salt[16];
+    if (password.empty() || !fromHex(saltHex, salt, 16)) return false;
+    // Argon2id, 32 MB, 3 passes: slow enough to make guessing passwords expensive,
+    // quick enough for a phone.
+    crypto_argon2_config cfg = {CRYPTO_ARGON2_ID, 32 * 1024, 3, 1};
+    std::vector<uint8_t> work((size_t)cfg.nb_blocks * 1024);
+    crypto_argon2_inputs in = {reinterpret_cast<const uint8_t*>(password.data()), salt, (uint32_t)password.size(), 16};
+    uint8_t out[64];
+    crypto_argon2(out, 64, work.data(), cfg, in, crypto_argon2_no_extras);
+    lockKeyHex = toHex(out, 32);
+    authHex = toHex(out + 32, 32);
+    crypto_wipe(out, 64);
+    crypto_wipe(work.data(), work.size());
+    return true;
+}
+
+std::string backupKey(const std::string& lockKeyHex) {
+    uint8_t key[32], nonce[24], mac[16], cipher[64];
+    if (!fromHex(lockKeyHex, key, 32) || !osRandom(nonce, 24)) return "";
+    crypto_aead_lock(cipher, mac, key, nonce, nullptr, 0, keys().secret, 64);
+    crypto_wipe(key, 32);
+    return toHex(nonce, 24) + toHex(mac, 16) + toHex(cipher, 64);
+}
+
+bool restoreKey(const std::string& lockKeyHex, const std::string& blobHex) {
+    uint8_t key[32], nonce[24], mac[16], cipher[64];
+    if (blobHex.size() != (24 + 16 + 64) * 2 || !fromHex(lockKeyHex, key, 32) ||
+        !fromHex(blobHex.substr(0, 48), nonce, 24) || !fromHex(blobHex.substr(48, 32), mac, 16) ||
+        !fromHex(blobHex.substr(80), cipher, 64))
+        return false;
+    Keys k;
+    bool ok = crypto_aead_unlock(k.secret, mac, key, nonce, nullptr, 0, cipher, 64) == 0;
+    crypto_wipe(key, 32);
+    if (!ok) return false;
+    std::memcpy(k.pub, k.secret + 32, 32);
+    writeKey(k);
+    Keys& live = keys();
+    std::memcpy(live.secret, k.secret, 64);
+    std::memcpy(live.pub, k.pub, 32);
+    live.id = toHex(k.pub, 32);
+    crypto_wipe(k.secret, 64);
+    return true;
+}
+
+void newKey() {
+    Keys& live = keys();
+    uint8_t seed[32];
+    if (!osRandom(seed, 32)) Log::error("Couldn't get random numbers for your account key.");
+    crypto_eddsa_key_pair(live.secret, live.pub, seed);
+    live.id = toHex(live.pub, 32);
+    writeKey(live);
+}
+
+std::string hashHex(const std::string& data) {
+    uint8_t h[32];
+    crypto_blake2b(h, 32, reinterpret_cast<const uint8_t*>(data.data()), data.size());
+    return toHex(h, 32);
+}
+
 std::string createStaffAccount() {
     const std::string& me = id();
     std::string msg;

@@ -46,6 +46,11 @@ private:
         std::string playDay;   long long playEarned = 0, lastPlay = 0;
         bool        banned = false;
         std::set<std::string> friends, friendIn, friendOut;   // friends; requests to me; requests I sent
+        // Signing up: a username and user number (both never reused), plus the
+        // password-locked backup of their key so they can log in on other devices.
+        std::string username;
+        long long   userId = 0;                  // 0 = hasn't signed up
+        std::string pwSalt, pwHash, keyBlob;     // pwHash = hash of the login token (we never see the password)
     };
     struct Asset {
         std::string id, kind, name, description, creator;
@@ -91,6 +96,12 @@ private:
     // Requests
     nlohmann::json op(const std::string& name, User& me, const nlohmann::json& args);
     nlohmann::json groupOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerGroups.cpp
+    nlohmann::json accountOp(const std::string& name, User& me, const nlohmann::json& args);  // ServerAccounts.cpp
+    void  claimOfficial(User& u);                  // the staff account is user 1, "Guts"
+    User* findUsername(const std::string& username);
+    User* findUserId(long long userId);
+    void  saveIds();
+    void  loadIds();
     nlohmann::json friendOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerFriends.cpp
     nlohmann::json serverOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerRelay.cpp
     nlohmann::json checkRequest(const nlohmann::json& req, User*& me);   // null = fine, else the failure reply
@@ -133,6 +144,9 @@ private:
     std::map<std::string, Asset> m_assets;
     std::map<std::string, Group> m_groups;
     std::map<std::string, Session> m_sessions;
+    long long m_nextUserId = 2;                      // 1 is Guts (the staff account)
+    std::set<std::string> m_takenNames;              // every username ever used (lower case)
+    std::map<std::string, std::vector<long long>> m_failedLogins;   // username -> times of wrong passwords
     std::map<std::string, long long> m_lastPost;     // account -> when they last wrote on a wall
     std::map<std::string, long long> m_seenNonces;   // account+nonce -> when, to stop replays
     bool m_running = false;

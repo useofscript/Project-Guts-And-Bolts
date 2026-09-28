@@ -1,6 +1,7 @@
 #include "Protocol.h"
 #include "../core/Account.h"
 
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <ctime>
@@ -113,6 +114,28 @@ std::string cleanText(const std::string& s, size_t maxLen, bool allowNewlines) {
     size_t start = 0;
     while (start < out.size() && (out[start] == ' ' || out[start] == '\n')) ++start;
     return out.substr(start);
+}
+
+std::string usernameProblem(const std::string& name, bool official) {
+    if (name.size() < 3) return "Usernames need at least 3 characters.";
+    if (name.size() > 20) return "Usernames can be at most 20 characters.";
+    int underscores = 0, digits = 0;
+    for (char c : name) {
+        if (c == '_') ++underscores;
+        else if (c >= '0' && c <= '9') ++digits;
+        else if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+            return "Usernames can only have letters, numbers and _.";
+    }
+    if (underscores > 1) return "Usernames can have only one _.";
+    if (name.front() == '_' || name.back() == '_') return "Usernames can't start or end with _.";
+    if (digits == (int)name.size()) return "Usernames can't be only numbers.";
+    std::string l;
+    for (char c : name) if (c != '_') l += (char)std::tolower((unsigned char)c);
+    if (l == "guts") return official ? "" : "That username belongs to Guts&Bolts staff.";
+    static const char* reserved[] = {"admin", "administrator", "staff", "moderator", "mod", "gutsandbolts",
+                                     "gutsbolts", "official", "system", "server", "roblox", "support", "help"};
+    for (const char* r : reserved) if (l == r) return "That username is reserved.";
+    return "";
 }
 
 long long unixNow() {

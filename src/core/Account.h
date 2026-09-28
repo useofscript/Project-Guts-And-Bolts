@@ -29,6 +29,18 @@ bool        nameIsReserved(const std::string& name);
 std::filesystem::path folder();           // where account.key lives
 std::string           randomHex(int bytes);
 
+// --- Logging in on other devices -------------------------------------------
+// Your password is stretched (Argon2) with a salt into two keys: one locks a
+// copy of your account key (the "backup" the server keeps), the other is a
+// login token the server checks. The password itself never leaves this device,
+// and the server can't unlock the backup.
+bool        passwordKeys(const std::string& password, const std::string& saltHex,
+                         std::string& lockKeyHex, std::string& authHex);
+std::string backupKey(const std::string& lockKeyHex);                       // hex blob
+bool        restoreKey(const std::string& lockKeyHex, const std::string& blobHex);   // becomes this device's key
+void        newKey();                                                       // log out: a fresh, empty account
+std::string hashHex(const std::string& data);                               // BLAKE2b-256, hex
+
 // `--create-staff-account`: make this computer's account the official one.
 // Returns a message explaining what happened / what to do next.
 std::string createStaffAccount();

@@ -121,6 +121,9 @@ json GbServer::checkRequest(const json& req, User*& out) {
     User& me = user(account);
     me.lastSeen = now;
     if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
+    // Everything else needs a signed-up account (hello just says who we are).
+    if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0)
+        return fail("Sign up or log in first.");
     out = &me;
     return nullptr;
 }
@@ -140,7 +143,7 @@ GbServer::User& GbServer::user(const std::string& id) {
     User& u = m_users[id];
     u.id = id;
     u.created = Online::unixNow();
-    add(u, 100, "Welcome to Guts&Bolts!", "welcome");
+    claimOfficial(u);   // (the welcome Bolts come with signing up)
     log("new account " + id.substr(0, 8));
     return u;
 }
@@ -183,13 +186,15 @@ bool GbServer::isVerified(const User& u) const {
 }
 
 json GbServer::publicUser(const User& u) const {
-    return {{"id", u.id}, {"name", u.name}, {"verified", isVerified(u)}, {"staff", isStaff(u)},
+    return {{"id", u.id}, {"name", u.name}, {"username", u.username}, {"userId", u.userId},
+            {"verified", isVerified(u)}, {"staff", isStaff(u)},
             {"official", isOfficial(u)}, {"created", u.created}, {"banned", u.banned}};
 }
 
 json GbServer::meJson(const User& u) const {
     json j = publicUser(u);
     j["bolts"] = balance(u);
+    j["hasPassword"] = !u.keyBlob.empty();   // can log in on other devices
     json g = json::array();
     for (const auto& [k, s] : u.grants) g.push_back({k, s});
     j["grants"] = g;
@@ -225,6 +230,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     // --- Account -----------------------------------------------------------
     if (name == "hello") {
         std::string n = Online::cleanText(str("name"), 20);
+        if (me.userId > 0) n = me.username;   // signed up: your name is your username
         if (!n.empty()) {
             if (Account::nameIsReserved(n) && !isOfficial(me)) n = "Player";
             me.name = n;
@@ -242,8 +248,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         return r;
     }
     if (name == "profile") {
-        User* u = findUser(str("id"));
-        if (!u) return fail("There's no account with that ID on this server.");
+        std::string want = str("id");
+        User* u = !want.empty() && want.size() < 12 && std::all_of(want.begin(), want.end(), ::isdigit)
+                      ? findUserId(std::atoll(want.c_str())) : findUser(want);   // user number or account key
+        if (!u || u->userId == 0) return fail("There's no account with that ID on this server.");
         json r = okay();
         r["user"] = publicUser(*u);
         r["user"]["badges"] = badgesOf(*u);
@@ -265,14 +273,19 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name == "users.search") {
         // Anyone can look people up by name (or the start of their account ID).
         std::string q = lower(Online::cleanText(str("query"), 64));
-        // No name typed: show who's been around lately.
+        if (!q.empty() && q[0] == '#') q.erase(0, 1);            // "#12" = user 12
+        if (!q.empty() && q[0] == '@') q.erase(0, 1);            // "@name" = username
+        long long wantId = !q.empty() && q.size() < 12 && std::all_of(q.begin(), q.end(), ::isdigit) ? std::atoll(q.c_str()) : -1;
+        // No name typed: show who's been around lately. Only signed-up accounts show up.
         std::vector<const User*> found;
         for (const auto& [id, u] : m_users)
-            if (!u.banned && (q.empty() || lower(u.name).find(q) != std::string::npos || (q.size() >= 6 && id.rfind(q, 0) == 0)))
+            if (!u.banned && u.userId > 0 &&
+                (q.empty() || u.userId == wantId || lower(u.name).find(q) != std::string::npos ||
+                 lower(u.username).find(q) != std::string::npos))
                 found.push_back(&u);
-        // Exact names first, then Verified people, then the most recently seen.
+        // Exact matches first, then Verified people, then the most recently seen.
         std::sort(found.begin(), found.end(), [&](const User* a, const User* b) {
-            bool ea = lower(a->name) == q, eb = lower(b->name) == q;
+            bool ea = lower(a->username) == q || a->userId == wantId, eb = lower(b->username) == q || b->userId == wantId;
             if (ea != eb) return ea;
             bool va = isVerified(*a), vb = isVerified(*b);
             if (va != vb) return va;
@@ -285,6 +298,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         json r = okay(); r["users"] = list; return r;
     }
+    if (name.rfind("account.", 0) == 0) return accountOp(name, me, args);
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
     if (name.rfind("friends.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
@@ -548,7 +562,9 @@ void GbServer::saveUsers() {
         all[id] = {{"name", u.name}, {"created", u.created}, {"lastSeen", u.lastSeen}, {"ledger", ledger},
                    {"grants", u.grants}, {"owned", u.owned}, {"uploadDay", u.uploadDay}, {"uploadsToday", u.uploadsToday},
                    {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned},
-                   {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut}};
+                   {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut},
+                   {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
+                   {"keyBlob", u.keyBlob}};
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -587,6 +603,11 @@ void GbServer::load() {
                 u.playEarned = j.value("playEarned", 0LL);
                 u.lastPlay = j.value("lastPlay", 0LL);
                 u.banned = j.value("banned", false);
+                u.username = j.value("username", std::string());
+                u.userId = j.value("userId", 0LL);
+                u.pwSalt = j.value("pwSalt", std::string());
+                u.pwHash = j.value("pwHash", std::string());
+                u.keyBlob = j.value("keyBlob", std::string());
                 for (const char* k : {"friends", "friendIn", "friendOut"}) {
                     std::set<std::string>& set = std::string(k) == "friends" ? u.friends : std::string(k) == "friendIn" ? u.friendIn : u.friendOut;
                     if (j.contains(k) && j[k].is_array())
@@ -615,6 +636,7 @@ void GbServer::load() {
             }
     }
     loadGroups();
+    loadIds();
     log("loaded " + std::to_string(m_users.size()) + " accounts, " + std::to_string(m_assets.size()) + " uploads and " +
         std::to_string(m_groups.size()) + " groups from " + m_opts.data.string());
 }

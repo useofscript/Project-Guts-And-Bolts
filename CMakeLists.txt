@@ -280,7 +280,7 @@ endif()
 if(GB_MOBILE)
     # Phones and tablets get the Player only. On Android it's a library that
     # SDL's Java activity loads (it must be called "main").
-    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/PlayerFriends.cpp)
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp)
     if(ANDROID)
         add_library(main SHARED ${PLAYER_SOURCES})
         target_link_libraries(main PRIVATE gb_engine)
@@ -336,6 +336,7 @@ set(PLAYER_SOURCES
     src/player/PlayerOnline.cpp
     src/player/PlayerSocial.cpp
     src/player/PlayerFriends.cpp
+    src/player/PlayerLogin.cpp
 )
 if(WIN32)
     list(APPEND PLAYER_SOURCES resources/app.rc)
@@ -351,6 +352,7 @@ add_executable(GutsAndBoltsServer
     src/server/Server.cpp
     src/server/ServerGroups.cpp
     src/server/ServerFriends.cpp
+    src/server/ServerAccounts.cpp
     src/server/ServerRelay.cpp
     src/online/Protocol.cpp
     src/core/Account.cpp

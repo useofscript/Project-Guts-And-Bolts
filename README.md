@@ -407,6 +407,31 @@ The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also
 make people **Staff**, give or take Bolts, and ban.
 
+### Signing up and logging in
+
+When you connect to a Guts&Bolts server, the site asks you to **Sign Up** or
+**Log In** first (or you can press *Play offline instead*).
+
+- **Usernames** are one of a kind and can never be used again, not even after
+  someone's banned. They're 3-20 letters and numbers with at most one `_`.
+  Online, your name everywhere (games, chat, the site) is your username, so
+  nobody can pretend to be you.
+- **User numbers** count up: the first person to sign up is #2, then #3, and so
+  on. A number is never given out twice.
+- **User #1 is Guts**, the official staff account. On the staff computer,
+  open *Avatar > Your account > Set a password* (username `Guts`) so you can
+  log in as Guts on your other devices too.
+- Search for people by name, `@username` or `#number`.
+- **Log out** is on the Avatar page (under *Your account*).
+
+How logging in works, and why your password stays safe: your account is a
+secret key on your device. When you sign up, the app locks a copy of that key
+with your password and stores the locked copy on the server. Logging in on
+another device downloads the copy and unlocks it there. The password itself
+never leaves your device. The server only gets a scrambled token made from
+it, so it can't unlock your key. After 5 wrong passwords, that username is
+locked for 10 minutes. If you forget your password, nobody can get it back.
+
 ### Friends and servers (no IP addresses)
 
 Online games go **through the Guts&Bolts server**. Someone's computer still

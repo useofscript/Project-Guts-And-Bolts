@@ -40,6 +40,7 @@ struct PlayerOptions {
     bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
     bool        privateServer = false; // --private-server (with a game): start a private server once online
     std::string joinCode;              // --join-code <code>: join a private server once online
+    std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,
@@ -51,7 +52,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends, Login };
     // How a game is started: alone, or as the host of a server.
     enum class HostMode { Solo, Lan, Public, Private };
     using Starter = std::function<void(HostMode)>;   // loads the game (downloading it if needed) and starts it
@@ -105,6 +106,13 @@ private:
     void drawAccount();
     void drawNotice();
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
+
+    // Sign up / log in — PlayerLogin.cpp
+    bool needsLogin() const;
+    void drawLogin();
+    void signUp(const std::string& username, const std::string& password);
+    void logIn(const std::string& username, const std::string& password);
+    void logOut();
 
     // Friends and servers — PlayerFriends.cpp
     void drawFriends();
@@ -208,6 +216,13 @@ private:
     std::string    m_newGroupName, m_newGroupDesc, m_wallInput, m_shoutInput, m_editDesc;
     glm::vec3      m_newGroupColor{0.23f, 0.48f, 0.84f};
     bool           m_newGroupOpen = true, m_editingGroup = false;
+
+    // Sign up / log in
+    int            m_loginTab = 0;                 // Sign Up / Log In
+    std::string    m_loginUser, m_loginPass, m_loginPass2, m_loginMsg;
+    nlohmann::json m_nameCheck = nlohmann::json::object();   // is the typed username free?
+    double         m_nameCheckAt = 0.0;
+    bool           m_playOffline = false;          // "Play offline instead"
 
     // Friends and servers
     nlohmann::json m_friends = nlohmann::json::object();   // friends.list reply

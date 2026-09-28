@@ -139,7 +139,10 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
                 if (shown.contains("data")) shown["data"] = "(" + std::to_string(shown["data"].get<std::string>().size()) + " base64 chars)";
                 if (shown.contains("me")) shown["me"] = {{"name", r["me"].value("name", "")}, {"bolts", r["me"].value("bolts", 0)},
                                                          {"verified", r["me"].value("verified", false)},
-                                                         {"staff", r["me"].value("staff", false)}};
+                                                         {"staff", r["me"].value("staff", false)},
+                                                         {"username", r["me"].value("username", "")},
+                                                         {"userId", r["me"].value("userId", 0)},
+                                                         {"hasPassword", r["me"].value("hasPassword", false)}};
                 std::printf("ONLINE %s -> %s\n", op.c_str(), shown.dump().substr(0, 600).c_str());
                 std::fflush(stdout);
             });
@@ -170,6 +173,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "people") m_page = Page::People;
     if (m_opts.page == "groups") m_page = Page::Groups;
     if (m_opts.page == "friends") m_page = Page::Friends;
+    if (m_opts.page == "login") { m_page = Page::Login; m_loginTab = 1; }
     if (m_opts.page.rfind("servers:", 0) == 0 && !m_games.empty()) {   // tests: a game's Servers window
         m_selected = std::clamp(std::atoi(m_opts.page.c_str() + 8), 0, (int)m_games.size() - 1);
         m_page = Page::GameInfo;
@@ -376,6 +380,15 @@ void PlayerApp::frame(float dt) {
         const GameCard& g = m_games[m_selected];
         openServers("local:" + g.path.stem().string(), g.info.title, localStarter(g.path));
     }
+    if (Online::online() && (!m_opts.testSignup.empty() || !m_opts.testLogin.empty())) {   // tests
+        std::string& t = m_opts.testSignup.empty() ? m_opts.testLogin : m_opts.testSignup;
+        bool signup = !m_opts.testSignup.empty();
+        size_t colon = t.find(':');
+        std::string user = t.substr(0, colon), pass = colon == std::string::npos ? "" : t.substr(colon + 1);
+        t.clear();
+        if (signup) { m_loginUser = user; signUp(user, pass); }
+        else        { m_loginUser = user; m_loginTab = 1; logIn(user, pass); }
+    }
     if (!m_autoStarted && Online::online()) {   // test options that need the server first
         if (m_opts.onlinePlay && !m_opts.game.empty()) {
             m_autoStarted = true;
@@ -429,7 +442,8 @@ void PlayerApp::frame(float dt) {
         if (m_page != Page::Home && !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
             ImGui::IsKeyPressed(ImGuiKey_Escape, false))
             m_page = Page::Home;
-        switch (m_page) {
+        if (needsLogin()) drawLogin();   // online but not signed up: that comes first
+        else switch (m_page) {
             case Page::Home:     drawHome(); break;
             case Page::Games:    drawGames(); break;
             case Page::Avatar:   drawAvatar(dt); break;
@@ -443,6 +457,7 @@ void PlayerApp::frame(float dt) {
             case Page::Groups:   drawGroups(); break;
             case Page::Group:    drawGroup(); break;
             case Page::Friends:  drawFriends(); break;
+            case Page::Login:    drawLogin(); break;
             default: break;
         }
         Classic::popLight();
@@ -908,12 +923,20 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::TextDisabled("This is how you look in every game.");
     ImGui::Spacing();
 
-    ImGui::SetNextItemWidth(260);
-    if (!ImGui::IsAnyItemActive() && m_nameEdit != me.name && m_nameError.empty()) m_nameEdit = me.name;
-    if (ImGui::InputText("Display name", &m_nameEdit) && m_nameEdit.size() > 20) m_nameEdit.resize(20);
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        if (me.rename(m_nameEdit, m_nameError)) m_nameError.clear();
-        else m_nameEdit = me.name;
+    const bool signedUp = Online::online() && Online::me().value("userId", 0LL) > 0;
+    if (signedUp) {   // online, your name is your username (one of a kind, so nobody can pretend to be you)
+        ImGui::Text("Name: %s", me.name.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(your username)");
+    }
+    if (!signedUp) {   // playing offline: call yourself what you like
+        ImGui::SetNextItemWidth(260);
+        if (!ImGui::IsAnyItemActive() && m_nameEdit != me.name && m_nameError.empty()) m_nameEdit = me.name;
+        if (ImGui::InputText("Display name", &m_nameEdit) && m_nameEdit.size() > 20) m_nameEdit.resize(20);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            if (me.rename(m_nameEdit, m_nameError)) m_nameError.clear();
+            else m_nameEdit = me.name;
+        }
     }
     if (!m_nameError.empty()) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_nameError.c_str());
 
@@ -1273,6 +1296,28 @@ void PlayerApp::drawAccount() {
     }
 
     ImGui::SeparatorText("Your account");
+    if (Online::online() && Online::me().value("userId", 0LL) > 0) {
+        const nlohmann::json& om = Online::me();
+        ImGui::Text("Logged in as @%s", om.value("username", std::string()).c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(user #%lld)", om.value("userId", 0LL));
+        if (om.value("hasPassword", false)) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Log out")) ImGui::OpenPopup("##logout");
+            if (ImGui::BeginPopup("##logout")) {
+                ImGui::TextUnformatted("Log out of this device? You can log back in with your username and password.");
+                if (ImGui::Button("Yes, log out")) { ImGui::CloseCurrentPopup(); logOut(); }
+                ImGui::EndPopup();
+            }
+        } else {
+            ImGui::TextColored(ImVec4(0.75f, 0.45f, 0.0f, 1), "No password yet, so you can only use this account on this device.");
+            if (Classic::button("Set a password", Classic::kBlue)) {
+                m_page = Page::Login;
+                m_loginTab = 0;
+                m_loginUser = om.value("username", std::string());
+            }
+        }
+    }
     ImGui::Text("Account ID: %s...", Account::shortId().c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy full ID")) ImGui::SetClipboardText(Account::id().c_str());

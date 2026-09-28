@@ -104,6 +104,11 @@ bool owns(const std::string& id) {
 void takeMe(const json& reply) {
     if (!reply.contains("me") || !reply["me"].is_object()) return;
     S().me = reply["me"];
+    // Signed up: your name everywhere (games, chat) is your username.
+    if (std::string u = S().me.value("username", std::string()); !u.empty() && Profile::get().name != u) {
+        Profile::get().name = u;
+        Profile::get().save();
+    }
     // Badges the server knows about go into the profile too, so they also show
     // (and can be checked) in multiplayer games.
     if (S().me.contains("grants")) {

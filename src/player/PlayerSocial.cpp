@@ -175,7 +175,8 @@ void PlayerApp::drawProfile() {
     std::time_t tt = (std::time_t)created;
     char since[32];
     std::strftime(since, sizeof(since), "%b %d, %Y", std::localtime(&tt));
-    ImGui::TextDisabled("Joined %s  -  ID %s...", since, id.substr(0, 8).c_str());
+    ImGui::TextDisabled("@%s  -  User #%lld  -  Joined %s", u.value("username", std::string()).c_str(),
+                        u.value("userId", 0LL), since);
     if (u.value("banned", false)) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "This account is banned.");
     ImGui::EndGroup();
     ImGui::SetCursorScreenPos(ImVec2(p.x, std::max(p.y + 104, ImGui::GetItemRectMax().y + 8)));

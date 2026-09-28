@@ -54,6 +54,11 @@ bool        base64Decode(const std::string& text, std::string& bytes);
 // Names and descriptions: printable text only, trimmed, at most `maxLen` characters.
 std::string cleanText(const std::string& s, size_t maxLen, bool allowNewlines = false);
 
+// Usernames: 3-20 letters, numbers or one underscore (not at the ends), not
+// all numbers, and not one of the reserved names. "" if it's fine.
+std::string usernameProblem(const std::string& name, bool official = false);
+inline constexpr size_t kMinPassword = 8;
+
 long long   unixNow();
 std::string utcDay(long long t);    // "2026-09-28"
 
