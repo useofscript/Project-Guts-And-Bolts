@@ -5,6 +5,8 @@
 #include "../../core/Audio.h"
 
 #include <imgui.h>
+#include <algorithm>
+#include <cctype>
 #include <misc/cpp/imgui_stdlib.h>
 
 PropertiesPanel::PropertiesPanel(Scene* scene, std::function<void(SceneNode*)> openScript)
@@ -31,6 +33,12 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
+    renderProperties(node);
+    if (node != m_scene->root()) renderAttributes(node);
+    ImGui::End();
+}
+
+void PropertiesPanel::renderProperties(SceneNode* node) {
     // --- Name ---
     ImGui::BeginDisabled(m_scene->isProtected(node));
     ImGui::InputText("Name", &node->name);
@@ -45,7 +53,6 @@ void PropertiesPanel::render() {
         ImGui::TextDisabled("Runs when you press Play.");
         ImGui::TextDisabled("Inside the code, 'script.Parent' is the");
         ImGui::TextDisabled("object this script is inside of.");
-        ImGui::End();
         return;
     }
 
@@ -70,7 +77,6 @@ void PropertiesPanel::render() {
             else preview = Audio::play(node->soundId, node->volume, node->pitch, false);
         }
         ImGui::TextDisabled("Scripts: script.Parent:Play()  /  Sounds.Play(\"coin\")");
-        ImGui::End();
         return;
     }
 
@@ -79,7 +85,6 @@ void PropertiesPanel::render() {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where on the part (in the part's own space)");
         ImGui::DragFloat3("Rotation", &node->transform.rotation.x, 0.5f);
         ImGui::TextDisabled("Its red (X) direction is the hinge axis.");
-        ImGui::End();
         return;
     }
     if (node->isConstraint()) {
@@ -114,7 +119,6 @@ void PropertiesPanel::render() {
             ImGui::ColorEdit3("Color", &node->color.x);
             ImGui::SliderFloat("Thickness", &node->thickness, 0.02f, 1.0f);
         }
-        ImGui::End();
         return;
     }
 
@@ -133,7 +137,6 @@ void PropertiesPanel::render() {
         }
         ImGui::DragFloat3("Offset", &node->transform.position.x, 0.05f);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Position relative to the part it's inside");
-        ImGui::End();
         return;
     }
 
@@ -141,7 +144,6 @@ void PropertiesPanel::render() {
         ImGui::Separator();
         ImGui::TextDisabled("The Workspace holds everything in your game.");
         ImGui::DragFloat("Gravity", &m_scene->world().gravity, 0.1f, 0.0f, 200.0f);
-        ImGui::End();
         return;
     }
 
@@ -162,7 +164,6 @@ void PropertiesPanel::render() {
     }
 
     if (node->kind != NodeKind::Part) {
-        ImGui::End();
         return;
     }
 
@@ -223,6 +224,88 @@ void PropertiesPanel::render() {
             if (m_openScript) m_openScript(raw);
         }
     }
+}
 
-    ImGui::End();
+// Roblox-style Attributes (your own named values) and Tags, for any object.
+void PropertiesPanel::renderAttributes(SceneNode* node) {
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Attributes", ImGuiTreeNodeFlags_DefaultOpen)) {
+        int remove = -1;
+        for (size_t i = 0; i < node->attributes.size(); ++i) {
+            Attribute& a = node->attributes[i];
+            ImGui::PushID((int)i);
+            if (ImGui::SmallButton("x")) remove = (int)i;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this attribute");
+            ImGui::SameLine();
+            switch (a.type) {
+                case Attribute::Bool:    ImGui::Checkbox(a.name.c_str(), &a.b); break;
+                case Attribute::Number:  ImGui::InputDouble(a.name.c_str(), &a.n, 1.0, 10.0, "%g"); break;
+                case Attribute::String:  ImGui::InputText(a.name.c_str(), &a.s); break;
+                case Attribute::Vector3: ImGui::DragFloat3(a.name.c_str(), &a.v.x, 0.05f); break;
+                case Attribute::Color3:  ImGui::ColorEdit3(a.name.c_str(), &a.v.x); break;
+            }
+            ImGui::PopID();
+        }
+        if (remove >= 0) node->attributes.erase(node->attributes.begin() + remove);
+        if (node->attributes.empty()) ImGui::TextDisabled("Scripts read these with obj:GetAttribute(\"Name\").");
+
+        if (ImGui::Button("+ Add Attribute", ImVec2(-1, 0))) {
+            m_newAttrName.clear();
+            m_newAttrError.clear();
+            ImGui::OpenPopup("Add Attribute");
+        }
+        if (ImGui::BeginPopup("Add Attribute")) {
+            static const char* kTypes[] = {"Boolean", "Number", "String", "Vector3", "Color3"};
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            bool enter = ImGui::InputTextWithHint("Name", "e.g. Damage", &m_newAttrName,
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::Combo("Type", &m_newAttrType, kTypes, 5);
+            if (!m_newAttrError.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", m_newAttrError.c_str());
+            if (ImGui::Button("Add") || enter) {
+                bool ok = !m_newAttrName.empty() && m_newAttrName.size() <= 100 && m_newAttrName.rfind("RBX", 0) != 0;
+                for (char c : m_newAttrName) if (!std::isalnum((unsigned char)c) && c != '_') ok = false;
+                if (!ok) m_newAttrError = "Use letters, numbers and _ only.";
+                else if (node->findAttribute(m_newAttrName)) m_newAttrError = "There's already one called that.";
+                else {
+                    Attribute a;
+                    a.name = m_newAttrName;
+                    a.type = (Attribute::Type)m_newAttrType;
+                    if (a.type == Attribute::Color3) a.v = glm::vec3(1.0f);
+                    node->attributes.push_back(a);
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Tags", ImGuiTreeNodeFlags_DefaultOpen)) {
+        int remove = -1;
+        float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        for (size_t i = 0; i < node->tags.size(); ++i) {
+            ImGui::PushID((int)i);
+            std::string chip = node->tags[i] + "  x";
+            float w = ImGui::CalcTextSize(chip.c_str()).x + ImGui::GetStyle().FramePadding.x * 2;
+            if (i > 0) {
+                ImGui::SameLine();
+                if (ImGui::GetCursorScreenPos().x + w > right) ImGui::NewLine();
+            }
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.44f, 0.72f, 1.0f));
+            if (ImGui::SmallButton(chip.c_str())) remove = (int)i;
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to remove this tag");
+            ImGui::PopID();
+        }
+        if (remove >= 0) node->tags.erase(node->tags.begin() + remove);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputTextWithHint("##newtag", "+ Add tag (press Enter)", &m_newTag, ImGuiInputTextFlags_EnterReturnsTrue)) {
+            if (!m_newTag.empty() && std::find(node->tags.begin(), node->tags.end(), m_newTag) == node->tags.end())
+                node->tags.push_back(m_newTag);
+            m_newTag.clear();
+            ImGui::SetKeyboardFocusHere(-1);
+        }
+        if (node->tags.empty()) ImGui::TextDisabled("Find tagged things with CollectionService:GetTagged(\"Tag\").");
+    }
 }

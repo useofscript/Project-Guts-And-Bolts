@@ -201,6 +201,12 @@ What you can use:
   `Friction`, `Elasticity`, and constraint properties such as `rope.Length` or `hinge.AngularVelocity`
 - **Sound:** `Sounds.Play("coin", position)` (built in: jump, coin, oof, explosion, splat, click, hit, win,
   boing, spawn) or a Sound object with `:Play()` / `:Stop()`
+- **Attributes:** `obj:SetAttribute("Damage", 25)`, `obj:GetAttribute("Damage")`, `obj:GetAttributes()`,
+  `obj.AttributeChanged`, `obj:GetAttributeChangedSignal("Damage")` (you can also add them in the
+  **Attributes** section of the Properties panel)
+- **Tags:** `obj:AddTag("Lava")`, `:HasTag`, `:RemoveTag`, `:GetTags`, and `CollectionService:GetTagged("Lava")`,
+  `:GetInstanceAddedSignal("Lava")` / `:GetInstanceRemovedSignal` (or add tags in the Properties panel)
+- **Modules:** `require(workspace.MyModule)` runs a ModuleScript once and hands back what it returns
 - **Game rules:** `workspace.Gravity`, `workspace.DeathStyle = "Classic" | "Ragdoll"`, `workspace.Gore = "Off" | "Oil" | "Blood"`
 
 `script:Destroy()` or `script.Disabled = true` stops a script (and all of its

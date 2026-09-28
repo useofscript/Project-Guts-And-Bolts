@@ -40,6 +40,8 @@ public:
     void fireTouched(uint64_t partId, uint64_t otherId);
     void fireClicked(uint64_t partId);
     void fireDied(uint64_t characterRootId);
+    void fireAttributeChanged(uint64_t id, const std::string& name);
+    void fireTag(bool added, uint64_t id, const std::string& tag);
     // Multiplayer: other players joining / leaving (Players.PlayerAdded etc.).
     void addPlayer(const std::string& name, uint64_t characterRootId, int userId);
     void removePlayer(const std::string& name);

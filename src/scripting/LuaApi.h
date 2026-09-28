@@ -21,6 +21,9 @@ enum class SignalKind : int {
     Died,          // Humanoid.Died                   ()   (id = character)
     PlayerAdded,   // Players.PlayerAdded             (player)
     PlayerRemoving,// Players.PlayerRemoving          (player)
+    AttributeChanged, // obj.AttributeChanged         (name)
+    TagAdded,      // CollectionService (id 0)        (object, tag)
+    TagRemoved,    // CollectionService (id 0)        (object, tag)
 };
 
 namespace LuaApi {
@@ -34,6 +37,7 @@ glm::vec3* toVector3  (lua_State* L, int idx);            // null if not a Vecto
 glm::vec3  checkVector3(lua_State* L, int idx);
 void       pushColor3 (lua_State* L, const glm::vec3& c);
 glm::vec3  checkColor3(lua_State* L, int idx);
+glm::vec3* toColor3   (lua_State* L, int idx);            // null if not a Color3
 void       pushCFrame (lua_State* L, const glm::mat4& m);
 glm::mat4* toCFrame   (lua_State* L, int idx);
 glm::mat4  checkCFrame(lua_State* L, int idx);

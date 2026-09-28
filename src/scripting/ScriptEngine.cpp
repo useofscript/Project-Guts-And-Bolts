@@ -66,8 +66,63 @@ UserInputService = { InputBegan = __gb_inputBegan, InputEnded = __gb_inputEnded 
 local isKeyDown = __gb_isKeyDown
 function UserInputService:IsKeyDown(key) return isKeyDown(key) end
 
+-- An event that only passes on some firings: `test` picks them, `out` shapes the arguments.
+local function filtered(sig, test, out)
+    local s = {}
+    function s:Connect(fn)
+        return sig:Connect(function(...) if test(...) then fn(out(...)) end end)
+    end
+    s.connect = s.Connect
+    function s:Once(fn)
+        local c
+        c = sig:Connect(function(...) if test(...) then c:Disconnect() fn(out(...)) end end)
+        return c
+    end
+    function s:Wait()
+        while true do
+            local r = table.pack(sig:Wait())
+            if test(table.unpack(r, 1, r.n)) then return out(table.unpack(r, 1, r.n)) end
+        end
+    end
+    return s
+end
+function __gb_attrSignal(sig, name)
+    return filtered(sig, function(n) return n == name end, function() end)
+end
+
+-- CollectionService: tags on objects (obj:AddTag("Enemy"), CollectionService:GetTagged("Enemy")).
+local tagAdded, tagRemoved = __gb_tagAdded, __gb_tagRemoved
+CollectionService = {}
+function CollectionService:GetTagged(tag)
+    local t = {}
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:HasTag(tag) then table.insert(t, d) end
+    end
+    return t
+end
+function CollectionService:GetAllTags()
+    local seen, t = {}, {}
+    for _, d in ipairs(workspace:GetDescendants()) do
+        for _, tag in ipairs(d:GetTags()) do
+            if not seen[tag] then seen[tag] = true table.insert(t, tag) end
+        end
+    end
+    return t
+end
+function CollectionService:HasTag(obj, tag) return obj:HasTag(tag) end
+function CollectionService:AddTag(obj, tag) obj:AddTag(tag) end
+function CollectionService:RemoveTag(obj, tag) obj:RemoveTag(tag) end
+function CollectionService:GetTags(obj) return obj:GetTags() end
+function CollectionService:GetInstanceAddedSignal(tag)
+    return filtered(tagAdded, function(_, t) return t == tag end, function(o) return o end)
+end
+function CollectionService:GetInstanceRemovedSignal(tag)
+    return filtered(tagRemoved, function(_, t) return t == tag end, function(o) return o end)
+end
+
 local services = { Workspace = workspace, Players = Players, Lighting = Lighting,
-                   RunService = RunService, UserInputService = UserInputService, Gui = Gui }
+                   RunService = RunService, UserInputService = UserInputService, Gui = Gui,
+                   CollectionService = CollectionService }
 game = setmetatable({}, { __index = function(_, name) return services[name] end })
 function game:GetService(name)
     local s = services[name]
@@ -101,7 +156,7 @@ end
 
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName = nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
-__gb_playerAdded, __gb_playerRemoving = nil, nil
+__gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -387,6 +442,8 @@ void ScriptEngine::start(bool runScripts) {
     LuaApi::pushSignal(L, SignalKind::InputEnded, 0); lua_setglobal(L, "__gb_inputEnded");
     LuaApi::pushSignal(L, SignalKind::PlayerAdded, 0);    lua_setglobal(L, "__gb_playerAdded");
     LuaApi::pushSignal(L, SignalKind::PlayerRemoving, 0); lua_setglobal(L, "__gb_playerRemoving");
+    LuaApi::pushSignal(L, SignalKind::TagAdded, 0);       lua_setglobal(L, "__gb_tagAdded");
+    LuaApi::pushSignal(L, SignalKind::TagRemoved, 0);     lua_setglobal(L, "__gb_tagRemoved");
 
     lua_register(L, "Explode", l_explode);
     lua_newtable(L);
@@ -415,6 +472,11 @@ void ScriptEngine::start(bool runScripts) {
         lua_pop(L, 1);
     }
     --m_depth;
+    // obj:GetAttributeChangedSignal(name) is built in Lua (see the prelude).
+    lua_getglobal(L, "__gb_attrSignal");
+    lua_setfield(L, LUA_REGISTRYINDEX, "GB.attrSignal");
+    lua_pushnil(L);
+    lua_setglobal(L, "__gb_attrSignal");
 
     if (!runScripts) return;
     // Collect first, then run: scripts may add or remove objects as they start.
@@ -678,6 +740,18 @@ void ScriptEngine::fireClicked(uint64_t partId) {
 }
 
 void ScriptEngine::fireDied(uint64_t rootId) { fire(SignalKind::Died, rootId, nullptr); }
+
+void ScriptEngine::fireAttributeChanged(uint64_t id, const std::string& name) {
+    fire(SignalKind::AttributeChanged, id, [name](lua_State* co) { lua_pushstring(co, name.c_str()); return 1; });
+}
+
+void ScriptEngine::fireTag(bool added, uint64_t id, const std::string& tag) {
+    fire(added ? SignalKind::TagAdded : SignalKind::TagRemoved, 0, [id, tag](lua_State* co) {
+        LuaApi::pushInstance(co, id);
+        lua_pushstring(co, tag.c_str());
+        return 2;
+    });
+}
 
 void ScriptEngine::addPlayer(const std::string& name, uint64_t rootId, int userId) {
     if (!m_L) return;

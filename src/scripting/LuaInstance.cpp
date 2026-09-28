@@ -11,6 +11,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/euler_angles.hpp>
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -292,6 +294,114 @@ int m_PivotTo(lua_State* L) {
     return 0;
 }
 
+// --- Attributes: obj:SetAttribute("Coins", 5), obj:GetAttribute("Coins") ---
+
+void pushAttribute(lua_State* L, const Attribute& a) {
+    switch (a.type) {
+        case Attribute::Bool:    lua_pushboolean(L, a.b); break;
+        case Attribute::Number:   // whole numbers come back as integers (5, not 5.0)
+            if (a.n == std::floor(a.n) && std::fabs(a.n) < 9e15) lua_pushinteger(L, (lua_Integer)a.n);
+            else lua_pushnumber(L, a.n);
+            break;
+        case Attribute::String:  lua_pushstring(L, a.s.c_str()); break;
+        case Attribute::Vector3: LuaApi::pushVector3(L, a.v); break;
+        case Attribute::Color3:  LuaApi::pushColor3(L, a.v); break;
+    }
+}
+
+int m_GetAttribute(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    const Attribute* a = n->findAttribute(luaL_checkstring(L, 2));
+    if (a) pushAttribute(L, *a); else lua_pushnil(L);
+    return 1;
+}
+
+int m_GetAttributes(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    lua_newtable(L);
+    for (const auto& a : n->attributes) { pushAttribute(L, a); lua_setfield(L, -2, a.name.c_str()); }
+    return 1;
+}
+
+int m_SetAttribute(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    std::string name = luaL_checkstring(L, 2);
+    if (name.empty() || name.size() > 100 || name.rfind("RBX", 0) == 0)
+        return luaL_error(L, "'%s' can't be used as an attribute name", name.c_str());
+    for (char c : name)
+        if (!std::isalnum((unsigned char)c) && c != '_')
+            return luaL_error(L, "Attribute names can only use letters, numbers and _ ('%s')", name.c_str());
+
+    auto it = std::find_if(n->attributes.begin(), n->attributes.end(), [&](const Attribute& a) { return a.name == name; });
+    if (lua_isnoneornil(L, 3)) {                 // SetAttribute(name, nil) removes it
+        if (it == n->attributes.end()) return 0;
+        n->attributes.erase(it);
+        E(L)->fireAttributeChanged(n->id, name);
+        return 0;
+    }
+    Attribute v;
+    v.name = name;
+    if (lua_type(L, 3) == LUA_TBOOLEAN)      { v.type = Attribute::Bool;   v.b = lua_toboolean(L, 3); }
+    else if (lua_type(L, 3) == LUA_TNUMBER)  { v.type = Attribute::Number; v.n = lua_tonumber(L, 3); }
+    else if (lua_type(L, 3) == LUA_TSTRING)  { v.type = Attribute::String; v.s = lua_tostring(L, 3); }
+    else if (glm::vec3* p = LuaApi::toVector3(L, 3)) { v.type = Attribute::Vector3; v.v = *p; }
+    else if (glm::vec3* c = LuaApi::toColor3(L, 3))  { v.type = Attribute::Color3;  v.v = *c; }
+    else return luaL_error(L, "Attributes can hold true/false, numbers, text, Vector3 or Color3 (got %s)",
+                           luaL_typename(L, 3));
+    if (it != n->attributes.end()) {
+        const Attribute& o = *it;
+        bool same = o.type == v.type && o.b == v.b && o.n == v.n && o.s == v.s && o.v == v.v;
+        *it = v;
+        if (same) return 0;
+    } else {
+        n->attributes.push_back(v);
+    }
+    E(L)->fireAttributeChanged(n->id, name);
+    return 0;
+}
+
+int m_GetAttributeChangedSignal(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    const char* name = luaL_checkstring(L, 2);
+    lua_getfield(L, LUA_REGISTRYINDEX, "GB.attrSignal");
+    LuaApi::pushSignal(L, SignalKind::AttributeChanged, n->id);
+    lua_pushstring(L, name);
+    lua_call(L, 2, 1);
+    return 1;
+}
+
+// --- Tags: obj:AddTag("Enemy"), obj:HasTag("Enemy") ---
+
+int m_HasTag(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    std::string tag = luaL_checkstring(L, 2);
+    lua_pushboolean(L, std::find(n->tags.begin(), n->tags.end(), tag) != n->tags.end());
+    return 1;
+}
+int m_AddTag(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    std::string tag = luaL_checkstring(L, 2);
+    if (std::find(n->tags.begin(), n->tags.end(), tag) != n->tags.end()) return 0;
+    n->tags.push_back(tag);
+    E(L)->fireTag(true, n->id, tag);
+    return 0;
+}
+int m_RemoveTag(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    std::string tag = luaL_checkstring(L, 2);
+    auto it = std::find(n->tags.begin(), n->tags.end(), tag);
+    if (it == n->tags.end()) return 0;
+    n->tags.erase(it);
+    E(L)->fireTag(false, n->id, tag);
+    return 0;
+}
+int m_GetTags(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    lua_newtable(L);
+    for (size_t i = 0; i < n->tags.size(); ++i) { lua_pushstring(L, n->tags[i].c_str()); lua_rawseti(L, -2, (int)i + 1); }
+    return 1;
+}
+
 const luaL_Reg kMethods[] = {
     {"FindFirstChild", m_FindFirstChild}, {"FindFirstChildOfClass", m_FindFirstChildOfClass},
     {"WaitForChild", m_WaitForChild}, {"GetChildren", m_GetChildren},
@@ -301,6 +411,9 @@ const luaL_Reg kMethods[] = {
     {"GetPivot", m_GetPivot}, {"PivotTo", m_PivotTo}, {"BreakJoints", m_BreakJoints},
     {"Play", m_Play}, {"Stop", m_Stop},
     {"ApplyImpulse", m_ApplyImpulse}, {"ApplyAngularImpulse", m_ApplyAngularImpulse},
+    {"GetAttribute", m_GetAttribute}, {"SetAttribute", m_SetAttribute}, {"GetAttributes", m_GetAttributes},
+    {"GetAttributeChangedSignal", m_GetAttributeChangedSignal},
+    {"HasTag", m_HasTag}, {"AddTag", m_AddTag}, {"RemoveTag", m_RemoveTag}, {"GetTags", m_GetTags},
     {nullptr, nullptr}};
 
 // ===========================================================================
@@ -325,6 +438,7 @@ int inst_index(lua_State* L) {
 
     if (is(k, "Name"))      { lua_pushstring(L, n->name.c_str()); return 1; }
     if (is(k, "ClassName")) { lua_pushstring(L, className(L, n)); return 1; }
+    if (is(k, "AttributeChanged")) { LuaApi::pushSignal(L, SignalKind::AttributeChanged, n->id); return 1; }
     if (n->isAttachment()) {
         if (is(k, "Position"))      { LuaApi::pushVector3(L, n->transform.position); return 1; }
         if (is(k, "WorldPosition")) { LuaApi::pushVector3(L, worldPosition(n)); return 1; }

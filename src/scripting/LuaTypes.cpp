@@ -294,6 +294,7 @@ namespace LuaApi {
 
 void pushVector3(lua_State* L, const glm::vec3& v) { newUd(L, kVec, v); }
 glm::vec3* toVector3(lua_State* L, int idx) { return static_cast<glm::vec3*>(luaL_testudata(L, idx, kVec)); }
+glm::vec3* toColor3(lua_State* L, int idx) { return static_cast<glm::vec3*>(luaL_testudata(L, idx, kColor)); }
 glm::vec3 checkVector3(lua_State* L, int idx) {
     if (auto* v = toVector3(L, idx)) return *v;
     luaL_typeerror(L, idx, "Vector3");

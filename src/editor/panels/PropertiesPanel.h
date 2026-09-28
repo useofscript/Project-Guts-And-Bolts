@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <string>
 
 class Scene;
 class SceneNode;
@@ -11,6 +12,11 @@ public:
     void render();
 
 private:
+    void renderProperties(SceneNode* node);
+    void renderAttributes(SceneNode* node);   // Attributes + Tags
+
+    std::string m_newAttrName, m_newAttrError, m_newTag;
+    int         m_newAttrType = 1;             // Number
     Scene*                          m_scene;
     std::function<void(SceneNode*)> m_openScript;
 };
