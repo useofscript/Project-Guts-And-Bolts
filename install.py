@@ -123,16 +123,28 @@ class Installer:
 
     # -- helpers --------------------------------------------------------------
 
+    def find(self, program):
+        """The full path of a program, looking in the folders we added (MSYS2, Homebrew, pip...)."""
+        p = str(program)
+        if os.path.dirname(p):
+            return p
+        return shutil.which(p, path=self.env.get("PATH")) or p
+
     def run(self, cmd, cwd=None, input_text=None, check=True):
         """Run a command, streaming its output into the log."""
         self.ui.log("$ " + " ".join(str(c) for c in cmd))
+        # Windows only looks for programs in *this* program's PATH, not the one we
+        # hand the new process, so tools we just installed (like MSYS2's cmake)
+        # wouldn't be found. Use their full paths instead.
+        cmd = [self.find(cmd[0])] + [str(c) for c in cmd[1:]]
         try:
-            p = subprocess.Popen([str(c) for c in cmd], cwd=cwd, env=self.env,
+            p = subprocess.Popen(cmd, cwd=cwd, env=self.env,
                                  stdin=subprocess.PIPE if input_text else subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, errors="replace")
         except FileNotFoundError:
-            raise InstallError(f"Couldn't find the program '{cmd[0]}'.")
+            raise InstallError(f"Couldn't find the program '{Path(cmd[0]).name}'. "
+                               "Try restarting your computer and running the installer again.")
         if input_text:
             p.stdin.write(input_text)
             p.stdin.close()
@@ -325,10 +337,27 @@ class Installer:
 
     # -- 3. build -------------------------------------------------------------
 
+    def pip_tools(self):
+        """Last resort: CMake and Ninja from Python's own package installer (works on every system)."""
+        self.ui.log("CMake wasn't found, so installing it with Python's pip instead...")
+        self.run([sys.executable, "-m", "pip", "install", "--user", "--upgrade", "cmake", "ninja"], check=False)
+        import sysconfig
+        folders = []
+        try:
+            folders.append(sysconfig.get_path("scripts", sysconfig.get_preferred_scheme("user")))
+        except (AttributeError, KeyError):
+            folders.append(sysconfig.get_path("scripts", "nt_user" if os.name == "nt" else "posix_user"))
+        folders.append(sysconfig.get_path("scripts"))
+        folders.append(str(Path(sys.executable).parent / "Scripts"))
+        self.env["PATH"] = os.pathsep.join([f for f in folders if f] + [self.env.get("PATH", "")])
+
     def step_build(self):
         if not self.have("cmake"):
+            self.pip_tools()
+        if not self.have("cmake"):
             raise InstallError("CMake isn't available even after installing the tools. Try restarting "
-                               "your computer and running the installer again.")
+                               "your computer and running the installer again, or install CMake from "
+                               "https://cmake.org/download (tick 'Add CMake to the PATH').")
         generator = ["-G", "Ninja"] if (self.have("ninja") or self.have("ninja-build")) else []
         self.ui.log("Setting up the build (this downloads Dear ImGui, Lua and a few other parts)...")
         self.run(["cmake", "-S", ROOT, "-B", self.build_dir, "-DCMAKE_BUILD_TYPE=Release"]
