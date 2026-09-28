@@ -53,17 +53,22 @@ SceneNode* Player::part(const char* name) const {
 
 void Player::build() {
     if (SceneNode* old = root()) m_scene->removeNode(old);
-
-    // Container node for the whole character (origin at the feet).
-    auto model = std::make_unique<SceneNode>("Player", NodeKind::Model);
-    model->transform.position = m_spawn;
-    SceneNode* r = m_scene->insert(std::move(model));
+    SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
     m_rootId = r->id;
+    setHat(m_hat);
+    m_scene->markDirty();
+}
 
-    auto addPart = [&](SceneNode* parent, const std::string& name, PrimitiveType shape,
+SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::vec3& feet) {
+    // Container node for the whole character (origin at the feet).
+    auto model = std::make_unique<SceneNode>(name, NodeKind::Model);
+    model->transform.position = feet;
+    SceneNode* r = scene.insert(std::move(model));
+
+    auto addPart = [&](SceneNode* parent, const std::string& partName, PrimitiveType shape,
                        glm::vec3 pos, glm::vec3 scale, glm::vec3 col,
                        bool internal = false, bool visible = true) -> SceneNode* {
-        auto node = std::make_unique<SceneNode>(name);
+        auto node = std::make_unique<SceneNode>(partName);
         node->primitiveType      = shape;
         node->mesh               = MeshLibrary::get(shape);
         node->transform.position = pos;
@@ -99,9 +104,8 @@ void Player::build() {
         float z = std::sqrt(std::max(0.0f, 0.25f - x * x)) + 0.01f;
         addPart(head, "Smile", Cube, {x, y, z}, {0.08f, 0.09f, 0.06f}, kBlack, true);
     }
-
-    setHat(m_hat);
-    m_scene->markDirty();
+    scene.markDirty();
+    return r;
 }
 
 glm::vec3 Player::position() const {
@@ -130,11 +134,15 @@ BodyColors Player::bodyColors() const {
 }
 
 void Player::setBodyColors(const BodyColors& c) {
-    auto set = [&](const char* n, glm::vec3 v) { if (SceneNode* p = part(n)) p->color = v; };
+    if (SceneNode* r = root()) applyColors(r, c);
+}
+
+void Player::applyColors(SceneNode* r, const BodyColors& c) {
+    auto set = [&](const char* n, glm::vec3 v) { if (SceneNode* p = r->findChild(n)) p->color = v; };
     set("Head", c.head);      set("Torso", c.torso);
     set("Left Arm", c.leftArm); set("Right Arm", c.rightArm);
     set("Left Leg", c.leftLeg); set("Right Leg", c.rightLeg);
-    if (SceneNode* hrp = part("HumanoidRootPart")) hrp->color = c.torso;
+    set("HumanoidRootPart", c.torso);
 }
 
 std::vector<std::pair<const char*, BodyColors>> Player::colorPresets() {
@@ -164,14 +172,15 @@ const char* Player::hatName(HatStyle s) {
 
 void Player::setHat(HatStyle style) {
     m_hat = style;
-    SceneNode* r = root();
-    if (!r) return;
+    if (SceneNode* r = root()) applyHat(*m_scene, r, style);
+}
 
+void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style) {
     // Remove the old hat pieces.
     std::vector<SceneNode*> old;
     for (auto& c : r->children)
         if (startsWith(c->name, "Hat")) old.push_back(c.get());
-    for (auto* o : old) m_scene->removeNode(o);
+    for (auto* o : old) scene.removeNode(o);
 
     auto add = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale,
                    glm::vec3 col, Material mat = Material::Plastic) {
@@ -201,7 +210,21 @@ void Player::setHat(HatStyle style) {
             break;
         default: break;
     }
-    m_scene->markDirty();
+    scene.markDirty();
+}
+
+CharacterPose Player::capturePose(const SceneNode* r) {
+    CharacterPose pose;
+    pose.root = r->transform;
+    for (auto& c : r->children)
+        if (c->isPart()) pose.parts.push_back({c->name, c->transform});
+    return pose;
+}
+
+void Player::applyPose(SceneNode* r, const CharacterPose& pose) {
+    r->transform = pose.root;
+    for (const auto& [name, t] : pose.parts)
+        if (SceneNode* c = r->findChild(name)) c->transform = t;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,11 +232,14 @@ void Player::setHat(HatStyle style) {
 // ---------------------------------------------------------------------------
 
 namespace {
-// Top of the first visible "SpawnLocation" part, if there is one.
+// A random spot on top of the first visible "SpawnLocation" part (random so
+// players in multiplayer don't all appear inside each other).
 bool findSpawnLocation(SceneNode* node, glm::vec3& out) {
     if (node->name == "SpawnLocation" && node->isPart() && node->visible) {
         AABB b = Physics::worldBounds(node);
-        out = {(b.min.x + b.max.x) * 0.5f, b.max.y + 0.001f, (b.min.z + b.max.z) * 0.5f};
+        glm::vec3 c = (b.min + b.max) * 0.5f;
+        glm::vec3 half = glm::max((b.max - b.min) * 0.5f - glm::vec3(0.6f), glm::vec3(0.0f));
+        out = {c.x + (rand01() * 2 - 1) * half.x, b.max.y + 0.001f, c.z + (rand01() * 2 - 1) * half.z};
         return true;
     }
     for (auto& c : node->children)

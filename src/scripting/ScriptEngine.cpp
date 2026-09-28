@@ -29,10 +29,33 @@ wait, spawn, delay = task.wait, task.spawn, task.delay
 
 local LocalPlayer = { Name = __gb_playerName, DisplayName = __gb_playerName, UserId = 1,
                       Character = __gb_character }
-Players = { LocalPlayer = LocalPlayer }
-function Players:GetPlayers() return { LocalPlayer } end
+local playerList = { LocalPlayer }
+Players = { LocalPlayer = LocalPlayer, PlayerAdded = __gb_playerAdded,
+            PlayerRemoving = __gb_playerRemoving }
+function Players:GetPlayers()
+    local t = {}
+    for i, p in ipairs(playerList) do t[i] = p end
+    return t
+end
 function Players:GetPlayerFromCharacter(model)
-    if model ~= nil and model == LocalPlayer.Character then return LocalPlayer end
+    if model == nil then return nil end
+    for _, p in ipairs(playerList) do if p.Character == model then return p end end
+    return nil
+end
+function Players:FindFirstChild(name)
+    for _, p in ipairs(playerList) do if p.Name == name then return p end end
+    return nil
+end
+-- Used by the engine when people join / leave a multiplayer game.
+function __gb_addPlayer(name, character, id)
+    local p = { Name = name, DisplayName = name, UserId = id, Character = character }
+    table.insert(playerList, p)
+    return p
+end
+function __gb_removePlayer(name)
+    for i, p in ipairs(playerList) do
+        if p.Name == name then table.remove(playerList, i) return p end
+    end
     return nil
 end
 
@@ -77,6 +100,7 @@ end
 
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName = nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
+__gb_playerAdded, __gb_playerRemoving = nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -214,7 +238,9 @@ int fx_spray(lua_State* L, GoreKind kind) {
     Scene* s = LuaApi::engine(L)->scene();
     if (!s->goreEnabled()) return 0;
     int n = (int)luaL_optinteger(L, 2, 20);
-    s->particles().spray(kind, LuaApi::checkVector3(L, 1), glm::vec3(0, 1, 0), std::clamp(n, 1, 300), 3.0f);
+    glm::vec3 pos = LuaApi::checkVector3(L, 1);
+    s->particles().spray(kind, pos, glm::vec3(0, 1, 0), std::clamp(n, 1, 300), 3.0f);
+    s->pushFx(kind == GoreKind::Blood ? FxEvent::Blood : FxEvent::Oil, pos, (float)n);
     return 0;
 }
 int fx_blood(lua_State* L) { return fx_spray(L, GoreKind::Blood); }
@@ -222,13 +248,18 @@ int fx_oil(lua_State* L)   { return fx_spray(L, GoreKind::Oil); }
 int fx_gibs(lua_State* L) {
     Scene* s = LuaApi::engine(L)->scene();
     if (!s->goreEnabled()) return 0;
-    s->particles().gibs(s->goreKind(), LuaApi::checkVector3(L, 1), glm::vec3(0, 2, 0),
-                        std::clamp((int)luaL_optinteger(L, 2, 8), 1, 60));
+    glm::vec3 pos = LuaApi::checkVector3(L, 1);
+    int n = std::clamp((int)luaL_optinteger(L, 2, 8), 1, 60);
+    s->particles().gibs(s->goreKind(), pos, glm::vec3(0, 2, 0), n);
+    s->pushFx(FxEvent::Gibs, pos, (float)n);
     return 0;
 }
 int fx_sparks(lua_State* L) {
-    LuaApi::engine(L)->scene()->particles().sparks(LuaApi::checkVector3(L, 1),
-                                                   std::clamp((int)luaL_optinteger(L, 2, 20), 1, 300));
+    Scene* s = LuaApi::engine(L)->scene();
+    glm::vec3 pos = LuaApi::checkVector3(L, 1);
+    int n = std::clamp((int)luaL_optinteger(L, 2, 20), 1, 300);
+    s->particles().sparks(pos, n);
+    s->pushFx(FxEvent::Sparks, pos, (float)n);
     return 0;
 }
 
@@ -304,6 +335,8 @@ void ScriptEngine::start() {
     LuaApi::pushSignal(L, SignalKind::Heartbeat, 0);  lua_setglobal(L, "__gb_heartbeat");
     LuaApi::pushSignal(L, SignalKind::InputBegan, 0); lua_setglobal(L, "__gb_inputBegan");
     LuaApi::pushSignal(L, SignalKind::InputEnded, 0); lua_setglobal(L, "__gb_inputEnded");
+    LuaApi::pushSignal(L, SignalKind::PlayerAdded, 0);    lua_setglobal(L, "__gb_playerAdded");
+    LuaApi::pushSignal(L, SignalKind::PlayerRemoving, 0); lua_setglobal(L, "__gb_playerRemoving");
 
     lua_register(L, "Explode", l_explode);
     lua_newtable(L);
@@ -505,7 +538,29 @@ void ScriptEngine::fireClicked(uint64_t partId) {
     if (partId) fire(SignalKind::Clicked, partId, nullptr);
 }
 
-void ScriptEngine::fireDied() { fire(SignalKind::Died, 0, nullptr); }
+void ScriptEngine::fireDied(uint64_t rootId) { fire(SignalKind::Died, rootId, nullptr); }
+
+void ScriptEngine::addPlayer(const std::string& name, uint64_t rootId, int userId) {
+    if (!m_L) return;
+    lua_getglobal(m_L, "__gb_addPlayer");
+    lua_pushstring(m_L, name.c_str());
+    LuaApi::pushInstance(m_L, rootId);
+    lua_pushinteger(m_L, userId);
+    if (lua_pcall(m_L, 3, 1, 0) != LUA_OK) { lua_pop(m_L, 1); return; }
+    int ref = luaL_ref(m_L, LUA_REGISTRYINDEX);
+    fire(SignalKind::PlayerAdded, 0, [ref](lua_State* co) { lua_rawgeti(co, LUA_REGISTRYINDEX, ref); return 1; });
+    if (m_L) luaL_unref(m_L, LUA_REGISTRYINDEX, ref);
+}
+
+void ScriptEngine::removePlayer(const std::string& name) {
+    if (!m_L) return;
+    lua_getglobal(m_L, "__gb_removePlayer");
+    lua_pushstring(m_L, name.c_str());
+    if (lua_pcall(m_L, 1, 1, 0) != LUA_OK || lua_isnil(m_L, -1)) { lua_pop(m_L, 1); return; }
+    int ref = luaL_ref(m_L, LUA_REGISTRYINDEX);
+    fire(SignalKind::PlayerRemoving, 0, [ref](lua_State* co) { lua_rawgeti(co, LUA_REGISTRYINDEX, ref); return 1; });
+    if (m_L) luaL_unref(m_L, LUA_REGISTRYINDEX, ref);
+}
 
 int ScriptEngine::connect(SignalKind kind, uint64_t id, int fnRef, bool once) {
     Connection c;

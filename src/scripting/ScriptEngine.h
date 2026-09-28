@@ -36,7 +36,10 @@ public:
     void update(float dt);
     void fireTouched(uint64_t partId, uint64_t otherId);
     void fireClicked(uint64_t partId);
-    void fireDied();
+    void fireDied(uint64_t characterRootId);
+    // Multiplayer: other players joining / leaving (Players.PlayerAdded etc.).
+    void addPlayer(const std::string& name, uint64_t characterRootId, int userId);
+    void removePlayer(const std::string& name);
 
     GuiState& gui() { return m_gui; }
     void setPlayerName(const std::string& n) { m_playerName = n; }

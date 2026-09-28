@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <string>
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
 
@@ -11,7 +13,18 @@ class Scene;
 // Guts&BoltsPlayer app both drive the game through this class.
 class GameSession {
 public:
+    // Solo = normal. Host = like Solo, but others can join. Client = joined
+    // someone else's game: no scripts or world physics here (the host runs
+    // them); we only move our own character and report touches / clicks.
+    enum class Role { Solo, Host, Client };
+
     explicit GameSession(Scene* scene);
+
+    void setRole(Role r) { m_role = r; }
+    Role role() const { return m_role; }
+    // Client mode: where touches and clicks get sent (to the host).
+    std::function<void(uint64_t part, const std::string& limb)> onTouch;
+    std::function<void(uint64_t part)>                          onClick;
 
     void start();
     void stop();
@@ -30,4 +43,5 @@ private:
     Physics      m_physics;
     ScriptEngine m_scripts;
     bool         m_running = false;
+    Role         m_role = Role::Solo;
 };

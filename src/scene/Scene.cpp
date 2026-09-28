@@ -165,8 +165,39 @@ bool Scene::isProtected(const SceneNode* node) const {
 
 bool Scene::isCharacterPart(const SceneNode* node) const {
     for (const SceneNode* n = node; n; n = n->parent)
-        if (m_player && n->id == m_player->rootId()) return true;
+        if (isCharacterRoot(n->id)) return true;
     return false;
+}
+
+bool Scene::isCharacterRoot(uint64_t id) const {
+    if (!id) return false;
+    if (m_player && id == m_player->rootId()) return true;
+    for (const auto& r : m_remotes) if (r.rootId == id) return true;
+    return false;
+}
+
+RemoteCharacter* Scene::findRemote(uint64_t rootId) {
+    for (auto& r : m_remotes) if (r.rootId == rootId) return &r;
+    return nullptr;
+}
+
+Humanoid* Scene::humanoidOf(uint64_t rootId) {
+    if (m_player && rootId == m_player->rootId()) return &m_player->humanoid();
+    if (RemoteCharacter* r = findRemote(rootId)) return &r->humanoid;
+    return nullptr;
+}
+
+void Scene::killCharacter(uint64_t rootId, float force, const glm::vec3& impulse) {
+    if (m_player && rootId == m_player->rootId()) { m_player->kill(force, impulse); return; }
+    if (RemoteCharacter* r = findRemote(rootId)) {
+        r->humanoid.health = 0.0f;
+        r->humanoidDirty = true;
+        r->kills.push_back({force, impulse});
+    }
+}
+
+void Scene::markHumanoidEdited(uint64_t rootId, double now) {
+    if (RemoteCharacter* r = findRemote(rootId)) { r->humanoidDirty = true; r->editedAt = now; }
 }
 
 void Scene::forEach(std::function<void(SceneNode*)> fn) {

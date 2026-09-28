@@ -263,6 +263,13 @@ bool loadScene(Scene& scene, const std::string& text, std::string* error) {
 
 std::string nodeToString(const SceneNode& node) { return toJson(node).dump(); }
 
+std::string environmentToString(const Environment& env) { return envToJson(env).dump(); }
+
+void environmentFromString(Environment& env, const std::string& text) {
+    json j = json::parse(text, nullptr, false);
+    if (j.is_object()) env = envFromJson(j);
+}
+
 std::unique_ptr<SceneNode> nodeFromString(const std::string& text, bool freshIds) {
     json j = json::parse(text, nullptr, false);
     if (j.is_discarded() || !j.is_object()) return nullptr;

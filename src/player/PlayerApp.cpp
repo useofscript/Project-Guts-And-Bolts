@@ -10,6 +10,7 @@
 #include "../renderer/SceneRenderer.h"
 #include "../scene/Physics.h"
 #include "../scene/Serializer.h"
+#include "../net/NetGame.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -57,15 +58,19 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     m_renderer = std::make_unique<SceneRenderer>();
     m_scene    = std::make_unique<Scene>();
     m_session  = std::make_unique<GameSession>(m_scene.get());
+    m_soloChat = std::make_unique<ChatLog>();
     buildAvatarStage();
     refreshGames();
 
     if (m_opts.page == "avatar") m_page = Page::Avatar;
     if (m_opts.page == "settings") m_showSettings = true;
-    if (!m_opts.game.empty()) joinGame(m_opts.game);
+    if (!m_opts.game.empty()) joinGame(m_opts.game, m_opts.host);
+    if (!m_opts.join.empty()) joinServer(m_opts.join);
 }
 
 PlayerApp::~PlayerApp() {
+    m_server.reset();
+    m_client.reset();
     if (m_session) m_session->stop();
     m_session.reset();
     m_games.clear();
@@ -88,6 +93,7 @@ void PlayerApp::run() {
             }
         });
         frame(dt);
+        if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
         m_window->endFrame(shoot ? m_opts.screenshot : std::string());
         if (shoot) m_window->close();
@@ -124,7 +130,7 @@ void PlayerApp::refreshGames() {
     }
 }
 
-void PlayerApp::joinGame(const std::filesystem::path& path) {
+void PlayerApp::joinGame(const std::filesystem::path& path, bool host) {
     std::string text, err;
     if (!Serializer::readFile(path.string(), text) || !Serializer::loadScene(*m_scene, text, &err)) {
         m_status = "Couldn't load " + path.filename().string() + (err.empty() ? "" : ": " + err);
@@ -132,8 +138,12 @@ void PlayerApp::joinGame(const std::filesystem::path& path) {
         return;
     }
     Profile& me = Profile::get();
-    if (Player* p = m_scene->player()) me.applyTo(*p);
+    if (Player* p = m_scene->player()) {
+        me.applyTo(*p);
+        if (SceneNode* r = p->root()) r->name = me.name;   // like Roblox: the character is named after you
+    }
     m_session->scripts().setPlayerName(me.name);
+    *m_soloChat = ChatLog{};
 
     m_currentTitle = m_scene->info().title;
     m_window->setTitle(m_currentTitle + " - Guts&Bolts Player");
@@ -144,12 +154,59 @@ void PlayerApp::joinGame(const std::filesystem::path& path) {
     m_paused = false;
     m_status.clear();
     Log::clear();
+    if (host) {
+        m_server = std::make_unique<NetServer>(m_scene.get(), m_session.get());
+        std::string herr;
+        if (!m_server->start(kDefaultPort, herr)) {
+            m_status = "Couldn't host: " + herr;
+            m_server.reset();
+        }
+    }
     m_session->start();
     m_page = Page::Game;
 }
 
+void PlayerApp::joinServer(const std::string& address) {
+    std::string host = address;
+    int port = kDefaultPort;
+    size_t colon = address.rfind(':');
+    if (colon != std::string::npos) {
+        host = address.substr(0, colon);
+        port = std::atoi(address.c_str() + colon + 1);
+        if (port <= 0) port = kDefaultPort;
+    }
+    if (host.empty()) host = "127.0.0.1";
+    m_client = std::make_unique<NetClient>(m_scene.get(), m_session.get());
+    if (!m_client->connect(host, port)) {
+        m_status = m_client->error();
+        m_client.reset();
+        return;
+    }
+    m_currentTitle = "Joining " + address + "...";
+    m_paused = false;
+    m_status.clear();
+    Log::clear();
+    m_page = Page::Game;
+}
+
+ChatLog& PlayerApp::chat() {
+    if (m_server) return m_server->chat();
+    if (m_client) return m_client->chat();
+    return *m_soloChat;
+}
+
+void PlayerApp::sendChat(const std::string& text) {
+    if (text.empty()) return;
+    if (m_server)      m_server->say(text);
+    else if (m_client) m_client->say(text);
+    else               m_soloChat->add(Profile::get().name, text);
+}
+
 void PlayerApp::leaveGame() {
+    m_server.reset();
+    m_client.reset();
     m_session->stop();
+    m_session->setRole(GameSession::Role::Solo);
     m_scene->buildDefault();
     m_paused = false;
     m_page = Page::Home;
@@ -183,6 +240,30 @@ void PlayerApp::frame(float dt) {
 
     ImGui::End();
     SettingsWindow::draw(&m_showSettings);
+    drawJoinDialog();
+}
+
+void PlayerApp::drawJoinDialog() {
+    if (m_showJoin) { ImGui::OpenPopup("Join a Friend"); m_showJoin = false; }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(420, 0));
+    if (ImGui::BeginPopupModal("Join a Friend", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::TextWrapped("Ask your friend to click Host on a game, then type the address it shows "
+                           "(like 192.168.1.20). On the same computer, use 127.0.0.1.");
+        ImGui::Spacing();
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(-1);
+        bool enter = ImGui::InputTextWithHint("##addr", "address, e.g. 192.168.1.20 or host:7777",
+                                              &m_joinAddress, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::Spacing();
+        if (bigButton("Join", kGreen, ImVec2(120, 34)) || enter) {
+            ImGui::CloseCurrentPopup();
+            joinServer(m_joinAddress);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 34))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 }
 
 void PlayerApp::drawTopBar() {
@@ -203,6 +284,8 @@ void PlayerApp::drawTopBar() {
     };
     tab("Home", Page::Home);
     tab("Avatar", Page::Avatar);
+    if (bigButton("Join a Friend", ImVec4(0.25f, 0.4f, 0.75f, 1))) m_showJoin = true;
+    ImGui::SameLine();
     if (bigButton("Settings", ImVec4(0.17f, 0.18f, 0.22f, 1))) m_showSettings = true;
 
     // Right side: who you are, and a shortcut to the editor.
@@ -294,7 +377,10 @@ void PlayerApp::drawHome() {
         ImGui::PopTextWrapPos();
         ImGui::SetCursorPos(ImVec2(12, cardH - 40));
         ImGui::BeginDisabled(g.broken);
-        if (bigButton("Play", kGreen, ImVec2(cardW - 24, 30))) joinGame(g.path);
+        if (bigButton("Play", kGreen, ImVec2(cardW - 110, 30))) joinGame(g.path);
+        ImGui::SameLine();
+        if (bigButton("Host", ImVec4(0.25f, 0.4f, 0.75f, 1), ImVec2(78, 30))) joinGame(g.path, true);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play with friends: they click Join and type your address");
         ImGui::EndDisabled();
         ImGui::EndChild();
         if (ImGui::IsItemHovered() && !g.info.description.empty())
@@ -419,14 +505,44 @@ void PlayerApp::drawAvatar(float dt) {
 
 void PlayerApp::drawGame(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-    if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_paused = !m_paused;
+    if (!io.WantTextInput && !m_chatOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_paused = !m_paused;
 
     ImVec2 pos  = ImGui::GetCursorScreenPos();
     ImVec2 size = ImGui::GetContentRegionAvail();
     if (size.x < 1 || size.y < 1) return;
 
+    // Networking first (receive the world), then simulate, then (next tick) send.
+    if (m_client) {
+        m_client->update(dt);
+        if (m_client->state() == NetClient::State::Failed) {
+            std::string err = m_client->error();
+            leaveGame();
+            m_status = err;
+            return;
+        }
+        if (m_client->state() == NetClient::State::Joined) m_currentTitle = m_client->gameTitle();
+    }
+    if (m_server) m_server->update(dt);
+    if (!m_server && !m_client) m_soloChat->update(dt);
+
+    bool connecting = m_client && m_client->state() != NetClient::State::Joined;
+    if (connecting) {
+        ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(20, 22, 28, 255));
+        const char* t = "Joining game...";
+        ImVec2 ts = ImGui::CalcTextSize(t);
+        ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x + (size.x - ts.x) * 0.5f, pos.y + size.y * 0.45f),
+                                            IM_COL32(255, 255, 255, 255), t);
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) leaveGame();
+        return;
+    }
+
+    // Chat: "/" or Enter starts typing.
+    if (!m_chatOpen && !io.WantTextInput && !m_paused &&
+        (ImGui::IsKeyPressed(ImGuiKey_Slash, false) || ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
+        m_chatOpen = true;
+
     // Simulate (the world keeps running while the menu is open, like Roblox).
-    bool acceptInput = !m_paused && !m_showSettings;
+    bool acceptInput = !m_paused && !m_showSettings && !m_chatOpen;
     m_session->update(dt, m_camera.yaw, acceptInput);
 
     // Camera: follow the character; right-drag to look around, wheel to zoom.
@@ -463,6 +579,10 @@ void PlayerApp::drawGame(float dt) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 max(pos.x + size.x, pos.y + size.y);
     Hud::draw(dl, pos, max, *m_scene, m_session->gui());
+    Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
+    if (m_server) Hud::drawPlayerList(dl, pos, max, m_server->playerNames());
+    if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->playerNames());
+    drawChat(pos, max);
 
     // Top-left menu button + FPS.
     ImGui::SetCursorScreenPos(ImVec2(pos.x + 12, max.y - 44));
@@ -474,6 +594,51 @@ void PlayerApp::drawGame(float dt) {
     }
 
     if (m_paused) drawPauseMenu();
+}
+
+void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
+    ChatLog& log = chat();
+    const float w = 420.0f;
+    ImVec2 p(min.x + 12, max.y - 60 - 210);
+    ImGui::SetNextWindowPos(p);
+    ImGui::SetNextWindowSize(ImVec2(w, 210));
+    ImGui::SetNextWindowBgAlpha(m_chatOpen ? 0.45f : 0.2f);
+    ImGuiWindowFlags f = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    ImGui::Begin("##chat", nullptr, f);
+    ImGui::BeginChild("##lines", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_None);
+    size_t first = log.lines.size() > 40 ? log.lines.size() - 40 : 0;
+    for (size_t i = first; i < log.lines.size(); ++i) {
+        const auto& l = log.lines[i];
+        if (l.system) {
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "%s", l.text.c_str());
+            ImGui::PopTextWrapPos();
+        } else {
+            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1), "%s:", l.from.c_str());
+            ImGui::SameLine();
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextUnformatted(l.text.c_str());
+            ImGui::PopTextWrapPos();
+        }
+    }
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 5) ImGui::SetScrollHereY(1.0f);
+    ImGui::EndChild();
+
+    if (m_chatOpen) {
+        ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputTextWithHint("##say", "Type a message and press Enter (Esc to cancel)", &m_chatInput,
+                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
+            sendChat(m_chatInput);
+            m_chatInput.clear();
+            m_chatOpen = false;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_chatOpen = false; m_chatInput.clear(); }
+    } else {
+        ImGui::TextDisabled("Press / to chat");
+    }
+    ImGui::End();
 }
 
 void PlayerApp::drawPauseMenu() {

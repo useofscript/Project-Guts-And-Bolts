@@ -70,4 +70,48 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& 
     }
 }
 
+void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm::mat4& viewProj,
+                 const std::unordered_map<std::string, std::pair<std::string, float>>& bubbles) {
+    if (bubbles.empty()) return;
+    auto drawFor = [&](SceneNode* root) {
+        if (!root) return;
+        auto it = bubbles.find(root->name);
+        if (it == bubbles.end()) return;
+        SceneNode* head = root->findChild("Head");
+        glm::vec3 p = head ? glm::vec3(head->worldMatrix()[3]) : root->transform.position + glm::vec3(0, 2.4f, 0);
+        glm::vec4 c = viewProj * glm::vec4(p + glm::vec3(0, 1.1f, 0), 1.0f);
+        if (c.w <= 0.1f) return;
+        glm::vec2 ndc = glm::vec2(c) / c.w;
+        ImVec2 sp(min.x + (ndc.x * 0.5f + 0.5f) * (max.x - min.x), min.y + (0.5f - ndc.y * 0.5f) * (max.y - min.y));
+        const std::string& text = it->second.first;
+        float wrap = 220.0f;
+        ImVec2 ts = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap);
+        float alpha = std::min(1.0f, it->second.second);
+        ImVec2 a(sp.x - ts.x * 0.5f - 10, sp.y - ts.y - 16), b(sp.x + ts.x * 0.5f + 10, sp.y - 6);
+        dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, (int)(235 * alpha)), 10.0f);
+        dl->AddTriangleFilled(ImVec2(sp.x - 7, b.y), ImVec2(sp.x + 7, b.y), ImVec2(sp.x, b.y + 8),
+                              IM_COL32(255, 255, 255, (int)(235 * alpha)));
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(a.x + 10, a.y + 5),
+                    IM_COL32(20, 20, 25, (int)(255 * alpha)), text.c_str(), nullptr, wrap);
+    };
+    if (Player* p = scene.player()) drawFor(p->root());
+    for (auto& rc : scene.remotes()) drawFor(scene.findById(rc.rootId));
+}
+
+void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<std::string>& names) {
+    if (names.size() < 2) return;
+    (void)min;
+    float y = min.y + 50;
+    float w = 180;
+    float x = max.x - w - 16;
+    dl->AddRectFilled(ImVec2(x - 4, y - 4), ImVec2(x + w + 4, y + 22 + names.size() * 20.0f),
+                      IM_COL32(0, 0, 0, 120), 6.0f);
+    dl->AddText(ImVec2(x + 4, y), IM_COL32(255, 200, 120, 255), "Players");
+    y += 22;
+    for (auto& n : names) {
+        dl->AddText(ImVec2(x + 4, y), IM_COL32(255, 255, 255, 230), n.c_str());
+        y += 20;
+    }
+}
+
 } // namespace Hud

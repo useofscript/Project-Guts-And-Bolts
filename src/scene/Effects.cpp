@@ -12,6 +12,7 @@ namespace Effects {
 void explode(Scene& scene, const glm::vec3& pos, float radius, float power) {
     radius = std::max(0.5f, radius);
     scene.particles().explosion(pos, radius);
+    scene.pushFx(FxEvent::Explosion, pos, radius);
 
     // Throw unanchored parts away from the blast.
     std::vector<SceneNode*> stack{scene.root()};
@@ -40,6 +41,23 @@ void explode(Scene& scene, const glm::vec3& pos, float radius, float power) {
             glm::vec3 impulse = (dir + glm::vec3(0, 0.8f, 0)) * 22.0f * power * k;
             player->hurt(160.0f * power * k, std::min(1.0f, 0.4f + k * power), impulse);
         }
+    }
+
+    // ...and other players (multiplayer host): their computers do the ragdoll.
+    for (RemoteCharacter& rc : scene.remotes()) {
+        SceneNode* root = scene.findById(rc.rootId);
+        if (!root || !rc.alive) continue;
+        glm::vec3 body = root->transform.position + glm::vec3(0, 1.3f, 0);
+        glm::vec3 d = body - pos;
+        float dist = glm::length(d);
+        if (dist >= radius) continue;
+        float k = 1.0f - dist / radius;
+        glm::vec3 dir = dist > 1e-3f ? d / dist : glm::vec3(0, 1, 0);
+        glm::vec3 impulse = (dir + glm::vec3(0, 0.8f, 0)) * 22.0f * power * k;
+        rc.humanoid.health = std::max(0.0f, rc.humanoid.health - 160.0f * power * k);
+        rc.humanoidDirty = true;
+        if (rc.humanoid.health <= 0.0f) rc.kills.push_back({std::min(1.0f, 0.4f + k * power), impulse});
+        else                            rc.kills.push_back({-1.0f, impulse});   // just a shove
     }
 }
 

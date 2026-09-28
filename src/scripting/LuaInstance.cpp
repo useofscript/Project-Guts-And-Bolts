@@ -55,8 +55,7 @@ bool parseShape(const std::string& s, PrimitiveType& out) {
 ScriptEngine* E(lua_State* L) { return LuaApi::engine(L); }
 
 bool isCharacterRoot(lua_State* L, const SceneNode* n) {
-    Player* p = E(L)->scene()->player();
-    return p && n->id == p->rootId();
+    return E(L)->scene()->isCharacterRoot(n->id);
 }
 
 const char* className(lua_State* L, const SceneNode* n) {
@@ -125,7 +124,7 @@ int m_FindFirstChild(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string name = luaL_checkstring(L, 2);
     bool recursive = lua_toboolean(L, 3);
-    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L); return 1; }
+    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     SceneNode* c = n->findChild(name, recursive);
     LuaApi::pushInstance(L, c ? c->id : 0);
     return 1;
@@ -134,7 +133,7 @@ int m_FindFirstChild(lua_State* L) {
 int m_FindFirstChildOfClass(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string cls = luaL_checkstring(L, 2);
-    if (cls == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L); return 1; }
+    if (cls == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     for (auto& c : n->children)
         if (!c->internal && isA(L, c.get(), cls)) { LuaApi::pushInstance(L, c->id); return 1; }
     lua_pushnil(L);
@@ -144,7 +143,7 @@ int m_FindFirstChildOfClass(lua_State* L) {
 int m_WaitForChild(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string name = luaL_checkstring(L, 2);
-    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L); return 1; }
+    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     SceneNode* c = n->findChild(name);
     if (!c) return luaL_error(L, "'%s' has no child called '%s'", n->name.c_str(), name.c_str());
     LuaApi::pushInstance(L, c->id);
@@ -207,7 +206,7 @@ int m_Clone(lua_State* L) {
 // character:BreakJoints() — kill the character violently.
 int m_BreakJoints(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
-    if (isCharacterRoot(L, n)) E(L)->scene()->player()->kill(1.0f, glm::vec3(0, 4, 0));
+    if (isCharacterRoot(L, n)) E(L)->scene()->killCharacter(n->id, 1.0f, glm::vec3(0, 4, 0));
     return 0;
 }
 
@@ -278,7 +277,8 @@ int inst_index(lua_State* L) {
 
     bool hrp = n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart";
     if (hrp && (is(k, "Velocity") || is(k, "AssemblyLinearVelocity"))) {
-        LuaApi::pushVector3(L, E(L)->scene()->player()->velocity());
+        Player* me = E(L)->scene()->player();
+        LuaApi::pushVector3(L, me && n->parent->id == me->rootId() ? me->velocity() : glm::vec3(0.0f));
         return 1;
     }
 
@@ -313,7 +313,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Gore"))       { lua_pushstring(L, w.gore == GoreLevel::Blood ? "Blood" : w.gore == GoreLevel::OilAndBolts ? "Oil" : "Off"); return 1; }
         if (is(k, "FallDamage")) { lua_pushboolean(L, w.fallDamage); return 1; }
     }
-    if (is(k, "Humanoid") && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L); return 1; }
+    if (is(k, "Humanoid") && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
 
     // Like Roblox, `workspace.Door` finds a child called "Door".
     if (SceneNode* c = n->findChild(k)) { LuaApi::pushInstance(L, c->id); return 1; }
@@ -348,7 +348,10 @@ int inst_newindex(lua_State* L) {
     // Setting the HumanoidRootPart's velocity launches the character.
     bool hrp = n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart";
     if (hrp && (is(k, "Velocity") || is(k, "AssemblyLinearVelocity"))) {
-        scene->player()->launch(LuaApi::checkVector3(L, 3));
+        Player* me = scene->player();
+        if (me && n->parent->id == me->rootId()) me->launch(LuaApi::checkVector3(L, 3));
+        else if (RemoteCharacter* rc = scene->findRemote(n->parent->id))
+            rc->kills.push_back({-1.0f, LuaApi::checkVector3(L, 3)});   // force < 0 = just a push
         return 0;
     }
 
@@ -497,16 +500,36 @@ int conn_index(lua_State* L) {
 // Humanoid (the character's health / speed)
 // ===========================================================================
 
-Humanoid& hum(lua_State* L) {
-    Player* p = E(L)->scene()->player();
-    if (!p) luaL_error(L, "There is no character in this game");
-    return p->humanoid();
+struct HumRef { uint64_t rootId; };
+
+uint64_t humRoot(lua_State* L) {
+    return static_cast<HumRef*>(luaL_checkudata(L, 1, kHum))->rootId;
 }
+
+Humanoid& hum(lua_State* L) {
+    Humanoid* h = E(L)->scene()->humanoidOf(humRoot(L));
+    if (!h) luaL_error(L, "This character has left the game");
+    return *h;
+}
+
+void touched(lua_State* L) { E(L)->scene()->markHumanoidEdited(humRoot(L), E(L)->time()); }
 
 int hum_takeDamage(lua_State* L) {
     Humanoid& h = hum(L);
     h.health = glm::clamp(h.health - (float)luaL_checknumber(L, 2), 0.0f, h.maxHealth);
+    touched(L);
     return 0;
+}
+
+int hum_breakJoints(lua_State* L) {
+    E(L)->scene()->killCharacter(humRoot(L), 1.0f, glm::vec3(0, 4, 0));
+    return 0;
+}
+
+int hum_isA(lua_State* L) {
+    const char* c = luaL_checkstring(L, 2);
+    lua_pushboolean(L, is(c, "Humanoid") || is(c, "Instance"));
+    return 1;
 }
 
 int hum_index(lua_State* L) {
@@ -518,34 +541,33 @@ int hum_index(lua_State* L) {
     if (is(k, "JumpPower"))  { lua_pushnumber(L, h.jumpPower);  return 1; }
     if (is(k, "AutoRotate")) { lua_pushboolean(L, h.autoRotate); return 1; }
     if (is(k, "Name") || is(k, "ClassName")) { lua_pushstring(L, "Humanoid"); return 1; }
-    if (is(k, "Parent"))     { LuaApi::pushInstance(L, E(L)->scene()->player()->rootId()); return 1; }
-    if (is(k, "Died"))       { LuaApi::pushSignal(L, SignalKind::Died, 0); return 1; }
+    if (is(k, "Parent"))     { LuaApi::pushInstance(L, humRoot(L)); return 1; }
+    if (is(k, "Died"))       { LuaApi::pushSignal(L, SignalKind::Died, humRoot(L)); return 1; }
     if (is(k, "TakeDamage")) { lua_pushcfunction(L, hum_takeDamage); return 1; }
-    if (is(k, "BreakJoints")) {
-        lua_pushcfunction(L, [](lua_State* L2) { E(L2)->scene()->player()->kill(1.0f, glm::vec3(0, 4, 0)); return 0; });
-        return 1;
-    }
-    if (is(k, "IsA")) {
-        lua_pushcfunction(L, [](lua_State* L2) {
-            const char* c = luaL_checkstring(L2, 2);
-            lua_pushboolean(L2, is(c, "Humanoid") || is(c, "Instance"));
-            return 1;
-        });
-        return 1;
-    }
+    if (is(k, "BreakJoints")) { lua_pushcfunction(L, hum_breakJoints); return 1; }
+    if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
     return luaL_error(L, "'%s' is not a valid member of Humanoid", k);
 }
 
 int hum_newindex(lua_State* L) {
     const char* k = luaL_checkstring(L, 2);
     Humanoid& h = hum(L);
-    if (is(k, "Health"))     { h.health = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, h.maxHealth); return 0; }
-    if (is(k, "MaxHealth"))  { h.maxHealth = std::max(1.0f, (float)luaL_checknumber(L, 3));
-                               h.health = std::min(h.health, h.maxHealth); return 0; }
-    if (is(k, "WalkSpeed"))  { h.walkSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
-    if (is(k, "JumpPower"))  { h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
-    if (is(k, "AutoRotate")) { h.autoRotate = lua_toboolean(L, 3); return 0; }
-    return luaL_error(L, "'%s' can't be set on Humanoid", k);
+    if (is(k, "Health"))     h.health = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, h.maxHealth);
+    else if (is(k, "MaxHealth")) { h.maxHealth = std::max(1.0f, (float)luaL_checknumber(L, 3));
+                                   h.health = std::min(h.health, h.maxHealth); }
+    else if (is(k, "WalkSpeed"))  h.walkSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3));
+    else if (is(k, "JumpPower"))  h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3));
+    else if (is(k, "AutoRotate")) h.autoRotate = lua_toboolean(L, 3);
+    else return luaL_error(L, "'%s' can't be set on Humanoid", k);
+    touched(L);
+    return 0;
+}
+
+int hum_eq(lua_State* L) {
+    auto* a = static_cast<HumRef*>(luaL_testudata(L, 1, kHum));
+    auto* b = static_cast<HumRef*>(luaL_testudata(L, 2, kHum));
+    lua_pushboolean(L, a && b && a->rootId == b->rootId);
+    return 1;
 }
 
 // ===========================================================================
@@ -624,8 +646,9 @@ void pushSignal(lua_State* L, SignalKind kind, uint64_t id) {
     luaL_setmetatable(L, kSig);
 }
 
-void pushHumanoid(lua_State* L) {
-    lua_newuserdatauv(L, 1, 0);
+void pushHumanoid(lua_State* L, uint64_t rootId) {
+    auto* h = static_cast<HumRef*>(lua_newuserdatauv(L, sizeof(HumRef), 0));
+    h->rootId = rootId;
     luaL_setmetatable(L, kHum);
 }
 
@@ -640,7 +663,7 @@ void registerInstance(lua_State* L) {
         {"__tostring", inst_tostring}, {nullptr, nullptr}};
     static const luaL_Reg sigMeta[]   = {{"__index", sig_index},   {nullptr, nullptr}};
     static const luaL_Reg connMeta[]  = {{"__index", conn_index},  {nullptr, nullptr}};
-    static const luaL_Reg humMeta[]   = {{"__index", hum_index}, {"__newindex", hum_newindex}, {nullptr, nullptr}};
+    static const luaL_Reg humMeta[]   = {{"__index", hum_index}, {"__newindex", hum_newindex}, {"__eq", hum_eq}, {nullptr, nullptr}};
     static const luaL_Reg lightMeta[] = {{"__index", light_index}, {"__newindex", light_newindex}, {nullptr, nullptr}};
     makeMeta(L, kInst, instMeta);
     makeMeta(L, kSig, sigMeta);

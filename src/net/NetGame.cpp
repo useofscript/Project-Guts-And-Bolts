@@ -1,0 +1,654 @@
+#include "NetGame.h"
+#include "../game/GameSession.h"
+#include "../game/Profile.h"
+#include "../scene/Scene.h"
+#include "../scene/SceneNode.h"
+#include "../scene/Serializer.h"
+#include "../scene/Physics.h"
+#include "../renderer/MeshLibrary.h"
+#include "../core/Log.h"
+
+#include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cstdio>
+#include <set>
+
+using json = nlohmann::json;
+
+namespace {
+
+constexpr float    kTickRate    = 1.0f / 20.0f;        // network updates per second: 20
+constexpr uint64_t kLocalIdBase = 1ull << 40;          // ids clients make for themselves
+constexpr int      kVersion     = 1;
+
+json vec3(const glm::vec3& v) { return json::array({v.x, v.y, v.z}); }
+glm::vec3 vec3(const json& j) {
+    if (!j.is_array() || j.size() < 3) return glm::vec3(0.0f);
+    return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>()};
+}
+
+json transformJson(const Transform& t) {
+    return json::array({t.position.x, t.position.y, t.position.z, t.rotation.x, t.rotation.y,
+                        t.rotation.z, t.scale.x, t.scale.y, t.scale.z});
+}
+Transform transformFrom(const json& j) {
+    Transform t;
+    if (!j.is_array() || j.size() < 9) return t;
+    t.position = {j[0].get<float>(), j[1].get<float>(), j[2].get<float>()};
+    t.rotation = {j[3].get<float>(), j[4].get<float>(), j[5].get<float>()};
+    t.scale    = {j[6].get<float>(), j[7].get<float>(), j[8].get<float>()};
+    return t;
+}
+
+json poseJson(const CharacterPose& pose) {
+    json parts = json::array();
+    for (const auto& [name, t] : pose.parts) parts.push_back({name, transformJson(t)});
+    return {{"root", transformJson(pose.root)}, {"parts", parts}};
+}
+CharacterPose poseFrom(const json& j) {
+    CharacterPose pose;
+    if (!j.is_object()) return pose;
+    pose.root = transformFrom(j.value("root", json()));
+    if (j.contains("parts") && j["parts"].is_array())
+        for (const auto& p : j["parts"])
+            if (p.is_array() && p.size() == 2 && p[0].is_string())
+                pose.parts.push_back({p[0].get<std::string>(), transformFrom(p[1])});
+    return pose;
+}
+
+json humanoidJson(const Humanoid& h) {
+    return {{"health", h.health}, {"maxHealth", h.maxHealth}, {"walkSpeed", h.walkSpeed},
+            {"jumpPower", h.jumpPower}};
+}
+void humanoidFrom(Humanoid& h, const json& j) {
+    h.maxHealth = j.value("maxHealth", h.maxHealth);
+    h.health    = j.value("health", h.health);
+    h.walkSpeed = j.value("walkSpeed", h.walkSpeed);
+    h.jumpPower = j.value("jumpPower", h.jumpPower);
+}
+
+json avatarJson(const Profile& p) {
+    const BodyColors& c = p.colors;
+    return {{"head", vec3(c.head)}, {"torso", vec3(c.torso)}, {"leftArm", vec3(c.leftArm)},
+            {"rightArm", vec3(c.rightArm)}, {"leftLeg", vec3(c.leftLeg)}, {"rightLeg", vec3(c.rightLeg)},
+            {"hat", (int)p.hat}};
+}
+
+// Everything a joined player needs to see about a (non-character) object.
+std::string nodeState(const SceneNode* n) {
+    char buf[512];
+    const Transform& t = n->transform;
+    std::snprintf(buf, sizeof(buf),
+        "%llu|%.4f %.4f %.4f|%.3f %.3f %.3f|%.4f %.4f %.4f|%.3f %.3f %.3f|%.3f|%d%d%d|%d|%d|%.3f %.3f %.3f",
+        (unsigned long long)(n->parent ? n->parent->id : 0),
+        t.position.x, t.position.y, t.position.z, t.rotation.x, t.rotation.y, t.rotation.z,
+        t.scale.x, t.scale.y, t.scale.z, n->color.r, n->color.g, n->color.b, n->transparency,
+        (int)n->visible, (int)n->canCollide, (int)n->enabled, (int)n->material, (int)n->primitiveType,
+        n->brightness, n->range, n->spotAngle);
+    return buf;
+}
+
+json nodeUpdate(const SceneNode* n) {
+    return {{"i", n->id}, {"t", transformJson(n->transform)}, {"c", vec3(n->color)},
+            {"a", n->transparency}, {"v", n->visible}, {"cc", n->canCollide}, {"e", n->enabled},
+            {"m", (int)n->material}, {"sh", (int)n->primitiveType}, {"b", n->brightness},
+            {"rg", n->range}, {"sa", n->spotAngle}};
+}
+
+void applyUpdate(SceneNode* n, const json& u) {
+    n->transform    = transformFrom(u.value("t", json()));
+    n->color        = vec3(u.value("c", json()));
+    n->transparency = u.value("a", 0.0f);
+    n->visible      = u.value("v", true);
+    n->canCollide   = u.value("cc", true);
+    n->enabled      = u.value("e", true);
+    n->material     = (Material)std::clamp(u.value("m", 0), 0, kMaterialCount - 1);
+    auto shape = (PrimitiveType)u.value("sh", (int)n->primitiveType);
+    if (shape != n->primitiveType) { n->primitiveType = shape; n->mesh = MeshLibrary::get(shape); }
+    n->brightness   = u.value("b", n->brightness);
+    n->range        = u.value("rg", n->range);
+    n->spotAngle    = u.value("sa", n->spotAngle);
+}
+
+glm::vec3 spawnPoint(Scene& scene) {
+    if (SceneNode* s = scene.root()->findChild("SpawnLocation", true)) {
+        AABB b = Physics::worldBounds(s);
+        return {(b.min.x + b.max.x) * 0.5f, b.max.y + 0.001f, (b.min.z + b.max.z) * 0.5f};
+    }
+    return scene.player() ? scene.player()->spawn() : glm::vec3(0.0f);
+}
+
+void replayFx(Scene& scene, const json& list) {
+    if (!list.is_array()) return;
+    ParticleSystem& ps = scene.particles();
+    for (const auto& f : list) {
+        int type = f.value("k", 0);
+        glm::vec3 p = vec3(f.value("p", json()));
+        float amount = f.value("n", 10.0f);
+        switch ((FxEvent::Type)type) {
+            case FxEvent::Explosion: ps.explosion(p, amount); break;
+            case FxEvent::Sparks:    ps.sparks(p, (int)amount); break;
+            case FxEvent::Blood:     if (scene.goreEnabled()) ps.spray(GoreKind::Blood, p, {0, 1, 0}, (int)amount, 3.0f); break;
+            case FxEvent::Oil:       if (scene.goreEnabled()) ps.spray(GoreKind::Oil, p, {0, 1, 0}, (int)amount, 3.0f); break;
+            case FxEvent::Gibs:      if (scene.goreEnabled()) ps.gibs(scene.goreKind(), p, {0, 2, 0}, (int)amount); break;
+        }
+    }
+}
+
+std::string cleanText(std::string s, size_t max) {
+    if (s.size() > max) s.resize(max);
+    for (char& c : s) if ((unsigned char)c < 32) c = ' ';
+    return s;
+}
+
+} // namespace
+
+// ===========================================================================
+// Chat
+// ===========================================================================
+
+void ChatLog::add(const std::string& from, const std::string& text, bool system) {
+    lines.push_back({from, text, system});
+    if (lines.size() > 100) lines.erase(lines.begin());
+    if (!system) bubbles[from] = {text, 6.0f};
+}
+
+void ChatLog::update(float dt) {
+    for (auto it = bubbles.begin(); it != bubbles.end();) {
+        it->second.second -= dt;
+        if (it->second.second <= 0.0f) it = bubbles.erase(it);
+        else ++it;
+    }
+}
+
+// ===========================================================================
+// Server (host)
+// ===========================================================================
+
+struct NetServer::Client {
+    std::unique_ptr<Net::Connection> conn;
+    int         id = 0;
+    std::string name;
+    uint64_t    rootId = 0;
+    bool        joined = false;
+    std::set<uint64_t> knownChars;   // rigs this client already has
+};
+
+NetServer::NetServer(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
+NetServer::~NetServer() { stop(); }
+
+bool NetServer::start(int port, std::string& error) {
+    if (!m_listener.open(port, error)) return false;
+    m_port = port;
+    m_scene->recordFx = true;
+    m_session->setRole(GameSession::Role::Host);
+    m_chat.add("", "Hosting on port " + std::to_string(port) + ". Friends can join with " +
+               (Net::localAddresses().empty() ? std::string("your IP address") : Net::localAddresses()), true);
+    return true;
+}
+
+void NetServer::stop() {
+    for (auto& c : m_clients) {
+        c->conn->send(json{{"t", "bye"}, {"reason", "The host closed the game."}}.dump());
+        c->conn->poll();
+    }
+    m_clients.clear();
+    m_listener.close();
+    m_sent.clear();
+    m_scene->remotes().clear();
+    m_scene->recordFx = false;
+    m_scene->fxQueue.clear();
+    m_session->setRole(GameSession::Role::Solo);
+}
+
+std::vector<std::string> NetServer::playerNames() const {
+    std::vector<std::string> out;
+    out.push_back(Profile::get().name + " (host)");
+    for (auto& c : m_clients) if (c->joined) out.push_back(c->name);
+    return out;
+}
+
+void NetServer::broadcast(const std::string& msg, const Client* except) {
+    for (auto& c : m_clients)
+        if (c->joined && c.get() != except) c->conn->send(msg);
+}
+
+void NetServer::say(const std::string& text) {
+    std::string t = cleanText(text, 200);
+    if (t.empty()) return;
+    m_chat.add(Profile::get().name, t);
+    broadcast(json{{"t", "chat"}, {"from", Profile::get().name}, {"text", t}}.dump());
+}
+
+void NetServer::dropClient(size_t index, const char* reason) {
+    Client& c = *m_clients[index];
+    if (c.joined) {
+        if (SceneNode* rig = m_scene->findById(c.rootId)) m_scene->removeNode(rig);
+        auto& rem = m_scene->remotes();
+        rem.erase(std::remove_if(rem.begin(), rem.end(), [&](auto& r) { return r.rootId == c.rootId; }), rem.end());
+        m_session->scripts().removePlayer(c.name);
+        m_chat.add("", c.name + " " + reason, true);
+        broadcast(json{{"t", "left"}, {"id", c.rootId}, {"name", c.name}}.dump(), &c);
+        broadcast(json{{"t", "chat"}, {"from", ""}, {"text", c.name + " " + reason}, {"sys", true}}.dump(), &c);
+    }
+    m_clients.erase(m_clients.begin() + (long)index);
+}
+
+void NetServer::update(float dt) {
+    if (!m_listener.isOpen()) return;
+    while (auto conn = m_listener.accept()) {
+        auto c = std::make_unique<Client>();
+        c->conn = std::move(conn);
+        c->id = m_nextId++;
+        m_clients.push_back(std::move(c));
+    }
+    for (size_t i = 0; i < m_clients.size();) {
+        Client& c = *m_clients[i];
+        bool ok = c.conn->poll();
+        std::string msg;
+        while (c.conn->pop(msg)) handle(c, msg);
+        if (!ok || !c.conn->alive()) { dropClient(i, "left the game"); continue; }
+        ++i;
+    }
+
+    m_tick += dt;
+    if (m_tick >= kTickRate) {
+        m_tick = 0.0f;
+        sendTick();
+    }
+    m_chat.update(dt);
+}
+
+void NetServer::handle(Client& c, const std::string& text) {
+    json m = json::parse(text, nullptr, false);
+    if (!m.is_object()) return;
+    std::string t = m.value("t", "");
+
+    if (t == "hello" && !c.joined) {
+        // Pick a unique name.
+        std::string base = cleanText(m.value("name", std::string("Player")), 20);
+        if (base.empty()) base = "Player";
+        std::string name = base;
+        auto taken = [&](const std::string& n) {
+            if (n == Profile::get().name) return true;
+            for (auto& o : m_clients) if (o.get() != &c && o->joined && o->name == n) return true;
+            return false;
+        };
+        for (int k = 2; taken(name); ++k) name = base + std::to_string(k);
+        c.name = name;
+
+        // Build their character here, dressed in their avatar.
+        SceneNode* rig = Player::buildRig(*m_scene, name, spawnPoint(*m_scene));
+        if (m.contains("avatar")) {
+            const json& a = m["avatar"];
+            BodyColors col{vec3(a.value("head", json())), vec3(a.value("torso", json())),
+                           vec3(a.value("leftArm", json())), vec3(a.value("rightArm", json())),
+                           vec3(a.value("leftLeg", json())), vec3(a.value("rightLeg", json()))};
+            Player::applyColors(rig, col);
+            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, 3));
+        }
+        c.rootId = rig->id;
+        RemoteCharacter rc;
+        rc.clientId = c.id;
+        rc.name = name;
+        rc.rootId = rig->id;
+        if (Player* host = m_scene->player()) {
+            rc.humanoid = host->humanoid();
+            rc.humanoid.health = rc.humanoid.maxHealth;
+        }
+        m_scene->remotes().push_back(rc);
+        c.joined = true;
+        c.knownChars.insert(rig->id);
+
+        json players = json::array();
+        for (auto& n : playerNames()) players.push_back(n);
+        c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name},
+                          {"scene", Serializer::saveScene(*m_scene)},
+                          {"humanoid", humanoidJson(rc.humanoid)}, {"players", players}}.dump());
+        // Everyone already in the scene snapshot counts as known.
+        if (Player* host = m_scene->player()) c.knownChars.insert(host->rootId());
+        for (auto& r : m_scene->remotes()) c.knownChars.insert(r.rootId);
+
+        m_session->scripts().addPlayer(name, rig->id, c.id + 1);
+        m_chat.add("", name + " joined the game", true);
+        broadcast(json{{"t", "chat"}, {"from", ""}, {"text", name + " joined the game"}, {"sys", true}}.dump(), &c);
+        return;
+    }
+    if (!c.joined) return;
+    RemoteCharacter* rc = m_scene->findRemote(c.rootId);
+
+    if (t == "state" && rc) {
+        if (SceneNode* rig = m_scene->findById(c.rootId)) Player::applyPose(rig, poseFrom(m.value("pose", json())));
+        double now = m_session->scripts().time();
+        // Their own damage (e.g. fall damage) counts, unless a script just changed it.
+        if (now - rc->editedAt > 0.5 && m.contains("health"))
+            rc->humanoid.health = m["health"].get<float>();
+        bool dead = m.value("dead", false);
+        if (dead && rc->alive) {
+            rc->alive = false;
+            rc->humanoid.health = 0.0f;
+            if (SceneNode* rig = m_scene->findById(c.rootId))
+                if (SceneNode* torso = rig->findChild("Torso"))
+                    m_scene->pushFx(m_scene->goreKind() == GoreKind::Blood ? FxEvent::Blood : FxEvent::Oil,
+                                    glm::vec3(torso->worldMatrix()[3]), 30.0f);
+            m_session->scripts().fireDied(c.rootId);
+        } else if (!dead && !rc->alive) {
+            rc->alive = true;
+            rc->humanoid.health = rc->humanoid.maxHealth;
+        }
+    } else if (t == "touch") {
+        uint64_t part = m.value("part", (uint64_t)0);
+        SceneNode* rig = m_scene->findById(c.rootId);
+        SceneNode* limb = rig ? rig->findChild(m.value("limb", std::string())) : nullptr;
+        if (limb && m_scene->findById(part)) m_session->scripts().fireTouched(part, limb->id);
+    } else if (t == "click") {
+        uint64_t part = m.value("part", (uint64_t)0);
+        if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
+    } else if (t == "chat") {
+        std::string msg = cleanText(m.value("text", std::string()), 200);
+        if (msg.empty()) return;
+        m_chat.add(c.name, msg);
+        broadcast(json{{"t", "chat"}, {"from", c.name}, {"text", msg}}.dump());
+    }
+}
+
+std::string NetServer::worldMessage(bool) {
+    json upd = json::array(), add = json::array(), del = json::array();
+    std::set<uint64_t> seen, addedNow;
+
+    // Depth-first so parents come before their children.
+    std::vector<SceneNode*> stack;
+    for (auto it = m_scene->root()->children.rbegin(); it != m_scene->root()->children.rend(); ++it)
+        stack.push_back(it->get());
+    while (!stack.empty()) {
+        SceneNode* n = stack.back();
+        stack.pop_back();
+        if (m_scene->isCharacterPart(n)) continue;          // characters travel as poses
+        for (auto it = n->children.rbegin(); it != n->children.rend(); ++it) stack.push_back(it->get());
+        seen.insert(n->id);
+        std::string state = nodeState(n);
+        auto found = m_sent.find(n->id);
+        if (found == m_sent.end()) {
+            if (!n->parent || !addedNow.count(n->parent->id))
+                add.push_back({{"parent", n->parent ? n->parent->id : 0}, {"node", Serializer::nodeToString(*n)}});
+            addedNow.insert(n->id);
+        } else if (found->second != state) {
+            upd.push_back(nodeUpdate(n));
+        }
+        m_sent[n->id] = std::move(state);
+    }
+    for (auto it = m_sent.begin(); it != m_sent.end();) {
+        if (!seen.count(it->first)) { del.push_back(it->first); it = m_sent.erase(it); }
+        else ++it;
+    }
+
+    json msg = {{"t", "world"}};
+    if (!upd.empty()) msg["upd"] = upd;
+    if (!add.empty()) msg["add"] = add;
+    if (!del.empty()) msg["del"] = del;
+
+    std::string env = Serializer::environmentToString(m_scene->environment());
+    if (env != m_lastEnv) { msg["env"] = env; m_lastEnv = env; }
+
+    const GuiState& gui = m_session->gui();
+    json g = {{"labels", gui.labels}, {"msg", gui.message}, {"time", gui.message.empty() ? 0.0f : gui.messageTime}};
+    std::string gs = json{{"labels", gui.labels}, {"msg", gui.message}}.dump();
+    if (gs != m_lastGui) { msg["gui"] = g; m_lastGui = gs; }
+
+    if (!m_scene->fxQueue.empty()) {
+        json fx = json::array();
+        for (const FxEvent& f : m_scene->fxQueue) fx.push_back({{"k", (int)f.type}, {"p", vec3(f.pos)}, {"n", f.amount}});
+        msg["fx"] = fx;
+        m_scene->fxQueue.clear();
+    }
+    return msg.dump();
+}
+
+void NetServer::sendTick() {
+    // Host's own death shows up on everyone's screen too.
+    if (Player* host = m_scene->player()) {
+        static bool wasDead = false;
+        if (host->isDead() && !wasDead)
+            m_scene->pushFx(m_scene->goreKind() == GoreKind::Blood ? FxEvent::Blood : FxEvent::Oil,
+                            host->focusPoint(), 30.0f);
+        wasDead = host->isDead();
+    }
+
+    std::string world = worldMessage(false);
+    json w = json::parse(world);
+
+    // Characters: everyone's pose (each client skips its own).
+    struct Char { uint64_t id; std::string name; SceneNode* root; };
+    std::vector<Char> chars;
+    if (Player* host = m_scene->player())
+        if (SceneNode* r = host->root()) chars.push_back({r->id, Profile::get().name, r});
+    for (auto& rc : m_scene->remotes())
+        if (SceneNode* r = m_scene->findById(rc.rootId)) chars.push_back({rc.rootId, rc.name, r});
+
+    for (auto& c : m_clients) {
+        if (!c->joined) continue;
+        json msg = w;
+        json list = json::array();
+        for (auto& ch : chars) {
+            if (ch.id == c->rootId) continue;
+            json entry = {{"i", ch.id}, {"n", ch.name}, {"pose", poseJson(Player::capturePose(ch.root))}};
+            if (!c->knownChars.count(ch.id)) {                   // first time: send the whole model
+                entry["rig"] = Serializer::nodeToString(*ch.root);
+                c->knownChars.insert(ch.id);
+            }
+            list.push_back(entry);
+        }
+        msg["chars"] = list;
+        c->conn->send(msg.dump());
+
+        // Things only this player needs to know about their own character.
+        if (RemoteCharacter* rc = m_scene->findRemote(c->rootId)) {
+            if (rc->humanoidDirty) {
+                c->conn->send(json{{"t", "hum"}, {"h", humanoidJson(rc->humanoid)}}.dump());
+                rc->humanoidDirty = false;
+            }
+            for (auto& k : rc->kills)
+                c->conn->send(json{{"t", "kill"}, {"force", k.force}, {"impulse", vec3(k.impulse)}}.dump());
+            rc->kills.clear();
+        }
+    }
+}
+
+// ===========================================================================
+// Client (joined someone's game)
+// ===========================================================================
+
+NetClient::NetClient(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
+NetClient::~NetClient() { disconnect(); }
+
+bool NetClient::connect(const std::string& host, int port) {
+    disconnect();
+    m_conn = Net::Connection::connectTo(host, port, m_error);
+    if (!m_conn) { m_state = State::Failed; return false; }
+    Profile& me = Profile::get();
+    m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", me.name}, {"avatar", avatarJson(me)}}.dump());
+    m_state = State::Connecting;
+    return true;
+}
+
+void NetClient::disconnect() {
+    m_conn.reset();
+    if (m_state == State::Joined) {
+        m_session->stop();
+        m_session->setRole(GameSession::Role::Solo);
+        m_session->onTouch = nullptr;
+        m_session->onClick = nullptr;
+        m_scene->remotes().clear();
+    }
+    m_state = State::Idle;
+}
+
+void NetClient::say(const std::string& text) {
+    std::string t = cleanText(text, 200);
+    if (t.empty() || !m_conn) return;
+    m_conn->send(json{{"t", "chat"}, {"text", t}}.dump());
+}
+
+void NetClient::reportTouch(uint64_t part, const std::string& limb) {
+    if (m_conn && part < kLocalIdBase) m_conn->send(json{{"t", "touch"}, {"part", part}, {"limb", limb}}.dump());
+}
+
+void NetClient::reportClick(uint64_t part) {
+    if (m_conn && part < kLocalIdBase) m_conn->send(json{{"t", "click"}, {"part", part}}.dump());
+}
+
+void NetClient::update(float dt) {
+    if (!m_conn) return;
+    bool ok = m_conn->poll();
+    std::string msg;
+    while (m_conn && m_conn->pop(msg)) handle(msg);
+    if (!m_conn) return;
+    if (!ok || !m_conn->alive()) {
+        if (m_error.empty()) m_error = m_state == State::Joined ? "Lost connection to the host."
+                                                                : "The host didn't let us in.";
+        disconnect();
+        m_state = State::Failed;
+        return;
+    }
+
+    if (m_state == State::Joined) {
+        m_tick += dt;
+        if (m_tick >= kTickRate) {
+            m_tick = 0.0f;
+            if (Player* p = m_scene->player())
+                if (SceneNode* r = p->root())
+                    m_conn->send(json{{"t", "state"}, {"pose", poseJson(Player::capturePose(r))},
+                                      {"health", p->humanoid().health}, {"dead", p->isDead()}}.dump());
+        }
+    }
+    m_chat.update(dt);
+}
+
+void NetClient::handle(const std::string& text) {
+    json m = json::parse(text, nullptr, false);
+    if (!m.is_object()) return;
+    std::string t = m.value("t", "");
+
+    if (t == "welcome") {
+        std::string err;
+        if (!Serializer::loadScene(*m_scene, m.value("scene", std::string()), &err)) {
+            m_error = "Couldn't load the host's game: " + err;
+            m_conn.reset();
+            m_state = State::Failed;
+            return;
+        }
+        // Objects we create ourselves get ids far away from the host's.
+        SceneNode::reserveId(kLocalIdBase);
+        m_myServerRoot = m.value("you", (uint64_t)0);
+        if (SceneNode* mine = m_scene->findById(m_myServerRoot)) m_scene->removeNode(mine);
+
+        // The host's character is just another model here; build our own.
+        Player* p = m_scene->player();
+        uint64_t hostRoot = p ? p->rootId() : 0;
+        if (p) {
+            p->setRootId(0);
+            p->setSpawn(spawnPoint(*m_scene));
+            p->build();
+            Profile::get().applyTo(*p);
+            if (SceneNode* r = p->root()) r->name = m.value("name", Profile::get().name);
+            if (m.contains("humanoid")) humanoidFrom(p->humanoid(), m["humanoid"]);
+        }
+        if (hostRoot) {
+            RemoteCharacter host;
+            host.rootId = hostRoot;
+            m_scene->remotes().push_back(host);
+        }
+        m_players.clear();
+        if (m.contains("players")) for (auto& n : m["players"]) m_players.push_back(n.get<std::string>());
+        m_title = m_scene->info().title;
+
+        m_session->setRole(GameSession::Role::Client);
+        m_session->onTouch = [this](uint64_t part, const std::string& limb) { reportTouch(part, limb); };
+        m_session->onClick = [this](uint64_t part) { reportClick(part); };
+        m_session->start();
+        m_state = State::Joined;
+        m_chat.add("", "Joined " + m_title + " as " + m.value("name", std::string("Player")), true);
+        return;
+    }
+    if (t == "bye") {
+        m_error = m.value("reason", std::string("The host closed the game."));
+        return;
+    }
+    if (t == "chat") {
+        m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false));
+        return;
+    }
+    if (m_state != State::Joined) return;
+    Player* me = m_scene->player();
+
+    if (t == "world") {
+        if (m.contains("add"))
+            for (const auto& a : m["add"]) {
+                auto node = Serializer::nodeFromString(a.value("node", std::string()), false);
+                if (!node) continue;
+                if (SceneNode* old = m_scene->findById(node->id)) m_scene->removeNode(old);
+                SceneNode* parent = m_scene->findById(a.value("parent", (uint64_t)0));
+                m_scene->insert(std::move(node), parent ? parent : m_scene->root());
+            }
+        if (m.contains("upd"))
+            for (const auto& u : m["upd"])
+                if (SceneNode* n = m_scene->findById(u.value("i", (uint64_t)0)))
+                    if (!m_scene->isCharacterPart(n)) applyUpdate(n, u);
+        if (m.contains("del"))
+            for (const auto& d : m["del"])
+                if (SceneNode* n = m_scene->findById(d.get<uint64_t>()))
+                    if (!m_scene->isCharacterPart(n)) m_scene->removeNode(n);
+        if (m.contains("env")) Serializer::environmentFromString(m_scene->environment(), m["env"].get<std::string>());
+        if (m.contains("gui")) {
+            GuiState& g = m_session->gui();
+            g.labels.clear();
+            for (auto& [k, v] : m["gui"]["labels"].items()) g.labels[k] = v.get<std::string>();
+            g.message = m["gui"].value("msg", std::string());
+            g.messageTime = m["gui"].value("time", 0.0f);
+        }
+        if (m.contains("fx")) replayFx(*m_scene, m["fx"]);
+        if (m.contains("chars")) {
+            m_players.clear();
+            m_players.push_back(me && me->root() ? me->root()->name : Profile::get().name);
+            for (const auto& ch : m["chars"]) {
+                uint64_t id = ch.value("i", (uint64_t)0);
+                std::string name = ch.value("n", std::string());
+                m_players.push_back(name);
+                if (id == m_myServerRoot) continue;
+                SceneNode* root = m_scene->findById(id);
+                if (!root && ch.contains("rig")) {
+                    auto rig = Serializer::nodeFromString(ch["rig"].get<std::string>(), false);
+                    if (rig) root = m_scene->insert(std::move(rig));
+                }
+                if (!root) continue;
+                root->name = name;
+                if (!m_scene->findRemote(id)) {
+                    RemoteCharacter rc;
+                    rc.rootId = id;
+                    rc.name = name;
+                    m_scene->remotes().push_back(rc);
+                }
+                Player::applyPose(root, poseFrom(ch.value("pose", json())));
+            }
+        }
+        return;
+    }
+    if (t == "hum" && me) {
+        humanoidFrom(me->humanoid(), m.value("h", json::object()));
+        return;
+    }
+    if (t == "kill" && me) {
+        float force = m.value("force", 0.0f);
+        glm::vec3 impulse = vec3(m.value("impulse", json()));
+        if (force >= 0.0f) me->kill(force, impulse);
+        else               me->launch(me->velocity() + impulse);
+        return;
+    }
+    if (t == "left") {
+        uint64_t id = m.value("id", (uint64_t)0);
+        if (SceneNode* n = m_scene->findById(id)) m_scene->removeNode(n);
+        auto& rem = m_scene->remotes();
+        rem.erase(std::remove_if(rem.begin(), rem.end(), [&](auto& r) { return r.rootId == id; }), rem.end());
+        return;
+    }
+}

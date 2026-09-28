@@ -120,6 +120,8 @@ add_library(gb_engine STATIC
     src/game/Hud.cpp
     src/game/SettingsWindow.cpp
     src/game/Profile.cpp
+    src/net/Socket.cpp
+    src/net/NetGame.cpp
     src/editor/Theme.cpp
 )
 target_include_directories(gb_engine PUBLIC src/)
@@ -133,7 +135,7 @@ target_link_libraries(gb_engine PUBLIC
 )
 target_compile_definitions(gb_engine PUBLIC GLM_ENABLE_EXPERIMENTAL)
 if(WIN32)
-    target_link_libraries(gb_engine PUBLIC dbghelp)
+    target_link_libraries(gb_engine PUBLIC dbghelp ws2_32)
 endif()
 
 # ---------------------------------------------------------------------------

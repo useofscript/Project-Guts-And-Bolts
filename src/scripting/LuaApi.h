@@ -18,7 +18,9 @@ enum class SignalKind : int {
     InputEnded,    // UserInputService.InputEnded     (input, gameProcessed)
     Touched,       // part.Touched                    (otherPart)
     Clicked,       // part.Clicked                    ()
-    Died,          // Humanoid.Died                   ()
+    Died,          // Humanoid.Died                   ()   (id = character)
+    PlayerAdded,   // Players.PlayerAdded             (player)
+    PlayerRemoving,// Players.PlayerRemoving          (player)
 };
 
 namespace LuaApi {
@@ -41,7 +43,7 @@ void       registerInstance(lua_State* L);
 void       pushInstance(lua_State* L, uint64_t id);        // pushes nil for 0
 SceneNode* checkNode   (lua_State* L, int idx);            // errors if destroyed
 void       pushSignal  (lua_State* L, SignalKind kind, uint64_t id);
-void       pushHumanoid(lua_State* L);
+void       pushHumanoid(lua_State* L, uint64_t characterRootId);
 void       pushLighting(lua_State* L);
 
 } // namespace LuaApi

@@ -26,6 +26,13 @@ struct BodyColors {
 
 enum class HatStyle { None, TopHat, Cap, Crown };
 
+// A character's pose, sent over the network in multiplayer: where the model
+// is, and where each body part is (this covers walking, jumping and ragdolls).
+struct CharacterPose {
+    Transform root;
+    std::vector<std::pair<std::string, Transform>> parts;
+};
+
 // A Roblox-style R6 character: HumanoidRootPart, Torso, Head (with a smiley
 // face), two arms and two legs, plus an optional hat. In Play mode it walks
 // with swinging limbs, jumps, stands on parts, and falls apart when it dies.
@@ -73,6 +80,13 @@ public:
     void       rememberHat(HatStyle style) { m_hat = style; }   // no rebuild (loading)
 
     static const char* hatName(HatStyle s);
+
+    // --- Building characters (also used for other players' characters) ----
+    static SceneNode* buildRig(Scene& scene, const std::string& name, const glm::vec3& feet);
+    static void       applyColors(SceneNode* root, const BodyColors& c);
+    static void       applyHat(Scene& scene, SceneNode* root, HatStyle style);
+    static CharacterPose capturePose(const SceneNode* root);
+    static void          applyPose(SceneNode* root, const CharacterPose& pose);
     static std::vector<std::pair<const char*, BodyColors>> colorPresets();
 
 private:

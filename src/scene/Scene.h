@@ -25,6 +25,27 @@ struct WorldSettings {
     float      fallDamageSpeed = 20.0f;     // landing faster than this hurts
 };
 
+// Another player's character in a multiplayer game. On the host, scripts can
+// read and change its Humanoid; the changes are sent to that player.
+struct RemoteCharacter {
+    int         clientId = 0;
+    std::string name;
+    uint64_t    rootId = 0;
+    Humanoid    humanoid;
+    bool        humanoidDirty = false;   // a script changed it: tell its owner
+    double      editedAt = -1.0;         // when a script last changed it
+    bool        alive = true;
+    struct Kill { float force; glm::vec3 impulse; };
+    std::vector<Kill> kills;             // violent deaths to send to its owner
+};
+
+// A visual effect to show on every player's screen (multiplayer).
+struct FxEvent {
+    enum Type { Explosion, Blood, Oil, Gibs, Sparks } type;
+    glm::vec3 pos;
+    float     amount;
+};
+
 // Shown on the game's card in the Guts&BoltsPlayer app.
 struct GameInfo {
     std::string title       = "My Game";
@@ -68,6 +89,22 @@ public:
     // True for the character model and every part inside it.
     bool isCharacterPart(const SceneNode* node) const;
 
+    // --- Characters (the local player + other players in multiplayer) ---
+    std::vector<RemoteCharacter>& remotes() { return m_remotes; }
+    RemoteCharacter* findRemote(uint64_t rootId);
+    Humanoid*        humanoidOf(uint64_t rootId);   // local or remote, null if none
+    bool             isCharacterRoot(uint64_t id) const;
+    // Kill any character; `force` 0..1 = how violently.
+    void             killCharacter(uint64_t rootId, float force, const glm::vec3& impulse);
+    void             markHumanoidEdited(uint64_t rootId, double now);
+
+    // Effects the host should show on everyone's screen.
+    bool                  recordFx = false;
+    std::vector<FxEvent>  fxQueue;
+    void pushFx(FxEvent::Type t, const glm::vec3& p, float amount) {
+        if (recordFx) fxQueue.push_back({t, p, amount});
+    }
+
     // Wipe everything and build the default starting place.
     void buildDefault();
     // Replace the whole tree (used when loading a file / undoing).
@@ -83,6 +120,7 @@ private:
     Environment                m_env;
     WorldSettings              m_world;
     GameInfo                   m_info;
+    std::vector<RemoteCharacter> m_remotes;
     ParticleSystem             m_particles;
     std::unique_ptr<Player>    m_player;
 
