@@ -31,6 +31,7 @@ enum class HatStyle { None, TopHat, Cap, Crown };
 struct CharacterPose {
     Transform root;
     std::vector<std::pair<std::string, Transform>> parts;
+    bool forceField = false;
 };
 
 // A Roblox-style R6 character: HumanoidRootPart, Torso, Head (with a smiley
@@ -61,6 +62,7 @@ public:
     // Damage with a direction (used by explosions); kills if health runs out.
     void hurt(float damage, float force, const glm::vec3& impulse);
     bool isDead() const { return m_dead; }
+    bool hasForceField() const;
     float respawnIn() const { return m_dead ? m_respawnDelay - m_deadTime : 0.0f; }
 
     void      setSpawn(const glm::vec3& p) { m_spawn = p; }
@@ -130,4 +132,6 @@ private:
     float     m_pendingForce = 0.0f;
     glm::vec3 m_pendingImpulse{0.0f};
     float     m_lastHealth = 100.0f;
+    uint64_t  m_spawnFF = 0;          // the ForceField we gave on spawn
+    float     m_spawnFFTime = 0.0f;
 };

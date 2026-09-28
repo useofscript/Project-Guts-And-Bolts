@@ -47,6 +47,7 @@ void explode(Scene& scene, const glm::vec3& pos, float radius, float power) {
     for (RemoteCharacter& rc : scene.remotes()) {
         SceneNode* root = scene.findById(rc.rootId);
         if (!root || !rc.alive) continue;
+        if (root->hasForceField()) continue;
         glm::vec3 body = root->transform.position + glm::vec3(0, 1.3f, 0);
         glm::vec3 d = body - pos;
         float dist = glm::length(d);

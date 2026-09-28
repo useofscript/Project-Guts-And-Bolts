@@ -30,6 +30,7 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     if (node->isScript())                { col = {0.55f, 0.75f, 1.00f, 1}; tag = "[S] "; }
     else if (node->kind == NodeKind::Model) { col = {0.95f, 0.82f, 0.45f, 1}; tag = "[M] "; }
     else if (node->isLight())            { col = {1.00f, 0.95f, 0.60f, 1}; tag = "[L] "; }
+    else if (node->kind == NodeKind::ForceField) { col = {0.60f, 0.90f, 1.00f, 1}; tag = "[F] "; }
     if (!node->visible || (node->isScript() && !node->enabled)) col.w = 0.5f;
     ImGui::PushStyleColor(ImGuiCol_Text, col);
 

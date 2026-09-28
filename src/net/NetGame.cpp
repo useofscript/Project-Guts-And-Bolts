@@ -43,12 +43,13 @@ Transform transformFrom(const json& j) {
 json poseJson(const CharacterPose& pose) {
     json parts = json::array();
     for (const auto& [name, t] : pose.parts) parts.push_back({name, transformJson(t)});
-    return {{"root", transformJson(pose.root)}, {"parts", parts}};
+    return {{"root", transformJson(pose.root)}, {"parts", parts}, {"ff", pose.forceField}};
 }
 CharacterPose poseFrom(const json& j) {
     CharacterPose pose;
     if (!j.is_object()) return pose;
     pose.root = transformFrom(j.value("root", json()));
+    pose.forceField = j.value("ff", false);
     if (j.contains("parts") && j["parts"].is_array())
         for (const auto& p : j["parts"])
             if (p.is_array() && p.size() == 2 && p[0].is_string())

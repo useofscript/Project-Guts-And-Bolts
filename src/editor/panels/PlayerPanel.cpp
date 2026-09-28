@@ -86,6 +86,10 @@ void PlayerPanel::render() {
         ImGui::BeginDisabled(!w.fallDamage);
         ImGui::SliderFloat("Safe Fall Speed", &w.fallDamageSpeed, 5.0f, 60.0f, "%.0f");
         ImGui::EndDisabled();
+        ImGui::SliderFloat("Spawn ForceField", &w.spawnForceField, 0.0f, 20.0f, "%.0f s");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A glowing shield for a few seconds after spawning.\n"
+                              "Blocks damage from TakeDamage, explosions and falls.");
         if (ImGui::Button("Classic Roblox rules")) {
             w.deathStyle = DeathStyle::Classic; w.gore = GoreLevel::Off; w.fallDamage = false;
         }

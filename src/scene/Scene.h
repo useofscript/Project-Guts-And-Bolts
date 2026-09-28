@@ -23,6 +23,7 @@ struct WorldSettings {
     bool       dismemberment   = true;      // big hits can knock limbs off
     bool       fallDamage      = true;
     float      fallDamageSpeed = 20.0f;     // landing faster than this hurts
+    float      spawnForceField = 4.0f;      // seconds of ForceField after spawning (0 = none)
 };
 
 // Another player's character in a multiplayer game. On the host, scripts can

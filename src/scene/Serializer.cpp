@@ -32,6 +32,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Model:  return "Model";
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return "Light";
+        case NodeKind::ForceField: return "ForceField";
         default:               return "Part";
     }
 }
@@ -39,6 +40,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Model")  return NodeKind::Model;
     if (s == "Script") return NodeKind::Script;
     if (s == "Light")  return NodeKind::Light;
+    if (s == "ForceField") return NodeKind::ForceField;
     return NodeKind::Part;
 }
 
@@ -188,7 +190,7 @@ std::string saveScene(Scene& scene, bool pretty) {
     j["world"] = {{"gravity", ws.gravity}, {"fallenPartsHeight", ws.fallenPartsHeight},
                   {"deathStyle", (int)ws.deathStyle}, {"gore", (int)ws.gore},
                   {"dismemberment", ws.dismemberment}, {"fallDamage", ws.fallDamage},
-                  {"fallDamageSpeed", ws.fallDamageSpeed}};
+                  {"fallDamageSpeed", ws.fallDamageSpeed}, {"spawnForceField", ws.spawnForceField}};
     if (Player* p = scene.player()) {
         const Humanoid& h = p->humanoid();
         j["player"] = {
@@ -231,6 +233,7 @@ bool loadScene(Scene& scene, const std::string& text, std::string* error) {
             w.dismemberment     = get<bool>(j["world"], "dismemberment", w.dismemberment);
             w.fallDamage        = get<bool>(j["world"], "fallDamage", w.fallDamage);
             w.fallDamageSpeed   = get<float>(j["world"], "fallDamageSpeed", w.fallDamageSpeed);
+            w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
         }
         scene.world() = w;
 

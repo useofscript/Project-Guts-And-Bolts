@@ -64,6 +64,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Model:  return "Model";
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
+        case NodeKind::ForceField: return "ForceField";
         default:               return "Part";
     }
 }
@@ -424,6 +425,8 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Model);
     } else if (cls == "Script") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Script);
+    } else if (cls == "ForceField") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::ForceField);
     } else if (cls == "PointLight" || cls == "SpotLight") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Light);
         n->lightType = cls == "SpotLight" ? LightType::Spot : LightType::Point;
@@ -516,6 +519,8 @@ void touched(lua_State* L) { E(L)->scene()->markHumanoidEdited(humRoot(L), E(L)-
 
 int hum_takeDamage(lua_State* L) {
     Humanoid& h = hum(L);
+    // Like Roblox: TakeDamage does nothing while the character has a ForceField.
+    if (SceneNode* r = E(L)->scene()->findById(humRoot(L)); r && r->hasForceField()) return 0;
     h.health = glm::clamp(h.health - (float)luaL_checknumber(L, 2), 0.0f, h.maxHealth);
     touched(L);
     return 0;

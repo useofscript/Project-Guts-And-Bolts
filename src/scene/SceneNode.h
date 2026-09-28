@@ -13,7 +13,8 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder };
 //   Model  — an empty container used to group other objects
 //   Script — Lua code that runs when you press Play (script.Parent = its parent)
 //   Light  — a PointLight / SpotLight, usually placed inside a part
-enum class NodeKind { Part, Model, Script, Light };
+//   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
+enum class NodeKind { Part, Model, Script, Light, ForceField };
 
 enum class LightType { Point, Spot };
 
@@ -74,6 +75,10 @@ public:
     bool isPart()   const { return kind == NodeKind::Part && mesh != nullptr; }
     bool isScript() const { return kind == NodeKind::Script; }
     bool isLight()  const { return kind == NodeKind::Light; }
+    bool hasForceField() const {
+        for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
+        return false;
+    }
 
     SceneNode*                 addChild(std::unique_ptr<SceneNode> child);
     void                       removeChild(SceneNode* child);

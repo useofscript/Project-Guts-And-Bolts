@@ -216,6 +216,7 @@ void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style) {
 CharacterPose Player::capturePose(const SceneNode* r) {
     CharacterPose pose;
     pose.root = r->transform;
+    pose.forceField = r->hasForceField();
     for (auto& c : r->children)
         if (c->isPart()) pose.parts.push_back({c->name, c->transform});
     return pose;
@@ -223,6 +224,13 @@ CharacterPose Player::capturePose(const SceneNode* r) {
 
 void Player::applyPose(SceneNode* r, const CharacterPose& pose) {
     r->transform = pose.root;
+    // Show / hide the ForceField to match.
+    if (pose.forceField && !r->hasForceField()) {
+        r->addChild(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
+    } else if (!pose.forceField && r->hasForceField()) {
+        for (auto& c : r->children)
+            if (c->kind == NodeKind::ForceField) { r->removeChild(c.get()); break; }
+    }
     for (const auto& [name, t] : pose.parts)
         if (SceneNode* c = r->findChild(name)) c->transform = t;
 }
@@ -289,6 +297,20 @@ void Player::respawn() {
     m_pendingForce = 0.0f;
     m_pendingImpulse = glm::vec3(0.0f);
     m_lastHealth = m_humanoid.health;
+
+    // A few seconds of ForceField after spawning.
+    if (SceneNode* old = m_scene->findById(m_spawnFF)) m_scene->removeNode(old);
+    m_spawnFF = 0;
+    m_spawnFFTime = m_scene->world().spawnForceField;
+    if (m_spawnFFTime > 0.0f) {
+        auto ff = std::make_unique<SceneNode>("ForceField", NodeKind::ForceField);
+        m_spawnFF = m_scene->insert(std::move(ff), r)->id;
+    }
+}
+
+bool Player::hasForceField() const {
+    SceneNode* r = root();
+    return r && r->hasForceField();
 }
 
 void Player::kill(float force, const glm::vec3& impulse) {
@@ -300,6 +322,7 @@ void Player::kill(float force, const glm::vec3& impulse) {
 
 void Player::hurt(float damage, float force, const glm::vec3& impulse) {
     if (m_dead || damage <= 0.0f) return;
+    if (hasForceField()) { launch(m_velocity + impulse * 0.5f); return; }   // shielded: just a shove
     m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
     if (m_humanoid.health <= 0.0f) kill(force, impulse);
     else launch(m_velocity + impulse);
@@ -327,6 +350,11 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (!r) return;
 
     if (m_dead) { updateDeath(dt, physics); return; }
+
+    if (m_spawnFF && (m_spawnFFTime -= dt) <= 0.0f) {
+        if (SceneNode* ff = m_scene->findById(m_spawnFF)) m_scene->removeNode(ff);
+        m_spawnFF = 0;
+    }
 
     // Took damage since last frame (scripts, traps, explosions)?
     if (m_humanoid.health < m_lastHealth - 0.5f) bleed(m_lastHealth - m_humanoid.health);
@@ -376,7 +404,8 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     // Fall damage: landing hard hurts, landing very hard is fatal (and messy).
     const WorldSettings& world = m_scene->world();
     float impact = -m_velocity.y;
-    if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed) {
+    if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed &&
+        !hasForceField()) {
         float over = impact - world.fallDamageSpeed;
         float damage = over * 7.0f;
         m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
@@ -432,6 +461,8 @@ void Player::animate(float dt, bool moving, bool grounded) {
 void Player::startDeath() {
     SceneNode* r = root();
     if (!r) return;
+    if (SceneNode* ff = m_scene->findById(m_spawnFF)) m_scene->removeNode(ff);
+    m_spawnFF = 0;
     m_dead = true;
     m_diedFlag = true;
     m_deadTime = 0.0f;

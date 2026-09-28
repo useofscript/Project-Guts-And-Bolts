@@ -13,6 +13,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <vector>
 
 namespace {
@@ -328,17 +329,20 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
 
 void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera) {
     struct Item { SceneNode* node; glm::mat4 model; float dist; };
-    std::vector<Item> opaque, transparent;
+    std::vector<Item> opaque, transparent, shielded;
     glm::vec3 camPos = camera.position();
 
-    // Walk manually so hidden models hide everything inside them.
-    std::vector<SceneNode*> stack{scene.root()};
+    // Walk manually so hidden models hide everything inside them, and so
+    // everything inside a character with a ForceField gets the glowing shell.
+    std::vector<std::pair<SceneNode*, bool>> stack{{scene.root(), false}};
     while (!stack.empty()) {
-        SceneNode* node = stack.back();
+        auto [node, ff] = stack.back();
         stack.pop_back();
         if (!node->visible) continue;
-        for (auto& c : node->children) stack.push_back(c.get());
+        ff = ff || node->hasForceField();
+        for (auto& c : node->children) stack.push_back({c.get(), ff});
         if (!node->mesh || node->kind != NodeKind::Part) continue;
+        if (ff && !node->internal && node->transparency < 0.99f) shielded.push_back({node, node->worldMatrix(), 0.0f});
         float alpha = 1.0f - node->transparency;
         if (alpha <= 0.001f) continue;   // fully transparent — nothing to draw
         glm::mat4 model = node->worldMatrix();
@@ -406,6 +410,28 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
     for (auto& it : transparent) draw(it);
+
+    // --- ForceFields: a glowing neon shell cycling through the rainbow ---
+    if (!shielded.empty()) {
+        float t = (float)(now() - m_startTime);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);          // additive: it glows (and blooms)
+        m_lit->setBool("uSelected", false);
+        m_lit->setInt("uMaterial", (int)Material::Neon);
+        for (size_t i = 0; i < shielded.size(); ++i) {
+            const Item& it = shielded[i];
+            // Slightly bigger than the part, pulsing a little.
+            float grow = 1.12f + 0.03f * std::sin(t * 5.0f + (float)i);
+            glm::mat4 m = it.model * glm::scale(glm::mat4(1.0f), glm::vec3(grow));
+            float hue = std::fmod(t * 0.35f + (float)i * 0.04f, 1.0f);
+            glm::vec3 c = glm::clamp(glm::abs(glm::mod(hue * 6.0f + glm::vec3(0, 4, 2), 6.0f) - 3.0f) - 1.0f, 0.0f, 1.0f);
+            m_lit->setMat4("uModel", m);
+            m_lit->setMat3("uNormalMat", glm::transpose(glm::inverse(glm::mat3(m))));
+            m_lit->setVec3("uColor", c);
+            m_lit->setFloat("uAlpha", 0.15f + 0.06f * std::sin(t * 7.0f + (float)i * 0.7f));
+            it.node->mesh->draw();
+        }
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
     glDepthMask(GL_TRUE);
 }
 
