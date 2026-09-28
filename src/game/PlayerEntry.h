@@ -5,4 +5,5 @@
 struct PlayerEntry {
     std::string name;
     bool        admin = false;   // the official staff account (checked with its signature)
+    bool        verified = false;   // has the (signed) Verified badge
 };

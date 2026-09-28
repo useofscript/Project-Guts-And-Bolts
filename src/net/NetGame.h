@@ -13,11 +13,12 @@ class GameSession;
 
 // Chat messages and the speech bubbles above characters' heads.
 struct ChatLog {
-    struct Line { std::string from, text; bool system = false; bool admin = false; };
+    struct Line { std::string from, text; bool system = false; bool admin = false; bool verified = false; };
     std::vector<Line> lines;
     std::unordered_map<std::string, std::pair<std::string, float>> bubbles;   // name -> text, seconds left
 
-    void add(const std::string& from, const std::string& text, bool system = false, bool admin = false);
+    void add(const std::string& from, const std::string& text, bool system = false, bool admin = false,
+             bool verified = false);
     void update(float dt);
 };
 
@@ -94,6 +95,7 @@ private:
     std::string  m_nonce;                 // we ask the host to sign this, to prove who it is
     uint64_t     m_hostRoot = 0;
     bool         m_hostAdmin = false;
+    bool         m_hostVerified = false;
     ChatLog      m_chat;
     float        m_tick = 0.0f;
     bool         m_wasDead = false;

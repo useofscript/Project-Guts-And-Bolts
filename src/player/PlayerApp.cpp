@@ -162,7 +162,12 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     }
     if (!m_opts.testGrantFor.empty()) {
         std::string err;
-        std::string code = Badges::makeCode(Badges::Id::Tester, m_opts.testGrantFor, err);
+        // --test-grant <account id>[:badge key]
+        std::string who = m_opts.testGrantFor, key = "tester";
+        if (auto c = who.find(':'); c != std::string::npos) { key = who.substr(c + 1); who = who.substr(0, c); }
+        Badges::Id bid = Badges::Id::Tester;
+        Badges::fromKey(key, bid);
+        std::string code = Badges::makeCode(bid, who, err);
         std::printf("BADGECODE %s %s\n", code.c_str(), err.c_str());
         std::fflush(stdout);
     }
@@ -360,7 +365,7 @@ void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
     if (m_server)      m_server->say(text);
     else if (m_client) m_client->say(text);
-    else               m_soloChat->add(Profile::get().name, text, false, Account::iAmStaff());
+    else               m_soloChat->add(Profile::get().name, text, false, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified));
 }
 
 void PlayerApp::leaveGame() {
@@ -499,7 +504,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     std::string hi = "Hi, " + me.name;
     ImVec2 ts = ImGui::CalcTextSize(hi.c_str());
     const bool staff = Account::iAmStaff();
-    float badgeW = staff ? 24.0f : 0.0f;
+    const bool verifiedMe = Badges::iHave(Badges::Id::Verified);
+    float badgeW = (staff ? 24.0f : 0.0f) + (verifiedMe ? 20.0f : 0.0f);
     std::string boltsText = Bolts::format(Bolts::balance());
     float boltsW = 18 + 4 + ImGui::CalcTextSize(boltsText.c_str()).x;
     float line2 = boltsW + 14 + ImGui::CalcTextSize("Edit avatar").x;
@@ -508,7 +514,9 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
     dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
     if (staff) Badges::drawIcon(dl, ImVec2(a.x + 22, a.y + 15), 20.0f, Badges::Id::Administrator);
-    dl->AddText(ImVec2(a.x + 12 + badgeW, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());
+    float nameX = a.x + 12 + (staff ? 24.0f : 0.0f);
+    dl->AddText(ImVec2(nameX, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());
+    if (verifiedMe) Badges::drawCheck(dl, ImVec2(nameX + ts.x + 10, a.y + 7 + ImGui::GetFontSize() * 0.5f), 15.0f);
     // Your Bolts (click to open the Bolts page).
     ImGui::SetCursorScreenPos(ImVec2(a.x + 10, a.y + 26));
     if (ImGui::InvisibleButton("##boltsbox", ImVec2(boltsW + 4, 20))) m_page = Page::Bolts;
@@ -533,7 +541,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     struct Item { const char* label; int action; };
     std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Avatar", 2}, {"Join a Friend", 3},
                                {"Develop", 4}, {"Settings", 5}};
-    if (staff) items.push_back({"Staff", 7});
+    if (Badges::canVerify()) items.push_back({"Staff", 7});
 #ifdef GB_MOBILE
     // No Studio on phones.
     items.erase(std::remove_if(items.begin(), items.end(), [](const Item& i) { return i.action == 4; }), items.end());
@@ -1017,7 +1025,7 @@ void PlayerApp::drawGame(float dt) {
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
     if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
-    else               Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff()}});
+    else Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)}});
     drawChat(pos, max);
 
     // "+5 Bolts for playing!" popup, top middle.
@@ -1082,7 +1090,10 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
                 Badges::icon(Badges::Id::Administrator, ImGui::GetTextLineHeight());
                 ImGui::SameLine(0, 4);
             }
-            ImGui::TextColored(l.admin ? ImVec4(1.0f, 0.85f, 0.4f, 1) : ImVec4(0.55f, 0.8f, 1.0f, 1), "%s:", l.from.c_str());
+            ImGui::TextColored(l.admin ? ImVec4(1.0f, 0.85f, 0.4f, 1) : ImVec4(0.55f, 0.8f, 1.0f, 1), "%s", l.from.c_str());
+            if (l.verified || l.admin) { ImGui::SameLine(0, 3); Badges::check(ImGui::GetTextLineHeight() * 0.9f); }
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(l.admin ? ImVec4(1.0f, 0.85f, 0.4f, 1) : ImVec4(0.55f, 0.8f, 1.0f, 1), ":");
             ImGui::SameLine();
             ImGui::PushTextWrapPos(0);
             ImGui::TextUnformatted(l.text.c_str());
@@ -1217,25 +1228,30 @@ void PlayerApp::drawAccount() {
 }
 
 void PlayerApp::drawStaff() {
-    if (!Account::iAmStaff()) { m_page = Page::Home; return; }
-    Badges::icon(Badges::Id::Administrator, 40.0f);
+    if (!Badges::canVerify()) { m_page = Page::Home; return; }
+    const bool official = Account::iAmStaff();
+    Badges::icon(official ? Badges::Id::Administrator : Badges::Id::Staff, 40.0f);
     ImGui::SameLine();
     ImGui::BeginGroup();
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted("Staff Tools");
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("Only the official Guts account can see this page.");
+    ImGui::TextDisabled(official ? "Only the official Guts account can see all of this page."
+                                 : "You're Staff: you can verify people.");
     ImGui::EndGroup();
 
-    ImGui::SeparatorText("Give someone a badge");
+    ImGui::SeparatorText(official ? "Give someone a badge" : "Verify someone");
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("Ask them for their account ID (Avatar page > Copy full ID), make a code here and send "
-                        "it to them. The code only works for their account.");
+                        "it to them. The code only works for their account. (When everyone uses a Guts&Bolts "
+                        "server, you can verify people straight from the server section below instead.)");
     ImGui::PopTextWrapPos();
     std::vector<const char*> names;
     std::vector<int> ids;
-    for (int i = 0; i < (int)Badges::Id::Count; ++i)
-        if (Badges::info((Badges::Id)i).grantable) { names.push_back(Badges::info((Badges::Id)i).name); ids.push_back(i); }
+    for (int i = 0; i < (int)Badges::Id::Count; ++i) {
+        const Badges::Info& in = Badges::info((Badges::Id)i);
+        if (in.grantable && (official || in.staffCanGive)) { names.push_back(in.name); ids.push_back(i); }
+    }
     int cur = 0;
     for (int k = 0; k < (int)ids.size(); ++k) if (ids[k] == m_grantBadge) cur = k;
     Badges::icon((Badges::Id)ids[cur], 32.0f);
@@ -1254,6 +1270,8 @@ void PlayerApp::drawStaff() {
         ImGui::InputTextMultiline("##code", &m_grantCode, ImVec2(520, 60), ImGuiInputTextFlags_ReadOnly);
         if (ImGui::Button("Copy code")) ImGui::SetClipboardText(m_grantCode.c_str());
     }
+
+    if (!official) return;   // the rest is for the official account only
 
     ImGui::SeparatorText("Give someone Bolts");
     ImGui::PushTextWrapPos(0);

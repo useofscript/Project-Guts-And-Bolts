@@ -1,4 +1,5 @@
 #include "NetGame.h"
+#include "../game/Badges.h"
 #include "../game/GameSession.h"
 #include "../game/Profile.h"
 #include "../scene/Scene.h"
@@ -18,6 +19,22 @@
 using json = nlohmann::json;
 
 namespace {
+
+// Our Verified / Staff badges, sent along so others can check them.
+json myGrants() {
+    json g = json::array();
+    for (const auto& [k, sig] : Profile::get().grants)
+        if (k == "verified" || k == "staff") g.push_back({k, sig});
+    return g;
+}
+std::vector<Badges::Grant> grantsFrom(const json& m) {
+    std::vector<Badges::Grant> out;
+    if (m.contains("grants") && m["grants"].is_array())
+        for (const auto& g : m["grants"])
+            if (g.is_array() && g.size() == 2 && g[0].is_string() && g[1].is_string() && out.size() < 8)
+                out.push_back({g[0].get<std::string>(), g[1].get<std::string>()});
+    return out;
+}
 
 constexpr float    kTickRate    = 1.0f / 20.0f;        // network updates per second: 20
 constexpr uint64_t kLocalIdBase = 1ull << 40;          // ids clients make for themselves
@@ -156,8 +173,8 @@ std::string cleanText(std::string s, size_t max) {
 // Chat
 // ===========================================================================
 
-void ChatLog::add(const std::string& from, const std::string& text, bool system, bool admin) {
-    lines.push_back({from, text, system, admin});
+void ChatLog::add(const std::string& from, const std::string& text, bool system, bool admin, bool verified) {
+    lines.push_back({from, text, system, admin, verified});
     if (lines.size() > 100) lines.erase(lines.begin());
     if (!system) bubbles[from] = {text, 6.0f};
 }
@@ -183,6 +200,7 @@ struct NetServer::Client {
     std::string nonce;            // they sign this to prove which account they are
     std::string accountId;        // "" if they couldn't prove it
     bool        admin = false;
+    bool        verified = false;
     std::set<uint64_t> knownChars;   // rigs this client already has
 };
 
@@ -215,8 +233,8 @@ void NetServer::stop() {
 
 std::vector<PlayerEntry> NetServer::players() const {
     std::vector<PlayerEntry> out;
-    out.push_back({Profile::get().name + " (host)", Account::iAmStaff()});
-    for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin});
+    out.push_back({Profile::get().name + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)});
+    for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin, c->verified});
     return out;
 }
 
@@ -228,9 +246,9 @@ void NetServer::broadcast(const std::string& msg, const Client* except) {
 void NetServer::say(const std::string& text) {
     std::string t = cleanText(text, 200);
     if (t.empty()) return;
-    bool admin = Account::iAmStaff();
-    m_chat.add(Profile::get().name, t, false, admin);
-    broadcast(json{{"t", "chat"}, {"from", Profile::get().name}, {"text", t}, {"adm", admin}}.dump());
+    bool admin = Account::iAmStaff(), ver = Badges::iHave(Badges::Id::Verified);
+    m_chat.add(Profile::get().name, t, false, admin, ver);
+    broadcast(json{{"t", "chat"}, {"from", Profile::get().name}, {"text", t}, {"adm", admin}, {"ver", ver}}.dump());
 }
 
 void NetServer::dropClient(size_t index, const char* reason) {
@@ -286,6 +304,7 @@ void NetServer::handle(Client& c, const std::string& text) {
         if (Account::verify(accountId, "gb-join:" + c.nonce, m.value("sig", std::string())))
             c.accountId = accountId;
         c.admin = !c.accountId.empty() && Account::isOfficial(c.accountId);
+        c.verified = !c.accountId.empty() && Badges::has(c.accountId, grantsFrom(m), Badges::Id::Verified);
 
         std::string base = cleanText(m.value("name", std::string("Player")), 20);
         if (base.empty()) base = "Player";
@@ -324,9 +343,10 @@ void NetServer::handle(Client& c, const std::string& text) {
         c.knownChars.insert(rig->id);
 
         json players = json::array();
-        for (auto& e : this->players()) players.push_back({{"n", e.name}, {"a", e.admin}});
+        for (auto& e : this->players()) players.push_back({{"n", e.name}, {"a", e.admin}, {"v", e.verified}});
         // Prove who *we* are too, by signing the joiner's challenge.
-        json proof = {{"id", Account::id()}, {"sig", Account::sign("gb-host:" + m.value("cnonce", std::string()))}};
+        json proof = {{"id", Account::id()}, {"sig", Account::sign("gb-host:" + m.value("cnonce", std::string()))},
+                      {"grants", myGrants()}};
         c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name}, {"host", proof},
                           {"scene", Serializer::saveScene(*m_scene)},
                           {"humanoid", humanoidJson(rc.humanoid)}, {"players", players}}.dump());
@@ -372,8 +392,8 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
-        m_chat.add(c.name, msg, false, c.admin);
-        broadcast(json{{"t", "chat"}, {"from", c.name}, {"text", msg}, {"adm", c.admin}}.dump());
+        m_chat.add(c.name, msg, false, c.admin, c.verified);
+        broadcast(json{{"t", "chat"}, {"from", c.name}, {"text", msg}, {"adm", c.admin}, {"ver", c.verified}}.dump());
     }
 }
 
@@ -444,15 +464,16 @@ void NetServer::sendTick() {
     json w = json::parse(world);
 
     // Characters: everyone's pose (each client skips its own).
-    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; };
+    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; bool verified; };
     std::vector<Char> chars;
     if (Player* host = m_scene->player())
-        if (SceneNode* r = host->root()) chars.push_back({r->id, Profile::get().name, r, Account::iAmStaff()});
+        if (SceneNode* r = host->root())
+            chars.push_back({r->id, Profile::get().name, r, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)});
     for (auto& rc : m_scene->remotes())
         if (SceneNode* r = m_scene->findById(rc.rootId)) {
-            bool admin = false;
-            for (auto& c : m_clients) if (c->rootId == rc.rootId) admin = c->admin;
-            chars.push_back({rc.rootId, rc.name, r, admin});
+            bool admin = false, ver = false;
+            for (auto& c : m_clients) if (c->rootId == rc.rootId) { admin = c->admin; ver = c->verified; }
+            chars.push_back({rc.rootId, rc.name, r, admin, ver});
         }
 
     for (auto& c : m_clients) {
@@ -461,7 +482,8 @@ void NetServer::sendTick() {
         json list = json::array();
         for (auto& ch : chars) {
             if (ch.id == c->rootId) continue;
-            json entry = {{"i", ch.id}, {"n", ch.name}, {"a", ch.admin}, {"pose", poseJson(Player::capturePose(ch.root))}};
+            json entry = {{"i", ch.id}, {"n", ch.name}, {"a", ch.admin}, {"v", ch.verified},
+                          {"pose", poseJson(Player::capturePose(ch.root))}};
             if (!c->knownChars.count(ch.id)) {                   // first time: send the whole model
                 entry["rig"] = Serializer::nodeToString(*ch.root);
                 c->knownChars.insert(ch.id);
@@ -563,7 +585,7 @@ void NetClient::handle(const std::string& text) {
         Profile& me = Profile::get();
         m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", me.name}, {"avatar", avatarJson(me)},
                           {"id", Account::id()}, {"sig", Account::sign("gb-join:" + m.value("nonce", std::string()))},
-                          {"cnonce", m_nonce}}.dump());
+                          {"cnonce", m_nonce}, {"grants", myGrants()}}.dump());
         return;
     }
     if (t == "welcome") {
@@ -598,14 +620,15 @@ void NetClient::handle(const std::string& text) {
         // Is the host really who they say they are?
         if (m.contains("host") && m["host"].is_object()) {
             std::string hid = m["host"].value("id", std::string());
-            m_hostAdmin = Account::verify(hid, "gb-host:" + m_nonce, m["host"].value("sig", std::string())) &&
-                          Account::isOfficial(hid);
+            bool proved = Account::verify(hid, "gb-host:" + m_nonce, m["host"].value("sig", std::string()));
+            m_hostAdmin = proved && Account::isOfficial(hid);
+            m_hostVerified = proved && Badges::has(hid, grantsFrom(m["host"]), Badges::Id::Verified);
         }
         m_hostRoot = hostRoot;
         m_players.clear();
         if (m.contains("players"))
             for (auto& e : m["players"])
-                if (e.is_object()) m_players.push_back({e.value("n", std::string()), e.value("a", false)});
+                if (e.is_object()) m_players.push_back({e.value("n", std::string()), e.value("a", false), e.value("v", false)});
         m_title = m_scene->info().title;
 
         m_session->setRole(GameSession::Role::Client);
@@ -622,7 +645,7 @@ void NetClient::handle(const std::string& text) {
     }
     if (t == "chat") {
         m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false),
-                   m.value("adm", false));
+                   m.value("adm", false), m.value("ver", false));
         return;
     }
     if (m_state != State::Joined) return;
@@ -656,14 +679,16 @@ void NetClient::handle(const std::string& text) {
         if (m.contains("fx")) replayFx(*m_scene, m["fx"]);
         if (m.contains("chars")) {
             m_players.clear();
-            m_players.push_back({me && me->root() ? me->root()->name : Profile::get().name, Account::iAmStaff()});
+            m_players.push_back({me && me->root() ? me->root()->name : Profile::get().name, Account::iAmStaff(),
+                                 Badges::iHave(Badges::Id::Verified)});
             for (const auto& ch : m["chars"]) {
                 uint64_t id = ch.value("i", (uint64_t)0);
                 std::string name = ch.value("n", std::string());
                 // The host vouches for everyone else; the host itself proved it on joining.
                 bool admin = id == m_hostRoot ? m_hostAdmin : ch.value("a", false);
+                bool ver = id == m_hostRoot ? m_hostVerified : ch.value("v", false);
                 if (Account::nameIsReserved(name) && !admin) name = "Player";
-                m_players.push_back({name, admin});
+                m_players.push_back({name, admin, ver});
                 if (id == m_myServerRoot) continue;
                 SceneNode* root = m_scene->findById(id);
                 if (!root && ch.contains("rig")) {

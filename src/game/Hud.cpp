@@ -124,6 +124,10 @@ void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<Pl
         }
         dl->AddText(ImVec2(tx, y), p.admin ? IM_COL32(255, 225, 120, 255) : IM_COL32(255, 255, 255, 230),
                     p.name.c_str());
+        if (p.verified || p.admin) {   // blue check after Verified names (staff are always verified)
+            float nw = ImGui::CalcTextSize(p.name.c_str()).x;
+            Badges::drawCheck(dl, ImVec2(tx + nw + 9, y + ImGui::GetFontSize() * 0.5f + 1), 13.0f);
+        }
         y += rowH;
     }
 }

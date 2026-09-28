@@ -10,10 +10,13 @@ namespace Badges {
 
 namespace {
 const Info kInfo[] = {
-    {"admin",    "Administrator",    "Runs Guts&Bolts. Only the official staff account has this badge.", false},
-    {"tester",   "Tester",           "Helped test Guts&Bolts before everyone else.",                      true},
-    {"bughunter","Bug Hunter",       "Found and reported a real bug.",                                    true},
-    {"featured", "Featured Creator", "Made a game the staff picked as a favourite.",                     true},
+    {"admin",    "Administrator",    "Runs Guts&Bolts. Only the official staff account has this badge.", false, false},
+    {"tester",   "Tester",           "Helped test Guts&Bolts before everyone else.",                      true,  false},
+    {"bughunter","Bug Hunter",       "Found and reported a real bug.",                                    true,  false},
+    {"featured", "Featured Creator", "Made a game the staff picked as a favourite.",                     true,  false},
+    {"verified", "Verified",         "A recognised creator. Verified people can publish anything, upload "
+                                     "clothes, audio and plugins for free, and sell their creations.",   true,  true},
+    {"staff",    "Staff",            "Helps run Guts&Bolts and can verify people.",                       true,  false},
 };
 
 std::string grantMessage(const std::string& key, const std::string& accountId) {
@@ -52,6 +55,19 @@ bool fromKey(const std::string& key, Id& out) {
     return false;
 }
 
+// A grant's signature is either plain (signed by the official account), or
+// "s:<staff id>:<their Staff badge signature>:<signature>" when a Staff member gave it.
+bool grantValid(const std::string& official, const std::string& key, const std::string& accountId, const std::string& sig) {
+    if (sig.rfind("s:", 0) != 0) return Account::verify(official, grantMessage(key, accountId), sig);
+    Id id;
+    if (!fromKey(key, id) || !info(id).staffCanGive) return false;
+    size_t a = sig.find(':', 2), b = a == std::string::npos ? a : sig.find(':', a + 1);
+    if (b == std::string::npos) return false;
+    std::string staffId = sig.substr(2, a - 2), staffSig = sig.substr(a + 1, b - a - 1), grantSig = sig.substr(b + 1);
+    return Account::verify(official, grantMessage("staff", staffId), staffSig) &&
+           Account::verify(staffId, grantMessage(key, accountId), grantSig);
+}
+
 std::vector<Id> verified(const std::string& accountId, const std::vector<Grant>& grants) {
     std::vector<Id> out;
     if (Account::isOfficial(accountId)) out.push_back(Id::Administrator);
@@ -62,19 +78,45 @@ std::vector<Id> verified(const std::string& accountId, const std::vector<Grant>&
         if (!fromKey(key, id) || !info(id).grantable) continue;
         bool dup = false;
         for (Id o : out) if (o == id) dup = true;
-        if (!dup && Account::verify(official, grantMessage(key, accountId), sig)) out.push_back(id);
+        if (!dup && grantValid(official, key, accountId, sig)) out.push_back(id);
     }
     return out;
 }
 
-std::string makeCode(Id id, const std::string& accountId, std::string& error) {
-    if (!Account::iAmStaff()) { error = "Only the staff account can give out badges."; return ""; }
-    if (!info(id).grantable) { error = "That badge can't be given to anyone."; return ""; }
+bool has(const std::string& accountId, const std::vector<Grant>& grants, Id id) {
+    if (id == Id::Verified && Account::isOfficial(accountId)) return true;   // staff are always verified
+    for (Id h : verified(accountId, grants)) if (h == id) return true;
+    return false;
+}
+
+bool iHave(Id id) { return has(Account::id(), Profile::get().grants, id); }
+
+bool canVerify() { return Account::iAmStaff() || iHave(Id::Staff); }
+
+Grant makeGrant(Id id, const std::string& accountId, std::string& error) {
+    const bool official = Account::iAmStaff();
+    if (!info(id).grantable) { error = "That badge can't be given to anyone."; return {}; }
+    if (!official && !(info(id).staffCanGive && iHave(Id::Staff))) {
+        error = info(id).staffCanGive ? "Only staff can give out that badge." : "Only the official Guts account can give out that badge.";
+        return {};
+    }
     std::string who;
     for (char c : accountId) if (!std::isspace((unsigned char)c)) who += (char)std::tolower((unsigned char)c);
-    if (who.size() != 64) { error = "An account ID is 64 letters and numbers long (from their Avatar page)."; return ""; }
+    if (who.size() != 64) { error = "An account ID is 64 letters and numbers long (from their Avatar page)."; return {}; }
     std::string key = info(id).key;
-    return key + ":" + Account::sign(grantMessage(key, who));
+    std::string sig = Account::sign(grantMessage(key, who));
+    if (!official) {
+        // Carry our own Staff badge along, so anyone can check we were allowed to give it.
+        std::string staffSig;
+        for (const auto& [k, s] : Profile::get().grants) if (k == "staff") staffSig = s;
+        sig = "s:" + Account::id() + ":" + staffSig + ":" + sig;
+    }
+    return {key, sig};
+}
+
+std::string makeCode(Id id, const std::string& accountId, std::string& error) {
+    Grant g = makeGrant(id, accountId, error);
+    return g.first.empty() ? std::string() : g.first + ":" + g.second;
 }
 
 bool redeem(const std::string& codeIn, std::string& message) {
@@ -145,7 +187,45 @@ void drawIcon(ImDrawList* dl, ImVec2 c, float s, Id id) {
             dl->AddTriangleFilled(ImVec2(c.x, c.y - s * 0.02f), star[i], star[(i + 1) % 10], rgb(255, 215, 90));
         break;
     }
+    case Id::Verified: {
+        shield(dl, c, s, rgb(30, 140, 235), rgb(200, 230, 255));
+        drawCheck(dl, ImVec2(c.x, c.y - s * 0.02f), s * 0.5f);
+        break;
+    }
+    case Id::Staff: {
+        shield(dl, c, s, rgb(30, 45, 90), rgb(120, 200, 255));
+        bolt(dl, ImVec2(c.x, c.y - s * 0.04f), s * 0.2f, rgb(120, 200, 255), rgb(30, 45, 90));
+        dl->AddText(ImVec2(c.x - s * 0.09f, c.y + s * 0.14f), rgb(200, 230, 255), "S");
+        break;
+    }
     default: break;
+    }
+}
+
+void drawCheck(ImDrawList* dl, ImVec2 c, float s) {
+    // A blue badge with a white tick, like other sites' verified mark.
+    const int n = 12;
+    ImVec2 pts[n * 2];
+    for (int i = 0; i < n * 2; ++i) {   // a slightly bumpy "seal" outline
+        float a = 3.14159265f * i / n;
+        float r = (i % 2 ? 0.44f : 0.5f) * s;
+        pts[i] = ImVec2(c.x + std::cos(a) * r, c.y + std::sin(a) * r);
+    }
+    dl->AddConvexPolyFilled(pts, n * 2, rgb(29, 155, 240));
+    float t = std::max(1.3f, s * 0.13f);
+    dl->AddLine(ImVec2(c.x - s * 0.2f, c.y + s * 0.01f), ImVec2(c.x - s * 0.05f, c.y + s * 0.16f), rgb(255, 255, 255), t);
+    dl->AddLine(ImVec2(c.x - s * 0.05f, c.y + s * 0.16f), ImVec2(c.x + s * 0.22f, c.y - s * 0.15f), rgb(255, 255, 255), t);
+}
+
+void check(float size) {
+    if (size <= 0.0f) size = ImGui::GetTextLineHeight();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(size, size));
+    drawCheck(ImGui::GetWindowDrawList(), ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size);
+    if (ImGui::IsItemHovered()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+        ImGui::SetTooltip("Verified");
+        ImGui::PopStyleColor();
     }
 }
 
