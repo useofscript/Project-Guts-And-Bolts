@@ -9,7 +9,7 @@
 
 namespace {
 // "ctrl+shift+left" -> modifiers + key (test helper).
-struct Chord { bool ctrl = false, shift = false; ImGuiKey key = ImGuiKey_None; };
+struct Chord { bool ctrl = false, shift = false, alt = false; ImGuiKey key = ImGuiKey_None; };
 Chord parseChord(const std::string& text) {
     Chord c;
     std::stringstream ss(text);
@@ -17,6 +17,7 @@ Chord parseChord(const std::string& text) {
     while (std::getline(ss, part, '+')) {
         if (part == "ctrl") c.ctrl = true;
         else if (part == "shift") c.shift = true;
+        else if (part == "alt") c.alt = true;
         else if (part == "left") c.key = ImGuiKey_LeftArrow;
         else if (part == "right") c.key = ImGuiKey_RightArrow;
         else if (part == "up") c.key = ImGuiKey_UpArrow;
@@ -25,6 +26,7 @@ Chord parseChord(const std::string& text) {
         else if (part == "esc") c.key = ImGuiKey_Escape;
         else if (part == "enter") c.key = ImGuiKey_Enter;
         else if (part.size() >= 2 && part[0] == 'f') c.key = (ImGuiKey)(ImGuiKey_F1 + std::stoi(part.substr(1)) - 1);
+        else if (part.size() == 1 && part[0] >= '0' && part[0] <= '9') c.key = (ImGuiKey)(ImGuiKey_0 + (part[0] - '0'));
         else if (part.size() == 1 && part[0] >= 'a' && part[0] <= 'z') c.key = (ImGuiKey)(ImGuiKey_A + (part[0] - 'a'));
     }
     return c;
@@ -68,6 +70,8 @@ void Application::run() {
                 io.AddKeyEvent(ImGuiKey_LeftCtrl, down && c.ctrl);
                 io.AddKeyEvent(ImGuiMod_Shift, down && c.shift);
                 io.AddKeyEvent(ImGuiKey_LeftShift, down && c.shift);
+                io.AddKeyEvent(ImGuiMod_Alt, down && c.alt);
+                io.AddKeyEvent(ImGuiKey_LeftAlt, down && c.alt);
                 io.AddKeyEvent(c.key, down);
             }
         });
@@ -77,6 +81,7 @@ void Application::run() {
         if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
         if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
         if (!m_opts.testSelect.empty() && frame == 10) m_editor->testSelect(m_opts.testSelect);
+        if (!m_opts.testCommand.empty() && frame == 12) m_editor->runCommand(m_opts.testCommand);
         if (!m_opts.exportRoblox.empty() && frame == 2) m_editor->testExportRoblox(m_opts.exportRoblox);
 
         m_editor->render(dt);

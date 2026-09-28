@@ -56,17 +56,37 @@ run `GB_TOUCH_SCREEN=1 GB_UI_SCALE=2 ./build-mobile/GutsAndBoltsPlayer`.
 
 ## Guts and Bolts Studio (the editor)
 
-The window has a toolbar, a status bar and docked panels:
+Studio is laid out like Roblox Studio, with the same dark theme and a
+**ribbon** across the top:
 
-- **Viewport**: the 3D view. Click to select, drag the move / rotate / scale gizmo.
-- **Explorer**: everything in your game. Drag an object onto another to group
-  it, and double-click a Script to edit it.
+- **HOME**: clipboard, the Select / Move / Scale / Rotate tools, insert a Part
+  or any Object, group / lock / anchor, and Play / Play Here / Run / Stop.
+- **MODEL**: snap-to-grid (studs and degrees), parts, constraints, scripts,
+  **Pivot to middle** for models, and **Align** (line the selection up on X,
+  Y or Z by their min, center or max).
+- **TEST**: the play buttons plus the Player and Lighting settings.
+- **VIEW**: show or hide each panel, reset the camera, and the shortcut list.
+
+The panels:
+
+- **Viewport**: the 3D view. Click to select, drag the gizmo. Clicking a part
+  inside a Model picks the whole Model (hold **Alt** to pick just the part),
+  just like Roblox. Locked parts can't be clicked.
+- **Explorer**: everything in your game, with a Roblox-style icon for each
+  kind of object. Drag an object onto another to put it inside, double-click a
+  Script to edit it, and use the **+** button on a row to insert something.
+  The **filter box** (`Ctrl+Shift+X`) searches names, and also understands
+  Roblox's search words: `c:Script` (kind of object), `is:Script`, `tag:Enemy`,
+  `name:Door`, property checks like `Anchored=false` or `Transparency>0.5`, and
+  `or` to match either side.
 - **Toolbox**: parts, scripts, lights and **ready-made** objects that already
   contain scripts: kill brick, coin, jump pad, spinner, moving and fading
   platforms, speed pad, click button, lamp post, disco floor, landmine, saw
   blade, spike trap, exploding barrel and a day/night cycle. There are also
   physics toys: swinging rope, wrecking ball, windmill, seesaw, a drivable
   **Motor Cart**, domino run, crate pyramid and trampoline.
+- **Insert Object** (`Ctrl+I` or the **+** in the Explorer): a searchable list
+  of every kind of object you can add.
 - **Constraints** (in the Toolbox): pick Rope, Rod, Spring, Weld, Hinge or
   Motor, then click two parts in the Viewport to join them.
 - **Properties**: colour, material (Plastic, Metal, Neon, Wood, Glass,
@@ -80,43 +100,71 @@ The window has a toolbar, a status bar and docked panels:
   **Insert code...** menu of ready-to-use snippets.
 - **Output**: what your scripts `print()`, plus any errors (in red, with the
   line number).
+- **Command Bar**: type a line of Lua and press Enter to run it on your game
+  right away, e.g. `workspace.Baseplate.Transparency = 0.5`. Shift+Enter adds
+  a new line, Ctrl+Up / Ctrl+Down bring back earlier commands, and it can be
+  undone with Ctrl+Z.
 
 **File** menu: New, Open, Save (games go in the `games` folder next to the
-app), Game Settings (the title and description shown in the Player app) and
-**Play in Guts&BoltsPlayer**. **Edit** menu: Undo / Redo, Copy / Paste,
-Duplicate, Delete. **View > Settings** covers the frame rate and graphics.
+app), **Import / Export Roblox** files, Game Settings (the title and
+description shown in the Player app) and **Play in Guts&BoltsPlayer**.
+**Edit** menu: Undo / Redo, Copy / Paste, Duplicate, Delete. **View >
+Settings** covers the frame rate and graphics.
+
+### Roblox files (.rbxl, .rbxlx, .rbxm, .rbxmx)
+
+Open a Roblox place (`.rbxl` / `.rbxlx`) and it becomes a Guts and Bolts
+game. Import a model (`.rbxm` / `.rbxmx`) and it's added to your game. Both
+the binary and XML kinds work. What comes across: parts (blocks, spheres,
+cylinders, wedges, trusses), models and folders, scripts (Roblox's **Luau**
+code is converted to plain Lua for you), lights, sounds, attachments and
+constraints, value objects, attributes and tags. Things we don't have yet
+(meshes, terrain, GUIs) are skipped, and Output tells you what was left out.
+
+**File > Export Roblox** saves your game (or just the selection) as a Roblox
+file that Roblox Studio can open, so you can take your work either way.
+Roblox characters are twice our size, so everything is scaled to match.
 
 ### Playtesting
 
-Press **Play** (or **F5**). Your scripts start, and you walk with **WASD**,
-jump with **Space**, look around with the right mouse button and zoom with
-the wheel. Press **F5** or **Esc** to stop, and everything goes back exactly
-how it was.
+- **Play** (`F5`): your scripts start and you spawn at a SpawnLocation. Walk
+  with **WASD**, jump with **Space**, look around with the right mouse button
+  and zoom with the wheel.
+- **Play Here**: like Play, but you start where the camera is looking.
+- **Run** (`F8`): scripts run but there's no character; fly the camera
+  around to watch things happen.
+- **Stop** (`Shift+F5` or `Esc`): everything goes back exactly how it was.
 
 ### Controls
 
-Press **F1** (or **View > Keyboard Shortcuts**) in Studio to see all of these.
+These match Roblox Studio. Press **F1** (or **View > Shortcuts**) in Studio
+to see them all.
 
 | Action | Input |
 | --- | --- |
-| Select / Move / Rotate / Scale tool | `Q` / `W` / `E` / `R` |
+| Select / Move / Scale / Rotate tool | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` / `Ctrl+4` |
 | Local / world gizmo | `Ctrl+L` |
-| Orbit / pan / zoom camera | Middle-drag / Shift + middle-drag / wheel |
+| Fly the camera | Hold right mouse + `W` `A` `S` `D`, `Q` / `E` down / up, `Shift` faster |
+| Look / pan / zoom | Right-drag / middle-drag / wheel (Shift + middle-drag orbits) |
 | Focus on selection | `F` |
-| Pick several things | `Ctrl+click` (add / remove), `Shift+click` (add) |
-| Select all / parent / children | `Ctrl+A` / `Ctrl+Up` / `Ctrl+Down` |
+| Pick the part inside a Model | `Alt+click` |
+| Pick several things | `Ctrl+click` or `Shift+click` |
+| Select all / parent / children / nothing | `Ctrl+A` / `Ctrl+Up` / `Ctrl+Down` / `Esc` |
 | Expand / collapse selected (everything inside) | `Ctrl+Right` / `Ctrl+Left` |
 | Collapse the whole Explorer | `Ctrl+Shift+Left` |
+| Search the Explorer | `Ctrl+Shift+X` |
+| Insert Object | `Ctrl+I` |
 | Rename / hide | `F2` / `H` |
 | Group into a Model / ungroup | `Ctrl+G` / `Ctrl+U` |
-| Insert a Script into the selection | `Ctrl+I` |
+| Lock / anchor | `Alt+L` / `Alt+A` |
+| Copy / Cut / Paste / Paste into | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+Shift+V` |
+| Duplicate / Delete | `Ctrl+D` / `Del` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
-| Copy / Paste / Duplicate / Delete | `Ctrl+C` / `Ctrl+V` / `Ctrl+D` / `Del` |
-| Save / Open / New | `Ctrl+S` / `Ctrl+O` / `Ctrl+N` |
-| Play / Stop | `F5` |
+| Save / Save as / Open / New | `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+O` / `Ctrl+N` |
+| Play / Run / Stop | `F5` / `F8` / `Shift+F5` |
 
-Copy, paste, duplicate, delete, hide and the move tool all work on everything
-you've selected at once.
+Copy, paste, duplicate, delete, hide, lock, anchor and the move tool all work
+on everything you've selected at once.
 
 ## Scripting (Lua)
 

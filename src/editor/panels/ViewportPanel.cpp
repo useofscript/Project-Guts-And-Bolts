@@ -1,4 +1,5 @@
 #include "ViewportPanel.h"
+#include <vector>
 #include "../EditorState.h"
 #include "../../scene/Scene.h"
 #include "../../scene/SceneNode.h"
@@ -42,24 +43,43 @@ void ViewportPanel::focusSelected() {
         m_camera.pivot = glm::vec3(sel->worldMatrix()[3]);
 }
 
-void ViewportPanel::handleInput() {
-    if (!m_hovered) return;
+void ViewportPanel::handleInput(float dt) {
     ImGuiIO& io = ImGui::GetIO();
+    bool playing = m_session != nullptr && !m_session->runOnly();   // Run: fly around like when editing
+    bool focused = ImGui::IsWindowFocused();
 
-    bool playing = m_session != nullptr;
-    bool orbit = ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
-                 (playing && ImGui::IsMouseDown(ImGuiMouseButton_Right));
-
-    if (orbit) {
-        ImVec2 d = io.MouseDelta;
-        if (io.KeyShift && !playing) m_camera.pan(d.x, d.y);
-        else                         m_camera.orbit(d.x, d.y);
+    if (playing) {
+        if (!m_hovered) return;
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+            m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
+        if (io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
+        return;
     }
-    if (io.MouseWheel != 0.0f)
-        m_camera.zoom(io.MouseWheel);
 
-    if (!playing && !io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))
-        focusSelected();
+    // Roblox Studio camera: right-drag looks around, middle-drag pans, the
+    // wheel zooms, and WASD / Q E fly (hold Shift to go faster).
+    static bool looking = false;
+    if (m_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) looking = true;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) looking = false;
+    if (looking) m_camera.look(io.MouseDelta.x, io.MouseDelta.y);
+    if (m_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+        if (io.KeyShift) m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);   // Shift+middle: orbit
+        else             m_camera.pan(io.MouseDelta.x, io.MouseDelta.y);
+    }
+    if (m_hovered && io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
+
+    if ((focused || looking) && !io.WantTextInput && !io.KeyCtrl && !io.KeyAlt) {
+        float speed = (io.KeyShift ? 60.0f : 18.0f) * dt;
+        float f = 0, r = 0, u = 0;
+        if (ImGui::IsKeyDown(ImGuiKey_W)) f += speed;
+        if (ImGui::IsKeyDown(ImGuiKey_S)) f -= speed;
+        if (ImGui::IsKeyDown(ImGuiKey_D)) r += speed;
+        if (ImGui::IsKeyDown(ImGuiKey_A)) r -= speed;
+        if (ImGui::IsKeyDown(ImGuiKey_E)) u += speed;
+        if (ImGui::IsKeyDown(ImGuiKey_Q)) u -= speed;
+        if (f != 0 || r != 0 || u != 0) m_camera.fly(f, r, u);
+        if (ImGui::IsKeyPressed(ImGuiKey_F, false)) focusSelected();
+    }
 }
 
 void ViewportPanel::mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
@@ -100,10 +120,27 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         snap[0] = snap[1] = snap[2] = s;
     }
 
-    glm::mat4 world = sel->worldMatrix();
+    // Models are handled around their middle (their "pivot"), like Roblox,
+    // rather than their origin, which may be far away from their parts.
+    glm::mat4 base = sel->worldMatrix();
+    glm::vec3 localPivot(0.0f);
+    if (sel->kind == NodeKind::Model) {
+        glm::vec3 lo(1e9f), hi(-1e9f);
+        std::vector<SceneNode*> stack{sel};
+        while (!stack.empty()) {
+            SceneNode* n = stack.back(); stack.pop_back();
+            if (n->isPart()) { glm::vec3 p(n->worldMatrix()[3]); lo = glm::min(lo, p); hi = glm::max(hi, p); }
+            for (auto& c : n->children) stack.push_back(c.get());
+        }
+        if (lo.x <= hi.x) localPivot = glm::vec3(glm::inverse(base) * glm::vec4((lo + hi) * 0.5f, 1.0f));
+    }
+    glm::mat4 world = base * glm::translate(glm::mat4(1.0f), localPivot);
+    const glm::vec3 pivotBefore(world[3]);
     if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
                              glm::value_ptr(world), nullptr,
                              m_state->snapEnabled ? snap : nullptr)) {
+        glm::vec3 movedPivot = glm::vec3(world[3]) - pivotBefore;
+        world = world * glm::translate(glm::mat4(1.0f), -localPivot);
         // Convert the manipulated world matrix back into a local transform.
         glm::mat4 local = world;
         if (sel->parent)
@@ -116,8 +153,7 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         // Accumulate the rotation delta to avoid Euler-angle flips at +/-90 deg.
         glm::vec3 deltaRot = newRot - sel->transform.rotation;
         // Moving several things: everything else selected slides along too.
-        glm::vec3 before = glm::vec3(sel->worldMatrix()[3]);
-        glm::vec3 moved  = glm::vec3(world[3]) - before;
+        glm::vec3 moved = movedPivot;
         if (m_state->tool == GizmoTool::Translate && glm::length(moved) > 0.0f) {
             for (SceneNode* o : m_scene->selectionRoots()) {
                 if (o == sel || m_scene->isProtected(o) || m_scene->isCharacterPart(o)) continue;
@@ -133,13 +169,12 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
 }
 
 void ViewportPanel::render(float dt) {
-    (void)dt;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     if (m_wantFocus) { ImGui::SetNextWindowFocus(); m_wantFocus = false; }
     ImGui::Begin("Viewport");
 
     m_hovered = ImGui::IsWindowHovered();
-    handleInput();
+    handleInput(dt);
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     int w = (int)avail.x, h = (int)avail.y;
@@ -175,10 +210,12 @@ void ViewportPanel::render(float dt) {
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd, nullptr, character);
                 m_session->click(hit ? hit->id : 0);
             }
-            Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
+            bool run = m_session->runOnly();
+            Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui(), 0.0f, !run);
             // Green frame = the game is running.
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);
-            const char* tip = "PLAYING  -  WASD move, Space jump, right-drag camera, F5/Esc stop";
+            const char* tip = run ? "RUNNING (no character)  -  right-drag + WASD to fly, Shift+F5 stop"
+                                  : "PLAYING  -  WASD move, Space jump, right-drag camera, F5/Esc stop";
             dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10),
                         IM_COL32(255, 255, 255, 170), tip);
         } else {
@@ -289,6 +326,15 @@ void ViewportPanel::render(float dt) {
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd);
+                if (hit && hit->locked) hit = nullptr;            // Locked parts can't be clicked (Alt+L)
+                // Like Roblox: clicking a part inside a Model picks the whole Model
+                // (the top one under the Workspace). Alt+click picks just the part.
+                if (hit && !ImGui::GetIO().KeyAlt && !m_scene->isCharacterPart(hit)) {
+                    SceneNode* top = hit;
+                    for (SceneNode* p = hit->parent; p && p != m_scene->root(); p = p->parent)
+                        if (p->kind == NodeKind::Model) top = p;
+                    hit = top;
+                }
                 if (hit || !(ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) pick(hit);
             }
         }

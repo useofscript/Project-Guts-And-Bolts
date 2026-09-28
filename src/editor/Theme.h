@@ -15,5 +15,10 @@ ImFont* codeFont();
 
 // Apply colours and style metrics to the current ImGui context.
 void apply();
+// Studio's look: Roblox Studio's dark theme (square panels, #2E2E2E greys,
+// Roblox blue #00A2FF for highlights and selection).
+void applyStudio();
+// Roblox blue.
+inline constexpr unsigned kRobloxBlue = 0xFFFFA200;   // IM_COL32(0, 162, 255, 255)
 
 } // namespace EditorTheme

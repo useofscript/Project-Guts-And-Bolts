@@ -17,12 +17,12 @@ void shadowText(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 col,
 }
 } // namespace
 
-void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& gui, float topOffset) {
+void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& gui, float topOffset, bool character) {
     ImFont* font = ImGui::GetFont();
     float   base = ImGui::GetFontSize();
 
     // --- Health bar (top-right) ---
-    if (Player* p = scene.player()) {
+    if (Player* p = character ? scene.player() : nullptr) {
         const Humanoid& h = p->humanoid();
         float frac = h.maxHealth > 0 ? std::clamp(h.health / h.maxHealth, 0.0f, 1.0f) : 0.0f;
         ImVec2 size(180, 16);

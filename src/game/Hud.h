@@ -13,7 +13,9 @@ struct GuiState;
 
 namespace Hud {
 // `topOffset` pushes the top-left labels down (under the touch buttons).
-void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& gui, float topOffset = 0.0f);
+// `character`: false hides the health bar (Studio's Run mode has no character).
+void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& gui, float topOffset = 0.0f,
+          bool character = true);
 
 // Speech bubbles over characters' heads. `bubbles` maps a character's name to its text.
 void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm::mat4& viewProj,

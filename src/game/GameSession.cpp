@@ -56,7 +56,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
     }
 
     // 3. The character, driven by WASD / Space relative to the camera.
-    if (Player* p = m_scene->player()) {
+    if (Player* p = m_runOnly ? nullptr : m_scene->player()) {
         glm::vec3 move(0.0f);
         bool jump = false;
         if (acceptInput && !ImGui::GetIO().WantTextInput) {

@@ -349,7 +349,7 @@ void ScriptEngine::openLibraries() {
     lua_pop(L, 1);
 }
 
-void ScriptEngine::start() {
+void ScriptEngine::start(bool runScripts) {
     stop();
     m_L = luaL_newstate();
     *static_cast<ScriptEngine**>(lua_getextraspace(m_L)) = this;
@@ -416,6 +416,7 @@ void ScriptEngine::start() {
     }
     --m_depth;
 
+    if (!runScripts) return;
     // Collect first, then run: scripts may add or remove objects as they start.
     std::vector<uint64_t> scripts;
     m_scene->forEach([&](SceneNode* n) {
@@ -423,6 +424,46 @@ void ScriptEngine::start() {
     });
     for (uint64_t id : scripts)
         if (SceneNode* s = resolve(id)) runScript(s);
+}
+
+bool ScriptEngine::runCommand(const std::string& code, std::string& error) {
+    if (!m_L) { error = "not running"; return false; }
+    lua_State* L = m_L;
+    // "= 5 + 5" style: try it as an expression first, so results get printed.
+    std::string asExpr = "return " + code;
+    bool expr = luaL_loadbuffer(L, asExpr.data(), asExpr.size(), "=CommandBar") == LUA_OK;
+    if (!expr) {
+        lua_pop(L, 1);
+        if (luaL_loadbuffer(L, code.data(), code.size(), "=CommandBar") != LUA_OK) {
+            error = lua_tostring(L, -1);
+            lua_pop(L, 1);
+            return false;
+        }
+    }
+    m_resumeStart = nowSeconds();
+    ++m_depth;
+    int top = lua_gettop(L) - 1;
+    int status = lua_pcall(L, 0, LUA_MULTRET, 0);
+    --m_depth;
+    if (status != LUA_OK) {
+        error = lua_tostring(L, -1) ? lua_tostring(L, -1) : "error";
+        lua_settop(L, top);
+        return false;
+    }
+    int n = lua_gettop(L) - top;
+    if (expr && n > 0) {
+        std::string out;
+        for (int i = 1; i <= n; ++i) {
+            size_t len;
+            const char* t = luaL_tolstring(L, top + i, &len);
+            if (i > 1) out += "  ";
+            out.append(t, len);
+            lua_pop(L, 1);
+        }
+        Log::info(out);
+    }
+    lua_settop(L, top);
+    return true;
 }
 
 void ScriptEngine::runScript(SceneNode* script) {

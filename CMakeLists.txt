@@ -299,6 +299,8 @@ set(EDITOR_SOURCES
     src/main.cpp
     src/Application.cpp
     src/editor/Editor.cpp
+    src/editor/EditorRibbon.cpp
+    src/editor/Icons.cpp
     src/editor/Premades.cpp
     src/editor/TeamCreate.cpp
     src/editor/panels/ViewportPanel.cpp

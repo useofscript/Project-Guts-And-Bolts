@@ -39,7 +39,7 @@ public:
     std::function<void(SceneNode*, glm::vec3, SceneNode*, glm::vec3)> onConnect;
 
 private:
-    void handleInput();
+    void handleInput(float dt);
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);
     void mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,

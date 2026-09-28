@@ -27,9 +27,13 @@ public:
 
     // Extra right-click menu items, filled in by the Editor.
     std::function<void()> contextMenuExtras;
+    // The "+" on a row: open Insert Object for that object.
+    std::function<void(SceneNode*)> onInsert;
 
 private:
     void drawNode(SceneNode* node);
+    bool matches(const SceneNode* node) const;         // the search filter
+    bool anyMatch(const SceneNode* node) const;        // it or something inside it
     bool isOpen(const SceneNode* node) const;
 
     Scene*     m_scene;
@@ -45,4 +49,5 @@ private:
     bool        m_renameFocus = false;
     std::string m_renameText;
     SceneNode*  m_lastSelected = nullptr;
+    std::string m_filter;                          // Roblox-style search: name, c:Class, tag:x, Prop=value
 };

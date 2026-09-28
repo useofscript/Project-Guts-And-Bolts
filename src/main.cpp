@@ -22,6 +22,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-premades")) opts.testPremades = next();
         else if (!std::strcmp(argv[i], "--test-keys"))  opts.testKeys   = next();
         else if (!std::strcmp(argv[i], "--test-select")) opts.testSelect = next();
+        else if (!std::strcmp(argv[i], "--test-command")) opts.testCommand = next();
         else if (!std::strcmp(argv[i], "--export-roblox")) opts.exportRoblox = next();
         else if (argv[i][0] != '-')                     opts.openFile   = argv[i];  // double-clicked file
     }

@@ -29,7 +29,9 @@ public:
     explicit ScriptEngine(Scene* scene);
     ~ScriptEngine();
 
-    void start();                 // create a fresh Lua world and run all Scripts
+    void start(bool runScripts = true);   // create a fresh Lua world (and run all Scripts)
+    // Studio's Command Bar: run some Lua right now (the engine must be started).
+    bool runCommand(const std::string& code, std::string& error);
     void stop();                  // tear everything down
     bool running() const { return m_L != nullptr; }
 

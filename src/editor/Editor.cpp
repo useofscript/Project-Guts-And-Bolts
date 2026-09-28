@@ -1,4 +1,8 @@
 #include "Editor.h"
+#include "../scene/Physics.h"
+#include "../scripting/ScriptEngine.h"
+#include "Theme.h"
+#include "Icons.h"
 #include "../scene/RobloxFile.h"
 #include "panels/ViewportPanel.h"
 #include "panels/OutlinerPanel.h"
@@ -47,6 +51,8 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_viewport = std::make_unique<ViewportPanel>(window, scene, &m_state);
     auto open  = [this](SceneNode* n) { openScript(n); };
     m_outliner = std::make_unique<OutlinerPanel>(scene, open, [this](SceneNode* n) { addScript(n); });
+    EditorTheme::applyStudio();
+    m_outliner->onInsert = [this](SceneNode* parent) { m_insertParent = parent; m_openInsert = true; };
     m_outliner->contextMenuExtras = [this] {
         ImGui::Separator();
         if (ImGui::MenuItem("Expand Selected", "Ctrl+Right")) m_outliner->expand(m_scene->selection());
@@ -105,21 +111,24 @@ void Editor::render(float dt) {
     handleShortcuts();
     if (m_playing) {
         m_session->update(dt, m_viewport->cameraYaw(), true);
-        if (Player* p = m_scene->player()) m_viewport->frameOn(p->focusPoint());
+        Player* p = m_scene->player();
+        if (p && !m_session->runOnly()) m_viewport->frameOn(p->focusPoint());   // Run: the camera stays free
     }
     buildDockspace();
     m_viewport->render(dt);
-    m_outliner->render();
+    if (m_showPanel[kPanelExplorer]) m_outliner->render();
     if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
-    m_properties->render();
-    m_environment->render();
-    m_toolbox->render();
-    m_player->render();
-    m_output->render();
-    m_scriptEditor->render();
+    if (m_showPanel[kPanelProperties]) m_properties->render();
+    if (m_showPanel[kPanelLighting])   m_environment->render();
+    if (m_showPanel[kPanelToolbox])    m_toolbox->render();
+    if (m_showPanel[kPanelPlayer])     m_player->render();
+    if (m_showPanel[kPanelOutput])     m_output->render();
+    if (m_showPanel[kPanelScript])     m_scriptEditor->render();
+    if (m_showPanel[kPanelCommandBar]) renderCommandBar();
+    renderInsertObject();
     renderDialogs();
     renderShortcuts();
-    renderTeamPanel();
+    if (m_showPanel[kPanelTeam]) renderTeamPanel();
     SettingsWindow::draw(&m_showSettings);
     if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 
@@ -143,6 +152,7 @@ void Editor::togglePlay() {
     } else {
         uint64_t sel = m_scene->selected() ? m_scene->selected()->id : 0;
         m_session->stop();
+        m_session->setRunOnly(false);
         m_viewport->setSession(nullptr);
         m_playing = false;
         Serializer::loadScene(*m_scene, m_playSnapshot);
@@ -335,6 +345,7 @@ void Editor::connectParts(int type, SceneNode* a, glm::vec3 pa, SceneNode* b, gl
 void Editor::openScript(SceneNode* script) {
     if (script && script->isScript()) {
         m_scene->select(script);
+        m_showPanel[kPanelScript] = true;
         m_scriptEditor->open(script->id);
     }
 }
@@ -546,21 +557,33 @@ void Editor::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;   // don't steal keys while typing
 
-    if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { togglePlay(); return; }
+    // Testing (like Roblox Studio): F5 Play, F8 Run, Shift+F5 Stop.
+    if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
+        if (io.KeyShift || m_playing) { if (m_playing) togglePlay(); }
+        else startPlay(0);
+        return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_F8, false) && !m_playing) { startPlay(2); return; }
+    if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) m_showShortcuts = !m_showShortcuts;
 
     if (m_playing) {
-        // In playtest mode WASD drives the character, not the editor tools.
+        // While testing, WASD drives the character, not the editor.
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) togglePlay();
         return;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) m_showShortcuts = !m_showShortcuts;
+    if (io.KeyAlt) {
+        if (ImGui::IsKeyPressed(ImGuiKey_L, false)) toggleLocked();
+        if (ImGui::IsKeyPressed(ImGuiKey_A, false)) toggleAnchored();
+        return;
+    }
 
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) { io.KeyShift ? redo() : undo(); }
         if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) redo();
         if (ImGui::IsKeyPressed(ImGuiKey_C, false)) copySelected();
-        if (ImGui::IsKeyPressed(ImGuiKey_V, false)) paste();
+        if (ImGui::IsKeyPressed(ImGuiKey_X, false) && !io.KeyShift) cutSelected();   // Ctrl+Shift+X = Explorer search
+        if (ImGui::IsKeyPressed(ImGuiKey_V, false)) { if (io.KeyShift) pasteInto(); else paste(); }
         if (ImGui::IsKeyPressed(ImGuiKey_D, false)) duplicateSelected();
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) { m_nameInput = m_scene->info().title; m_openSaveAs = true; } else save(); }
         if (ImGui::IsKeyPressed(ImGuiKey_O, false)) { m_pending = Pending::Open; m_openDiscard = m_dirty; if (!m_dirty) m_openOpen = true; }
@@ -568,8 +591,13 @@ void Editor::handleShortcuts() {
         if (ImGui::IsKeyPressed(ImGuiKey_A, false)) selectAll();
         if (ImGui::IsKeyPressed(ImGuiKey_G, false)) groupSelected();
         if (ImGui::IsKeyPressed(ImGuiKey_U, false)) ungroupSelected();
-        if (ImGui::IsKeyPressed(ImGuiKey_I, false)) addScript(m_scene->selected());
+        if (ImGui::IsKeyPressed(ImGuiKey_I, false)) { m_insertParent = m_scene->selected(); m_openInsert = true; }
         if (ImGui::IsKeyPressed(ImGuiKey_L, false)) m_state.gizmoLocal = !m_state.gizmoLocal;
+        // Roblox's tool keys.
+        if (ImGui::IsKeyPressed(ImGuiKey_1, false)) m_state.tool = GizmoTool::Select;
+        if (ImGui::IsKeyPressed(ImGuiKey_2, false)) m_state.tool = GizmoTool::Translate;
+        if (ImGui::IsKeyPressed(ImGuiKey_3, false)) m_state.tool = GizmoTool::Scale;
+        if (ImGui::IsKeyPressed(ImGuiKey_4, false)) m_state.tool = GizmoTool::Rotate;
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) m_outliner->expand(m_scene->selection());
         if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
             if (io.KeyShift) m_outliner->collapseAll();
@@ -580,15 +608,222 @@ void Editor::handleShortcuts() {
         return;
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) m_state.tool = GizmoTool::Select;
-    if (ImGui::IsKeyPressed(ImGuiKey_W, false)) m_state.tool = GizmoTool::Translate;
-    if (ImGui::IsKeyPressed(ImGuiKey_E, false)) m_state.tool = GizmoTool::Rotate;
-    if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_state.tool = GizmoTool::Scale;
+    // Plain keys (W A S D Q E fly the camera in the Viewport).
     if (ImGui::IsKeyPressed(ImGuiKey_H, false)) toggleHidden();
     if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) m_outliner->beginRename(m_scene->selected());
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) deleteSelected();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_scene->deselect(); m_state.connectTool = -1; }
+}
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) deleteSelected();
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_scene->deselect();
+void Editor::cutSelected() {
+    copySelected();
+    deleteSelected();
+}
+
+// Ctrl+Shift+V: paste inside the selected object instead of next to it.
+void Editor::pasteInto() {
+    SceneNode* target = m_scene->selected();
+    if (m_clipboard.empty() || !target || m_scene->isCharacterPart(target) || target->isScript()) { paste(); return; }
+    std::vector<SceneNode*> pasted;
+    for (const std::string& c : m_clipboard) {
+        auto n = Serializer::nodeFromString(c, true);
+        if (n) pasted.push_back(m_scene->insert(std::move(n), target));
+    }
+    m_outliner->expand({target});
+    m_scene->deselect();
+    for (SceneNode* n : pasted) m_scene->addToSelection(n);
+}
+
+void Editor::toggleLocked() {
+    auto sel = m_scene->selectionRoots();
+    if (sel.empty()) return;
+    bool lock = !sel.back()->locked;
+    for (SceneNode* n : sel) if (canEdit(n)) n->locked = lock;
+    Log::info(lock ? "Locked: they can't be clicked in the Viewport now (pick them in the Explorer)." : "Unlocked.");
+}
+
+void Editor::toggleAnchored() {
+    auto sel = m_scene->selectionRoots();
+    if (sel.empty()) return;
+    bool anchor = !sel.back()->anchored;
+    for (SceneNode* n : sel) {
+        std::vector<SceneNode*> stack{n};
+        while (!stack.empty()) {
+            SceneNode* k = stack.back(); stack.pop_back();
+            if (k->isPart() && canEdit(k)) k->anchored = anchor;
+            for (auto& c : k->children) stack.push_back(c.get());
+        }
+    }
+}
+
+// Move a Model's origin to the middle of its parts (keeping the parts where they are).
+void Editor::centerModelPivot() {
+    SceneNode* m = m_scene->selected();
+    if (!m || m->kind != NodeKind::Model || !canEdit(m)) return;
+    glm::vec3 lo(1e9f), hi(-1e9f);
+    for (auto& c : m->children) if (c->isPart()) { glm::vec3 p(c->worldMatrix()[3]); lo = glm::min(lo, p); hi = glm::max(hi, p); }
+    if (lo.x > hi.x) return;
+    glm::vec3 center = (lo + hi) * 0.5f;
+    glm::vec3 local = glm::vec3(glm::inverse(m->worldMatrix()) * glm::vec4(center, 1.0f));
+    for (auto& c : m->children) c->transform.position -= local;
+    glm::vec3 d = center - glm::vec3(m->worldMatrix()[3]);
+    if (m->parent) d = glm::vec3(glm::inverse(m->parent->worldMatrix()) * glm::vec4(d, 0.0f));
+    m->transform.position += d;
+}
+
+// Play (0), Play Here (1: start where the camera is looking) or Run (2: no player).
+void Editor::startPlay(int mode) {
+    if (m_playing) return;
+    m_playMode = mode;
+    m_session->setRunOnly(mode == 2);
+    togglePlay();
+    Player* p = m_scene->player();
+    SceneNode* r = p ? p->root() : nullptr;
+    if (!r) return;
+    if (mode == 1) {
+        glm::vec3 target = m_viewport->cameraPivot();
+        SceneNode* character = r;
+        SceneNode* ground = Physics::raycast(*m_scene, target + glm::vec3(0, 60, 0), glm::vec3(0, -1, 0), nullptr, character);
+        glm::vec3 at = target;
+        if (ground) { AABB b = Physics::worldBounds(ground); at.y = b.max.y + 0.01f; }
+        r->transform.position = at;
+    }
+    if (mode == 2) r->visible = false;   // Run: nobody's playing (Stop brings the character back)
+}
+
+// Ctrl+I / the Explorer's + button: a searchable list of things to insert.
+void Editor::insertObject(const std::string& what, SceneNode* parent) {
+    if (parent && (m_scene->isCharacterPart(parent) || parent->isScript())) parent = nullptr;
+    auto put = [&](std::unique_ptr<SceneNode> n) {
+        SceneNode* raw = m_scene->insert(std::move(n), parent);
+        m_scene->select(raw);
+        if (parent) m_outliner->expand({parent});
+        return raw;
+    };
+    auto part = [&](const char* name, PrimitiveType t) {
+        auto n = std::make_unique<SceneNode>(name, NodeKind::Part);
+        n->primitiveType = t;
+        n->mesh = MeshLibrary::get(t);
+        n->transform.scale = t == PrimitiveType::Sphere ? glm::vec3(2) : glm::vec3(2, 1, 1);
+        n->transform.position = parent ? glm::vec3(0, 1, 0) : spawnPoint() + glm::vec3(0, 0.5f, 0);
+        return put(std::move(n));
+    };
+    if (what == "Part") part("Part", PrimitiveType::Cube);
+    else if (what == "Sphere") part("Sphere", PrimitiveType::Sphere);
+    else if (what == "Cylinder") part("Cylinder", PrimitiveType::Cylinder);
+    else if (what == "SpawnLocation") {
+        SceneNode* sp = part("SpawnLocation", PrimitiveType::Cube);
+        sp->transform.scale = {3, 0.2f, 3};
+        sp->color = {0.25f, 0.6f, 1.0f};
+    }
+    else if (what == "Model" || what == "Folder") put(std::make_unique<SceneNode>(what, NodeKind::Model));
+    else if (what == "Script" || what == "LocalScript") { addScript(parent); }
+    else if (what == "ModuleScript") {
+        auto n = std::make_unique<SceneNode>("ModuleScript", NodeKind::Script);
+        n->isModule = true;
+        n->source = "local module = {}\n\nreturn module\n";
+        openScript(put(std::move(n)));
+    }
+    else if (what == "PointLight" || what == "SpotLight") {
+        m_scene->select(parent);
+        addLight(what == "SpotLight" ? LightType::Spot : LightType::Point);
+    }
+    else if (what == "Sound") { m_scene->select(parent); addSound(); }
+    else if (what == "Attachment") put(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment));
+    else if (what == "ForceField") put(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
+    else {
+        for (const PremadeInfo& p : premadeList()) if (what == p.name) { spawnPremade(p.kind); break; }
+    }
+}
+
+void Editor::renderInsertObject() {
+    if (m_openInsert) { ImGui::OpenPopup("Insert Object"); m_openInsert = false; m_insertFilter.clear(); }
+    ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImGui::GetMousePos(), ImGuiCond_Appearing, ImVec2(0.0f, 0.0f));
+    if (!ImGui::BeginPopup("Insert Object")) return;
+    SceneNode* parent = m_insertParent;
+    ImGui::TextDisabled("Insert into: %s", parent ? parent->name.c_str() : "Workspace");
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::SetNextItemWidth(-1);
+    bool enter = ImGui::InputTextWithHint("##find", "Search objects", &m_insertFilter, ImGuiInputTextFlags_EnterReturnsTrue);
+    struct O { const char* name; Icons::Id icon; };
+    std::vector<O> list = {
+        {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
+        {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
+        {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
+        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}};
+    for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
+    std::string f = m_insertFilter;
+    for (char& c : f) c = (char)std::tolower((unsigned char)c);
+    ImGui::BeginChild("##list");
+    bool first = true;
+    for (const O& o : list) {
+        std::string n = o.name;
+        for (char& c : n) c = (char)std::tolower((unsigned char)c);
+        if (!f.empty() && n.find(f) == std::string::npos) continue;
+        Icons::inlineIcon(o.icon);
+        ImGui::SameLine();
+        if (ImGui::Selectable(o.name) || (enter && first)) {
+            insertObject(o.name, parent);
+            ImGui::CloseCurrentPopup();
+        }
+        first = false;
+    }
+    ImGui::EndChild();
+    ImGui::EndPopup();
+}
+
+// The Command Bar: type Lua and press Enter to run it on the game right now
+// (e.g. to change lots of parts at once). Up / Down go through what you ran.
+// Command Bar: run a bit of Lua against the game right now (undoable).
+void Editor::runCommand(const std::string& code) {
+    Log::info("> " + code);
+    ScriptEngine engine(m_scene);
+    engine.start(false);
+    std::string err;
+    if (!engine.runCommand(code, err)) Log::error(err);
+    engine.stop();
+}
+
+void Editor::renderCommandBar() {
+    if (!ImGui::Begin("Command Bar")) { ImGui::End(); return; }
+    ImGui::TextDisabled("Run Lua on your game now. Enter runs, Shift+Enter adds a line, Ctrl+Up / Ctrl+Down: history.");
+    ImGuiIO& io = ImGui::GetIO();
+    static bool active = false;
+    static std::string pending;
+    static bool hasPending = false;
+    if (active && io.KeyCtrl && !m_cmdHistory.empty()) {
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+            m_cmdHistoryPos = m_cmdHistoryPos < 0 ? (int)m_cmdHistory.size() - 1 : std::max(0, m_cmdHistoryPos - 1);
+            pending = m_cmdHistory[m_cmdHistoryPos]; hasPending = true;
+        } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && m_cmdHistoryPos >= 0) {
+            m_cmdHistoryPos = m_cmdHistoryPos + 1 >= (int)m_cmdHistory.size() ? -1 : m_cmdHistoryPos + 1;
+            pending = m_cmdHistoryPos >= 0 ? m_cmdHistory[m_cmdHistoryPos] : std::string(); hasPending = true;
+        }
+    }
+    auto swap = [](ImGuiInputTextCallbackData* d) -> int {
+        if (!hasPending) return 0;
+        d->DeleteChars(0, d->BufTextLen);
+        d->InsertChars(0, pending.c_str());
+        hasPending = false;
+        return 0;
+    };
+    // Shift+Enter makes a new line; plain Enter runs (ImGui's Ctrl+Enter mode, with Shift standing in for Ctrl).
+    bool shiftEnter = io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Enter);
+    ImGuiInputTextFlags fl = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways |
+                             ImGuiInputTextFlags_AllowTabInput;
+    if (shiftEnter) fl &= ~ImGuiInputTextFlags_EnterReturnsTrue;
+    bool run = ImGui::InputTextMultiline("##cmd", &m_cmdInput, ImVec2(-1, -1), fl, swap);
+    active = ImGui::IsItemActive();
+    if (run && !m_cmdInput.empty()) {
+        runCommand(m_cmdInput);
+        m_cmdHistory.push_back(m_cmdInput);
+        m_cmdHistoryPos = -1;
+        m_cmdInput.clear();
+        pending.clear(); hasPending = true;   // clear the box
+    }
+    ImGui::End();
 }
 
 // F1: every keyboard shortcut in one place.
@@ -596,33 +831,38 @@ void Editor::renderShortcuts() {
     if (!m_showShortcuts) return;
     struct Row { const char* keys; const char* what; };
     static const Row kSections[][14] = {
-        {{"Q / W / E / R", "Select / Move / Rotate / Scale tool"},
+        {{"Ctrl+1 / 2 / 3 / 4", "Select / Move / Scale / Rotate tool"},
          {"Ctrl+L", "Switch the gizmo between local and world"},
-         {"F", "Focus the camera on the selection"},
-         {"Middle-drag", "Orbit the camera (Shift+middle-drag pans)"},
-         {"Mouse wheel", "Zoom"}},
-        {{"Click", "Select one thing"},
-         {"Ctrl+click", "Add or remove from the selection"},
-         {"Shift+click", "Add to the selection"},
+         {"W A S D", "Fly the camera (hold Shift to go faster)"},
+         {"Q / E", "Camera down / up"},
+         {"Right-drag", "Look around"},
+         {"Middle-drag", "Pan (Shift+middle-drag orbits)"},
+         {"Mouse wheel", "Zoom"},
+         {"F", "Focus the camera on the selection"}},
+        {{"Click", "Select (a part in a Model picks the Model)"},
+         {"Alt+click", "Select just the part"},
+         {"Ctrl+click / Shift+click", "Add to the selection"},
          {"Ctrl+A", "Select everything in the Workspace"},
-         {"Ctrl+Up", "Select the parent of what's selected"},
-         {"Ctrl+Down", "Select everything inside what's selected"},
+         {"Ctrl+Up / Ctrl+Down", "Select parent / children"},
          {"Esc", "Select nothing"}},
-        {{"Ctrl+Right", "Expand selected (open everything inside)"},
-         {"Ctrl+Left", "Collapse selected (close everything inside)"},
+        {{"Ctrl+Right / Ctrl+Left", "Expand / collapse selected (everything inside)"},
          {"Ctrl+Shift+Left", "Collapse the whole Explorer"},
+         {"Ctrl+I", "Insert Object (searchable)"},
          {"F2", "Rename"},
          {"H", "Hide / show"}},
-        {{"Ctrl+C / Ctrl+V", "Copy / paste"},
+        {{"Ctrl+C / X / V", "Copy / cut / paste"},
+         {"Ctrl+Shift+V", "Paste into the selection"},
          {"Ctrl+D", "Duplicate"},
          {"Del", "Delete"},
-         {"Ctrl+G", "Group into a Model"},
-         {"Ctrl+U", "Ungroup a Model"},
-         {"Ctrl+I", "Insert a Script into the selection"},
+         {"Ctrl+G / Ctrl+U", "Group into a Model / ungroup"},
+         {"Alt+L", "Lock (can't be clicked in the Viewport)"},
+         {"Alt+A", "Anchor / unanchor"},
          {"Ctrl+Z / Ctrl+Y", "Undo / redo"}},
-        {{"Ctrl+N / Ctrl+O", "New / open game"},
+        {{"Ctrl+N / Ctrl+O", "New / open (also Roblox .rbxl / .rbxm)"},
          {"Ctrl+S", "Save (Ctrl+Shift+S: save as)"},
-         {"F5", "Play / stop"},
+         {"F5", "Play"},
+         {"F8", "Run (no player)"},
+         {"Shift+F5 / Esc", "Stop"},
          {"F1", "Show / hide this list"}},
     };
     static const char* kTitles[] = {"Camera & tools", "Selecting", "Explorer", "Editing", "Files & testing"};
@@ -632,7 +872,7 @@ void Editor::renderShortcuts() {
         for (int s = 0; s < 5; ++s) {
             ImGui::SeparatorText(kTitles[s]);
             if (ImGui::BeginTable(kTitles[s], 2)) {
-                ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthFixed, 190.0f);
                 ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch);
                 for (const Row& r : kSections[s]) {
                     if (!r.keys) break;
@@ -685,22 +925,27 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderAddNode(dsId, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dsId, vp->WorkSize);
 
+        // Roblox Studio's layout: Toolbox on the left, Explorer over
+        // Properties on the right, Output and the Command Bar along the bottom.
         ImGuiID left, center, right, bottom;
-        ImGui::DockBuilderSplitNode(dsId,   ImGuiDir_Left,  0.18f, &left,   &center);
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.27f, &right,  &center);
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down,  0.24f, &bottom, &center);
-        ImGuiID leftTop, leftBottom;
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.55f, &leftTop, &leftBottom);
+        ImGui::DockBuilderSplitNode(dsId,   ImGuiDir_Left,  0.17f, &left,   &center);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, &right,  &center);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down,  0.26f, &bottom, &center);
+        ImGuiID rightTop, rightBottom;
+        ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.45f, &rightTop, &rightBottom);
+        ImGuiID bottomLeft, bottomRight;
+        ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.42f, &bottomRight, &bottomLeft);
 
-        ImGui::DockBuilderDockWindow("Explorer",      leftTop);
-        ImGui::DockBuilderDockWindow("Toolbox",       leftBottom);
+        ImGui::DockBuilderDockWindow("Toolbox",       left);
         ImGui::DockBuilderDockWindow("Script Editor", center);
         ImGui::DockBuilderDockWindow("Viewport",      center);
-        ImGui::DockBuilderDockWindow("Output",        bottom);
-        ImGui::DockBuilderDockWindow("Team",          bottom);
-        ImGui::DockBuilderDockWindow("Properties",    right);
-        ImGui::DockBuilderDockWindow("Lighting",      right);
-        ImGui::DockBuilderDockWindow("Player",        right);
+        ImGui::DockBuilderDockWindow("Output",        bottomLeft);
+        ImGui::DockBuilderDockWindow("Command Bar",   bottomRight);
+        ImGui::DockBuilderDockWindow("Team",          bottomRight);
+        ImGui::DockBuilderDockWindow("Explorer",      rightTop);
+        ImGui::DockBuilderDockWindow("Properties",    rightBottom);
+        ImGui::DockBuilderDockWindow("Lighting",      rightBottom);
+        ImGui::DockBuilderDockWindow("Player",        rightBottom);
         ImGui::DockBuilderFinish(dsId);
         m_viewport->focus();
     }
@@ -1007,96 +1252,6 @@ void Editor::renderTeamPanel() {
     ImGui::End();
 }
 
-void Editor::renderToolbar() {
-    const ImVec4 kBarBg = {0.086f, 0.094f, 0.114f, 1.0f};
-
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, kBarBg);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,  ImVec2(10, 6));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 7));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(6, 7));
-
-    float barH = ImGui::GetFrameHeight() + 14.0f;
-    ImGui::BeginChild("##toolbar", ImVec2(0, barH), ImGuiChildFlags_AlwaysUseWindowPadding,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-    auto toolBtn = [&](const char* label, GizmoTool t, const char* tip) {
-        bool active = (m_state.tool == t);
-        if (active) {
-            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.26f, 0.59f, 0.98f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.64f, 1.00f, 1.0f));
-        }
-        if (ImGui::Button(label)) m_state.tool = t;
-        if (active) ImGui::PopStyleColor(2);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-        ImGui::SameLine();
-    };
-
-    auto sep = [] {
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-    };
-
-    // Play / Stop (playtest mode).
-    {
-        ImVec4 col = m_playing ? ImVec4(0.80f, 0.27f, 0.27f, 1.0f)
-                               : ImVec4(0.20f, 0.65f, 0.32f, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Button, col);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                              ImVec4(col.x + 0.08f, col.y + 0.08f, col.z + 0.08f, 1.0f));
-        if (ImGui::Button(m_playing ? "Stop" : "Play")) togglePlay();
-        ImGui::PopStyleColor(2);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s playtest  (F5)", m_playing ? "Stop" : "Start");
-        ImGui::SameLine();
-    }
-    sep();
-
-    ImGui::BeginDisabled(m_playing);
-    if (ImGui::Button("Undo")) undo();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Undo  (Ctrl+Z)");
-    ImGui::SameLine();
-    if (ImGui::Button("Redo")) redo();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Redo  (Ctrl+Y)");
-    ImGui::SameLine();
-    if (ImGui::Button("Save")) save();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save  (Ctrl+S)");
-    ImGui::EndDisabled();
-    sep();
-
-    toolBtn("Select", GizmoTool::Select,    "Select / pick objects  (Q)");
-    toolBtn("Move",   GizmoTool::Translate, "Move tool  (W)");
-    toolBtn("Rotate", GizmoTool::Rotate,    "Rotate tool  (E)");
-    toolBtn("Scale",  GizmoTool::Scale,     "Scale tool  (R)");
-    sep();
-
-    if (ImGui::Button(m_state.gizmoLocal ? "Local" : "World"))
-        m_state.gizmoLocal = !m_state.gizmoLocal;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gizmo orientation: local vs. world");
-    ImGui::SameLine();
-    ImGui::Checkbox("Snap", &m_state.snapEnabled);
-    sep();
-
-    if (ImGui::Button("+ Part"))   spawnPrimitive(PrimitiveType::Cube);
-    ImGui::SameLine();
-    if (ImGui::Button("+ Script")) addScript(m_scene->selected());
-    sep();
-
-    bool editable = canEdit(m_scene->selected());
-    ImGui::BeginDisabled(!editable);
-    if (ImGui::Button("Duplicate")) duplicateSelected();
-    ImGui::SameLine();
-    if (ImGui::Button("Delete"))    deleteSelected();
-    ImGui::EndDisabled();
-    sep();
-    if (ImGui::Button("Settings")) m_showSettings = true;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Frame rate and graphics quality");
-
-    ImGui::EndChild();
-    ImGui::PopStyleVar(3);
-    ImGui::PopStyleColor();
-}
-
 void Editor::renderStatusBar() {
     const ImVec4 kBarBg  = {0.086f, 0.094f, 0.114f, 1.0f};
     const ImVec4 kAccent = {0.40f, 0.66f, 1.00f, 1.0f};
@@ -1107,7 +1262,7 @@ void Editor::renderStatusBar() {
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     if (m_playing) {
-        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), "PLAYING");
+        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), m_session->runOnly() ? "RUNNING" : "PLAYING");
     } else {
         const char* toolName =
             m_state.tool == GizmoTool::Select    ? "Select" :
@@ -1133,10 +1288,11 @@ void Editor::renderStatusBar() {
     }
 
     ImGui::SameLine();
-    const char* hint = m_playing
+    const char* hint = m_playing && m_session->runOnly()
+        ? "Right-drag + WASDQE fly   Wheel zoom   Scripts are running   Shift+F5 stop"
+        : m_playing
         ? "WASD move   Space jump   Right-drag camera   Wheel zoom   Click parts   F5/Esc stop"
-        : "[Q] Select  [W] Move  [E] Rotate  [R] Scale    MMB orbit  Shift+MMB pan  Wheel zoom    "
-          "F focus  Del delete  Ctrl+D duplicate  Ctrl+Z undo  F5 play";
+        : "Ctrl+1-4 tools   Right-drag + WASDQE fly   MMB pan   F focus   Ctrl+D duplicate   F5 play   F1 all shortcuts";
     float avail = ImGui::GetContentRegionAvail().x;
     float tw    = ImGui::CalcTextSize(hint).x;
     if (tw < avail) ImGui::SameLine(ImGui::GetCursorPosX() + (avail - tw));

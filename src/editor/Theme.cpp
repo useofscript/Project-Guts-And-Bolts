@@ -172,4 +172,55 @@ void apply() {
     c[ImGuiCol_NavCursor]             = kAccent;
 }
 
+void applyStudio() {
+    apply();
+    ImGuiStyle& s = ImGui::GetStyle();
+    s.WindowRounding = 0; s.ChildRounding = 0; s.FrameRounding = 2; s.PopupRounding = 2;
+    s.TabRounding = 0; s.GrabRounding = 2; s.ScrollbarRounding = 2;
+    s.WindowPadding = {8, 8};
+    s.FramePadding = {6, 4};
+    s.ItemSpacing = {6, 5};
+    s.IndentSpacing = 16;
+    s.TabBarBorderSize = 1;
+
+    auto c8 = [](int r, int g, int b, int a = 255) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f); };
+    const ImVec4 blue = c8(0, 162, 255);
+    ImVec4* c = s.Colors;
+    c[ImGuiCol_Text]                 = c8(221, 221, 221);
+    c[ImGuiCol_TextDisabled]         = c8(133, 133, 133);
+    c[ImGuiCol_WindowBg]             = c8(46, 46, 46);
+    c[ImGuiCol_PopupBg]              = c8(40, 40, 40);
+    c[ImGuiCol_Border]               = c8(26, 26, 26);
+    c[ImGuiCol_FrameBg]              = c8(37, 37, 37);
+    c[ImGuiCol_FrameBgHovered]       = c8(58, 58, 58);
+    c[ImGuiCol_FrameBgActive]        = c8(66, 66, 66);
+    c[ImGuiCol_TitleBg]              = c8(37, 37, 37);
+    c[ImGuiCol_TitleBgActive]        = c8(37, 37, 37);
+    c[ImGuiCol_TitleBgCollapsed]     = c8(37, 37, 37);
+    c[ImGuiCol_MenuBarBg]            = c8(37, 37, 37);
+    c[ImGuiCol_ScrollbarGrab]        = c8(80, 80, 80);
+    c[ImGuiCol_ScrollbarGrabHovered] = c8(100, 100, 100);
+    c[ImGuiCol_ScrollbarGrabActive]  = c8(120, 120, 120);
+    c[ImGuiCol_CheckMark]            = blue;
+    c[ImGuiCol_SliderGrab]           = blue;
+    c[ImGuiCol_SliderGrabActive]     = c8(60, 185, 255);
+    c[ImGuiCol_Button]               = c8(60, 60, 60);
+    c[ImGuiCol_ButtonHovered]        = c8(75, 75, 75);
+    c[ImGuiCol_ButtonActive]         = c8(0, 120, 215);
+    c[ImGuiCol_Header]               = c8(11, 90, 175);    // selected rows (Explorer)
+    c[ImGuiCol_HeaderHovered]        = c8(66, 66, 66);
+    c[ImGuiCol_HeaderActive]         = c8(11, 90, 175);
+    c[ImGuiCol_Separator]            = c8(26, 26, 26);
+    c[ImGuiCol_Tab]                  = c8(37, 37, 37);
+    c[ImGuiCol_TabHovered]           = c8(66, 66, 66);
+    c[ImGuiCol_TabSelected]          = c8(46, 46, 46);
+    c[ImGuiCol_TabSelectedOverline]  = blue;
+    c[ImGuiCol_TabDimmed]            = c8(37, 37, 37);
+    c[ImGuiCol_TabDimmedSelected]    = c8(46, 46, 46);
+    c[ImGuiCol_DockingPreview]       = ImVec4(blue.x, blue.y, blue.z, 0.4f);
+    c[ImGuiCol_DockingEmptyBg]       = c8(30, 30, 30);
+    c[ImGuiCol_TextSelectedBg]       = ImVec4(blue.x, blue.y, blue.z, 0.35f);
+    c[ImGuiCol_NavCursor]            = blue;
+}
+
 } // namespace EditorTheme

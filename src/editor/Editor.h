@@ -27,6 +27,7 @@ public:
     void render(float dt);
     void openFile(const std::string& path);
     void togglePlay();
+    void runCommand(const std::string& code);   // Command Bar
     // Test / command-line helpers.
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);
@@ -58,6 +59,16 @@ private:
     void       copySelected();
     void       paste();
     void       groupSelected();
+    void       cutSelected();
+    void       pasteInto();
+    void       toggleLocked();
+    void       toggleAnchored();
+    void       centerModelPivot();
+    void       alignSelected(int axis, int where);
+    void       startPlay(int mode);       // 0 Play, 1 Play Here, 2 Run
+    void       insertObject(const std::string& what, SceneNode* parent);
+    void       renderInsertObject();
+    void       renderCommandBar();
     void       ungroupSelected();
     void       selectAll();
     void       selectParent();
@@ -111,6 +122,17 @@ private:
     std::string              m_committed;      // last known scene state
     std::vector<std::string> m_clipboard;
     bool                     m_showShortcuts = false;
+    int                      m_ribbonTab = 0;           // HOME / MODEL / TEST / VIEW
+    int                      m_playMode = 0;
+    bool                     m_openInsert = false;
+    SceneNode*               m_insertParent = nullptr;
+    std::string              m_insertFilter;
+    std::string              m_cmdInput;
+    std::vector<std::string> m_cmdHistory;
+    int                      m_cmdHistoryPos = -1;
+    enum Panel { kPanelExplorer, kPanelProperties, kPanelToolbox, kPanelOutput, kPanelCommandBar, kPanelScript,
+                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelCount };
+    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true};
     std::function<void()>    m_deferred;       // tree changes asked for while the Explorer was drawing
 
     std::string m_path;                         // current file ("" = never saved)

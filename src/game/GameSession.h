@@ -21,6 +21,9 @@ public:
     explicit GameSession(Scene* scene);
 
     void setRole(Role r) { m_role = r; }
+    // Studio's "Run": the world simulates and scripts run, but there's no player.
+    void setRunOnly(bool on) { m_runOnly = on; }
+    bool runOnly() const { return m_runOnly; }
     Role role() const { return m_role; }
     // Client mode: where touches and clicks get sent (to the host).
     std::function<void(uint64_t part, const std::string& limb)> onTouch;
@@ -48,4 +51,5 @@ private:
     Role         m_role = Role::Solo;
     glm::vec2    m_touchMove{0.0f};
     bool         m_touchJump = false;
+    bool         m_runOnly = false;
 };

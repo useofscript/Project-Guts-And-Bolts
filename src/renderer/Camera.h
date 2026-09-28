@@ -9,6 +9,9 @@ public:
     void orbit(float dx, float dy);
     void pan  (float dx, float dy);
     void zoom (float delta);
+    // Roblox Studio style: turn your head (the eye stays put) and fly around.
+    void look (float dx, float dy);
+    void fly  (float forward, float right, float up);   // world units
     void resize(int w, int h);
 
     glm::mat4 view()       const;
