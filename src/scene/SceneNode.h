@@ -30,6 +30,18 @@ inline constexpr int kMaterialCount = 7;
 inline const char* const kMaterialNames[kMaterialCount] =
     {"Plastic", "Metal", "Neon", "Wood", "Glass", "Concrete", "Ice"};
 
+// A custom value on an object, like Roblox Attributes (Properties panel >
+// Attributes, or part:SetAttribute("Coins", 5) in a script).
+struct Attribute {
+    enum Type { Bool, Number, String, Vector3, Color3 };
+    std::string name;
+    Type        type = Number;
+    bool        b = false;
+    double      n = 0.0;
+    std::string s;
+    glm::vec3   v{0.0f};   // Vector3 / Color3
+};
+
 struct Transform {
     glm::vec3 position = {0.0f, 0.0f, 0.0f};
     glm::vec3 rotation = {0.0f, 0.0f, 0.0f}; // Euler angles in degrees (XYZ order)
@@ -65,6 +77,16 @@ public:
     // Script (kind == Script)
     std::string source;
     bool        enabled = true;           // scripts and lights can be switched off
+    bool        isModule = false;         // ModuleScript: only runs when require()d
+
+    // Anything
+    std::vector<Attribute>   attributes;
+    std::vector<std::string> tags;        // CollectionService-style tags
+    bool        locked = false;           // can't be picked in the Viewport (Roblox "Locked")
+    const Attribute* findAttribute(const std::string& n) const {
+        for (auto& a : attributes) if (a.name == n) return &a;
+        return nullptr;
+    }
 
     // Light (kind == Light) — uses `color` for its colour.
     LightType   lightType  = LightType::Point;

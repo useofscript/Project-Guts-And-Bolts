@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "../scene/RobloxFile.h"
 #include "panels/ViewportPanel.h"
 #include "panels/OutlinerPanel.h"
 #include "panels/PropertiesPanel.h"
@@ -28,6 +29,7 @@
 #include <ImGuizmo.h>
 #include <string>
 #include <algorithm>
+#include <filesystem>
 #include <vector>
 
 namespace {
@@ -264,6 +266,12 @@ void Editor::testAddPart(const std::string& name) {
     n->transform.position = {-3, 0.5f, 2};
 }
 
+void Editor::testExportRoblox(const std::string& path) {
+    std::string err;
+    if (RobloxFile::exportPlace(*m_scene, path, err)) Log::system("Exported " + path);
+    else Log::error(err);
+}
+
 void Editor::testSelect(const std::string& names) {
     m_scene->deselect();
     std::string list = "," + names + ",";
@@ -453,12 +461,27 @@ void Editor::newScene() {
 
 void Editor::openFile(const std::string& path) {
     if (m_playing) togglePlay();
-    std::string text, err;
-    if (!Serializer::readFile(path, text)) {
-        Log::error("Couldn't open " + path);
+    if (RobloxFile::isRobloxFile(path)) {
+        RobloxFile::Report report;
+        std::string err;
+        if (RobloxFile::isPlace(path)) {
+            if (!RobloxFile::importPlace(*m_scene, path, report, err)) { Log::error("Couldn't import " + path + ": " + err); return; }
+            m_path.clear();   // it's a Guts and Bolts game now: Save As picks a name
+            resetHistory();
+            m_dirty = true;
+            Log::system("Imported Roblox place " + path + ": " + report.summary() + ". Save it to keep it.");
+        } else {
+            auto added = RobloxFile::importModel(*m_scene, nullptr, path, report, err);
+            if (added.empty()) { Log::error("Couldn't import " + path + ": " + err); return; }
+            m_scene->deselect();
+            for (SceneNode* n : added) m_scene->addToSelection(n);
+            Log::system("Inserted Roblox model " + path + ": " + report.summary());
+        }
+        for (const std::string& n : report.notes) Log::warn("Roblox import: " + n);
         return;
     }
-    if (!Serializer::loadScene(*m_scene, text, &err)) {
+    std::string err;
+    if (!Serializer::loadGameFile(*m_scene, path, &err)) {
         Log::error("Couldn't load " + path + ": " + err);
         m_scene->buildDefault();
     } else {
@@ -466,6 +489,23 @@ void Editor::openFile(const std::string& path) {
         Log::system("Opened " + path);
     }
     resetHistory();
+}
+
+void Editor::exportRoblox(bool selectionOnly) {
+    std::string name = m_scene->info().title.empty() ? "My Game" : m_scene->info().title;
+    std::string err;
+    if (selectionOnly) {
+        auto sel = m_scene->selectionRoots();
+        if (sel.empty()) { Log::warn("Select something to export first."); return; }
+        std::string path = (Paths::gamesFolder() / (sel.back()->name + ".rbxmx")).string();
+        if (RobloxFile::exportModel(*m_scene, sel, path, err)) Log::system("Exported a Roblox model to " + path);
+        else Log::error("Export failed: " + err);
+    } else {
+        std::string path = (Paths::gamesFolder() / (name + ".rbxlx")).string();
+        if (RobloxFile::exportPlace(*m_scene, path, err))
+            Log::system("Exported a Roblox place to " + path + " (open it in Roblox Studio)");
+        else Log::error("Export failed: " + err);
+    }
 }
 
 void Editor::saveFile(const std::string& path) {
@@ -690,6 +730,11 @@ void Editor::renderMenuBar() {
             m_openSaveAs = true;
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Import Roblox File (.rbxl / .rbxm)...")) { m_pending = Pending::Open; m_openOpen = true; }
+        if (ImGui::MenuItem("Export to Roblox Place (.rbxlx)")) exportRoblox(false);
+        if (ImGui::MenuItem("Export Selection to Roblox Model (.rbxmx)", nullptr, false, m_scene->selected() != nullptr))
+            exportRoblox(true);
+        ImGui::Separator();
         if (ImGui::MenuItem(m_team->active() ? "Team Create (on)..." : "Team Create...")) m_openTeam = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
@@ -869,9 +914,17 @@ void Editor::renderDialogs() {
         ImGui::TextDisabled("Games in %s", Paths::gamesFolder().string().c_str());
         ImGui::BeginChild("##games", ImVec2(0, 220), ImGuiChildFlags_Borders);
         auto games = Paths::listGames();
+        // Roblox models sitting in the games folder can be inserted too.
+        std::error_code ec;
+        for (auto& e : std::filesystem::directory_iterator(Paths::gamesFolder(), ec))
+            if (e.path().extension() == ".rbxm" || e.path().extension() == ".rbxmx") games.push_back(e.path());
         if (games.empty()) ImGui::TextDisabled("No saved games yet.");
         for (auto& g : games) {
-            if (ImGui::Selectable(g.stem().string().c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+            std::string ext = g.extension().string();
+            std::string label = g.stem().string();
+            if (ext == ".rbxl" || ext == ".rbxlx") label += "   (Roblox place)";
+            if (ext == ".rbxm" || ext == ".rbxmx") label += "   (Roblox model - inserts into this game)";
+            if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 openFile(g.string());
                 ImGui::CloseCurrentPopup();
@@ -879,7 +932,7 @@ void Editor::renderDialogs() {
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Double-click to open");
         }
         ImGui::EndChild();
-        ImGui::Text("...or type a file path:");
+        ImGui::Text("...or type a file path (.gbscene, or Roblox .rbxl / .rbxlx / .rbxm / .rbxmx):");
         ImGui::SetNextItemWidth(-1);
         ImGui::InputText("##path", &m_openPathInput);
         ImGui::BeginDisabled(m_openPathInput.empty());

@@ -241,9 +241,8 @@ void PlayerApp::refreshGames() {
     for (const auto& path : Paths::listGames()) {
         GameCard card;
         card.path = path;
-        std::string text;
         Scene preview;
-        if (!Serializer::readFile(path.string(), text) || !Serializer::loadScene(preview, text)) {
+        if (!Serializer::loadGameFile(preview, path.string())) {
             card.broken = true;
             card.info.title = path.stem().string();
             card.info.description = "This game file couldn't be read.";
@@ -265,8 +264,8 @@ void PlayerApp::refreshGames() {
 }
 
 void PlayerApp::joinGame(const std::filesystem::path& path, bool host) {
-    std::string text, err;
-    if (!Serializer::readFile(path.string(), text) || !Serializer::loadScene(*m_scene, text, &err)) {
+    std::string err;
+    if (!Serializer::loadGameFile(*m_scene, path.string(), &err)) {
         m_status = "Couldn't load " + path.filename().string() + (err.empty() ? "" : ": " + err);
         m_page = Page::Home;
         return;

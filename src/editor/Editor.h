@@ -32,6 +32,7 @@ public:
     void testAddPart(const std::string& name);
     void testPremades(const std::string& list);
     void testSelect(const std::string& names);
+    void testExportRoblox(const std::string& path);
 
 private:
     void buildDockspace();
@@ -71,6 +72,7 @@ private:
     void saveFile(const std::string& path);
     void save();
     void updateTitle();
+    void exportRoblox(bool selectionOnly);
 
     // Undo / redo (whole-scene snapshots)
     void trackChanges();

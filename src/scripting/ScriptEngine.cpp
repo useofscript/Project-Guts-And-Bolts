@@ -193,6 +193,38 @@ int l_delay(lua_State* L) {
     return 0;
 }
 
+// require(moduleScript) — runs a ModuleScript once and returns what it returns.
+int l_require(lua_State* L) {
+    SceneNode* m = LuaApi::checkNode(L, 1);
+    if (!m->isScript()) return luaL_error(L, "require() needs a ModuleScript, got %s", m->name.c_str());
+    lua_getfield(L, LUA_REGISTRYINDEX, "__gb_modules");
+    if (lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, LUA_REGISTRYINDEX, "__gb_modules");
+    }
+    lua_rawgeti(L, -1, (lua_Integer)m->id);
+    if (!lua_isnil(L, -1)) return 1;                      // already loaded
+    lua_pop(L, 1);
+    std::string chunk = "=" + m->fullName();
+    if (luaL_loadbuffer(L, m->source.data(), m->source.size(), chunk.c_str()) != LUA_OK) return lua_error(L);
+    // Its own globals (falling back to the shared ones), with `script` = the module.
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushglobaltable(L);
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, -2);
+    LuaApi::pushInstance(L, m->id);
+    lua_setfield(L, -2, "script");
+    lua_setupvalue(L, -2, 1);
+    lua_call(L, 0, 1);
+    if (lua_isnil(L, -1)) { lua_pop(L, 1); lua_pushboolean(L, 1); }
+    lua_pushvalue(L, -1);
+    lua_rawseti(L, -3, (lua_Integer)m->id);              // cache it
+    return 1;
+}
+
 int l_time(lua_State* L) { lua_pushnumber(L, LuaApi::engine(L)->time()); return 1; }
 int l_tick(lua_State* L) {
     using namespace std::chrono;
@@ -335,6 +367,7 @@ void ScriptEngine::start() {
     lua_register(L, "print", l_print);
     lua_register(L, "warn",  l_warn);
     lua_register(L, "time",  l_time);
+    lua_register(L, "require", l_require);
     lua_register(L, "tick",  l_tick);
     lua_register(L, "__gb_wait",  l_wait);
     lua_register(L, "__gb_spawn", l_spawn);
@@ -386,7 +419,7 @@ void ScriptEngine::start() {
     // Collect first, then run: scripts may add or remove objects as they start.
     std::vector<uint64_t> scripts;
     m_scene->forEach([&](SceneNode* n) {
-        if (n->isScript() && n->enabled) scripts.push_back(n->id);
+        if (n->isScript() && n->enabled && !n->isModule) scripts.push_back(n->id);   // modules wait for require()
     });
     for (uint64_t id : scripts)
         if (SceneNode* s = resolve(id)) runScript(s);

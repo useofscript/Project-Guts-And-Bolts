@@ -77,6 +77,7 @@ void Application::run() {
         if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
         if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
         if (!m_opts.testSelect.empty() && frame == 10) m_editor->testSelect(m_opts.testSelect);
+        if (!m_opts.exportRoblox.empty() && frame == 2) m_editor->testExportRoblox(m_opts.exportRoblox);
 
         m_editor->render(dt);
 

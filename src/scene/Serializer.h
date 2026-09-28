@@ -35,5 +35,7 @@ void        environmentFromString(Environment& env, const std::string& text);
 
 bool writeFile(const std::string& path, const std::string& text);
 bool readFile (const std::string& path, std::string& out);
+// Open any game file: a .gbscene, or a Roblox place (.rbxl / .rbxlx).
+bool loadGameFile(Scene& scene, const std::string& path, std::string* error = nullptr);
 
 } // namespace Serializer

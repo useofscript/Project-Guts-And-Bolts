@@ -99,7 +99,9 @@ std::vector<std::filesystem::path> listGames() {
     std::vector<std::filesystem::path> out;
     std::error_code ec;
     for (auto& e : std::filesystem::directory_iterator(gamesFolder(), ec))
-        if (e.is_regular_file() && e.path().extension() == kExtension) out.push_back(e.path());
+        if (e.is_regular_file() && (e.path().extension() == kExtension ||
+                                    e.path().extension() == ".rbxl" || e.path().extension() == ".rbxlx"))
+            out.push_back(e.path());   // Roblox places can be played straight away
     std::sort(out.begin(), out.end());
     return out;
 }

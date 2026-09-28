@@ -97,6 +97,21 @@ FetchContent_MakeAvailable(monocypher)
 add_library(monocypher STATIC ${monocypher_SOURCE_DIR}/src/monocypher.c)
 target_include_directories(monocypher PUBLIC ${monocypher_SOURCE_DIR}/src)
 
+# zstd (decoder only): newer Roblox .rbxl / .rbxm files are compressed with it.
+FetchContent_Declare(
+    zstd
+    GIT_REPOSITORY https://github.com/facebook/zstd.git
+    GIT_TAG        v1.5.6
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(zstd)
+file(GLOB ZSTD_SOURCES "${zstd_SOURCE_DIR}/lib/common/*.c" "${zstd_SOURCE_DIR}/lib/decompress/*.c")
+add_library(gb_zstd STATIC ${ZSTD_SOURCES})
+target_include_directories(gb_zstd PUBLIC ${zstd_SOURCE_DIR}/lib)
+target_compile_definitions(gb_zstd PRIVATE ZSTD_DISABLE_ASM)
+set_target_properties(gb_zstd PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
+
 if(GB_MOBILE)
     # SDL2: window, OpenGL ES context, multi-touch, the Android activity.
     FetchContent_Declare(
@@ -211,6 +226,8 @@ add_library(gb_engine STATIC
     src/scene/Ragdoll.cpp
     src/scene/Effects.cpp
     src/scene/Serializer.cpp
+    src/scene/RobloxFile.cpp
+    src/scripting/Luau.cpp
     src/scripting/ScriptEngine.cpp
     src/scripting/LuaTypes.cpp
     src/scripting/LuaInstance.cpp
@@ -245,6 +262,7 @@ target_link_libraries(gb_engine PUBLIC
     lua_static
     nlohmann_json::nlohmann_json
     monocypher
+    gb_zstd
 )
 if(NOT GB_MOBILE)
     target_link_libraries(gb_engine PUBLIC glfw GLEW::GLEW OpenGL::GL)

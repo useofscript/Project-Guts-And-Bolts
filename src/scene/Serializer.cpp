@@ -1,4 +1,6 @@
+#include <algorithm>
 #include "Serializer.h"
+#include "RobloxFile.h"
 #include "Scene.h"
 #include "SceneNode.h"
 #include "Player.h"
@@ -118,6 +120,23 @@ json toJson(const SceneNode& n) {
     }
     if (!n.visible) j["visible"]  = false;
     if (n.internal) j["internal"] = true;
+    if (n.isModule) j["module"]   = true;
+    if (n.locked)   j["locked"]   = true;
+    if (!n.tags.empty()) j["tags"] = n.tags;
+    if (!n.attributes.empty()) {
+        json attrs = json::array();
+        for (const Attribute& a : n.attributes) {
+            json e = {{"n", a.name}, {"t", (int)a.type}};
+            switch (a.type) {
+                case Attribute::Bool:   e["v"] = a.b; break;
+                case Attribute::Number: e["v"] = a.n; break;
+                case Attribute::String: e["v"] = a.s; break;
+                default:                e["v"] = vec(a.v); break;
+            }
+            attrs.push_back(e);
+        }
+        j["attrs"] = attrs;
+    }
 
     json kids = json::array();
     for (auto& c : n.children) kids.push_back(toJson(*c));
@@ -179,6 +198,23 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     n->enabled = get<bool>(j, "enabled", true);
     n->visible       = get<bool>(j, "visible", true);
     n->internal      = get<bool>(j, "internal", false);
+    n->isModule      = get<bool>(j, "module", false);
+    n->locked        = get<bool>(j, "locked", false);
+    if (auto t = j.find("tags"); t != j.end() && t->is_array())
+        for (auto& v : *t) if (v.is_string()) n->tags.push_back(v.get<std::string>());
+    if (auto at = j.find("attrs"); at != j.end() && at->is_array())
+        for (auto& e : *at) {
+            if (!e.is_object() || !e.contains("n") || !e.contains("v")) continue;
+            Attribute a;
+            a.name = e["n"].get<std::string>();
+            a.type = (Attribute::Type)std::clamp(e.value("t", 1), 0, 4);
+            const json& v = e["v"];
+            if (a.type == Attribute::Bool && v.is_boolean()) a.b = v.get<bool>();
+            else if (a.type == Attribute::Number && v.is_number()) a.n = v.get<double>();
+            else if (a.type == Attribute::String && v.is_string()) a.s = v.get<std::string>();
+            else if (v.is_array() && v.size() == 3) a.v = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+            n->attributes.push_back(a);
+        }
 
     if (auto it = j.find("children"); it != j.end() && it->is_array())
         for (const auto& c : *it) n->addChild(fromJson(c, freshIds));
@@ -352,6 +388,8 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.transparency = src->transparency; dst.material = src->material;
     dst.anchored = src->anchored;   dst.canCollide = src->canCollide; dst.castShadow = src->castShadow;
     dst.source = src->source;       dst.enabled = src->enabled;
+    dst.isModule = src->isModule;   dst.locked = src->locked;
+    dst.tags = src->tags;           dst.attributes = src->attributes;
     dst.lightType = src->lightType; dst.brightness = src->brightness;
     dst.range = src->range;         dst.spotAngle = src->spotAngle;
     dst.soundId = src->soundId;     dst.volume = src->volume; dst.pitch = src->pitch;
@@ -403,6 +441,18 @@ std::unique_ptr<SceneNode> clone(const SceneNode& node) {
     collectIds(node, *copy, map);
     remapRefs(*copy, map);
     return copy;
+}
+
+bool loadGameFile(Scene& scene, const std::string& path, std::string* error) {
+    if (RobloxFile::isPlace(path)) {
+        RobloxFile::Report report;
+        std::string err;
+        if (!RobloxFile::importPlace(scene, path, report, err)) { if (error) *error = err; return false; }
+        return true;
+    }
+    std::string text;
+    if (!readFile(path, text)) { if (error) *error = "couldn't read the file"; return false; }
+    return loadScene(scene, text, error);
 }
 
 bool writeFile(const std::string& path, const std::string& text) {
