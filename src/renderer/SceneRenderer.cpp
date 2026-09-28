@@ -150,7 +150,7 @@ void SceneRenderer::buildAxes() {
 void SceneRenderer::ensureTargets(int w, int h) {
     if (m_hdr.w == w && m_hdr.h == h && m_hdr.fbo) return;
     createTarget(m_hdr, w, h, GL_RGBA16F, true);
-    createTarget(m_ao, w / 2, h / 2, GL_R8, false);
+    createTarget(m_ao, w, h, GL_R8, false);
     createTarget(m_ldr, w, h, GL_RGBA8, false);
     int bw = w / 2, bh = h / 2;
     for (auto& b : m_bloom) {

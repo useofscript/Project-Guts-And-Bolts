@@ -2,7 +2,7 @@
 #include <memory>
 #include <string>
 
-struct GLFWwindow;
+class AppWindow;
 class Scene;
 class Editor;
 
@@ -15,6 +15,7 @@ struct LaunchOptions {
     std::string holdKey;           // --hold <key>      hold a key during Play (W, A, S, D, Space)
 };
 
+// The editor application ("Guts and Bolts Studio").
 class Application {
 public:
     explicit Application(LaunchOptions opts = {});
@@ -22,17 +23,9 @@ public:
     void run();
 
 private:
-    void initWindow();
-    void initGL();
-    void initImGui();
-    void cleanup();
-
-    void saveScreenshot(const std::string& path);
-
     LaunchOptions m_opts;
-    GLFWwindow* m_window = nullptr;
-    int m_width = 1280, m_height = 720;
-
-    std::unique_ptr<Scene>  m_scene;
-    std::unique_ptr<Editor> m_editor;
+    // Declared first so it is destroyed last (after everything using OpenGL).
+    std::unique_ptr<AppWindow> m_window;
+    std::unique_ptr<Scene>     m_scene;
+    std::unique_ptr<Editor>    m_editor;
 };

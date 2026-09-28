@@ -27,7 +27,7 @@ end })
 task = { wait = __gb_wait, spawn = __gb_spawn, delay = __gb_delay, defer = __gb_spawn }
 wait, spawn, delay = task.wait, task.spawn, task.delay
 
-local LocalPlayer = { Name = "Player", DisplayName = "Player", UserId = 1,
+local LocalPlayer = { Name = __gb_playerName, DisplayName = __gb_playerName, UserId = 1,
                       Character = __gb_character }
 Players = { LocalPlayer = LocalPlayer }
 function Players:GetPlayers() return { LocalPlayer } end
@@ -75,7 +75,7 @@ function table.find(t, value)
     return nil
 end
 
-__gb_wait, __gb_spawn, __gb_delay, __gb_character = nil, nil, nil, nil
+__gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName = nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 )LUA";
 
@@ -297,6 +297,8 @@ void ScriptEngine::start() {
     lua_setglobal(L, "workspace");
     LuaApi::pushInstance(L, m_scene->player() ? m_scene->player()->rootId() : 0);
     lua_setglobal(L, "__gb_character");
+    lua_pushstring(L, m_playerName.c_str());
+    lua_setglobal(L, "__gb_playerName");
     LuaApi::pushLighting(L);
     lua_setglobal(L, "Lighting");
     LuaApi::pushSignal(L, SignalKind::Heartbeat, 0);  lua_setglobal(L, "__gb_heartbeat");

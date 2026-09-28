@@ -1,9 +1,11 @@
 #include "Settings.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <string>
+#include "Paths.h"
 
 namespace {
-const char* kFile = "settings.json";
+std::string settingsFile() { return Paths::file("settings.json").string(); }
 }
 
 GraphicsSettings& GraphicsSettings::get() {
@@ -35,7 +37,7 @@ void GraphicsSettings::applyPreset(int q) {
 }
 
 void GraphicsSettings::load() {
-    std::ifstream f(kFile);
+    std::ifstream f(settingsFile());
     if (!f) return;
     nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) return;
@@ -55,6 +57,6 @@ void GraphicsSettings::save() const {
         {"ssao", ssao}, {"bloom", bloom}, {"fxaa", fxaa}, {"postFx", postFx},
         {"renderScale", renderScale}, {"maxLights", maxLights}, {"allowGore", allowGore},
     };
-    std::ofstream f(kFile);
+    std::ofstream f(settingsFile());
     if (f) f << j.dump(2);
 }

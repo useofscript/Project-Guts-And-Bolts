@@ -41,5 +41,5 @@ glm::mat4 Camera::view() const {
 
 glm::mat4 Camera::projection() const {
     float aspect = (m_h > 0) ? (float)m_w / (float)m_h : 1.0f;
-    return glm::perspective(glm::radians(fov), aspect, 0.01f, 1000.0f);
+    return glm::perspective(glm::radians(fov), aspect, 0.1f, 1000.0f);
 }

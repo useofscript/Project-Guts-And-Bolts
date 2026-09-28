@@ -68,12 +68,37 @@ find_package(GLEW   REQUIRED)
 find_package(glm    REQUIRED)
 find_package(OpenGL REQUIRED)
 
-set(ENGINE_SOURCES
-    src/main.cpp
+# ---------------------------------------------------------------------------
+# Dear ImGui + ImGuizmo (UI for both apps)
+# ---------------------------------------------------------------------------
+add_library(gb_imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
+    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
+)
+target_include_directories(gb_imgui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${imguizmo_SOURCE_DIR}/src
+)
+target_link_libraries(gb_imgui PUBLIC glfw OpenGL::GL)
+
+# ---------------------------------------------------------------------------
+# The engine: scene, physics, scripting, rendering, game session.
+# Shared by the editor (GutsAndBolts) and the player app (GutsAndBoltsPlayer).
+# ---------------------------------------------------------------------------
+add_library(gb_engine STATIC
     src/core/CrashHandler.cpp
     src/core/Log.cpp
     src/core/Settings.cpp
-    src/Application.cpp
+    src/core/Paths.cpp
+    src/core/AppWindow.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp
@@ -94,8 +119,30 @@ set(ENGINE_SOURCES
     src/game/GameSession.cpp
     src/game/Hud.cpp
     src/game/SettingsWindow.cpp
-    src/editor/Editor.cpp
+    src/game/Profile.cpp
     src/editor/Theme.cpp
+)
+target_include_directories(gb_engine PUBLIC src/)
+target_link_libraries(gb_engine PUBLIC
+    gb_imgui
+    glfw
+    GLEW::GLEW
+    OpenGL::GL
+    lua_static
+    nlohmann_json::nlohmann_json
+)
+target_compile_definitions(gb_engine PUBLIC GLM_ENABLE_EXPERIMENTAL)
+if(WIN32)
+    target_link_libraries(gb_engine PUBLIC dbghelp)
+endif()
+
+# ---------------------------------------------------------------------------
+# GutsAndBolts — the editor (Studio)
+# ---------------------------------------------------------------------------
+set(EDITOR_SOURCES
+    src/main.cpp
+    src/Application.cpp
+    src/editor/Editor.cpp
     src/editor/Premades.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/OutlinerPanel.cpp
@@ -105,43 +152,34 @@ set(ENGINE_SOURCES
     src/editor/panels/PlayerPanel.cpp
     src/editor/panels/OutputPanel.cpp
     src/editor/panels/ScriptEditorPanel.cpp
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
-
 if(WIN32)
-    list(APPEND ENGINE_SOURCES resources/app.rc)
+    list(APPEND EDITOR_SOURCES resources/app.rc)
 endif()
+add_executable(GutsAndBolts ${EDITOR_SOURCES})
+target_link_libraries(GutsAndBolts PRIVATE gb_engine)
 
-add_executable(GutsAndBolts ${ENGINE_SOURCES})
-
-target_include_directories(GutsAndBolts PRIVATE
-    src/
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-    ${imguizmo_SOURCE_DIR}/src
+# ---------------------------------------------------------------------------
+# GutsAndBoltsPlayer — the platform app for finding and playing games
+# ---------------------------------------------------------------------------
+set(PLAYER_SOURCES
+    src/player/main.cpp
+    src/player/PlayerApp.cpp
 )
-
-target_link_libraries(GutsAndBolts PRIVATE
-    glfw
-    GLEW::GLEW
-    OpenGL::GL
-    lua_static
-    nlohmann_json::nlohmann_json
-)
-
 if(WIN32)
-    target_link_libraries(GutsAndBolts PRIVATE dbghelp)
+    list(APPEND PLAYER_SOURCES resources/app.rc)
 endif()
+add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
+target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
 
-target_compile_definitions(GutsAndBolts PRIVATE GLM_ENABLE_EXPERIMENTAL)
+# Ship the sample games next to the programs.
+foreach(app GutsAndBolts GutsAndBoltsPlayer)
+    add_custom_command(TARGET ${app} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${app}>/games"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/games"
+                "$<TARGET_FILE_DIR:${app}>/games"
+        VERBATIM)
+endforeach()
 
 # When building with MinGW, the executable depends on runtime DLLs that live in
 # the compiler's bin directory (libstdc++, libgcc, glfw3, glew). Copy them next
@@ -157,10 +195,12 @@ if(MINGW)
     )
     foreach(dll ${RUNTIME_DLLS})
         if(EXISTS "${MINGW_BIN}/${dll}")
-            add_custom_command(TARGET GutsAndBolts POST_BUILD
+            foreach(app GutsAndBolts GutsAndBoltsPlayer)
+            add_custom_command(TARGET ${app} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${MINGW_BIN}/${dll}" "$<TARGET_FILE_DIR:GutsAndBolts>"
+                        "${MINGW_BIN}/${dll}" "$<TARGET_FILE_DIR:${app}>"
                 VERBATIM)
+        endforeach()
         endif()
     endforeach()
 endif()

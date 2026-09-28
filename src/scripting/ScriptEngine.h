@@ -39,6 +39,7 @@ public:
     void fireDied();
 
     GuiState& gui() { return m_gui; }
+    void setPlayerName(const std::string& n) { m_playerName = n; }
 
     // Compile without running — used by the script editor for live error checks.
     static bool checkSyntax(const std::string& source, std::string& error, int& line);
@@ -94,4 +95,5 @@ private:
     std::vector<Connection>                 m_conns;
     std::vector<std::unique_ptr<SceneNode>> m_detached;
     GuiState                                m_gui;
+    std::string                             m_playerName = "Player";
 };

@@ -33,7 +33,7 @@ vec3 skyGradient(vec3 dir, vec3 zenith, vec3 horizon, vec3 ground) {
 // Lit geometry
 // ---------------------------------------------------------------------------
 
-inline const char* litVert = R"(#version 450 core
+inline const char* litVert = R"(#version 410 core
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in vec2 aUV;
@@ -54,7 +54,7 @@ void main() {
 }
 )";
 
-inline const char* litFrag = R"(#version 450 core
+inline const char* litFrag = R"(#version 410 core
 in vec3 vNormal;
 in vec3 vWorldPos;
 
@@ -179,9 +179,11 @@ void main() {
     vec3 albedo = lin(uColor);
 
     // --- Material look ---
+    // Fine surface detail fades out when it gets smaller than a pixel (no shimmering).
+    float detail = clamp(1.5 - length(fwidth(vWorldPos)) * 24.0, 0.0, 1.0);
     float rough = 0.5, metal = 0.0;
     if (uMaterial == 1) { rough = 0.3; metal = 1.0;
-        albedo *= 0.92 + 0.08 * vnoise(vec2(dot(vWorldPos.xz, vec2(1.0)) * 60.0, vWorldPos.y * 2.0)); }
+        albedo *= mix(1.0, 0.92 + 0.08 * vnoise(vec2(dot(vWorldPos.xz, vec2(1.0)) * 60.0, vWorldPos.y * 2.0)), detail * 0.5); }
     else if (uMaterial == 3) {                                    // wood grain
         float rings = sin((vWorldPos.x * 0.7 + vWorldPos.z * 0.3 + fbm(vWorldPos.xy * 1.5) * 1.2) * 14.0);
         albedo *= 0.78 + 0.22 * (0.5 + 0.5 * rings);
@@ -189,7 +191,7 @@ void main() {
     }
     else if (uMaterial == 4) { rough = 0.04; }                    // glass
     else if (uMaterial == 5) {                                    // concrete speckle
-        albedo *= 0.85 + 0.25 * hash13(floor(vWorldPos * 24.0)) * vnoise(vWorldPos.xz * 3.0);
+        albedo *= mix(0.92, 0.85 + 0.25 * hash13(floor(vWorldPos * 24.0)) * vnoise(vWorldPos.xz * 3.0), detail);
         rough = 0.95;
     }
     else if (uMaterial == 6) { rough = 0.08; albedo = mix(albedo, vec3(0.8, 0.9, 1.0), 0.2); }
@@ -263,7 +265,7 @@ void main() {
 // Sky
 // ---------------------------------------------------------------------------
 
-inline const char* skyVert = R"(#version 450 core
+inline const char* skyVert = R"(#version 410 core
 // Fullscreen triangle generated from gl_VertexID — no vertex buffer needed.
 out vec2 vNdc;
 void main() {
@@ -274,7 +276,7 @@ void main() {
 }
 )";
 
-inline const char* skyFrag = R"(#version 450 core
+inline const char* skyFrag = R"(#version 410 core
 in vec2 vNdc;
 uniform mat4  uInvViewProj;
 uniform vec3  uZenith;
@@ -342,7 +344,7 @@ void main() {
 // Editor grid / shadow depth
 // ---------------------------------------------------------------------------
 
-inline const char* gridVert = R"(#version 450 core
+inline const char* gridVert = R"(#version 410 core
 layout(location=0) in vec3 aPos;
 uniform mat4 uView;
 uniform mat4 uProj;
@@ -353,7 +355,7 @@ void main() {
 }
 )";
 
-inline const char* gridFrag = R"(#version 450 core
+inline const char* gridFrag = R"(#version 410 core
 in float vDist;
 uniform vec3 uColor;
 out vec4 FragColor;
@@ -363,14 +365,14 @@ void main() {
 }
 )";
 
-inline const char* depthVert = R"(#version 450 core
+inline const char* depthVert = R"(#version 410 core
 layout(location=0) in vec3 aPos;
 uniform mat4 uLightSpace;
 uniform mat4 uModel;
 void main() { gl_Position = uLightSpace * uModel * vec4(aPos, 1.0); }
 )";
 
-inline const char* depthFrag = R"(#version 450 core
+inline const char* depthFrag = R"(#version 410 core
 void main() {}
 )";
 
@@ -378,7 +380,7 @@ void main() {}
 // Post-processing (all fullscreen passes)
 // ---------------------------------------------------------------------------
 
-inline const char* fullscreenVert = R"(#version 450 core
+inline const char* fullscreenVert = R"(#version 410 core
 out vec2 vUV;
 void main() {
     vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
@@ -388,7 +390,7 @@ void main() {
 )";
 
 // Screen-space ambient occlusion from the depth buffer.
-inline const char* ssaoFrag = R"(#version 450 core
+inline const char* ssaoFrag = R"(#version 410 core
 in vec2 vUV;
 uniform sampler2D uDepth;
 uniform mat4  uProj;
@@ -428,20 +430,23 @@ void main() {
         float th = float(i) * 2.39996;
         float ph = acos(sqrt(1.0 - fi));
         vec3 s = vec3(cos(th) * sin(ph), sin(th) * sin(ph), cos(ph));
+        s = normalize(vec3(s.xy, max(s.z, 0.35)));   // no samples lying flat on the surface
         s *= mix(0.1, 1.0, fi * fi);
         vec3 sp = P + TBN * s * uRadius;
         vec4 o = uProj * vec4(sp, 1.0);
         vec2 suv = o.xy / o.w * 0.5 + 0.5;
         float sceneZ = viewPos(suv).z;
         float range = smoothstep(0.0, 1.0, uRadius / max(abs(P.z - sceneZ), 1e-4));
-        occ += (sceneZ >= sp.z + 0.03 ? 1.0 : 0.0) * range;
+        // The bias grows with distance: far-away depth values are less precise.
+        float bias = 0.02 + 0.006 * abs(P.z);
+        occ += (sceneZ >= sp.z + bias ? 1.0 : 0.0) * range;
     }
     FragAO = clamp(1.0 - occ / float(S), 0.0, 1.0);
 }
 )";
 
 // Bloom: keep only the bright parts.
-inline const char* bloomPrefilterFrag = R"(#version 450 core
+inline const char* bloomPrefilterFrag = R"(#version 410 core
 in vec2 vUV;
 uniform sampler2D uSrc;
 uniform float uThreshold;
@@ -456,7 +461,7 @@ void main() {
 }
 )";
 
-inline const char* bloomDownFrag = R"(#version 450 core
+inline const char* bloomDownFrag = R"(#version 410 core
 in vec2 vUV;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;     // of the source
@@ -471,7 +476,7 @@ void main() {
 }
 )";
 
-inline const char* bloomUpFrag = R"(#version 450 core
+inline const char* bloomUpFrag = R"(#version 410 core
 in vec2 vUV;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
@@ -492,7 +497,7 @@ void main() {
 )";
 
 // Final image: AO, bloom, exposure, filmic tone mapping, colour grading.
-inline const char* compositeFrag = R"(#version 450 core
+inline const char* compositeFrag = R"(#version 410 core
 in vec2 vUV;
 uniform sampler2D uHdr;
 uniform sampler2D uBloom;
@@ -546,7 +551,7 @@ void main() {
 }
 )";
 
-inline const char* fxaaFrag = R"(#version 450 core
+inline const char* fxaaFrag = R"(#version 410 core
 in vec2 vUV;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;

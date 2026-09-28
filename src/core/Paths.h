@@ -1,30 +1,29 @@
 #pragma once
-#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <vector>
 
-// Where games live. The editor saves into ./games and the Guts&BoltsPlayer
-// app lists everything it finds there.
+// Where things live. Everything is kept next to the program itself, so it
+// works the same no matter how the app was started (double-click, shortcut,
+// terminal):
+//   <app folder>/games/*.gbscene   games (the editor saves here, the Player lists them)
+//   <app folder>/settings.json     graphics / frame-rate settings
+//   <app folder>/profile.json      your avatar and display name
 namespace Paths {
 
-inline std::filesystem::path gamesFolder() {
-    std::filesystem::path p = std::filesystem::current_path() / "games";
-    std::error_code ec;
-    std::filesystem::create_directories(p, ec);
-    return p;
-}
+std::filesystem::path appFolder();
+std::filesystem::path gamesFolder();
+std::filesystem::path file(const char* name);   // appFolder() / name
 
 inline constexpr const char* kExtension = ".gbscene";
 
 // All game files in the games folder, sorted by name.
-inline std::vector<std::filesystem::path> listGames() {
-    std::vector<std::filesystem::path> out;
-    std::error_code ec;
-    for (auto& e : std::filesystem::directory_iterator(gamesFolder(), ec))
-        if (e.is_regular_file() && e.path().extension() == kExtension) out.push_back(e.path());
-    std::sort(out.begin(), out.end());
-    return out;
-}
+std::vector<std::filesystem::path> listGames();
+
+// Path of the other app (editor <-> player) next to this one.
+std::filesystem::path sibling(const char* programName);
+
+// Start another program (without waiting for it to finish).
+bool launch(const std::filesystem::path& program, const std::string& argument = {});
 
 } // namespace Paths

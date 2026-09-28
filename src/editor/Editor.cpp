@@ -444,6 +444,17 @@ void Editor::renderMenuBar() {
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
+        if (ImGui::MenuItem("Play in Guts&BoltsPlayer")) {
+            if (m_path.empty()) {
+                Log::warn("Save your game first (File > Save), then try again.");
+                m_nameInput = m_scene->info().title;
+                m_openSaveAs = true;
+            } else {
+                saveFile(m_path);
+                if (!Paths::launch(Paths::sibling("GutsAndBoltsPlayer"), m_path))
+                    Log::error("Couldn't find GutsAndBoltsPlayer next to the editor.");
+            }
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit"))
             glfwSetWindowShouldClose(m_window, GLFW_TRUE);
