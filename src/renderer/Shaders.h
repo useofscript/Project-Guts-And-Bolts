@@ -5,8 +5,9 @@
 
 namespace Shaders {
 
-// Shared helpers pasted into several shaders.
-#define GB_GLSL_COMMON R"(
+// Shared helpers pasted into several shaders: a line reading
+// "#pragma gb_common" is replaced with this (see Shader.cpp).
+inline const char* common = R"(
 vec3 lin(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }   // colour picker -> linear
 float hash12(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float hash13(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
@@ -27,7 +28,7 @@ vec3 skyGradient(vec3 dir, vec3 zenith, vec3 horizon, vec3 ground) {
     if (t > 0.0) return mix(horizon, zenith, pow(clamp(t, 0.0, 1.0), 0.45));
     return mix(horizon, ground, pow(clamp(-t, 0.0, 1.0), 0.5));
 }
-)"
+)";
 
 // ---------------------------------------------------------------------------
 // Lit geometry
@@ -95,7 +96,7 @@ uniform vec4 uLightColor[MAX_LIGHTS];      // rgb colour * brightness, w: 0 poin
 uniform vec4 uLightDir[MAX_LIGHTS];        // xyz direction, w cos(half angle)
 
 out vec4 FragColor;
-)" GB_GLSL_COMMON R"(
+#pragma gb_common
 const float PI = 3.14159265;
 
 const vec2 POISSON[16] = vec2[](
@@ -295,7 +296,7 @@ uniform vec3  uCloudColor;
 uniform bool  uStars;
 uniform float uTime;
 out vec4 FragColor;
-)" GB_GLSL_COMMON R"(
+#pragma gb_common
 void main() {
     vec4 near = uInvViewProj * vec4(vNdc, -1.0, 1.0);
     vec4 far  = uInvViewProj * vec4(vNdc,  1.0, 1.0);
@@ -398,7 +399,7 @@ uniform mat4  uInvProj;
 uniform vec2  uTexel;
 uniform float uRadius;
 out float FragAO;
-)" GB_GLSL_COMMON R"(
+#pragma gb_common
 vec3 viewPos(vec2 uv) {
     float d = texture(uDepth, uv).r;
     vec4 p = uInvProj * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);

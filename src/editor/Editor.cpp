@@ -27,6 +27,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 #include <ImGuizmo.h>
 #include <string>
+#include <algorithm>
 #include <vector>
 
 namespace {
