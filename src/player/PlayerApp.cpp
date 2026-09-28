@@ -167,6 +167,10 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "catalog") m_page = Page::Catalog;
     if (m_opts.page == "bolts") m_page = Page::Bolts;
     if (m_opts.page == "create") m_page = Page::Create;
+    if (m_opts.page == "people") m_page = Page::People;
+    if (m_opts.page == "groups") m_page = Page::Groups;
+    if (m_opts.page.rfind("group:", 0) == 0) { m_groupId = m_opts.page.substr(6); m_page = Page::Group; }
+    if (m_opts.page.rfind("profile:", 0) == 0) { m_profileId = m_opts.page.substr(8); m_page = Page::Profile; }
     if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
@@ -392,6 +396,10 @@ void PlayerApp::frame(float dt) {
             case Page::Staff:    drawStaff(); break;
             case Page::Bolts:    drawBolts(); break;
             case Page::Create:   drawCreate(); break;
+            case Page::People:   drawPeople(); break;
+            case Page::Profile:  drawProfile(); break;
+            case Page::Groups:   drawGroups(); break;
+            case Page::Group:    drawGroup(); break;
             default: break;
         }
         Classic::popLight();
@@ -506,7 +514,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
     const float navH = 34.0f;
     struct Item { const char* label; int action; };
-    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Avatar", 2}, {"Join a Friend", 3},
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"People", 11}, {"Groups", 12}, {"Avatar", 2}, {"Join a Friend", 3},
                                {"Develop", 4}, {"Settings", 5}};
     if (Badges::canVerify()) items.push_back({"Staff", 7});
 #ifdef GB_MOBILE
@@ -544,7 +552,9 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
         bool active = (it.action == 0 && m_page == Page::Home) || (it.action == 1 && m_page == Page::Games) ||
                       (it.action == 2 && m_page == Page::Avatar) || (it.action == 6 && m_page == Page::Catalog) ||
                       (it.action == 7 && m_page == Page::Staff) || (it.action == 8 && m_page == Page::Bolts) ||
-                      (it.action == 9 && m_page == Page::Create);
+                      (it.action == 9 && m_page == Page::Create) ||
+                      (it.action == 11 && (m_page == Page::People || m_page == Page::Profile)) ||
+                      (it.action == 12 && (m_page == Page::Groups || m_page == Page::Group));
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
         dl->AddText(ImVec2(x + 1, rowY + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
@@ -564,6 +574,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 7: m_page = Page::Staff; break;
                 case 8: m_page = Page::Bolts; m_loaded.clear(); break;
                 case 9: m_page = Page::Create; m_loaded.clear(); break;
+                case 11: m_page = Page::People; m_socialMsg.clear(); m_loaded.clear(); break;
+                case 12: m_page = Page::Groups; m_socialMsg.clear(); m_loaded.clear(); break;
                 case 10: m_serverInput = Online::serverAddress(); m_showServer = true; break;
             }
         }

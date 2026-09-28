@@ -404,6 +404,23 @@ The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also
 make people **Staff**, give or take Bolts, and ban.
 
+### People and Groups
+
+When you're connected to a server, the site gets two more pages:
+
+- **People:** search for players by name. Click someone to see their
+  **profile**: their badges (with the blue Verified check), the groups they're
+  in, and everything they've published.
+- **Groups:** communities anyone can make. Making one costs 50 Bolts (free for
+  Verified people). Each group has a colour emblem, an "about" text, a
+  **shout** (a message pinned at the top), and a **wall** where members can
+  post. Groups can be open (anyone joins) or "ask to join" (an admin lets
+  people in).
+  - The **Owner** can make people Admins, remove them, hand the group to
+    someone else, change the settings, or delete the group.
+  - **Admins** can shout, let people in, remove Members, and delete posts.
+  - Staff can clean up any group.
+
 Every request the apps send is signed with the player's account key, so the
 server always knows who is asking. Nobody can spend someone else's Bolts or
 pretend to be staff. The server doesn't use encryption (TLS), so treat

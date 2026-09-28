@@ -2,6 +2,7 @@
 #include "../online/Protocol.h"
 #include "../core/Account.h"
 #include "../net/Socket.h"
+#include "ServerUtil.h"
 
 #include <algorithm>
 #include <cctype>
@@ -16,58 +17,8 @@
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
+using namespace ServerUtil;
 
-namespace {
-
-std::string lower(std::string s) {
-    for (char& c : s) c = (char)std::tolower((unsigned char)c);
-    return s;
-}
-bool isHex(const std::string& s, size_t minLen, size_t maxLen) {
-    if (s.size() < minLen || s.size() > maxLen) return false;
-    for (char c : s) if (!std::isxdigit((unsigned char)c)) return false;
-    return true;
-}
-json fail(const std::string& why) { return {{"ok", false}, {"error", why}}; }
-json okay() { return {{"ok", true}}; }
-
-// Write a file safely: to a temporary name first, then swap it in.
-bool writeFile(const fs::path& p, const std::string& text) {
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    fs::path tmp = p;
-    tmp += ".tmp";
-    {
-        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-        if (!f) return false;
-        f.write(text.data(), (std::streamsize)text.size());
-        if (!f) return false;
-    }
-    fs::rename(tmp, p, ec);
-    if (ec) {   // Windows can't rename over an existing file
-        fs::remove(p, ec);
-        fs::rename(tmp, p, ec);
-    }
-    return !ec;
-}
-bool readFile(const fs::path& p, std::string& out) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return false;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    out = ss.str();
-    return true;
-}
-
-void log(const std::string& what) {
-    std::time_t t = std::time(nullptr);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%H:%M:%S", std::localtime(&t));
-    std::printf("[%s] %s\n", buf, what.c_str());
-    std::fflush(stdout);
-}
-
-} // namespace
 
 struct GbServer::Client {
     std::unique_ptr<Net::Connection> conn;
@@ -283,11 +234,43 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (!u) return fail("There's no account with that ID on this server.");
         json r = okay();
         r["user"] = publicUser(*u);
+        r["user"]["badges"] = badgesOf(*u);
         json made = json::array();
         for (const auto& [id, a] : m_assets) if (a.creator == u->id) made.push_back(publicAsset(a));
         r["creations"] = made;
+        json groups = json::array();
+        for (const Group* g : groupsOf(u->id)) {
+            json pg = publicGroup(*g);
+            pg["role"] = g->members.at(u->id);
+            groups.push_back(pg);
+        }
+        r["groups"] = groups;
         return r;
     }
+    if (name == "users.search") {
+        // Anyone can look people up by name (or the start of their account ID).
+        std::string q = lower(Online::cleanText(str("query"), 64));
+        // No name typed: show who's been around lately.
+        std::vector<const User*> found;
+        for (const auto& [id, u] : m_users)
+            if (!u.banned && (q.empty() || lower(u.name).find(q) != std::string::npos || (q.size() >= 6 && id.rfind(q, 0) == 0)))
+                found.push_back(&u);
+        // Exact names first, then Verified people, then the most recently seen.
+        std::sort(found.begin(), found.end(), [&](const User* a, const User* b) {
+            bool ea = lower(a->name) == q, eb = lower(b->name) == q;
+            if (ea != eb) return ea;
+            bool va = isVerified(*a), vb = isVerified(*b);
+            if (va != vb) return va;
+            return a->lastSeen > b->lastSeen;
+        });
+        json list = json::array();
+        for (const User* u : found) {
+            if (list.size() >= 50) break;
+            list.push_back(publicUser(*u));
+        }
+        json r = okay(); r["users"] = list; return r;
+    }
+    if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
 
     // --- Bolts --------------------------------------------------------------
     if (name == "bolts.history") {
@@ -607,6 +590,7 @@ void GbServer::load() {
                 if (Online::validKind(a.kind)) m_assets[id] = a;
             }
     }
-    log("loaded " + std::to_string(m_users.size()) + " accounts and " + std::to_string(m_assets.size()) + " uploads from " +
-        m_opts.data.string());
+    loadGroups();
+    log("loaded " + std::to_string(m_users.size()) + " accounts, " + std::to_string(m_assets.size()) + " uploads and " +
+        std::to_string(m_groups.size()) + " groups from " + m_opts.data.string());
 }

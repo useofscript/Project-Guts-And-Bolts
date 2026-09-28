@@ -53,8 +53,24 @@ private:
         nlohmann::json meta = nlohmann::json::object();
     };
 
+    struct Post { std::string by, text; long long time = 0; };
+    struct Group {
+        std::string id, name, description, owner;
+        long long   created = 0;
+        int         color = 0x3A7BD5;                   // emblem colour (0xRRGGBB)
+        bool        open = true;                         // anyone can join (false: ask first)
+        std::map<std::string, std::string> members;      // account id -> "Owner" / "Admin" / "Member"
+        std::set<std::string> requests;                  // waiting to join
+        Post        shout;
+        std::vector<Post> wall;                          // newest last, at most 200
+    };
+
     // Requests
     nlohmann::json op(const std::string& name, User& me, const nlohmann::json& args);
+    nlohmann::json groupOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerGroups.cpp
+    nlohmann::json publicGroup(const Group& g) const;
+    nlohmann::json badgesOf(const User& u) const;         // badge keys that check out
+    std::vector<const Group*> groupsOf(const std::string& userId) const;
     nlohmann::json meJson(const User& u) const;
     nlohmann::json publicUser(const User& u) const;
     nlohmann::json publicAsset(const Asset& a) const;
@@ -73,6 +89,8 @@ private:
     void load();
     void saveUsers();
     void saveAssets();
+    void saveGroups();
+    void loadGroups();
     std::filesystem::path blobPath(const std::string& assetId) const;
 
     struct Client;
@@ -81,6 +99,8 @@ private:
     std::vector<std::unique_ptr<Client>> m_clients;
     std::map<std::string, User>  m_users;
     std::map<std::string, Asset> m_assets;
+    std::map<std::string, Group> m_groups;
+    std::map<std::string, long long> m_lastPost;     // account -> when they last wrote on a wall
     std::map<std::string, long long> m_seenNonces;   // account+nonce -> when, to stop replays
     bool m_running = false;
 };

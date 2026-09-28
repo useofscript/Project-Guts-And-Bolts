@@ -47,7 +47,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group };
 
     struct GameCard {
         std::filesystem::path        path;
@@ -86,6 +86,15 @@ private:
     void drawOnlineStaff();
     void refreshOnline(const std::string& what);   // "catalog", "games", "mine", "history"
     void onlinePlayTick(float dt);
+
+    // People and groups — PlayerSocial.cpp
+    void drawPeople();
+    void drawProfile();
+    void drawGroups();
+    void drawGroup();
+    void openProfile(const std::string& accountId);
+    void openGroup(const std::string& groupId);
+    bool needsServer(const char* what);   // "you need a server" note; true if offline
     void drawAccount();
     void drawNotice();
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
@@ -168,6 +177,19 @@ private:
     bool           m_busy = false;                 // waiting on the server
     float          m_onlinePlaySeconds = 0.0f;
     std::string    m_loaded;                       // lists already fetched this visit ("catalog games ...")
+
+    // People and groups
+    std::string    m_peopleQuery, m_profileId, m_groupId, m_groupQuery, m_socialMsg;
+    nlohmann::json m_peopleResults = nlohmann::json::array();
+    nlohmann::json m_profile = nlohmann::json::object();
+    nlohmann::json m_groupList = nlohmann::json::array();
+    nlohmann::json m_myGroups = nlohmann::json::array();
+    nlohmann::json m_group = nlohmann::json::object();
+    int            m_groupsTab = 0;                // My groups / Browse / Create
+    int            m_groupTab = 0;                 // a group page: Wall / Members / Admin
+    std::string    m_newGroupName, m_newGroupDesc, m_wallInput, m_shoutInput, m_editDesc;
+    glm::vec3      m_newGroupColor{0.23f, 0.48f, 0.84f};
+    bool           m_newGroupOpen = true, m_editingGroup = false;
 
     TouchControls m_touch;
     ImVec2      m_chatMin{0, 0}, m_chatMax{0, 0};  // where the chat box was last frame
