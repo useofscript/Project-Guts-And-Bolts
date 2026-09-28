@@ -1,0 +1,64 @@
+#pragma once
+#include <imgui.h>
+#include <glm/glm.hpp>
+#include <vector>
+
+// On-screen controls for phones and tablets, laid out like Roblox mobile:
+//   - a thumbstick on the left (it appears wherever your thumb lands),
+//   - a big jump button on the right,
+//   - Chat and Menu buttons along the top,
+//   - drag anywhere else to turn the camera, pinch to zoom, tap to click.
+// Fingers come in through feed(). On a computer, feedMouse() turns the mouse
+// into one finger so you can try the controls without a phone.
+class TouchControls {
+public:
+    struct Finger { int id; ImVec2 pos; bool down; };
+
+    // Call once per frame, before feeding fingers: the game view's rectangle.
+    void begin(ImVec2 min, ImVec2 max, float scale);
+    void feed(const std::vector<Finger>& fingers);
+    void feedMouse(bool allowed);
+    void draw(ImDrawList* dl) const;
+
+    // Results for this frame.
+    glm::vec2 move() const { return m_move; }        // x = right, y = forward, length 0..1
+    bool      jump() const { return m_jump; }
+    ImVec2    look() const { return m_look; }        // pixels dragged
+    float     zoom() const { return m_zoom; }        // + = closer (like the mouse wheel)
+    bool      tapped(ImVec2& where) const { where = m_tapPos; return m_tap; }
+    bool      chatPressed() const { return m_chat; }
+    bool      menuPressed() const { return m_menu; }
+    // True while a finger is on the controls (so the game ignores that mouse press).
+    bool      busy() const { return !m_touches.empty(); }
+
+private:
+    enum class Role { Stick, Jump, Look, Chat, Menu };
+    struct Touch {
+        int    id;
+        Role   role;
+        ImVec2 start, pos, last;
+        float  age = 0.0f;
+        float  travel = 0.0f;
+    };
+
+    ImVec2 jumpCenter() const;
+    float  jumpRadius() const;
+    bool   inStickZone(ImVec2 p) const;
+    void   buttonRects(ImVec2& chatA, ImVec2& chatB, ImVec2& menuA, ImVec2& menuB) const;
+
+    ImVec2 m_min{0, 0}, m_max{0, 0};
+    float  m_scale = 1.0f;
+    float  m_dt = 0.0f;
+    std::vector<Touch> m_touches;
+    ImVec2 m_stickCenter{0, 0};
+    bool   m_stickActive = false;
+    float  m_pinchDist = 0.0f;
+
+    glm::vec2 m_move{0.0f};
+    bool      m_jump = false;
+    ImVec2    m_look{0, 0};
+    float     m_zoom = 0.0f;
+    bool      m_tap = false;
+    ImVec2    m_tapPos{0, 0};
+    bool      m_chat = false, m_menu = false;
+};

@@ -21,6 +21,11 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--join"))       opts.join       = next();
         else if (!std::strcmp(argv[i], "--host"))       opts.host       = true;
         else if (!std::strcmp(argv[i], "--say"))        opts.say        = next();
+        else if (!std::strcmp(argv[i], "--create-staff-account")) opts.createStaff = true;
+        else if (!std::strcmp(argv[i], "--touch-test")) opts.touchTest  = next();
+        else if (!std::strcmp(argv[i], "--test-make-items")) opts.testItems = true;
+        else if (!std::strcmp(argv[i], "--test-grant"))  opts.testGrantFor = next();
+        else if (!std::strcmp(argv[i], "--test-redeem")) opts.testRedeem = next();
         else if (argv[i][0] != '-')                     opts.game       = argv[i];
     }
 

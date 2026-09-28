@@ -677,7 +677,21 @@ def parse_args(argv):
             args["update"] = True
         elif a == "--relaunch":
             args["relaunch"] = next(it, None)
+        elif a == "--staff":
+            args["staff"] = True
     return args
+
+
+def make_staff_account(args):
+    """Project owner only: make this computer's account the official "Guts" account."""
+    inst = Installer(ConsoleUI(), build_dir=args.get("build_dir"))
+    exe = inst.exe_path("GutsAndBoltsPlayer")
+    if not exe.exists():
+        print("Build Guts and Bolts first (run the installer), then try again.")
+        return 1
+    print("Opening Guts&Bolts Player to set up the staff account...")
+    subprocess.call([str(exe), "--create-staff-account", "--page", "staff"], cwd=exe.parent)
+    return 0
 
 
 def main():
@@ -686,6 +700,8 @@ def main():
         s = System()
         print(f"OS: {s.os}\nDescription: {s.pretty}\nPackage manager: {s.pkg or '-'}")
         return 0
+    if args.get("staff"):
+        return make_staff_account(args)
     if args.get("cli"):
         return run_console(args)
     try:

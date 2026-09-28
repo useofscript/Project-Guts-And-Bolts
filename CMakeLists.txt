@@ -76,6 +76,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# Monocypher — small, audited crypto: signs accounts, official badges and
+# catalog items so they can't be faked.
+FetchContent_Declare(
+    monocypher
+    GIT_REPOSITORY https://github.com/LoupVaillant/Monocypher.git
+    GIT_TAG        4.0.3
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(monocypher)
+add_library(monocypher STATIC ${monocypher_SOURCE_DIR}/src/monocypher.c)
+target_include_directories(monocypher PUBLIC ${monocypher_SOURCE_DIR}/src)
+
 find_package(glfw3  REQUIRED)
 find_package(GLEW   REQUIRED)
 find_package(glm    REQUIRED)
@@ -123,6 +136,7 @@ add_library(gb_engine STATIC
     src/core/AppWindow.cpp
     src/core/Audio.cpp
     src/core/UpdateChecker.cpp
+    src/core/Account.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp
@@ -146,6 +160,9 @@ add_library(gb_engine STATIC
     src/game/SettingsWindow.cpp
     src/game/Profile.cpp
     src/game/UpdateToast.cpp
+    src/game/Badges.cpp
+    src/game/Catalog.cpp
+    src/game/TouchControls.cpp
     src/net/Socket.cpp
     src/net/NetGame.cpp
     src/editor/Theme.cpp
@@ -164,10 +181,11 @@ target_link_libraries(gb_engine PUBLIC
     OpenGL::GL
     lua_static
     nlohmann_json::nlohmann_json
+    monocypher
 )
 target_compile_definitions(gb_engine PUBLIC GLM_ENABLE_EXPERIMENTAL)
 if(WIN32)
-    target_link_libraries(gb_engine PUBLIC dbghelp ws2_32)
+    target_link_libraries(gb_engine PUBLIC dbghelp ws2_32 bcrypt)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -207,12 +225,15 @@ endif()
 add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
 target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
 
-# Ship the sample games next to the programs.
+# Ship the sample games and official catalog items next to the programs.
 foreach(app GutsAndBolts GutsAndBoltsPlayer)
     add_custom_command(TARGET ${app} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${app}>/games"
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/games"
                 "$<TARGET_FILE_DIR:${app}>/games"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${app}>/catalog"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/catalog"
+                "$<TARGET_FILE_DIR:${app}>/catalog"
         VERBATIM)
 endforeach()
 

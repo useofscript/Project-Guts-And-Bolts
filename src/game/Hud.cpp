@@ -2,8 +2,10 @@
 #include "../scene/Scene.h"
 #include "../scene/Player.h"
 #include "../scripting/ScriptEngine.h"
+#include "Badges.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace Hud {
@@ -15,7 +17,7 @@ void shadowText(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 col,
 }
 } // namespace
 
-void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& gui) {
+void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& gui, float topOffset) {
     ImFont* font = ImGui::GetFont();
     float   base = ImGui::GetFontSize();
 
@@ -49,7 +51,7 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& 
     }
 
     // --- Script labels (top-left) ---
-    float y = min.y + 14;
+    float y = min.y + 14 + topOffset;
     for (const auto& [key, text] : gui.labels) {
         ImVec2 ts = ImGui::CalcTextSize(text.c_str());
         dl->AddRectFilled(ImVec2(min.x + 12, y - 4), ImVec2(min.x + 24 + ts.x, y + ts.y + 4),
@@ -98,19 +100,30 @@ void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm
     for (auto& rc : scene.remotes()) drawFor(scene.findById(rc.rootId));
 }
 
-void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<std::string>& names) {
-    if (names.size() < 2) return;
-    (void)min;
+void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players) {
+    if (players.empty()) return;
+    const float rowH = 22.0f, w = 200.0f;
     float y = min.y + 50;
-    float w = 180;
     float x = max.x - w - 16;
-    dl->AddRectFilled(ImVec2(x - 4, y - 4), ImVec2(x + w + 4, y + 22 + names.size() * 20.0f),
+    dl->AddRectFilled(ImVec2(x - 4, y - 4), ImVec2(x + w + 4, y + 24 + players.size() * rowH),
                       IM_COL32(0, 0, 0, 120), 6.0f);
     dl->AddText(ImVec2(x + 4, y), IM_COL32(255, 200, 120, 255), "Players");
-    y += 22;
-    for (auto& n : names) {
-        dl->AddText(ImVec2(x + 4, y), IM_COL32(255, 255, 255, 230), n.c_str());
-        y += 20;
+    y += 24;
+    float t = (float)ImGui::GetTime();
+    for (size_t i = 0; i < players.size(); ++i) {
+        const PlayerEntry& p = players[i];
+        float tx = x + 4;
+        if (p.admin) {
+            // The Administrator badge bobs gently next to the name.
+            float bob = std::sin(t * 2.4f + (float)i) * 2.0f;
+            ImVec2 c(x + 12, y + 8 + bob);
+            dl->AddCircleFilled(c, 11.0f, IM_COL32(255, 60, 60, 40), 20);   // soft glow
+            Badges::drawIcon(dl, c, 17.0f, Badges::Id::Administrator);
+            tx = x + 26;
+        }
+        dl->AddText(ImVec2(tx, y), p.admin ? IM_COL32(255, 225, 120, 255) : IM_COL32(255, 255, 255, 230),
+                    p.name.c_str());
+        y += rowH;
     }
 }
 

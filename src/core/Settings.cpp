@@ -48,6 +48,17 @@ void GraphicsSettings::load() {
     rd("quality", quality); rd("shadowRes", shadowRes); rd("shadowQuality", shadowQuality);
     rd("ssao", ssao); rd("bloom", bloom); rd("fxaa", fxaa); rd("postFx", postFx);
     rd("renderScale", renderScale); rd("maxLights", maxLights); rd("allowGore", allowGore); rd("checkUpdates", checkUpdates);
+    rd("touchControls", touchControls); rd("touchSize", touchSize);
+}
+
+bool GraphicsSettings::touchEnabled() const {
+    if (touchControls == TouchOn) return true;
+    if (touchControls == TouchOff) return false;
+#if defined(__ANDROID__) || defined(GB_MOBILE)
+    return true;
+#else
+    return false;
+#endif
 }
 
 void GraphicsSettings::save() const {
@@ -56,6 +67,7 @@ void GraphicsSettings::save() const {
         {"quality", quality}, {"shadowRes", shadowRes}, {"shadowQuality", shadowQuality},
         {"ssao", ssao}, {"bloom", bloom}, {"fxaa", fxaa}, {"postFx", postFx},
         {"renderScale", renderScale}, {"maxLights", maxLights}, {"allowGore", allowGore}, {"checkUpdates", checkUpdates},
+        {"touchControls", touchControls}, {"touchSize", touchSize},
     };
     std::ofstream f(settingsFile());
     if (f) f << j.dump(2);

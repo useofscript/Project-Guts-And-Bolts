@@ -78,7 +78,7 @@ public:
     BodyColors bodyColors() const;
     void       setBodyColors(const BodyColors& c);
     HatStyle   hat() const { return m_hat; }
-    void       setHat(HatStyle style);
+    void       setHat(HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));
     void       rememberHat(HatStyle style) { m_hat = style; }   // no rebuild (loading)
 
     static const char* hatName(HatStyle s);
@@ -86,7 +86,8 @@ public:
     // --- Building characters (also used for other players' characters) ----
     static SceneNode* buildRig(Scene& scene, const std::string& name, const glm::vec3& feet);
     static void       applyColors(SceneNode* root, const BodyColors& c);
-    static void       applyHat(Scene& scene, SceneNode* root, HatStyle style);
+    // `tint` recolours the hat (catalog hats); negative = its normal colours.
+    static void       applyHat(Scene& scene, SceneNode* root, HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));
     static CharacterPose capturePose(const SceneNode* root);
     static void          applyPose(SceneNode* root, const CharacterPose& pose);
     static std::vector<std::pair<const char*, BodyColors>> colorPresets();
@@ -103,6 +104,7 @@ private:
     uint64_t m_rootId = 0;
     Humanoid m_humanoid;
     HatStyle m_hat = HatStyle::None;
+    glm::vec3 m_hatTint = glm::vec3(-1.0f);
 
     glm::vec3 m_spawn{0.0f};
     glm::vec3 m_velocity{0.0f};

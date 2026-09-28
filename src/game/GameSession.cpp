@@ -68,6 +68,9 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_RightArrow)) move += right;
             if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow))  move -= right;
             jump = ImGui::IsKeyDown(ImGuiKey_Space);
+            // Touch thumbstick: partly pushed = walk slower.
+            move += right * m_touchMove.x + fwd * m_touchMove.y;
+            jump = jump || m_touchJump;
         }
         p->update(dt, move, jump, m_physics);
         if (p->consumeDied()) m_scripts.fireDied(p->rootId());

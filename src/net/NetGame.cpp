@@ -8,6 +8,7 @@
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
 #include "../core/Audio.h"
+#include "../core/Account.h"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -20,7 +21,7 @@ namespace {
 
 constexpr float    kTickRate    = 1.0f / 20.0f;        // network updates per second: 20
 constexpr uint64_t kLocalIdBase = 1ull << 40;          // ids clients make for themselves
-constexpr int      kVersion     = 1;
+constexpr int      kVersion     = 2;   // 2: accounts (signed join)
 
 json vec3(const glm::vec3& v) { return json::array({v.x, v.y, v.z}); }
 glm::vec3 vec3(const json& j) {
@@ -73,7 +74,7 @@ json avatarJson(const Profile& p) {
     const BodyColors& c = p.colors;
     return {{"head", vec3(c.head)}, {"torso", vec3(c.torso)}, {"leftArm", vec3(c.leftArm)},
             {"rightArm", vec3(c.rightArm)}, {"leftLeg", vec3(c.leftLeg)}, {"rightLeg", vec3(c.rightLeg)},
-            {"hat", (int)p.hat}};
+            {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)}};
 }
 
 // Everything a joined player needs to see about a (non-character) object.
@@ -155,8 +156,8 @@ std::string cleanText(std::string s, size_t max) {
 // Chat
 // ===========================================================================
 
-void ChatLog::add(const std::string& from, const std::string& text, bool system) {
-    lines.push_back({from, text, system});
+void ChatLog::add(const std::string& from, const std::string& text, bool system, bool admin) {
+    lines.push_back({from, text, system, admin});
     if (lines.size() > 100) lines.erase(lines.begin());
     if (!system) bubbles[from] = {text, 6.0f};
 }
@@ -179,6 +180,9 @@ struct NetServer::Client {
     std::string name;
     uint64_t    rootId = 0;
     bool        joined = false;
+    std::string nonce;            // they sign this to prove which account they are
+    std::string accountId;        // "" if they couldn't prove it
+    bool        admin = false;
     std::set<uint64_t> knownChars;   // rigs this client already has
 };
 
@@ -209,10 +213,10 @@ void NetServer::stop() {
     m_session->setRole(GameSession::Role::Solo);
 }
 
-std::vector<std::string> NetServer::playerNames() const {
-    std::vector<std::string> out;
-    out.push_back(Profile::get().name + " (host)");
-    for (auto& c : m_clients) if (c->joined) out.push_back(c->name);
+std::vector<PlayerEntry> NetServer::players() const {
+    std::vector<PlayerEntry> out;
+    out.push_back({Profile::get().name + " (host)", Account::iAmStaff()});
+    for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin});
     return out;
 }
 
@@ -224,8 +228,9 @@ void NetServer::broadcast(const std::string& msg, const Client* except) {
 void NetServer::say(const std::string& text) {
     std::string t = cleanText(text, 200);
     if (t.empty()) return;
-    m_chat.add(Profile::get().name, t);
-    broadcast(json{{"t", "chat"}, {"from", Profile::get().name}, {"text", t}}.dump());
+    bool admin = Account::iAmStaff();
+    m_chat.add(Profile::get().name, t, false, admin);
+    broadcast(json{{"t", "chat"}, {"from", Profile::get().name}, {"text", t}, {"adm", admin}}.dump());
 }
 
 void NetServer::dropClient(size_t index, const char* reason) {
@@ -248,6 +253,8 @@ void NetServer::update(float dt) {
         auto c = std::make_unique<Client>();
         c->conn = std::move(conn);
         c->id = m_nextId++;
+        c->nonce = Account::randomHex(16);
+        c->conn->send(json{{"t", "challenge"}, {"nonce", c->nonce}, {"version", kVersion}}.dump());
         m_clients.push_back(std::move(c));
     }
     for (size_t i = 0; i < m_clients.size();) {
@@ -274,8 +281,15 @@ void NetServer::handle(Client& c, const std::string& text) {
 
     if (t == "hello" && !c.joined) {
         // Pick a unique name.
+        // Who are they? They signed our random challenge with their account key.
+        std::string accountId = m.value("id", std::string());
+        if (Account::verify(accountId, "gb-join:" + c.nonce, m.value("sig", std::string())))
+            c.accountId = accountId;
+        c.admin = !c.accountId.empty() && Account::isOfficial(c.accountId);
+
         std::string base = cleanText(m.value("name", std::string("Player")), 20);
         if (base.empty()) base = "Player";
+        if (Account::nameIsReserved(base) && !c.admin) base = "Player";   // only the real Guts is Guts
         std::string name = base;
         auto taken = [&](const std::string& n) {
             if (n == Profile::get().name) return true;
@@ -293,7 +307,8 @@ void NetServer::handle(Client& c, const std::string& text) {
                            vec3(a.value("leftArm", json())), vec3(a.value("rightArm", json())),
                            vec3(a.value("leftLeg", json())), vec3(a.value("rightLeg", json()))};
             Player::applyColors(rig, col);
-            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, 3));
+            glm::vec3 tint = a.contains("hatColor") ? vec3(a["hatColor"]) : glm::vec3(-1.0f);
+            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, 3), tint);
         }
         c.rootId = rig->id;
         RemoteCharacter rc;
@@ -309,8 +324,10 @@ void NetServer::handle(Client& c, const std::string& text) {
         c.knownChars.insert(rig->id);
 
         json players = json::array();
-        for (auto& n : playerNames()) players.push_back(n);
-        c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name},
+        for (auto& e : this->players()) players.push_back({{"n", e.name}, {"a", e.admin}});
+        // Prove who *we* are too, by signing the joiner's challenge.
+        json proof = {{"id", Account::id()}, {"sig", Account::sign("gb-host:" + m.value("cnonce", std::string()))}};
+        c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name}, {"host", proof},
                           {"scene", Serializer::saveScene(*m_scene)},
                           {"humanoid", humanoidJson(rc.humanoid)}, {"players", players}}.dump());
         // Everyone already in the scene snapshot counts as known.
@@ -355,8 +372,8 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
-        m_chat.add(c.name, msg);
-        broadcast(json{{"t", "chat"}, {"from", c.name}, {"text", msg}}.dump());
+        m_chat.add(c.name, msg, false, c.admin);
+        broadcast(json{{"t", "chat"}, {"from", c.name}, {"text", msg}, {"adm", c.admin}}.dump());
     }
 }
 
@@ -427,12 +444,16 @@ void NetServer::sendTick() {
     json w = json::parse(world);
 
     // Characters: everyone's pose (each client skips its own).
-    struct Char { uint64_t id; std::string name; SceneNode* root; };
+    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; };
     std::vector<Char> chars;
     if (Player* host = m_scene->player())
-        if (SceneNode* r = host->root()) chars.push_back({r->id, Profile::get().name, r});
+        if (SceneNode* r = host->root()) chars.push_back({r->id, Profile::get().name, r, Account::iAmStaff()});
     for (auto& rc : m_scene->remotes())
-        if (SceneNode* r = m_scene->findById(rc.rootId)) chars.push_back({rc.rootId, rc.name, r});
+        if (SceneNode* r = m_scene->findById(rc.rootId)) {
+            bool admin = false;
+            for (auto& c : m_clients) if (c->rootId == rc.rootId) admin = c->admin;
+            chars.push_back({rc.rootId, rc.name, r, admin});
+        }
 
     for (auto& c : m_clients) {
         if (!c->joined) continue;
@@ -440,7 +461,7 @@ void NetServer::sendTick() {
         json list = json::array();
         for (auto& ch : chars) {
             if (ch.id == c->rootId) continue;
-            json entry = {{"i", ch.id}, {"n", ch.name}, {"pose", poseJson(Player::capturePose(ch.root))}};
+            json entry = {{"i", ch.id}, {"n", ch.name}, {"a", ch.admin}, {"pose", poseJson(Player::capturePose(ch.root))}};
             if (!c->knownChars.count(ch.id)) {                   // first time: send the whole model
                 entry["rig"] = Serializer::nodeToString(*ch.root);
                 c->knownChars.insert(ch.id);
@@ -474,9 +495,9 @@ bool NetClient::connect(const std::string& host, int port) {
     disconnect();
     m_conn = Net::Connection::connectTo(host, port, m_error);
     if (!m_conn) { m_state = State::Failed; return false; }
-    Profile& me = Profile::get();
-    m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", me.name}, {"avatar", avatarJson(me)}}.dump());
-    m_state = State::Connecting;
+    m_nonce = Account::randomHex(16);
+    m_hostAdmin = false;
+    m_state = State::Connecting;   // "hello" goes out once the host sends its challenge
     return true;
 }
 
@@ -538,6 +559,13 @@ void NetClient::handle(const std::string& text) {
     if (!m.is_object()) return;
     std::string t = m.value("t", "");
 
+    if (t == "challenge") {
+        Profile& me = Profile::get();
+        m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", me.name}, {"avatar", avatarJson(me)},
+                          {"id", Account::id()}, {"sig", Account::sign("gb-join:" + m.value("nonce", std::string()))},
+                          {"cnonce", m_nonce}}.dump());
+        return;
+    }
     if (t == "welcome") {
         std::string err;
         if (!Serializer::loadScene(*m_scene, m.value("scene", std::string()), &err)) {
@@ -567,8 +595,17 @@ void NetClient::handle(const std::string& text) {
             host.rootId = hostRoot;
             m_scene->remotes().push_back(host);
         }
+        // Is the host really who they say they are?
+        if (m.contains("host") && m["host"].is_object()) {
+            std::string hid = m["host"].value("id", std::string());
+            m_hostAdmin = Account::verify(hid, "gb-host:" + m_nonce, m["host"].value("sig", std::string())) &&
+                          Account::isOfficial(hid);
+        }
+        m_hostRoot = hostRoot;
         m_players.clear();
-        if (m.contains("players")) for (auto& n : m["players"]) m_players.push_back(n.get<std::string>());
+        if (m.contains("players"))
+            for (auto& e : m["players"])
+                if (e.is_object()) m_players.push_back({e.value("n", std::string()), e.value("a", false)});
         m_title = m_scene->info().title;
 
         m_session->setRole(GameSession::Role::Client);
@@ -584,7 +621,8 @@ void NetClient::handle(const std::string& text) {
         return;
     }
     if (t == "chat") {
-        m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false));
+        m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false),
+                   m.value("adm", false));
         return;
     }
     if (m_state != State::Joined) return;
@@ -618,11 +656,14 @@ void NetClient::handle(const std::string& text) {
         if (m.contains("fx")) replayFx(*m_scene, m["fx"]);
         if (m.contains("chars")) {
             m_players.clear();
-            m_players.push_back(me && me->root() ? me->root()->name : Profile::get().name);
+            m_players.push_back({me && me->root() ? me->root()->name : Profile::get().name, Account::iAmStaff()});
             for (const auto& ch : m["chars"]) {
                 uint64_t id = ch.value("i", (uint64_t)0);
                 std::string name = ch.value("n", std::string());
-                m_players.push_back(name);
+                // The host vouches for everyone else; the host itself proved it on joining.
+                bool admin = id == m_hostRoot ? m_hostAdmin : ch.value("a", false);
+                if (Account::nameIsReserved(name) && !admin) name = "Player";
+                m_players.push_back({name, admin});
                 if (id == m_myServerRoot) continue;
                 SceneNode* root = m_scene->findById(id);
                 if (!root && ch.contains("rig")) {

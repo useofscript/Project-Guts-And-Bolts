@@ -34,6 +34,8 @@ public:
     // `acceptInput` = false ignores the keyboard (e.g. while typing).
     void update(float dt, float cameraYaw, bool acceptInput);
     void click(uint64_t partId);                 // left-click in the 3D view
+    // On-screen joystick (x = right, y = forward) and jump button, for touch screens.
+    void setTouchInput(glm::vec2 move, bool jump) { m_touchMove = move; m_touchJump = jump; }
 
     ScriptEngine& scripts() { return m_scripts; }
     GuiState&     gui()     { return m_scripts.gui(); }
@@ -44,4 +46,6 @@ private:
     ScriptEngine m_scripts;
     bool         m_running = false;
     Role         m_role = Role::Solo;
+    glm::vec2    m_touchMove{0.0f};
+    bool         m_touchJump = false;
 };

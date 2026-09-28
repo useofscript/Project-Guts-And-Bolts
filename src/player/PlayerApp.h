@@ -6,6 +6,8 @@
 #include "../renderer/Camera.h"
 #include "../renderer/Framebuffer.h"
 #include "../scene/Scene.h"
+#include "../game/Catalog.h"
+#include "../game/TouchControls.h"
 #include <imgui.h>
 
 class AppWindow;
@@ -24,6 +26,11 @@ struct PlayerOptions {
     std::string screenshot;        // --screenshot <out.ppm> (tests)
     int         frames = 120;
     std::string holdKey;
+    bool        createStaff = false;   // --create-staff-account
+    std::string touchTest;             // --touch-test stick|jump|look (tests: fake fingers)
+    bool        testItems = false;     // --test-make-items (tests, staff only)
+    std::string testGrantFor;          // --test-grant <account id> (tests, staff only: print a badge code)
+    std::string testRedeem;            // --test-redeem <code> (tests)
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,
@@ -35,7 +42,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff };
 
     struct GameCard {
         std::filesystem::path        path;
@@ -56,6 +63,13 @@ private:
     void drawAvatar(float dt);
     void drawGame(float dt);
     void drawPauseMenu();
+    void drawCatalog();
+    void drawItemDialog();
+    void drawCreateItemDialog();
+    void drawStaff();
+    void drawAccount();
+    void drawNotice();
+    void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
 
     void refreshGames();
     void joinGame(const std::filesystem::path& path, bool host = false);
@@ -95,6 +109,23 @@ private:
     bool        m_chatOpen = false;
     bool        m_showJoin = false;
     std::string m_joinAddress;
+
+    // Catalog
+    std::vector<Catalog::Item> m_items;
+    int         m_itemType = -1;                   // filter; -1 = everything
+    int         m_openItem = -1;                   // item shown in the item dialog
+    bool        m_showCreate = false;
+    Catalog::Item m_newItem;
+    std::string m_catalogMsg;
+
+    // Account / staff
+    std::string m_notice;                          // popup message
+    std::string m_nameEdit, m_nameError;
+    std::string m_redeemCode, m_redeemMsg;
+    int         m_grantBadge = 1;
+    std::string m_grantTo, m_grantCode, m_grantError;
+
+    TouchControls m_touch;
 
     bool        m_paused = false;
     bool        m_showSettings = false;

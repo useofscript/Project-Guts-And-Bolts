@@ -6,17 +6,18 @@
 #include <unordered_map>
 #include <vector>
 #include "Socket.h"
+#include "../game/PlayerEntry.h"
 
 class Scene;
 class GameSession;
 
 // Chat messages and the speech bubbles above characters' heads.
 struct ChatLog {
-    struct Line { std::string from, text; bool system = false; };
+    struct Line { std::string from, text; bool system = false; bool admin = false; };
     std::vector<Line> lines;
     std::unordered_map<std::string, std::pair<std::string, float>> bubbles;   // name -> text, seconds left
 
-    void add(const std::string& from, const std::string& text, bool system = false);
+    void add(const std::string& from, const std::string& text, bool system = false, bool admin = false);
     void update(float dt);
 };
 
@@ -33,7 +34,7 @@ public:
     void stop();
     void update(float dt);
     void say(const std::string& text);                 // the host's own chat
-    std::vector<std::string> playerNames() const;
+    std::vector<PlayerEntry> players() const;
     ChatLog& chat() { return m_chat; }
     int port() const { return m_port; }
 
@@ -76,7 +77,7 @@ public:
     State state() const { return m_state; }
     const std::string& error() const { return m_error; }
     const std::string& gameTitle() const { return m_title; }
-    std::vector<std::string> playerNames() const { return m_players; }
+    const std::vector<PlayerEntry>& players() const { return m_players; }
     ChatLog& chat() { return m_chat; }
 
 private:
@@ -89,7 +90,10 @@ private:
     std::string  m_error, m_title;
     uint64_t     m_myServerRoot = 0;     // our character on the host (hidden here)
     std::map<uint64_t, std::string> m_charNames;
-    std::vector<std::string> m_players;
+    std::vector<PlayerEntry> m_players;
+    std::string  m_nonce;                 // we ask the host to sign this, to prove who it is
+    uint64_t     m_hostRoot = 0;
+    bool         m_hostAdmin = false;
     ChatLog      m_chat;
     float        m_tick = 0.0f;
     bool         m_wasDead = false;

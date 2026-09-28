@@ -13,12 +13,15 @@
 #include "../scene/Serializer.h"
 #include "../net/NetGame.h"
 #include "../core/Audio.h"
+#include "../core/Account.h"
+#include "../game/Badges.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 
 namespace {
 
@@ -131,13 +134,48 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     m_scene    = std::make_unique<Scene>();
     m_session  = std::make_unique<GameSession>(m_scene.get());
     m_soloChat = std::make_unique<ChatLog>();
+    if (!m_opts.touchTest.empty()) GraphicsSettings::get().touchControls = GraphicsSettings::TouchOn;
+    if (m_opts.createStaff) {
+        m_notice = Account::createStaffAccount();
+        std::string err;
+        if (Account::iAmStaff()) Profile::get().rename(Account::kStaffName, err);
+    }
+    if (m_opts.testItems) {
+        std::string msg;
+        Catalog::Item a; a.name = "Red Cap"; a.description = "A classic."; a.type = Catalog::Type::Hat;
+        a.hat = HatStyle::Cap; a.color = {0.85f, 0.1f, 0.1f};
+        Catalog::create(a, msg); Log::info(msg);
+        Catalog::Item b; b.name = "Bolt Tee"; b.type = Catalog::Type::Shirt; b.color = {0.2f, 0.5f, 0.9f};
+        Catalog::create(b, msg); Log::info(msg);
+        Catalog::Item c; c.name = "Oil Jeans"; c.type = Catalog::Type::Pants; c.color = {0.15f, 0.15f, 0.2f};
+        Catalog::create(c, msg); Log::info(msg);
+    }
+    if (!m_opts.testGrantFor.empty()) {
+        std::string err;
+        std::string code = Badges::makeCode(Badges::Id::Tester, m_opts.testGrantFor, err);
+        std::printf("BADGECODE %s %s\n", code.c_str(), err.c_str());
+        std::fflush(stdout);
+    }
+    if (!m_opts.testRedeem.empty()) {
+        std::string msg;
+        Badges::redeem(m_opts.testRedeem, msg);
+        std::printf("REDEEM %s\n", msg.c_str());
+        std::fflush(stdout);
+    }
     buildAvatarStage();
     refreshGames();
+    m_items = Catalog::load();
+    std::printf("CATALOG %d items, account %s, staff %d\n", (int)m_items.size(), Account::shortId().c_str(),
+                (int)Account::iAmStaff());
+    std::fflush(stdout);
 
     if (m_opts.page == "avatar") m_page = Page::Avatar;
     if (m_opts.page == "games") m_page = Page::Games;
     if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
     if (m_opts.page == "settings") m_showSettings = true;
+    if (m_opts.page == "catalog") m_page = Page::Catalog;
+    if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
+    if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
     if (!m_opts.game.empty()) joinGame(m_opts.game, m_opts.host);
     if (!m_opts.join.empty()) joinServer(m_opts.join);
 }
@@ -275,7 +313,7 @@ void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
     if (m_server)      m_server->say(text);
     else if (m_client) m_client->say(text);
-    else               m_soloChat->add(Profile::get().name, text);
+    else               m_soloChat->add(Profile::get().name, text, false, Account::iAmStaff());
 }
 
 void PlayerApp::leaveGame() {
@@ -333,6 +371,8 @@ void PlayerApp::frame(float dt) {
             case Page::Games:    drawGames(); break;
             case Page::Avatar:   drawAvatar(dt); break;
             case Page::GameInfo: drawGameInfo(); break;
+            case Page::Catalog:  drawCatalog(); break;
+            case Page::Staff:    drawStaff(); break;
             default: break;
         }
         Classic::popLight();
@@ -344,6 +384,9 @@ void PlayerApp::frame(float dt) {
     ImGui::End();
     SettingsWindow::draw(&m_showSettings);
     drawJoinDialog();
+    drawItemDialog();
+    drawCreateItemDialog();
+    drawNotice();
     if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
 }
 
@@ -393,10 +436,13 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // Account box, top-right of the banner.
     std::string hi = "Hi, " + me.name;
     ImVec2 ts = ImGui::CalcTextSize(hi.c_str());
-    ImVec2 a(b1.x - ts.x - 34, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
+    const bool staff = Account::iAmStaff();
+    float badgeW = staff ? 24.0f : 0.0f;
+    ImVec2 a(b1.x - ts.x - badgeW - 34, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
     dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
-    dl->AddText(ImVec2(a.x + 12, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());
+    if (staff) Badges::drawIcon(dl, ImVec2(a.x + 22, a.y + 15), 20.0f, Badges::Id::Administrator);
+    dl->AddText(ImVec2(a.x + 12 + badgeW, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());
     ImGui::SetCursorScreenPos(ImVec2(a.x + 12, a.y + 27));
     ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
@@ -413,8 +459,9 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), IM_COL32(10, 60, 130, 255));
 
     struct Item { const char* label; int action; };
-    const Item items[] = {{"Home", 0}, {"Games", 1}, {"Avatar", 2}, {"Join a Friend", 3},
-                          {"Develop", 4}, {"Settings", 5}};
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Avatar", 2}, {"Join a Friend", 3},
+                               {"Develop", 4}, {"Settings", 5}};
+    if (staff) items.push_back({"Staff", 7});
     float x = n0.x + 14;
     for (const Item& it : items) {
         ImVec2 sz = ImGui::CalcTextSize(it.label);
@@ -424,7 +471,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
         bool clicked = ImGui::InvisibleButton("##nav", ImVec2(p1.x - p0.x, navH));
         ImGui::PopID();
         bool active = (it.action == 0 && m_page == Page::Home) || (it.action == 1 && m_page == Page::Games) ||
-                      (it.action == 2 && m_page == Page::Avatar);
+                      (it.action == 2 && m_page == Page::Avatar) || (it.action == 6 && m_page == Page::Catalog) ||
+                      (it.action == 7 && m_page == Page::Staff);
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
         dl->AddText(ImVec2(x + 1, n0.y + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
@@ -440,6 +488,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                         m_status = "Couldn't find the Guts and Bolts editor next to this app.";
                     break;
                 case 5: m_showSettings = true; break;
+                case 6: m_page = Page::Catalog; m_items = Catalog::load(); break;
+                case 7: m_page = Page::Staff; break;
             }
         }
         x += sz.x + 26;
@@ -675,11 +725,13 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::Spacing();
 
     ImGui::SetNextItemWidth(260);
-    if (ImGui::InputText("Display name", &me.name) && me.name.size() > 20) me.name.resize(20);
+    if (!ImGui::IsAnyItemActive() && m_nameEdit != me.name && m_nameError.empty()) m_nameEdit = me.name;
+    if (ImGui::InputText("Display name", &m_nameEdit) && m_nameEdit.size() > 20) m_nameEdit.resize(20);
     if (ImGui::IsItemDeactivatedAfterEdit()) {
-        if (me.name.empty()) me.name = "Player";
-        me.save();
+        if (me.rename(m_nameEdit, m_nameError)) m_nameError.clear();
+        else m_nameEdit = me.name;
     }
+    if (!m_nameError.empty()) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_nameError.c_str());
 
     ImGui::SeparatorText("Outfits");
     int i = 0;
@@ -705,11 +757,14 @@ void PlayerApp::drawAvatar(float dt) {
                           : ImGui::Button(Player::hatName((HatStyle)h), ImVec2(95, 30));
         if (pressed) {
             me.hat = (HatStyle)h;
+            me.hatColor = glm::vec3(-1.0f);   // back to its normal colours
             changed = true;
         }
         ImGui::SameLine();
     }
     ImGui::NewLine();
+
+    drawAccount();
 
     ImGui::EndChild();
     ImGui::EndChild();
@@ -764,6 +819,10 @@ void PlayerApp::drawGame(float dt) {
 
     // Simulate (the world keeps running while the menu is open, like Roblox).
     bool acceptInput = !m_paused && !m_showSettings && !m_chatOpen;
+    ImVec2 max(pos.x + size.x, pos.y + size.y);
+    const bool touch = GraphicsSettings::get().touchEnabled();
+    if (touch) updateTouch(pos, max, acceptInput);
+    else       m_session->setTouchInput(glm::vec2(0.0f), false);
     m_session->update(dt, m_camera.yaw, acceptInput);
 
     // Camera: follow the character; right-drag to look around, wheel to zoom.
@@ -785,9 +844,11 @@ void PlayerApp::drawGame(float dt) {
     Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
     ImGui::Image((ImTextureID)(intptr_t)m_view.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
 
-    // Clicking parts (for part.Clicked in scripts).
-    if (acceptInput && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        ImVec2 m = ImGui::GetMousePos();
+    // Clicking parts (for part.Clicked in scripts). With touch controls, a tap does it.
+    ImVec2 tapAt;
+    bool tapped = touch && m_touch.tapped(tapAt);
+    if (acceptInput && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
+        ImVec2 m = tapped ? tapAt : ImGui::GetMousePos();
         float nx = (m.x - pos.x) / size.x * 2.0f - 1.0f;
         float ny = 1.0f - (m.y - pos.y) / size.y * 2.0f;
         glm::mat4 inv = glm::inverse(m_camera.projection() * m_camera.view());
@@ -799,16 +860,20 @@ void PlayerApp::drawGame(float dt) {
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 max(pos.x + size.x, pos.y + size.y);
-    Hud::draw(dl, pos, max, *m_scene, m_session->gui());
+    Hud::draw(dl, pos, max, *m_scene, m_session->gui(), touch ? 240.0f : 0.0f);
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
-    if (m_server) Hud::drawPlayerList(dl, pos, max, m_server->playerNames());
-    if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->playerNames());
+    if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
+    else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
+    else               Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff()}});
     drawChat(pos, max);
 
-    // Top-left menu button + FPS.
-    ImGui::SetCursorScreenPos(ImVec2(pos.x + 12, max.y - 44));
-    if (bigButton("Menu (Esc)", ImVec4(0.1f, 0.1f, 0.12f, 0.8f))) m_paused = true;
+    // Menu button + FPS. (Touch screens get their own buttons instead.)
+    if (touch) {
+        if (acceptInput) m_touch.draw(dl);
+    } else {
+        ImGui::SetCursorScreenPos(ImVec2(pos.x + 12, max.y - 44));
+        if (bigButton("Menu (Esc)", ImVec4(0.1f, 0.1f, 0.12f, 0.8f))) m_paused = true;
+    }
     if (GraphicsSettings::get().showFps) {
         char fps[32];
         std::snprintf(fps, sizeof(fps), "%.0f FPS", io.Framerate);
@@ -820,10 +885,12 @@ void PlayerApp::drawGame(float dt) {
 
 void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ChatLog& log = chat();
-    const float w = 420.0f;
-    ImVec2 p(min.x + 12, max.y - 60 - 210);
+    // Bottom-left normally; top-left on touch screens (the thumbstick lives bottom-left).
+    const bool touch = GraphicsSettings::get().touchEnabled();
+    const float w = touch ? 360.0f : 420.0f, h = touch ? 170.0f : 210.0f;
+    ImVec2 p = touch ? ImVec2(min.x + 12, min.y + 70) : ImVec2(min.x + 12, max.y - 60 - h);
     ImGui::SetNextWindowPos(p);
-    ImGui::SetNextWindowSize(ImVec2(w, 210));
+    ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::SetNextWindowBgAlpha(m_chatOpen ? 0.45f : 0.2f);
     ImGuiWindowFlags f = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
@@ -837,7 +904,11 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "%s", l.text.c_str());
             ImGui::PopTextWrapPos();
         } else {
-            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1), "%s:", l.from.c_str());
+            if (l.admin) {
+                Badges::icon(Badges::Id::Administrator, ImGui::GetTextLineHeight());
+                ImGui::SameLine(0, 4);
+            }
+            ImGui::TextColored(l.admin ? ImVec4(1.0f, 0.85f, 0.4f, 1) : ImVec4(0.55f, 0.8f, 1.0f, 1), "%s:", l.from.c_str());
             ImGui::SameLine();
             ImGui::PushTextWrapPos(0);
             ImGui::TextUnformatted(l.text.c_str());
@@ -848,17 +919,19 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ImGui::EndChild();
 
     if (m_chatOpen) {
-        ImGui::SetKeyboardFocusHere();
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::InputTextWithHint("##say", "Type a message and press Enter (Esc to cancel)", &m_chatInput,
-                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
+        if (!ImGui::IsAnyItemActive()) ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(-60);
+        bool enter = ImGui::InputTextWithHint("##say", touch ? "Type a message" : "Type a message and press Enter (Esc to cancel)",
+                                              &m_chatInput, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if (enter || ImGui::Button("Send", ImVec2(-1, 0))) {
             sendChat(m_chatInput);
             m_chatInput.clear();
             m_chatOpen = false;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_chatOpen = false; m_chatInput.clear(); }
     } else {
-        ImGui::TextDisabled("Press / to chat");
+        ImGui::TextDisabled(touch ? "Tap the chat button to talk" : "Press / to chat");
     }
     ImGui::End();
 }
@@ -885,4 +958,372 @@ void PlayerApp::drawPauseMenu() {
     if (bigButton("Settings", ImVec4(0.3f, 0.3f, 0.35f, 1), full)) m_showSettings = true;
     if (bigButton("Leave Game", ImVec4(0.75f, 0.25f, 0.25f, 1), full)) leaveGame();
     ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// Touch controls
+// ---------------------------------------------------------------------------
+
+void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
+    const float scale = GraphicsSettings::get().touchSize;
+    m_touch.begin(min, max, scale);
+    if (!m_opts.touchTest.empty()) {
+        // Test helper: pretend fingers are on the screen.
+        std::vector<TouchControls::Finger> f;
+        int k = m_frame - 40;
+        if (k > 0 && m_opts.touchTest == "stick") {
+            ImVec2 base(min.x + 150, max.y - 150);
+            float push = std::min(1.0f, k / 6.0f);
+            f.push_back({1, ImVec2(base.x + 12 * push, base.y - 70 * push), true});
+        }
+        if (k > 0 && m_opts.touchTest == "jump" && (k / 15) % 2 == 0)
+            f.push_back({2, ImVec2(max.x - 105 * scale, max.y - 105 * scale), true});
+        if (k > 0 && m_opts.touchTest == "look")
+            f.push_back({3, ImVec2((min.x + max.x) * 0.5f + k * 4.0f, (min.y + max.y) * 0.4f), true});
+        m_touch.feed(f);
+    } else {
+        m_touch.feedMouse(acceptInput && ImGui::IsWindowHovered());
+    }
+    if (!acceptInput) { m_session->setTouchInput(glm::vec2(0.0f), false); return; }
+    m_session->setTouchInput(m_touch.move(), m_touch.jump());
+    ImVec2 look = m_touch.look();
+    if (look.x != 0.0f || look.y != 0.0f) m_camera.orbit(look.x, look.y);
+    if (m_touch.zoom() != 0.0f) m_camera.zoom(m_touch.zoom());
+    if (m_touch.chatPressed()) m_chatOpen = true;
+    if (m_touch.menuPressed()) m_paused = true;
+}
+
+// ---------------------------------------------------------------------------
+// Account, badges and staff tools
+// ---------------------------------------------------------------------------
+
+void PlayerApp::drawAccount() {
+    Profile& me = Profile::get();
+    ImGui::SeparatorText("Badges");
+    auto badges = Badges::verified(Account::id(), me.grants);
+    if (badges.empty()) {
+        ImGui::TextDisabled("No official badges yet.");
+    } else {
+        for (size_t i = 0; i < badges.size(); ++i) {
+            if (i > 0) ImGui::SameLine(0, 16);
+            ImGui::BeginGroup();
+            Badges::icon(badges[i], 56.0f);
+            ImGui::TextUnformatted(Badges::info(badges[i]).name);
+            ImGui::EndGroup();
+        }
+    }
+
+    ImGui::SeparatorText("Your account");
+    ImGui::Text("Account ID: %s...", Account::shortId().c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy full ID")) ImGui::SetClipboardText(Account::id().c_str());
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Staff need this ID to give you a badge. It's safe to share - the secret key that "
+                        "proves it's you never leaves this computer.");
+    ImGui::PopTextWrapPos();
+    ImGui::SetNextItemWidth(260);
+    ImGui::InputTextWithHint("##redeem", "Paste a badge code", &m_redeemCode);
+    ImGui::SameLine();
+    if (Classic::button("Redeem", Classic::kBlue)) {
+        Badges::redeem(m_redeemCode, m_redeemMsg);
+        m_redeemCode.clear();
+    }
+    if (!m_redeemMsg.empty()) ImGui::TextWrapped("%s", m_redeemMsg.c_str());
+}
+
+void PlayerApp::drawStaff() {
+    if (!Account::iAmStaff()) { m_page = Page::Home; return; }
+    Badges::icon(Badges::Id::Administrator, 40.0f);
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::TextUnformatted("Staff Tools");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("Only the official Guts account can see this page.");
+    ImGui::EndGroup();
+
+    ImGui::SeparatorText("Give someone a badge");
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Ask them for their account ID (Avatar page > Copy full ID), make a code here and send "
+                        "it to them. The code only works for their account.");
+    ImGui::PopTextWrapPos();
+    std::vector<const char*> names;
+    std::vector<int> ids;
+    for (int i = 0; i < (int)Badges::Id::Count; ++i)
+        if (Badges::info((Badges::Id)i).grantable) { names.push_back(Badges::info((Badges::Id)i).name); ids.push_back(i); }
+    int cur = 0;
+    for (int k = 0; k < (int)ids.size(); ++k) if (ids[k] == m_grantBadge) cur = k;
+    Badges::icon((Badges::Id)ids[cur], 32.0f);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::Combo("Badge", &cur, names.data(), (int)names.size())) m_grantBadge = ids[cur];
+    m_grantBadge = ids[cur];
+    ImGui::SetNextItemWidth(520);
+    ImGui::InputTextWithHint("Their account ID", "64 letters and numbers", &m_grantTo);
+    if (Classic::button("Make badge code", Classic::kPlay, ImVec2(180, 30))) {
+        m_grantError.clear();
+        m_grantCode = Badges::makeCode((Badges::Id)m_grantBadge, m_grantTo, m_grantError);
+    }
+    if (!m_grantError.empty()) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_grantError.c_str());
+    if (!m_grantCode.empty()) {
+        ImGui::InputTextMultiline("##code", &m_grantCode, ImVec2(520, 60), ImGuiInputTextFlags_ReadOnly);
+        if (ImGui::Button("Copy code")) ImGui::SetClipboardText(m_grantCode.c_str());
+    }
+
+    ImGui::SeparatorText("Catalog");
+    ImGui::Text("%d item(s) in the catalog.", (int)m_items.size());
+    if (Classic::button("Create a catalog item", Classic::kBlue, ImVec2(220, 30))) {
+        m_page = Page::Catalog;
+        m_showCreate = true;
+    }
+
+    ImGui::SeparatorText("Your staff key");
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextWrapped("Your secret key is %s. Back it up somewhere safe and never share it - whoever has it "
+                       "is the Guts account.", (Account::folder() / "account.key").string().c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Text("Official ID: %s...", Account::shortId().c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy official ID")) ImGui::SetClipboardText(Account::id().c_str());
+}
+
+void PlayerApp::drawNotice() {
+    static bool opened = false;
+    if (m_notice.empty()) { opened = false; return; }
+    if (!opened) { ImGui::OpenPopup("Guts&Bolts##notice"); opened = true; }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(620, 0));
+    if (ImGui::BeginPopupModal("Guts&Bolts##notice", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::TextWrapped("%s", m_notice.c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Copy my account ID", ImVec2(200, 32))) ImGui::SetClipboardText(Account::id().c_str());
+        ImGui::SameLine();
+        if (bigButton("OK", kGreen, ImVec2(100, 32))) { m_notice.clear(); ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Catalog
+// ---------------------------------------------------------------------------
+
+namespace {
+// A simple picture of a catalog item, drawn in its colour.
+void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it) {
+    ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(it.color.r, it.color.g, it.color.b, 1));
+    ImU32 line = IM_COL32(40, 40, 50, 255);
+    float t = std::max(1.5f, s * 0.02f);
+    switch (it.type) {
+    case Catalog::Type::Hat:
+        if (it.hat == HatStyle::TopHat) {
+            ImVec2 a(c.x - s * 0.2f, c.y - s * 0.3f), b(c.x + s * 0.2f, c.y + s * 0.15f);
+            dl->AddRectFilled(a, b, fill); dl->AddRect(a, b, line, 0, 0, t);
+            ImVec2 ba(c.x - s * 0.38f, c.y + s * 0.15f), bb(c.x + s * 0.38f, c.y + s * 0.24f);
+            dl->AddRectFilled(ba, bb, fill, 4); dl->AddRect(ba, bb, line, 4, 0, t);
+        } else if (it.hat == HatStyle::Crown) {
+            ImVec2 pts[] = {{c.x - s * 0.34f, c.y + s * 0.2f}, {c.x - s * 0.34f, c.y - s * 0.22f}, {c.x - s * 0.17f, c.y - s * 0.02f},
+                            {c.x, c.y - s * 0.3f}, {c.x + s * 0.17f, c.y - s * 0.02f}, {c.x + s * 0.34f, c.y - s * 0.22f},
+                            {c.x + s * 0.34f, c.y + s * 0.2f}};
+            for (int i = 1; i < 6; ++i) dl->AddTriangleFilled(pts[0], pts[i], pts[i + 1], fill);
+            dl->AddPolyline(pts, 7, line, ImDrawFlags_Closed, t);
+        } else {   // cap
+            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.1f), s * 0.3f, 3.14159f, 6.28318f, 24);
+            dl->PathFillConvex(fill);
+            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.1f), s * 0.3f, 3.14159f, 6.28318f, 24);
+            dl->PathStroke(line, 0, t);
+            ImVec2 va(c.x, c.y + s * 0.06f), vb(c.x + s * 0.46f, c.y + s * 0.14f);
+            dl->AddRectFilled(va, vb, fill, 3); dl->AddRect(va, vb, line, 3, 0, t);
+        }
+        break;
+    case Catalog::Type::Shirt: {
+        ImVec2 pts[] = {{c.x - s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.4f, c.y - s * 0.12f},
+                        {c.x + s * 0.3f, c.y + s * 0.0f}, {c.x + s * 0.22f, c.y - s * 0.06f}, {c.x + s * 0.22f, c.y + s * 0.34f},
+                        {c.x - s * 0.22f, c.y + s * 0.34f}, {c.x - s * 0.22f, c.y - s * 0.06f}, {c.x - s * 0.3f, c.y + s * 0.0f},
+                        {c.x - s * 0.4f, c.y - s * 0.12f}};
+        dl->AddRectFilled(ImVec2(c.x - s * 0.22f, c.y - s * 0.32f), ImVec2(c.x + s * 0.22f, c.y + s * 0.34f), fill);
+        dl->AddTriangleFilled(pts[1], pts[2], pts[3], fill); dl->AddTriangleFilled(pts[1], pts[3], pts[4], fill);
+        dl->AddTriangleFilled(pts[0], pts[9], pts[8], fill); dl->AddTriangleFilled(pts[0], pts[8], pts[7], fill);
+        dl->AddPolyline(pts, 10, line, ImDrawFlags_Closed, t);
+        break;
+    }
+    case Catalog::Type::Pants: {
+        // Waistband plus two legs.
+        ImVec2 w0(c.x - s * 0.25f, c.y - s * 0.34f), w1(c.x + s * 0.25f, c.y - s * 0.22f);
+        ImVec2 l0(c.x - s * 0.25f, c.y - s * 0.22f), l1(c.x - s * 0.02f, c.y + s * 0.36f);
+        ImVec2 r0(c.x + s * 0.02f, c.y - s * 0.22f), r1(c.x + s * 0.25f, c.y + s * 0.36f);
+        ImVec2 mid0(c.x - s * 0.03f, c.y - s * 0.22f), mid1(c.x + s * 0.03f, c.y - s * 0.05f);
+        for (auto [a, b] : {std::pair{w0, w1}, std::pair{l0, l1}, std::pair{r0, r1}, std::pair{mid0, mid1}})
+            dl->AddRectFilled(a, b, fill);
+        dl->AddRect(w0, w1, line, 0, 0, t);
+        dl->AddRect(l0, l1, line, 0, 0, t);
+        dl->AddRect(r0, r1, line, 0, 0, t);
+        break;
+    }
+    default: break;
+    }
+}
+} // namespace
+
+void PlayerApp::drawCatalog() {
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::TextUnformatted("Catalog");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("Hats, shirts and pants for your avatar.");
+    ImGui::Spacing();
+
+    const char* tabs[] = {"All", "Hats", "Shirts", "Pants"};
+    for (int i = 0; i < 4; ++i) {
+        if (i > 0) ImGui::SameLine();
+        bool on = m_itemType == i - 1;
+        if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(90, 28)) : ImGui::Button(tabs[i], ImVec2(90, 28)))
+            m_itemType = i - 1;
+    }
+    if (Account::iAmStaff()) {
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 140);
+        if (Classic::button("Create Item", Classic::kPlay, ImVec2(140, 28))) m_showCreate = true;
+    }
+    if (!m_catalogMsg.empty()) ImGui::TextWrapped("%s", m_catalogMsg.c_str());
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    std::vector<int> list;
+    for (int i = 0; i < (int)m_items.size(); ++i)
+        if (m_itemType < 0 || (int)m_items[i].type == m_itemType) list.push_back(i);
+
+    if (list.empty()) {
+        ImGui::Dummy(ImVec2(0, 40));
+        const char* a = m_items.empty() ? "The catalog is empty right now." : "Nothing in this section yet.";
+        const char* b = "New items are on the way - check back soon!";
+        float w = ImGui::GetContentRegionAvail().x;
+        ImGui::SetWindowFontScale(1.3f);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (w - ImGui::CalcTextSize(a).x) * 0.5f);
+        ImGui::TextUnformatted(a);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (w - ImGui::CalcTextSize(b).x) * 0.5f);
+        ImGui::TextDisabled("%s", b);
+        return;
+    }
+
+    const float tile = 150.0f;
+    float avail = ImGui::GetContentRegionAvail().x;
+    int perRow = std::max(1, (int)((avail + 14) / (tile + 14)));
+    for (size_t k = 0; k < list.size(); ++k) {
+        const Catalog::Item& it = m_items[list[k]];
+        if (k % perRow != 0) ImGui::SameLine(0, 14);
+        ImGui::PushID(list[k]);
+        ImGui::BeginGroup();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##item", ImVec2(tile, tile))) m_openItem = list[k];
+        bool hover = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
+        dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(160, 165, 175, 255),
+                    0, 0, hover ? 2.0f : 1.0f);
+        drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+        if (Catalog::isWearing(it))
+            dl->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(20, 140, 60, 255), "Wearing");
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+        ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "Free");
+        ImGui::EndGroup();
+        ImGui::PopID();
+    }
+}
+
+void PlayerApp::drawItemDialog() {
+    if (m_openItem >= (int)m_items.size()) m_openItem = -1;
+    if (m_openItem >= 0 && !ImGui::IsPopupOpen("Catalog Item")) ImGui::OpenPopup("Catalog Item");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520, 0));
+    if (!ImGui::BeginPopupModal("Catalog Item", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (m_openItem < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+    Catalog::Item it = m_items[m_openItem];
+
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(180, 180));
+    ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 180, p.y + 180), IM_COL32(245, 246, 250, 255), 6);
+    drawItemIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + 90, p.y + 90), 150, it);
+    ImGui::SameLine(0, 18);
+    ImGui::BeginGroup();
+    ImGui::SetWindowFontScale(1.4f);
+    ImGui::TextUnformatted(it.name.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("%s  -  by Guts", Catalog::typeName(it.type));
+    ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "Free");
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextUnformatted(it.description.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::EndGroup();
+    ImGui::Spacing();
+
+    bool wearing = Catalog::isWearing(it);
+    ImGui::BeginDisabled(wearing);
+    if (bigButton(wearing ? "Wearing" : "Wear", kGreen, ImVec2(140, 34))) {
+        Catalog::wear(it);
+        if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Close", ImVec2(100, 34))) { m_openItem = -1; ImGui::CloseCurrentPopup(); }
+    if (Account::iAmStaff()) {
+        ImGui::SameLine();
+        if (bigButton("Remove from catalog", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(0, 34))) {
+            Catalog::remove(it, m_catalogMsg);
+            m_items = Catalog::load();
+            m_openItem = -1;
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::EndPopup();
+}
+
+void PlayerApp::drawCreateItemDialog() {
+    if (m_showCreate) {
+        if (Account::iAmStaff()) ImGui::OpenPopup("Create Catalog Item");
+        m_showCreate = false;
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(600, 0));
+    if (!ImGui::BeginPopupModal("Create Catalog Item", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (!Account::iAmStaff()) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+
+    Catalog::Item& it = m_newItem;
+    ImGui::BeginGroup();
+    ImGui::SetNextItemWidth(300);
+    ImGui::InputText("Name", &it.name);
+    ImGui::InputTextMultiline("Description", &it.description, ImVec2(300, 70));
+    int type = (int)it.type;
+    const char* types[] = {"Hat", "Shirt", "Pants"};
+    ImGui::SetNextItemWidth(300);
+    if (ImGui::Combo("Type", &type, types, 3)) it.type = (Catalog::Type)type;
+    if (it.type == Catalog::Type::Hat) {
+        int style = std::max(0, (int)it.hat - 1);
+        const char* styles[] = {"Top Hat", "Cap", "Crown"};
+        ImGui::SetNextItemWidth(300);
+        if (ImGui::Combo("Style", &style, styles, 3)) it.hat = (HatStyle)(style + 1);
+        if (it.hat == HatStyle::None) it.hat = HatStyle::Cap;
+    }
+    ImGui::ColorEdit3("Colour", &it.color.x);
+    ImGui::EndGroup();
+    ImGui::SameLine(0, 20);
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(170, 170));
+    ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 170, p.y + 170), IM_COL32(245, 246, 250, 255), 6);
+    drawItemIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + 85, p.y + 85), 140, it);
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("The item is signed with your staff key, so nobody else can make or change catalog items.");
+    ImGui::Spacing();
+    if (bigButton("Create", kGreen, ImVec2(140, 34))) {
+        if (Catalog::create(it, m_catalogMsg)) {
+            m_items = Catalog::load();
+            m_newItem = Catalog::Item{};
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100, 34))) ImGui::CloseCurrentPopup();
+    if (!m_catalogMsg.empty()) ImGui::TextWrapped("%s", m_catalogMsg.c_str());
+    ImGui::EndPopup();
 }

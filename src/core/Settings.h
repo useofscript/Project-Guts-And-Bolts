@@ -14,6 +14,12 @@ struct GraphicsSettings {
     bool  allowGore   = true;   // false hides blood / gore in every game
     bool  checkUpdates = true;  // look for a newer version on GitHub at startup
 
+    // Controls
+    enum TouchMode { TouchAuto, TouchOn, TouchOff };
+    int   touchControls = TouchAuto;   // on-screen joystick + buttons (Auto = on phones and tablets)
+    float touchSize     = 1.0f;        // how big the on-screen controls are
+    bool  touchEnabled() const;
+
     // Graphics
     int   quality       = High;
     int   shadowRes     = 2048; // 1024 / 2048 / 4096

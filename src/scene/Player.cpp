@@ -56,7 +56,7 @@ void Player::build() {
     if (SceneNode* old = root()) m_scene->removeNode(old);
     SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
     m_rootId = r->id;
-    setHat(m_hat);
+    setHat(m_hat, m_hatTint);
     m_scene->markDirty();
 }
 
@@ -171,12 +171,15 @@ const char* Player::hatName(HatStyle s) {
     }
 }
 
-void Player::setHat(HatStyle style) {
+void Player::setHat(HatStyle style, glm::vec3 tint) {
     m_hat = style;
-    if (SceneNode* r = root()) applyHat(*m_scene, r, style);
+    m_hatTint = tint;
+    if (SceneNode* r = root()) applyHat(*m_scene, r, style, tint);
 }
 
-void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style) {
+void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style, glm::vec3 tint) {
+    const bool tinted = tint.x >= 0.0f;
+    auto main = [&](glm::vec3 normal) { return tinted ? tint : normal; };
     // Remove the old hat pieces.
     std::vector<SceneNode*> old;
     for (auto& c : r->children)
@@ -197,16 +200,16 @@ void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style) {
     const float top = 2.65f;   // top of the head
     switch (style) {
         case HatStyle::TopHat:
-            add("Hat Brim", PrimitiveType::Cylinder, {0, top + 0.025f, 0}, {1.0f, 0.05f, 1.0f}, kBlack);
-            add("Hat",      PrimitiveType::Cylinder, {0, top + 0.325f, 0}, {0.62f, 0.55f, 0.62f}, kBlack);
+            add("Hat Brim", PrimitiveType::Cylinder, {0, top + 0.025f, 0}, {1.0f, 0.05f, 1.0f}, main(kBlack));
+            add("Hat",      PrimitiveType::Cylinder, {0, top + 0.325f, 0}, {0.62f, 0.55f, 0.62f}, main(kBlack));
             add("Hat Band", PrimitiveType::Cylinder, {0, top + 0.11f, 0}, {0.64f, 0.1f, 0.64f}, {0.75f, 0.12f, 0.12f});
             break;
         case HatStyle::Cap:
-            add("Hat",       PrimitiveType::Sphere, {0, top - 0.05f, 0}, {0.78f, 0.5f, 0.78f}, {0.85f, 0.15f, 0.15f});
-            add("Hat Visor", PrimitiveType::Cube,   {0, top - 0.03f, 0.46f}, {0.52f, 0.04f, 0.36f}, {0.85f, 0.15f, 0.15f});
+            add("Hat",       PrimitiveType::Sphere, {0, top - 0.05f, 0}, {0.78f, 0.5f, 0.78f}, main({0.85f, 0.15f, 0.15f}));
+            add("Hat Visor", PrimitiveType::Cube,   {0, top - 0.03f, 0.46f}, {0.52f, 0.04f, 0.36f}, main({0.85f, 0.15f, 0.15f}));
             break;
         case HatStyle::Crown:
-            add("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, {1.0f, 0.78f, 0.2f}, Material::Metal);
+            add("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, main({1.0f, 0.78f, 0.2f}), Material::Metal);
             add("Hat Jewel", PrimitiveType::Cube, {0, top + 0.14f, 0.37f}, {0.12f, 0.12f, 0.05f}, {0.9f, 0.1f, 0.2f}, Material::Neon);
             break;
         default: break;
@@ -384,6 +387,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     bool moving = len > 1e-4f;
     if (moving) {
         horiz /= len;
+        float amount = std::min(1.0f, len);   // a half-pushed thumbstick walks slower
         if (m_humanoid.autoRotate) {
             // Turn smoothly towards the direction of travel (shortest way round).
             float target = glm::degrees(std::atan2(horiz.x, horiz.z));
@@ -391,6 +395,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             float diff   = std::fmod(target - cur + 540.0f, 360.0f) - 180.0f;
             r->transform.rotation.y = cur + diff * std::min(1.0f, dt * 14.0f);
         }
+        horiz *= amount;
     }
 
     // Gravity + jumping.

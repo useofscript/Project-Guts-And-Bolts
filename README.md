@@ -74,15 +74,28 @@ how it was.
 
 ### Controls
 
+Press **F1** (or **View > Keyboard Shortcuts**) in Studio to see all of these.
+
 | Action | Input |
 | --- | --- |
 | Select / Move / Rotate / Scale tool | `Q` / `W` / `E` / `R` |
+| Local / world gizmo | `Ctrl+L` |
 | Orbit / pan / zoom camera | Middle-drag / Shift + middle-drag / wheel |
 | Focus on selection | `F` |
+| Pick several things | `Ctrl+click` (add / remove), `Shift+click` (add) |
+| Select all / parent / children | `Ctrl+A` / `Ctrl+Up` / `Ctrl+Down` |
+| Expand / collapse selected (everything inside) | `Ctrl+Right` / `Ctrl+Left` |
+| Collapse the whole Explorer | `Ctrl+Shift+Left` |
+| Rename / hide | `F2` / `H` |
+| Group into a Model / ungroup | `Ctrl+G` / `Ctrl+U` |
+| Insert a Script into the selection | `Ctrl+I` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
 | Copy / Paste / Duplicate / Delete | `Ctrl+C` / `Ctrl+V` / `Ctrl+D` / `Del` |
 | Save / Open / New | `Ctrl+S` / `Ctrl+O` / `Ctrl+N` |
 | Play / Stop | `F5` |
+
+Copy, paste, duplicate, delete, hide and the move tool all work on everything
+you've selected at once.
 
 ## Scripting (Lua)
 
@@ -168,10 +181,46 @@ blood & gore**.
 - **Join a Friend:** type the host's address (the host's chat shows it). The
   default port is 7777, so for play over the internet the host needs to
   forward that port on their router.
+- **Catalog:** hats, shirts and pants for your avatar. Only the official staff
+  account can add items (see below), so it starts out empty.
 - **Avatar:** display name, outfits, body colours and hats. You wear these in
-  every game.
+  every game. It also shows your **badges** and your **account ID**, and has a
+  box for redeeming badge codes.
 - **In game:** `/` to chat (speech bubbles show over heads), `Esc` for the
-  menu (Resume, Reset Character, Settings, Leave).
+  menu (Resume, Reset Character, Settings, Leave). The player list in the top
+  right shows everyone in the game.
+- **Touch controls:** on phones and tablets you get a thumbstick (it appears
+  under your thumb, bottom-left), a jump button (bottom-right) and Chat / Menu
+  buttons (top-left). Drag anywhere else to turn the camera, pinch to zoom and
+  tap things to click them. Try them on a computer with **Settings > Touch
+  controls > Always on** (the mouse acts as one finger).
+
+### Accounts, badges and staff
+
+Every copy of Guts&Bolts makes its own account key the first time it runs. The
+public half is your **account ID** (safe to share). The secret half stays in
+`account.key` in your user folder and proves it's you when you join a game.
+
+- **Guts** is the official staff account. Nobody else can use that name, and
+  it wears the **Administrator** badge: a red shield with a bolt that floats
+  next to its name in the player list and chat.
+- **Official badges** (Administrator, Tester, Bug Hunter, Featured Creator)
+  are signed by the staff account, so they can't be faked or copied to someone
+  else. Staff make a badge code on the **Staff** page for a player's account
+  ID; the player pastes it into **Avatar > Redeem**.
+- **Catalog items** are signed files in the `catalog` folder. The app ignores
+  any item the staff account didn't sign.
+
+**Setting up the staff account (project owner only):** double-click
+`tools/Staff Setup.bat` (Windows) or `tools/Staff Setup.command` (Mac), or run
+`python3 install.py --staff`. That makes your computer's account the "Guts"
+account, and the Player then shows **Staff** and **Create Item**. Back up the
+`account.key` file it tells you about. To make every copy of the game recognise
+you, your public ID goes into `src/core/OfficialKey.h`.
+
+> Honest limits: there's no central server yet, so the host of a game checks
+> everyone who joins, and players check the host. A modified copy of the game
+> could still lie about *other* players in a game it hosts.
 
 Three sample games come with it: **Obby of Doom**, **Demolition Yard** and
 **Night Plaza** (built by `tools/make_sample_games.py`).
@@ -190,8 +239,8 @@ mapping and FXAA. It needs OpenGL 4.1, so it runs on Windows, macOS and Linux.
 ## Building by hand
 
 You need CMake, a C++20 compiler, and GLFW, GLEW and GLM where `find_package`
-can see them. Dear ImGui, ImGuizmo, Lua 5.4 and nlohmann/json are downloaded
-automatically.
+can see them. Dear ImGui, ImGuizmo, Lua 5.4, nlohmann/json, miniaudio and Monocypher are
+downloaded automatically.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -211,14 +260,16 @@ Handy command-line options: `GutsAndBolts --open file.gbscene --play`,
 ```
 install.py, Install.bat, Install.command, install.sh    the installer
 games/                  sample games (copied next to the apps)
+catalog/                official catalog items (signed; copied next to the apps)
 tools/                  make_sample_games.py
 src/
-  core/                 AppWindow, Log, Settings, Paths, CrashHandler
+  core/                 AppWindow, Log, Settings, Paths, CrashHandler, Account (keys / signatures)
   renderer/             SceneRenderer + Shaders (HDR, shadows, post-fx), Mesh, Camera, ...
   scene/                Scene tree, Player (R6 rig), Physics, Ragdoll, Particles,
                         Effects, Serializer (save files / undo)
   scripting/            Lua engine and Roblox-style API
-  game/                 GameSession (play mode), Hud, Profile, SettingsWindow
+  game/                 GameSession (play mode), Hud, Profile, SettingsWindow, Badges, Catalog,
+                        TouchControls
   net/                  TCP sockets and multiplayer host / client
   editor/               Studio: Editor, Premades, panels/
   player/               Guts&BoltsPlayer app

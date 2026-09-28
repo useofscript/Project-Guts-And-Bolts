@@ -42,6 +42,15 @@ void draw(bool* open) {
     ImGui::Checkbox("Show blood & gore", &s.allowGore);
     help("Turn off to hide blood, oil and gibs in every game.");
 
+    ImGui::SeparatorText("Controls");
+    const char* touch[] = {"Auto (phones and tablets)", "Always on", "Off"};
+    ImGui::Combo("Touch controls", &s.touchControls, touch, 3);
+    help("An on-screen joystick, jump button and chat / menu buttons. Drag anywhere else to look "
+         "around, pinch to zoom and tap things to click them. Turn it on to try it with a mouse.");
+    ImGui::BeginDisabled(!s.touchEnabled());
+    ImGui::SliderFloat("Button size", &s.touchSize, 0.7f, 1.6f, "%.1fx");
+    ImGui::EndDisabled();
+
     ImGui::SeparatorText("Graphics");
     const char* presets[] = {"Low", "Medium", "High", "Ultra", "Custom"};
     int q = s.quality;
