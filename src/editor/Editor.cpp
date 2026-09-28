@@ -11,6 +11,8 @@
 #include "../scene/Player.h"
 #include "../scene/Serializer.h"
 #include "../game/GameSession.h"
+#include "../game/SettingsWindow.h"
+#include "../core/Settings.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
@@ -49,6 +51,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     actions.spawnPart    = [this](PrimitiveType t) { spawnPrimitive(t); };
     actions.addScript    = [this] { addScript(m_scene->selected()); };
     actions.addModel     = [this] { addModel(); };
+    actions.addLight     = [this](LightType t) { addLight(t); };
     actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
     m_toolbox = std::make_unique<ToolboxPanel>(actions);
 
@@ -80,6 +83,7 @@ void Editor::render(float dt) {
     m_output->render();
     m_scriptEditor->render();
     renderDialogs();
+    SettingsWindow::draw(&m_showSettings);
 
     trackChanges();
     updateTitle();
@@ -206,6 +210,19 @@ void Editor::addScript(SceneNode* parent) {
 void Editor::addModel() {
     SceneNode* m = m_scene->insert(std::make_unique<SceneNode>("Model", NodeKind::Model));
     m_scene->select(m);
+}
+
+void Editor::addLight(LightType type) {
+    auto l = std::make_unique<SceneNode>(type == LightType::Spot ? "SpotLight" : "PointLight", NodeKind::Light);
+    l->lightType = type;
+    l->color     = {1.0f, 0.9f, 0.75f};
+    SceneNode* parent = m_scene->selected();
+    if (!parent || !parent->isPart() || m_scene->isCharacterPart(parent)) {
+        // No part selected: float the light above the ground.
+        parent = m_scene->root();
+        l->transform.position = spawnPoint() + glm::vec3(0, 4, 0);
+    }
+    m_scene->select(m_scene->insert(std::move(l), parent));
 }
 
 void Editor::openScript(SceneNode* script) {
@@ -395,7 +412,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderDockWindow("Viewport",      center);
         ImGui::DockBuilderDockWindow("Output",        bottom);
         ImGui::DockBuilderDockWindow("Properties",    right);
-        ImGui::DockBuilderDockWindow("Environment",   right);
+        ImGui::DockBuilderDockWindow("Lighting",      right);
         ImGui::DockBuilderDockWindow("Player",        right);
         ImGui::DockBuilderFinish(dsId);
         m_viewport->focus();
@@ -454,6 +471,8 @@ void Editor::renderMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Script")) addScript(m_scene->selected());
         if (ImGui::MenuItem("Model"))  addModel();
+        if (ImGui::MenuItem("Point Light")) addLight(LightType::Point);
+        if (ImGui::MenuItem("Spot Light"))  addLight(LightType::Spot);
         ImGui::Separator();
         if (ImGui::BeginMenu("Ready-made")) {
             for (const PremadeInfo& p : premadeList()) {
@@ -467,6 +486,8 @@ void Editor::renderMenuBar() {
 
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Reset Camera")) m_viewport->resetCamera();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Settings...")) m_showSettings = true;
         ImGui::EndMenu();
     }
 
@@ -653,6 +674,9 @@ void Editor::renderToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Delete"))    deleteSelected();
     ImGui::EndDisabled();
+    sep();
+    if (ImGui::Button("Settings")) m_showSettings = true;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Frame rate and graphics quality");
 
     ImGui::EndChild();
     ImGui::PopStyleVar(3);
@@ -687,6 +711,11 @@ void Editor::renderStatusBar() {
         ImGui::TextUnformatted(sel->name.c_str());
     } else {
         ImGui::TextDisabled("Nothing selected");
+    }
+
+    if (GraphicsSettings::get().showFps) {
+        ImGui::SameLine(); ImGui::TextDisabled("   "); ImGui::SameLine();
+        ImGui::TextDisabled("%.0f FPS", ImGui::GetIO().Framerate);
     }
 
     ImGui::SameLine();

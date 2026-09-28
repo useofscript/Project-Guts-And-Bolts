@@ -1,219 +1,109 @@
 #include "SceneRenderer.h"
 #include "Shader.h"
+#include "Shaders.h"
 #include "Mesh.h"
 #include "Camera.h"
 #include "Framebuffer.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
+#include "../core/Settings.h"
 
 #include <GL/glew.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+#include <chrono>
 #include <vector>
 
 namespace {
 
 // Grid lines sit a hair above y = 0 so they show on top of the Baseplate.
 constexpr float kGridY = 0.01f;
+constexpr int   kMaxLights = 32;
 
-
-const char* kLitVert = R"(#version 450 core
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProj;
-uniform mat3 uNormalMat;
-
-out vec3 vNormal;
-out vec3 vWorldPos;
-
-void main() {
-    vec4 world = uModel * vec4(aPos, 1.0);
-    vWorldPos  = world.xyz;
-    vNormal    = normalize(uNormalMat * aNormal);
-    gl_Position = uProj * uView * world;
-}
-)";
-
-const char* kLitFrag = R"(#version 450 core
-in vec3 vNormal;
-in vec3 vWorldPos;
-
-uniform vec3  uColor;
-uniform vec3  uSunDir;        // surface -> sun, normalized
-uniform vec3  uSunColor;
-uniform float uSunIntensity;
-uniform vec3  uAmbient;       // ambient colour * intensity
-uniform vec3  uViewPos;
-uniform bool  uSelected;
-uniform int   uMaterial;      // 0 plastic, 1 metal, 2 neon, 3 wood
-uniform float uAlpha;         // 1 = opaque
-
-uniform bool  uFogEnabled;
-uniform vec3  uFogColor;
-uniform float uFogDensity;
-
-uniform bool      uShadowsEnabled;
-uniform mat4      uLightSpace;
-uniform sampler2D uShadowMap;
-
-out vec4 FragColor;
-
-// Returns 1.0 = fully lit, 0.0 = fully shadowed (3x3 PCF).
-float sunVisibility(vec3 N, vec3 L) {
-    vec4 lc = uLightSpace * vec4(vWorldPos, 1.0);
-    vec3 p  = lc.xyz / lc.w * 0.5 + 0.5;
-    if (p.z > 1.0) return 1.0;
-    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
-
-    float bias = max(0.0025 * (1.0 - dot(N, L)), 0.0008);
-    vec2  texel = 1.0 / vec2(textureSize(uShadowMap, 0));
-    float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x)
-        for (int y = -1; y <= 1; ++y) {
-            float d = texture(uShadowMap, p.xy + vec2(x, y) * texel).r;
-            shadow += (p.z - bias > d) ? 1.0 : 0.0;
-        }
-    return 1.0 - shadow / 9.0;
+double now() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-void main() {
-    vec3 N = normalize(vNormal);
-    vec3 V = normalize(uViewPos - vWorldPos);
+void destroyTarget(SceneRenderer::Target& t) {
+    if (t.fbo)   glDeleteFramebuffers(1, &t.fbo);
+    if (t.color) glDeleteTextures(1, &t.color);
+    if (t.depth) glDeleteTextures(1, &t.depth);
+    t = SceneRenderer::Target{};
+}
 
-    // Neon: unlit, emissive — glows regardless of the sun.
-    if (uMaterial == 2) {
-        FragColor = vec4(uColor * 1.5, uAlpha);
-        return;
+void createTarget(SceneRenderer::Target& t, int w, int h, GLenum fmt, bool withDepth) {
+    destroyTarget(t);
+    t.w = std::max(1, w);
+    t.h = std::max(1, h);
+    glGenFramebuffers(1, &t.fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+
+    glGenTextures(1, &t.color);
+    glBindTexture(GL_TEXTURE_2D, t.color);
+    GLenum base = (fmt == GL_R8) ? GL_RED : GL_RGBA;
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt, t.w, t.h, 0, base, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.color, 0);
+
+    if (withDepth) {
+        glGenTextures(1, &t.depth);
+        glBindTexture(GL_TEXTURE_2D, t.depth);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, t.w, t.h, 0,
+                     GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, t.depth, 0);
     }
-
-    vec3 L = normalize(uSunDir);
-    vec3 H = normalize(L + V);
-    float diff = max(dot(N, L), 0.0);
-
-    // Per-material specular response.
-    float specPow = 32.0, specScale = 0.30;
-    if      (uMaterial == 1) { specPow = 80.0; specScale = 0.90; }  // metal
-    else if (uMaterial == 3) { specPow =  8.0; specScale = 0.04; }  // wood (matte)
-
-    float spec = pow(max(dot(N, H), 0.0), specPow) * specScale;
-    vec3  sun  = uSunColor * uSunIntensity;
-    float vis  = uShadowsEnabled ? sunVisibility(N, L) : 1.0;
-    vec3  base = uColor * (uAmbient + sun * diff * vis) + sun * spec * vis;
-
-    if (uSelected) {
-        // Fresnel-style rim glow in editor orange for the active object.
-        float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-        base = mix(base, vec3(1.0, 0.55, 0.15), rim * 0.8);
-    }
-
-    if (uFogEnabled) {
-        float dist = length(uViewPos - vWorldPos);
-        float f = clamp(1.0 - exp(-uFogDensity * dist), 0.0, 1.0);
-        base = mix(base, uFogColor, f);
-    }
-
-    FragColor = vec4(base, uAlpha);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
-)";
 
-const char* kSkyVert = R"(#version 450 core
-// Fullscreen triangle generated from gl_VertexID — no vertex buffer needed.
-out vec2 vNdc;
-void main() {
-    float x = float((gl_VertexID & 1) << 2) - 1.0;  // -1, 3, -1
-    float y = float((gl_VertexID & 2) << 1) - 1.0;  // -1, -1, 3
-    vNdc = vec2(x, y);
-    gl_Position = vec4(x, y, 0.0, 1.0);
+void bindTarget(const SceneRenderer::Target& t) {
+    glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+    glViewport(0, 0, t.w, t.h);
 }
-)";
 
-const char* kSkyFrag = R"(#version 450 core
-in vec2 vNdc;
-uniform mat4  uInvViewProj;
-uniform vec3  uZenith;
-uniform vec3  uHorizon;
-uniform vec3  uGround;
-uniform vec3  uSunDir;
-uniform vec3  uSunColor;
-uniform float uSunIntensity;
-out vec4 FragColor;
-
-void main() {
-    // Reconstruct the world-space view ray for this pixel.
-    vec4 near = uInvViewProj * vec4(vNdc, -1.0, 1.0);
-    vec4 far  = uInvViewProj * vec4(vNdc,  1.0, 1.0);
-    vec3 dir  = normalize(far.xyz / far.w - near.xyz / near.w);
-
-    float t = dir.y;
-    vec3 sky;
-    if (t > 0.0) sky = mix(uHorizon, uZenith, pow(clamp(t, 0.0, 1.0), 0.45));
-    else         sky = mix(uHorizon, uGround, pow(clamp(-t, 0.0, 1.0), 0.5));
-
-    // Sun disc + soft glow.
-    float d    = max(dot(dir, normalize(uSunDir)), 0.0);
-    float disc = smoothstep(0.9990, 0.9996, d);
-    float glow = pow(d, 250.0) * 0.6 + pow(d, 12.0) * 0.15;
-    sky += uSunColor * (disc * 4.0 + glow) * uSunIntensity;
-
-    FragColor = vec4(sky, 1.0);
+void bindTex(int unit, unsigned int tex) {
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(GL_TEXTURE_2D, tex);
 }
-)";
-
-const char* kGridVert = R"(#version 450 core
-layout(location=0) in vec3 aPos;
-uniform mat4 uView;
-uniform mat4 uProj;
-out float vDist;
-void main() {
-    vDist = length(aPos.xz);
-    gl_Position = uProj * uView * vec4(aPos, 1.0);
-}
-)";
-
-const char* kGridFrag = R"(#version 450 core
-in float vDist;
-uniform vec3 uColor;
-out vec4 FragColor;
-void main() {
-    // Fade grid lines out with distance from the origin.
-    float a = clamp(1.0 - vDist / 22.0, 0.0, 1.0);
-    FragColor = vec4(uColor, a * 0.6);
-}
-)";
-
-const char* kDepthVert = R"(#version 450 core
-layout(location=0) in vec3 aPos;
-uniform mat4 uLightSpace;
-uniform mat4 uModel;
-void main() { gl_Position = uLightSpace * uModel * vec4(aPos, 1.0); }
-)";
-
-const char* kDepthFrag = R"(#version 450 core
-void main() {}
-)";
 
 } // namespace
 
 SceneRenderer::SceneRenderer() {
-    m_shader      = std::make_unique<Shader>(kLitVert,   kLitFrag);
-    m_gridShader  = std::make_unique<Shader>(kGridVert,  kGridFrag);
-    m_skyShader   = std::make_unique<Shader>(kSkyVert,   kSkyFrag);
-    m_depthShader = std::make_unique<Shader>(kDepthVert, kDepthFrag);
-    m_shadow.init(2048);
+    using namespace Shaders;
+    m_lit       = std::make_unique<Shader>(litVert, litFrag);
+    m_grid      = std::make_unique<Shader>(gridVert, gridFrag);
+    m_sky       = std::make_unique<Shader>(skyVert, skyFrag);
+    m_depth     = std::make_unique<Shader>(depthVert, depthFrag);
+    m_ssao      = std::make_unique<Shader>(fullscreenVert, ssaoFrag);
+    m_bloomPre  = std::make_unique<Shader>(fullscreenVert, bloomPrefilterFrag);
+    m_bloomDown = std::make_unique<Shader>(fullscreenVert, bloomDownFrag);
+    m_bloomUp   = std::make_unique<Shader>(fullscreenVert, bloomUpFrag);
+    m_composite = std::make_unique<Shader>(fullscreenVert, compositeFrag);
+    m_fxaa      = std::make_unique<Shader>(fullscreenVert, fxaaFrag);
     buildGrid();
     buildAxes();
-    buildSky();
+    // Fullscreen passes make their own vertices, but core GL still needs a VAO.
+    glGenVertexArrays(1, &m_emptyVao);
+    m_startTime = now();
 }
 
 SceneRenderer::~SceneRenderer() {
-    if (m_gridVbo) glDeleteBuffers(1, &m_gridVbo);
-    if (m_gridVao) glDeleteVertexArrays(1, &m_gridVao);
-    if (m_axisVbo) glDeleteBuffers(1, &m_axisVbo);
-    if (m_axisVao) glDeleteVertexArrays(1, &m_axisVao);
-    if (m_skyVao)  glDeleteVertexArrays(1, &m_skyVao);
+    if (m_gridVbo)  glDeleteBuffers(1, &m_gridVbo);
+    if (m_gridVao)  glDeleteVertexArrays(1, &m_gridVao);
+    if (m_axisVbo)  glDeleteBuffers(1, &m_axisVbo);
+    if (m_axisVao)  glDeleteVertexArrays(1, &m_axisVao);
+    if (m_emptyVao) glDeleteVertexArrays(1, &m_emptyVao);
+    destroyTarget(m_hdr);
+    destroyTarget(m_ao);
+    destroyTarget(m_ldr);
+    for (auto& b : m_bloom) destroyTarget(b);
 }
 
 void SceneRenderer::buildGrid() {
@@ -242,7 +132,6 @@ void SceneRenderer::buildGrid() {
 }
 
 void SceneRenderer::buildAxes() {
-    // Two coloured centre lines (X and Z) in their own VAO, drawn as two ranges.
     const glm::vec3 verts[] = {
         {-10, kGridY, 0}, {10, kGridY, 0},   // X axis  (range 0..2)
         {0, kGridY, -10}, {0, kGridY, 10},   // Z axis  (range 2..4)
@@ -257,135 +146,321 @@ void SceneRenderer::buildAxes() {
     glBindVertexArray(0);
 }
 
-void SceneRenderer::buildSky() {
-    // The sky shader synthesises its own vertices, but core-profile draws still
-    // require a bound (empty) VAO.
-    glGenVertexArrays(1, &m_skyVao);
+void SceneRenderer::ensureTargets(int w, int h) {
+    if (m_hdr.w == w && m_hdr.h == h && m_hdr.fbo) return;
+    createTarget(m_hdr, w, h, GL_RGBA16F, true);
+    createTarget(m_ao, w / 2, h / 2, GL_R8, false);
+    createTarget(m_ldr, w, h, GL_RGBA8, false);
+    int bw = w / 2, bh = h / 2;
+    for (auto& b : m_bloom) {
+        createTarget(b, bw, bh, GL_RGBA16F, false);
+        bw = std::max(1, bw / 2);
+        bh = std::max(1, bh / 2);
+    }
 }
 
 void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) {
     m_shadow.bindForWrite();
     glEnable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
     // Cull front faces while filling the shadow map to reduce surface acne.
     glEnable(GL_CULL_FACE);
     glCullFace(GL_FRONT);
 
-    m_depthShader->bind();
-    m_depthShader->setMat4("uLightSpace", lightSpace);
+    m_depth->bind();
+    m_depth->setMat4("uLightSpace", lightSpace);
     scene.forEach([&](SceneNode* node) {
         if (!node->mesh || !node->visible || !node->castShadow) return;
-        if (node->transparency > 0.5f) return;   // mostly see-through: skip
-        m_depthShader->setMat4("uModel", node->worldMatrix());
+        if (node->kind != NodeKind::Part || node->transparency > 0.5f) return;
+        m_depth->setMat4("uModel", node->worldMatrix());
         node->mesh->draw();
     });
 
     glDisable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+    glEnable(GL_BLEND);
 }
 
-void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& fbo, bool showGrid) {
+void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& target, bool showGrid) {
+    GraphicsSettings& gs = GraphicsSettings::get();
     const Environment& env = scene.environment();
     glm::vec3 sunDir = env.sunDirection();
 
-    // --- Shadow map (rendered from the sun's point of view) ---
-    // Centre the shadow area on what the camera looks at, snapped to the
-    // shadow-map texel grid so shadows don't shimmer as the camera moves.
-    const float shadowExtent = 22.0f, shadowDist = 40.0f;
-    float texel = (2.0f * shadowExtent) / (float)m_shadow.size();
-    glm::vec3 shadowCenter = glm::floor(camera.pivot / texel) * texel;
-    glm::mat4 lightView = glm::lookAt(shadowCenter + sunDir * shadowDist,
-                                      shadowCenter, glm::vec3(0, 1, 0));
-    glm::mat4 lightProj = glm::ortho(-shadowExtent, shadowExtent,
-                                     -shadowExtent, shadowExtent,
-                                     0.1f, shadowDist * 2.0f);
-    glm::mat4 lightSpace = lightProj * lightView;
-    if (env.shadows) renderShadowPass(scene, lightSpace);
+    int w = std::max(1, (int)(target.width()  * std::clamp(gs.renderScale, 0.25f, 2.0f)));
+    int h = std::max(1, (int)(target.height() * std::clamp(gs.renderScale, 0.25f, 2.0f)));
+    ensureTargets(w, h);
+    if (m_shadowRes != gs.shadowRes) {
+        m_shadow.init(gs.shadowRes);
+        m_shadowRes = gs.shadowRes;
+    }
 
-    fbo.bind();
+    // --- Shadow map, centred on what the camera looks at and snapped to the
+    //     texel grid so shadows don't shimmer as the camera moves ---
+    const float extent   = std::max(5.0f, env.shadowDistance * 0.5f);
+    const float sunDist  = extent * 2.0f + 30.0f;
+    const float texel    = (2.0f * extent) / (float)m_shadow.size();
+    glm::mat4 lightView0 = glm::lookAt(sunDir * sunDist, glm::vec3(0.0f), glm::vec3(0, 1, 0));
+    glm::vec3 lsCenter   = glm::vec3(lightView0 * glm::vec4(camera.pivot, 1.0f));
+    lsCenter.x = std::floor(lsCenter.x / texel) * texel;
+    lsCenter.y = std::floor(lsCenter.y / texel) * texel;
+    glm::mat4 lightProj  = glm::ortho(lsCenter.x - extent, lsCenter.x + extent,
+                                      lsCenter.y - extent, lsCenter.y + extent,
+                                      -lsCenter.z - sunDist, -lsCenter.z + sunDist);
+    glm::mat4 lightSpace = lightProj * lightView0;
+    bool shadows = env.shadows && env.sunElevation > -5.0f;
+    if (shadows) renderShadowPass(scene, lightSpace);
+
+    // --- Main HDR pass ---
+    bindTarget(m_hdr);
     glEnable(GL_DEPTH_TEST);
-    glClearColor(env.skyHorizon.r, env.skyHorizon.g, env.skyHorizon.b, 1.0f);
+    glDepthMask(GL_TRUE);
+    glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glm::mat4 view = camera.view();
     glm::mat4 proj = camera.projection();
+    float time = (float)(now() - m_startTime);
 
-    // --- Procedural sky (drawn first, behind everything) ---
     if (env.showSky) {
         glDisable(GL_DEPTH_TEST);
         glDepthMask(GL_FALSE);
-        m_skyShader->bind();
-        m_skyShader->setMat4("uInvViewProj", glm::inverse(proj * view));
-        m_skyShader->setVec3("uZenith",  env.skyZenith);
-        m_skyShader->setVec3("uHorizon", env.skyHorizon);
-        m_skyShader->setVec3("uGround",  env.skyGround);
-        m_skyShader->setVec3("uSunDir",  sunDir);
-        m_skyShader->setVec3("uSunColor", env.sunColor);
-        m_skyShader->setFloat("uSunIntensity", env.sunIntensity);
-        glBindVertexArray(m_skyVao);
+        m_sky->bind();
+        m_sky->setMat4("uInvViewProj", glm::inverse(proj * view));
+        m_sky->setVec3("uZenith",  env.skyZenith);
+        m_sky->setVec3("uHorizon", env.skyHorizon);
+        m_sky->setVec3("uGround",  env.skyGround);
+        m_sky->setFloat("uSkyBrightness", env.skyBrightness);
+        m_sky->setVec3("uSunDir",  sunDir);
+        m_sky->setVec3("uSunColor", env.sunColor);
+        m_sky->setFloat("uSunIntensity", std::max(0.0f, env.sunIntensity));
+        m_sky->setFloat("uSunSize", env.sunSize);
+        m_sky->setVec3("uAmbient", env.ambientColor * env.ambientIntensity);
+        m_sky->setBool("uClouds", env.clouds);
+        m_sky->setFloat("uCloudCover", env.cloudCover);
+        m_sky->setFloat("uCloudSpeed", env.cloudSpeed);
+        m_sky->setVec3("uCloudColor", env.cloudColor);
+        m_sky->setBool("uStars", env.stars);
+        m_sky->setFloat("uTime", time);
+        glBindVertexArray(m_emptyVao);
         glDrawArrays(GL_TRIANGLES, 0, 3);
-        glBindVertexArray(0);
         glDepthMask(GL_TRUE);
         glEnable(GL_DEPTH_TEST);
+    } else {
+        glm::vec3 c = glm::pow(env.skyHorizon, glm::vec3(2.2f));
+        glClearColor(c.r, c.g, c.b, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
     }
 
-    // --- Grid + axes (editor only) ---
     if (showGrid) {
-    m_gridShader->bind();
-    m_gridShader->setMat4("uView", view);
-    m_gridShader->setMat4("uProj", proj);
-    m_gridShader->setVec3("uColor", {0.35f, 0.36f, 0.40f});
-    glBindVertexArray(m_gridVao);
-    glDrawArrays(GL_LINES, 0, m_gridVertexCount);
-
-    // Coloured centre axes (X = red, Z = blue), from a persistent VAO.
-    glBindVertexArray(m_axisVao);
-    m_gridShader->setVec3("uColor", {0.75f, 0.25f, 0.25f});
-    glDrawArrays(GL_LINES, 0, 2);
-    m_gridShader->setVec3("uColor", {0.25f, 0.45f, 0.80f});
-    glDrawArrays(GL_LINES, 2, 2);
+        m_grid->bind();
+        m_grid->setMat4("uView", view);
+        m_grid->setMat4("uProj", proj);
+        m_grid->setVec3("uColor", {0.12f, 0.13f, 0.16f});
+        glBindVertexArray(m_gridVao);
+        glDrawArrays(GL_LINES, 0, m_gridVertexCount);
+        glBindVertexArray(m_axisVao);
+        m_grid->setVec3("uColor", {0.55f, 0.06f, 0.06f});
+        glDrawArrays(GL_LINES, 0, 2);
+        m_grid->setVec3("uColor", {0.06f, 0.2f, 0.62f});
+        glDrawArrays(GL_LINES, 2, 2);
     }
 
-    // --- Lit scene geometry ---
-    m_shader->bind();
-    m_shader->setMat4("uView", view);
-    m_shader->setMat4("uProj", proj);
-    m_shader->setVec3("uSunDir", sunDir);
-    m_shader->setVec3("uSunColor", env.sunColor);
-    m_shader->setFloat("uSunIntensity", env.sunIntensity);
-    m_shader->setVec3("uAmbient", env.ambientColor * env.ambientIntensity);
-    m_shader->setVec3("uViewPos", camera.position());
-    m_shader->setBool("uFogEnabled", env.fogEnabled);
-    m_shader->setVec3("uFogColor", env.fogColor);
-    m_shader->setFloat("uFogDensity", env.fogDensity);
-    m_shader->setBool("uShadowsEnabled", env.shadows);
-    m_shader->setMat4("uLightSpace", lightSpace);
+    // --- Lit geometry ---
+    m_lit->bind();
+    m_lit->setMat4("uView", view);
+    m_lit->setMat4("uProj", proj);
+    m_lit->setVec3("uViewPos", camera.position());
+    m_lit->setFloat("uTime", time);
+    m_lit->setVec3("uSunDir", sunDir);
+    m_lit->setVec3("uSunColor", env.sunColor);
+    m_lit->setFloat("uSunIntensity", std::max(0.0f, env.sunIntensity));
+    m_lit->setVec3("uAmbientSky", env.ambientColor);
+    m_lit->setVec3("uAmbientGround", env.groundAmbient);
+    m_lit->setFloat("uAmbientIntensity", env.ambientIntensity);
+    m_lit->setFloat("uReflections", env.reflections);
+    m_lit->setVec3("uZenith",  env.skyZenith);
+    m_lit->setVec3("uHorizon", env.skyHorizon);
+    m_lit->setVec3("uGround",  env.skyGround);
+    m_lit->setBool("uFogEnabled", env.fogEnabled);
+    m_lit->setVec3("uFogColor", env.fogColor);
+    m_lit->setFloat("uFogDensity", env.fogDensity);
+    m_lit->setFloat("uFogSunGlow", env.fogSunGlow);
+    m_lit->setBool("uShadowsEnabled", shadows);
+    m_lit->setInt("uShadowQuality", gs.shadowQuality);
+    m_lit->setFloat("uShadowSoftness", env.shadowSoftness);
+    m_lit->setFloat("uShadowStrength", env.shadowStrength);
+    m_lit->setFloat("uShadowTexelWorld", texel);
+    m_lit->setFloat("uShadowDepthRange", sunDist * 2.0f);
+    m_lit->setMat4("uLightSpace", lightSpace);
     m_shadow.bindForRead(0);
-    m_shader->setInt("uShadowMap", 0);
+    m_lit->setInt("uShadowMap", 0);
 
-    scene.forEach([&](SceneNode* node) {
-        if (!node->mesh || !node->visible) return;
-        if (node->kind != NodeKind::Part) return;
-        float alpha = 1.0f - node->transparency;
-        if (alpha <= 0.001f) return;   // fully transparent — nothing to draw
-
-        glm::mat4 model = node->worldMatrix();
-        glm::mat3 nrm   = glm::transpose(glm::inverse(glm::mat3(model)));
-        m_shader->setMat4("uModel", model);
-        m_shader->setMat3("uNormalMat", nrm);
-        m_shader->setVec3("uColor", node->color);
-        m_shader->setBool("uSelected", node->selected);
-        m_shader->setInt("uMaterial", (int)node->material);
-        m_shader->setFloat("uAlpha", alpha);
-
-        // Don't let translucent parts occlude what's behind them via the depth
-        // buffer (blending is enabled globally).
-        bool translucent = alpha < 0.999f;
-        if (translucent) glDepthMask(GL_FALSE);
-        node->mesh->draw();
-        if (translucent) glDepthMask(GL_TRUE);
+    // Collect point / spot lights; keep the ones closest to the camera.
+    struct LightItem { glm::vec4 pos, col, dir; float dist; };
+    std::vector<LightItem> lights;
+    glm::vec3 camPos = camera.position();
+    scene.forEach([&](SceneNode* n) {
+        if (!n->isLight() || !n->enabled || n->brightness <= 0.0f) return;
+        for (SceneNode* p = n; p; p = p->parent) if (!p->visible) return;
+        glm::mat4 m = n->worldMatrix();
+        glm::vec3 pos(m[3]);
+        glm::vec3 dir = glm::normalize(glm::vec3(m * glm::vec4(0, -1, 0, 0)));
+        float cosHalf = std::cos(glm::radians(std::clamp(n->spotAngle, 1.0f, 179.0f) * 0.5f));
+        glm::vec3 col = glm::pow(n->color, glm::vec3(2.2f)) * n->brightness;
+        lights.push_back({glm::vec4(pos, n->range), glm::vec4(col, n->lightType == LightType::Spot ? 1.0f : 0.0f),
+                          glm::vec4(dir, cosHalf), glm::length(pos - camPos)});
     });
+    std::sort(lights.begin(), lights.end(), [](auto& a, auto& b) { return a.dist < b.dist; });
+    int count = std::min<int>((int)lights.size(), std::min(kMaxLights, gs.maxLights));
+    glm::vec4 lp[kMaxLights], lc[kMaxLights], ld[kMaxLights];
+    for (int i = 0; i < count; ++i) { lp[i] = lights[i].pos; lc[i] = lights[i].col; ld[i] = lights[i].dir; }
+    m_lit->setInt("uLightCount", count);
+    m_lit->setVec4Array("uLightPosRange", lp, count);
+    m_lit->setVec4Array("uLightColor", lc, count);
+    m_lit->setVec4Array("uLightDir", ld, count);
 
+    drawGeometry(scene, camera);
     glBindVertexArray(0);
-    fbo.unbind();
+
+    postProcess(scene, camera, target);
 }
 
+void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera) {
+    struct Item { SceneNode* node; glm::mat4 model; float dist; };
+    std::vector<Item> opaque, transparent;
+    glm::vec3 camPos = camera.position();
+
+    // Walk manually so hidden models hide everything inside them.
+    std::vector<SceneNode*> stack{scene.root()};
+    while (!stack.empty()) {
+        SceneNode* node = stack.back();
+        stack.pop_back();
+        if (!node->visible) continue;
+        for (auto& c : node->children) stack.push_back(c.get());
+        if (!node->mesh || node->kind != NodeKind::Part) continue;
+        float alpha = 1.0f - node->transparency;
+        if (alpha <= 0.001f) continue;   // fully transparent — nothing to draw
+        glm::mat4 model = node->worldMatrix();
+        float dist = glm::length(glm::vec3(model[3]) - camPos);
+        bool see = alpha < 0.999f || node->material == Material::Glass;
+        (see ? transparent : opaque).push_back({node, model, dist});
+    }
+    // Transparent things are drawn last, far to near, so blending looks right.
+    std::sort(transparent.begin(), transparent.end(), [](auto& a, auto& b) { return a.dist > b.dist; });
+
+    auto draw = [&](const Item& it) {
+        SceneNode* node = it.node;
+        glm::mat3 nrm = glm::transpose(glm::inverse(glm::mat3(it.model)));
+        m_lit->setMat4("uModel", it.model);
+        m_lit->setMat3("uNormalMat", nrm);
+        m_lit->setVec3("uColor", node->color);
+        m_lit->setBool("uSelected", node->selected);
+        m_lit->setInt("uMaterial", (int)node->material);
+        m_lit->setFloat("uAlpha", 1.0f - node->transparency);
+        node->mesh->draw();
+    };
+
+    glDisable(GL_BLEND);
+    for (auto& it : opaque) draw(it);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    for (auto& it : transparent) draw(it);
+    glDepthMask(GL_TRUE);
+}
+
+void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer& target) {
+    GraphicsSettings& gs = GraphicsSettings::get();
+    const Environment& env = scene.environment();
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glBindVertexArray(m_emptyVao);
+
+    // --- Ambient occlusion (half resolution) ---
+    bool useAO = gs.ssao && env.aoIntensity > 0.0f;
+    if (useAO) {
+        bindTarget(m_ao);
+        m_ssao->bind();
+        bindTex(0, m_hdr.depth);
+        m_ssao->setInt("uDepth", 0);
+        glm::mat4 proj = camera.projection();
+        m_ssao->setMat4("uProj", proj);
+        m_ssao->setMat4("uInvProj", glm::inverse(proj));
+        m_ssao->setVec2("uTexel", glm::vec2(1.0f / m_hdr.w, 1.0f / m_hdr.h));
+        m_ssao->setFloat("uRadius", 0.7f);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+
+    // --- Bloom: bright-pass, then a blur pyramid down and back up ---
+    bool useBloom = gs.bloom && env.bloomIntensity > 0.0f;
+    if (useBloom) {
+        bindTarget(m_bloom[0]);
+        m_bloomPre->bind();
+        bindTex(0, m_hdr.color);
+        m_bloomPre->setInt("uSrc", 0);
+        m_bloomPre->setFloat("uThreshold", env.bloomThreshold);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        m_bloomDown->bind();
+        m_bloomDown->setInt("uSrc", 0);
+        for (int i = 1; i < kBloomLevels; ++i) {
+            bindTarget(m_bloom[i]);
+            bindTex(0, m_bloom[i - 1].color);
+            m_bloomDown->setVec2("uTexel", glm::vec2(1.0f / m_bloom[i - 1].w, 1.0f / m_bloom[i - 1].h));
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+
+        m_bloomUp->bind();
+        m_bloomUp->setInt("uSrc", 0);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        for (int i = kBloomLevels - 1; i > 0; --i) {
+            bindTarget(m_bloom[i - 1]);
+            bindTex(0, m_bloom[i].color);
+            m_bloomUp->setVec2("uTexel", glm::vec2(1.0f / m_bloom[i].w, 1.0f / m_bloom[i].h));
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+        glDisable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    // --- Composite: tone mapping + grading, then optional FXAA ---
+    bool useFxaa = gs.fxaa;
+    if (useFxaa) bindTarget(m_ldr);
+    else         target.bind();
+    m_composite->bind();
+    bindTex(0, m_hdr.color);
+    bindTex(1, m_bloom[0].color);
+    bindTex(2, m_ao.color);
+    m_composite->setInt("uHdr", 0);
+    m_composite->setInt("uBloom", 1);
+    m_composite->setInt("uAO", 2);
+    m_composite->setBool("uUseBloom", useBloom);
+    m_composite->setBool("uUseAO", useAO);
+    m_composite->setBool("uPost", gs.postFx);
+    m_composite->setBool("uLumaAlpha", useFxaa);
+    m_composite->setVec2("uAOTexel", glm::vec2(1.0f / m_ao.w, 1.0f / m_ao.h));
+    m_composite->setFloat("uExposure", env.exposure);
+    m_composite->setFloat("uBloomIntensity", env.bloomIntensity);
+    m_composite->setFloat("uAOIntensity", env.aoIntensity);
+    m_composite->setFloat("uContrast", env.contrast);
+    m_composite->setFloat("uSaturation", env.saturation);
+    m_composite->setFloat("uVignette", env.vignette);
+    m_composite->setVec3("uTint", env.tint);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    if (useFxaa) {
+        target.bind();
+        m_fxaa->bind();
+        bindTex(0, m_ldr.color);
+        m_fxaa->setInt("uSrc", 0);
+        m_fxaa->setVec2("uTexel", glm::vec2(1.0f / m_ldr.w, 1.0f / m_ldr.h));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    target.unbind();
+}

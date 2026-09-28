@@ -59,6 +59,7 @@ set_target_properties(lua_static PROPERTIES C_STANDARD 99)
 FetchContent_Declare(
     json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(json)
 
@@ -71,6 +72,7 @@ set(ENGINE_SOURCES
     src/main.cpp
     src/core/CrashHandler.cpp
     src/core/Log.cpp
+    src/core/Settings.cpp
     src/Application.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
@@ -88,6 +90,7 @@ set(ENGINE_SOURCES
     src/scripting/LuaInstance.cpp
     src/game/GameSession.cpp
     src/game/Hud.cpp
+    src/game/SettingsWindow.cpp
     src/editor/Editor.cpp
     src/editor/Theme.cpp
     src/editor/Premades.cpp

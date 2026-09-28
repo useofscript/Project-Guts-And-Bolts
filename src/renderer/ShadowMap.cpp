@@ -6,6 +6,9 @@ ShadowMap::~ShadowMap() {
 }
 
 void ShadowMap::init(int size) {
+    // Safe to call again (e.g. when the shadow quality setting changes).
+    if (m_depth) { glDeleteTextures(1, &m_depth); m_depth = 0; }
+    if (m_fbo)   { glDeleteFramebuffers(1, &m_fbo); m_fbo = 0; }
     m_size = size;
 
     glGenTextures(1, &m_depth);

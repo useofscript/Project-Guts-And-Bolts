@@ -168,9 +168,33 @@ void ViewportPanel::render(float dt) {
         } else {
             drawGizmo(view, proj, imgMin, imgSize);
 
+            // Light icons (lights have no shape, so draw a marker you can click).
+            SceneNode* iconHit = nullptr;
+            ImVec2 mouse = ImGui::GetMousePos();
+            glm::mat4 vp = proj * view;
+            m_scene->forEach([&](SceneNode* n) {
+                if (!n->isLight()) return;
+                glm::vec4 c = vp * glm::vec4(glm::vec3(n->worldMatrix()[3]), 1.0f);
+                if (c.w <= 0.05f) return;
+                glm::vec2 ndc = glm::vec2(c) / c.w;
+                if (std::abs(ndc.x) > 1.05f || std::abs(ndc.y) > 1.05f) return;
+                ImVec2 sp(imgMin.x + (ndc.x * 0.5f + 0.5f) * imgSize.x,
+                          imgMin.y + (0.5f - ndc.y * 0.5f) * imgSize.y);
+                glm::vec3 col = n->enabled ? n->color : glm::vec3(0.4f);
+                ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(col.r, col.g, col.b, 0.9f));
+                dl->AddCircleFilled(sp, 8.0f, fill);
+                dl->AddCircle(sp, 10.0f, n->selected ? IM_COL32(255, 150, 40, 255) : IM_COL32(20, 20, 20, 200), 0, 2.0f);
+                if (n->lightType == LightType::Spot)
+                    dl->AddLine(sp, ImVec2(sp.x, sp.y + 16), IM_COL32(20, 20, 20, 200), 2.0f);
+                float dx = mouse.x - sp.x, dy = mouse.y - sp.y;
+                if (dx * dx + dy * dy < 12.0f * 12.0f) iconHit = n;
+            });
+
             // Left-click to pick — but not while interacting with the gizmo.
             bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
-            if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (m_hovered && !overGizmo && iconHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                m_scene->select(iconHit);
+            } else if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 m = ImGui::GetMousePos();
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);

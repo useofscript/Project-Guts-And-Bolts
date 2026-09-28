@@ -22,6 +22,7 @@ void PropertiesPanel::render() {
 
     const char* cls = node == m_scene->root()          ? "Workspace"
                     : node->kind == NodeKind::Script   ? "Script"
+                    : node->kind == NodeKind::Light    ? (node->lightType == LightType::Spot ? "SpotLight" : "PointLight")
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
@@ -32,13 +33,32 @@ void PropertiesPanel::render() {
 
     // --- Scripts: just the code ---
     if (node->isScript()) {
-        ImGui::Checkbox("Enabled", &node->scriptEnabled);
+        ImGui::Checkbox("Enabled", &node->enabled);
         ImGui::Spacing();
         if (ImGui::Button("Edit Script", ImVec2(-1, 36)) && m_openScript) m_openScript(node);
         ImGui::Spacing();
         ImGui::TextDisabled("Runs when you press Play.");
         ImGui::TextDisabled("Inside the code, 'script.Parent' is the");
         ImGui::TextDisabled("object this script is inside of.");
+        ImGui::End();
+        return;
+    }
+
+    if (node->isLight()) {
+        ImGui::Checkbox("Enabled", &node->enabled);
+        int t = (int)node->lightType;
+        const char* types[] = {"Point", "Spot"};
+        if (ImGui::Combo("Type", &t, types, 2)) node->lightType = (LightType)t;
+        ImGui::ColorEdit3("Color", &node->color.x);
+        ImGui::SliderFloat("Brightness", &node->brightness, 0.0f, 20.0f);
+        ImGui::SliderFloat("Range", &node->range, 1.0f, 100.0f);
+        if (node->lightType == LightType::Spot) {
+            ImGui::SliderFloat("Angle", &node->spotAngle, 5.0f, 170.0f, "%.0f\xc2\xb0");
+            ImGui::DragFloat3("Rotation", &node->transform.rotation.x, 0.5f);
+            ImGui::TextDisabled("Spot lights point down; rotate to aim.");
+        }
+        ImGui::DragFloat3("Offset", &node->transform.position.x, 0.05f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Position relative to the part it's inside");
         ImGui::End();
         return;
     }
@@ -83,9 +103,8 @@ void PropertiesPanel::render() {
             node->mesh = MeshLibrary::get(node->primitiveType);
         }
 
-        const char* materials[] = { "Plastic", "Metal", "Neon", "Wood" };
         int mat = (int)node->material;
-        if (ImGui::Combo("Material", &mat, materials, IM_ARRAYSIZE(materials)))
+        if (ImGui::Combo("Material", &mat, kMaterialNames, kMaterialCount))
             node->material = (Material)mat;
 
         ImGui::SliderFloat("Transparency", &node->transparency, 0.0f, 1.0f);

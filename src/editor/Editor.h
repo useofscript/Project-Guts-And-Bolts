@@ -40,6 +40,7 @@ private:
     void       spawnPremade(Premade kind);
     void       addScript(SceneNode* parent);
     void       addModel();
+    void       addLight(LightType type);
     void       openScript(SceneNode* script);
     void       duplicateSelected();
     void       deleteSelected();
@@ -76,6 +77,7 @@ private:
     std::unique_ptr<ScriptEditorPanel> m_scriptEditor;
 
     bool m_firstLayout = true;
+    bool m_showSettings = false;
     bool m_playing     = false;
     int  m_objCounter  = 0;
     int  m_frame       = 0;

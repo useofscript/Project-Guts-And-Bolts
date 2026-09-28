@@ -12,10 +12,16 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder };
 //   Part   — a visible, physical shape (Cube / Sphere / Plane / Cylinder)
 //   Model  — an empty container used to group other objects
 //   Script — Lua code that runs when you press Play (script.Parent = its parent)
-enum class NodeKind { Part, Model, Script };
+//   Light  — a PointLight / SpotLight, usually placed inside a part
+enum class NodeKind { Part, Model, Script, Light };
+
+enum class LightType { Point, Spot };
 
 // Surface look, à la Roblox materials — affects shading in the lit shader.
-enum class Material { Plastic, Metal, Neon, Wood };
+enum class Material { Plastic, Metal, Neon, Wood, Glass, Concrete, Ice };
+inline constexpr int kMaterialCount = 7;
+inline const char* const kMaterialNames[kMaterialCount] =
+    {"Plastic", "Metal", "Neon", "Wood", "Glass", "Concrete", "Ice"};
 
 struct Transform {
     glm::vec3 position = {0.0f, 0.0f, 0.0f};
@@ -51,7 +57,13 @@ public:
 
     // Script (kind == Script)
     std::string source;
-    bool        scriptEnabled = true;
+    bool        enabled = true;           // scripts and lights can be switched off
+
+    // Light (kind == Light) — uses `color` for its colour.
+    LightType   lightType  = LightType::Point;
+    float       brightness = 2.0f;
+    float       range      = 14.0f;
+    float       spotAngle  = 60.0f;       // cone width in degrees (spot lights)
 
     // Runtime-only physics state (not saved).
     glm::vec3   velocity = {0.0f, 0.0f, 0.0f};
@@ -61,6 +73,7 @@ public:
 
     bool isPart()   const { return kind == NodeKind::Part && mesh != nullptr; }
     bool isScript() const { return kind == NodeKind::Script; }
+    bool isLight()  const { return kind == NodeKind::Light; }
 
     SceneNode*                 addChild(std::unique_ptr<SceneNode> child);
     void                       removeChild(SceneNode* child);

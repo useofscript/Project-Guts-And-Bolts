@@ -11,6 +11,7 @@ public:
         std::function<void(PrimitiveType)> spawnPart;
         std::function<void()>              addScript;
         std::function<void()>              addModel;
+        std::function<void(LightType)>     addLight;
         std::function<void(Premade)>       spawnPremade;
     };
 

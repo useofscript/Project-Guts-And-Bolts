@@ -35,6 +35,14 @@ void ToolboxPanel::render() {
             ImGui::SetTooltip("An empty folder for grouping objects");
     }
 
+    if (ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Button("Point Light", ImVec2(btnW, 36)) && m_do.addLight) m_do.addLight(LightType::Point);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shines in every direction, like a light bulb.\nGoes inside the selected part.");
+        ImGui::SameLine();
+        if (ImGui::Button("Spot Light", ImVec2(btnW, 36)) && m_do.addLight) m_do.addLight(LightType::Spot);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shines in a cone (downwards - rotate it to aim).\nGoes inside the selected part.");
+    }
+
     if (ImGui::CollapsingHeader("Ready-made", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextDisabled("These already have scripts inside.");
         int i = 0;

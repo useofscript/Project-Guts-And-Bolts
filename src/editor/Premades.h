@@ -9,7 +9,7 @@ class SceneNode;
 // work straight away when you press Play — and double as scripting examples.
 enum class Premade {
     SpawnLocation, KillBrick, Spinner, JumpPad, Coin, DisappearingPlatform,
-    MovingPlatform, SpeedPad, ClickButton, FallingBall, DayNightCycle,
+    MovingPlatform, SpeedPad, ClickButton, FallingBall, DayNightCycle, LampPost, DiscoFloor,
 };
 
 struct PremadeInfo {

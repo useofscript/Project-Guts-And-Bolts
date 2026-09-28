@@ -29,7 +29,8 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     const char* tag = "";
     if (node->isScript())                { col = {0.55f, 0.75f, 1.00f, 1}; tag = "[S] "; }
     else if (node->kind == NodeKind::Model) { col = {0.95f, 0.82f, 0.45f, 1}; tag = "[M] "; }
-    if (!node->visible || (node->isScript() && !node->scriptEnabled)) col.w = 0.5f;
+    else if (node->isLight())            { col = {1.00f, 0.95f, 0.60f, 1}; tag = "[L] "; }
+    if (!node->visible || (node->isScript() && !node->enabled)) col.w = 0.5f;
     ImGui::PushStyleColor(ImGuiCol_Text, col);
 
     bool open = ImGui::TreeNodeEx("##node", flags, "%s%s", tag, node->name.c_str());
@@ -58,7 +59,7 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     if (ImGui::BeginPopupContextItem()) {
         m_scene->select(node);
         if (node->isScript() && ImGui::MenuItem("Edit Script")) m_openScript(node);
-        if (!node->isScript() && ImGui::MenuItem("Add Script inside")) m_addScriptTo(node);
+        if (!node->isScript() && !node->isLight() && ImGui::MenuItem("Add Script inside")) m_addScriptTo(node);
         if (ImGui::MenuItem(node->visible ? "Hide" : "Show"))
             node->visible = !node->visible;
         if (node->parent && node->parent != m_scene->root() && !locked &&

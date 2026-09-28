@@ -2,31 +2,58 @@
 #include <glm/glm.hpp>
 #include <cmath>
 
-// Scene-wide lighting & atmosphere settings — the engine's equivalent of
-// Roblox's Lighting service. Owned by Scene, edited via the Environment panel,
-// consumed by the viewport renderer.
+// Scene-wide lighting, sky, atmosphere and camera look — the engine's
+// equivalent of Roblox's Lighting service (or an Unreal post-process volume).
+// Owned by Scene, saved with the game, edited in the Lighting panel.
 struct Environment {
+    float     clockTime      = 14.0f;   // time of day (hours), see applyTimeOfDay()
+
     // Sun (single directional light) -----------------------------------------
-    float     sunAzimuth     = 50.0f;   // degrees around the horizon
+    float     sunAzimuth     = 150.0f;  // degrees around the horizon
     float     sunElevation   = 55.0f;   // degrees above the horizon
-    glm::vec3 sunColor       = {1.00f, 0.96f, 0.88f};
-    float     sunIntensity   = 1.15f;
+    glm::vec3 sunColor       = {1.00f, 0.95f, 0.86f};
+    float     sunIntensity   = 1.6f;
+    float     sunSize        = 1.0f;    // size of the sun disc in the sky
+
+    // Shadows -----------------------------------------------------------------
     bool      shadows        = true;    // sun casts shadows
+    float     shadowSoftness = 1.0f;    // 0 = razor sharp, 3 = very soft
+    float     shadowStrength = 0.85f;   // 0 = invisible, 1 = fully dark
+    float     shadowDistance = 45.0f;   // how far from the camera shadows reach
 
     // Ambient / sky fill light ------------------------------------------------
-    glm::vec3 ambientColor      = {0.40f, 0.45f, 0.55f};
-    float     ambientIntensity  = 0.45f;
+    glm::vec3 ambientColor      = {0.52f, 0.62f, 0.80f};   // light from the sky
+    glm::vec3 groundAmbient     = {0.30f, 0.27f, 0.22f};   // light bouncing off the ground
+    float     ambientIntensity  = 0.42f;
+    float     reflections       = 1.0f;                    // sky reflections on shiny parts
 
     // Procedural sky ----------------------------------------------------------
     bool      showSky    = true;
-    glm::vec3 skyZenith  = {0.10f, 0.26f, 0.52f};
-    glm::vec3 skyHorizon = {0.64f, 0.74f, 0.86f};
-    glm::vec3 skyGround  = {0.16f, 0.15f, 0.14f};
+    glm::vec3 skyZenith  = {0.13f, 0.32f, 0.66f};
+    glm::vec3 skyHorizon = {0.66f, 0.77f, 0.90f};
+    glm::vec3 skyGround  = {0.18f, 0.17f, 0.16f};
+    float     skyBrightness = 1.0f;
+    bool      clouds     = true;
+    float     cloudCover = 0.45f;       // 0 = clear, 1 = overcast
+    float     cloudSpeed = 1.0f;
+    glm::vec3 cloudColor = {1.0f, 1.0f, 1.0f};
+    bool      stars      = true;        // visible when the sky is dark
 
     // Atmosphere (exponential distance fog) -----------------------------------
-    bool      fogEnabled = true;
-    glm::vec3 fogColor   = {0.64f, 0.74f, 0.86f};
-    float     fogDensity = 0.012f;
+    bool      fogEnabled   = true;
+    glm::vec3 fogColor     = {0.66f, 0.77f, 0.90f};
+    float     fogDensity   = 0.010f;
+    float     fogSunGlow   = 0.6f;      // fog glows when looking toward the sun
+
+    // Camera / post-processing -------------------------------------------------
+    float     exposure       = 1.0f;
+    float     bloomIntensity = 0.5f;
+    float     bloomThreshold = 1.0f;
+    float     aoIntensity    = 1.0f;    // ambient occlusion (contact darkening)
+    float     contrast       = 1.05f;
+    float     saturation     = 1.1f;
+    float     vignette       = 0.25f;
+    glm::vec3 tint           = {1.0f, 1.0f, 1.0f};
 
     // Unit vector pointing from a surface toward the sun.
     glm::vec3 sunDirection() const {
@@ -47,37 +74,104 @@ inline Environment day() { return Environment{}; }
 inline Environment sunset() {
     Environment e;
     e.sunAzimuth = 18.0f;  e.sunElevation = 7.0f;
-    e.sunColor = {1.00f, 0.56f, 0.30f}; e.sunIntensity = 1.35f;
-    e.ambientColor = {0.45f, 0.33f, 0.32f}; e.ambientIntensity = 0.40f;
+    e.sunColor = {1.00f, 0.56f, 0.30f}; e.sunIntensity = 1.9f; e.sunSize = 1.6f;
+    e.ambientColor = {0.50f, 0.38f, 0.40f}; e.groundAmbient = {0.25f, 0.16f, 0.12f};
+    e.ambientIntensity = 0.45f;
     e.skyZenith  = {0.16f, 0.18f, 0.40f};
     e.skyHorizon = {0.97f, 0.55f, 0.30f};
     e.skyGround  = {0.16f, 0.11f, 0.11f};
-    e.fogColor = {0.95f, 0.58f, 0.36f}; e.fogDensity = 0.020f;
+    e.cloudColor = {1.0f, 0.75f, 0.6f};
+    e.fogColor = {0.95f, 0.58f, 0.36f}; e.fogDensity = 0.018f; e.fogSunGlow = 1.0f;
+    e.bloomIntensity = 0.7f; e.saturation = 1.2f; e.tint = {1.0f, 0.95f, 0.9f};
     return e;
 }
 
 inline Environment night() {
     Environment e;
     e.sunAzimuth = 205.0f; e.sunElevation = 35.0f;
-    e.sunColor = {0.55f, 0.62f, 0.85f}; e.sunIntensity = 0.40f;
-    e.ambientColor = {0.16f, 0.20f, 0.33f}; e.ambientIntensity = 0.35f;
-    e.skyZenith  = {0.02f, 0.03f, 0.08f};
-    e.skyHorizon = {0.06f, 0.09f, 0.18f};
-    e.skyGround  = {0.03f, 0.03f, 0.05f};
-    e.fogColor = {0.06f, 0.09f, 0.18f}; e.fogDensity = 0.022f;
+    e.sunColor = {0.55f, 0.65f, 0.95f}; e.sunIntensity = 0.45f; e.sunSize = 0.7f;
+    e.ambientColor = {0.16f, 0.21f, 0.38f}; e.groundAmbient = {0.05f, 0.05f, 0.08f};
+    e.ambientIntensity = 0.35f; e.reflections = 0.6f;
+    e.skyZenith  = {0.01f, 0.015f, 0.05f};
+    e.skyHorizon = {0.05f, 0.08f, 0.17f};
+    e.skyGround  = {0.02f, 0.02f, 0.04f};
+    e.cloudCover = 0.3f; e.cloudColor = {0.35f, 0.4f, 0.55f};
+    e.fogColor = {0.05f, 0.08f, 0.16f}; e.fogDensity = 0.02f; e.fogSunGlow = 0.3f;
+    e.exposure = 1.25f; e.bloomIntensity = 0.8f; e.saturation = 0.9f;
+    e.tint = {0.9f, 0.95f, 1.1f}; e.vignette = 0.4f;
     return e;
 }
 
 inline Environment overcast() {
     Environment e;
     e.sunElevation = 70.0f;
-    e.sunColor = {0.90f, 0.90f, 0.92f}; e.sunIntensity = 0.70f;
-    e.ambientColor = {0.60f, 0.62f, 0.66f}; e.ambientIntensity = 0.70f;
+    e.sunColor = {0.90f, 0.90f, 0.92f}; e.sunIntensity = 0.7f;
+    e.shadowSoftness = 3.0f; e.shadowStrength = 0.5f;
+    e.ambientColor = {0.66f, 0.68f, 0.72f}; e.groundAmbient = {0.36f, 0.36f, 0.36f};
+    e.ambientIntensity = 0.8f;
     e.skyZenith  = {0.55f, 0.58f, 0.62f};
     e.skyHorizon = {0.73f, 0.75f, 0.77f};
     e.skyGround  = {0.30f, 0.30f, 0.31f};
-    e.fogColor = {0.73f, 0.75f, 0.77f}; e.fogDensity = 0.030f;
+    e.cloudCover = 0.9f; e.cloudColor = {0.8f, 0.82f, 0.85f};
+    e.fogColor = {0.73f, 0.75f, 0.77f}; e.fogDensity = 0.028f; e.fogSunGlow = 0.1f;
+    e.saturation = 0.85f; e.contrast = 1.0f;
     return e;
+}
+
+// Dark and moody — handy for horror / gore games.
+inline Environment horror() {
+    Environment e;
+    e.sunAzimuth = 120.0f; e.sunElevation = 20.0f;
+    e.sunColor = {0.8f, 0.3f, 0.25f}; e.sunIntensity = 0.5f; e.sunSize = 2.0f;
+    e.ambientColor = {0.25f, 0.12f, 0.12f}; e.groundAmbient = {0.06f, 0.03f, 0.03f};
+    e.ambientIntensity = 0.3f; e.shadowStrength = 1.0f;
+    e.skyZenith  = {0.04f, 0.01f, 0.01f};
+    e.skyHorizon = {0.25f, 0.06f, 0.05f};
+    e.skyGround  = {0.03f, 0.01f, 0.01f};
+    e.cloudCover = 0.7f; e.cloudColor = {0.35f, 0.12f, 0.1f};
+    e.fogColor = {0.18f, 0.04f, 0.04f}; e.fogDensity = 0.045f; e.fogSunGlow = 0.8f;
+    e.exposure = 1.3f; e.bloomIntensity = 0.9f; e.contrast = 1.2f; e.saturation = 0.8f;
+    e.vignette = 0.6f; e.tint = {1.1f, 0.9f, 0.85f};
+    return e;
+}
+
+inline float smoothstep01(float e0, float e1, float x) {
+    float t = glm::clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Move the sun for a time of day (0-24 hours) and blend the day / sunset /
+// night looks to match. Used by the Lighting panel and Lighting.ClockTime.
+inline void applyTimeOfDay(Environment& env, float hours) {
+    float t = std::fmod(std::fmod(hours, 24.0f) + 24.0f, 24.0f);
+    float angle = (t - 6.0f) / 12.0f * 3.14159265f;    // 6am sunrise, noon overhead
+    float height = std::sin(angle);
+
+    glm::vec3 dir = glm::normalize(glm::vec3(std::cos(angle), height, 0.35f));
+    bool night = height < -0.05f;
+    if (night) dir = -dir;                              // show the moon instead
+
+    env.sunElevation = glm::degrees(std::asin(glm::clamp(dir.y, -1.0f, 1.0f)));
+    env.sunAzimuth   = glm::degrees(std::atan2(dir.z, dir.x));
+
+    Environment day = EnvironmentPresets::day(), dusk = EnvironmentPresets::sunset(),
+                nite = EnvironmentPresets::night();
+    float dayK  = smoothstep01(-0.15f, 0.35f, height);
+    float duskK = glm::clamp(1.0f - std::abs(height) / 0.35f, 0.0f, 1.0f) * 0.8f;
+    auto blend = [&](glm::vec3 Environment::*f) {
+        return glm::mix(glm::mix(nite.*f, day.*f, dayK), dusk.*f, duskK);
+    };
+    env.skyZenith    = blend(&Environment::skyZenith);
+    env.skyHorizon   = blend(&Environment::skyHorizon);
+    env.skyGround    = blend(&Environment::skyGround);
+    env.fogColor     = blend(&Environment::fogColor);
+    env.ambientColor = blend(&Environment::ambientColor);
+    env.sunColor     = night ? nite.sunColor : glm::mix(dusk.sunColor, day.sunColor, glm::clamp(height * 3.0f, 0.0f, 1.0f));
+    env.sunIntensity = night ? nite.sunIntensity : glm::mix(0.4f, day.sunIntensity, dayK);
+    env.groundAmbient = blend(&Environment::groundAmbient);
+    env.cloudColor    = blend(&Environment::cloudColor);
+    env.exposure      = glm::mix(nite.exposure, day.exposure, dayK);
+    env.clockTime     = t;
 }
 
 } // namespace EnvironmentPresets

@@ -57,7 +57,7 @@ public:
     void       resume(lua_State* co, int ref, int nargs, lua_State* from = nullptr);
     void       schedule(lua_State* co, int ref, double delay, int startArgs);
     void       checkTimeout(lua_State* L);
-    float&     clockTime() { return m_clockTime; }
+    float&     clockTime();
     void       applyClockTime();
     bool       isKeyDown(const std::string& key) const;
 
@@ -89,7 +89,6 @@ private:
     double     m_time = 0.0;
     double     m_resumeStart = 0.0;
     int        m_depth = 0;
-    float      m_clockTime = 14.0f;
 
     std::vector<Waiting>                    m_waiting;
     std::vector<Connection>                 m_conns;

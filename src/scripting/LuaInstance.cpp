@@ -9,6 +9,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/euler_angles.hpp>
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -26,11 +27,9 @@ struct ConnRef   { int index; };
 
 bool is(const char* a, const char* b) { return std::strcmp(a, b) == 0; }
 
-const char* materialNames[] = {"Plastic", "Metal", "Neon", "Wood"};
-
 bool parseMaterial(const std::string& s, Material& out) {
-    for (int i = 0; i < 4; ++i)
-        if (s == materialNames[i]) { out = (Material)i; return true; }
+    for (int i = 0; i < kMaterialCount; ++i)
+        if (s == kMaterialNames[i]) { out = (Material)i; return true; }
     if (s == "SmoothPlastic") { out = Material::Plastic; return true; }
     if (s == "DiamondPlate" || s == "Foil" || s == "CorrodedMetal") { out = Material::Metal; return true; }
     if (s == "WoodPlanks") { out = Material::Wood; return true; }
@@ -65,6 +64,7 @@ const char* className(lua_State* L, const SceneNode* n) {
     switch (n->kind) {
         case NodeKind::Model:  return "Model";
         case NodeKind::Script: return "Script";
+        case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         default:               return "Part";
     }
 }
@@ -76,6 +76,7 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Part && (cls == "BasePart" || cls == "Part" || cls == "PVInstance")) return true;
     if (n->kind == NodeKind::Model && (cls == "Model" || cls == "Folder" || cls == "PVInstance")) return true;
     if (n->kind == NodeKind::Script && (cls == "BaseScript" || cls == "LuaSourceContainer")) return true;
+    if (n->kind == NodeKind::Light && cls == "Light") return true;
     return false;
 }
 
@@ -279,16 +280,23 @@ int inst_index(lua_State* L) {
         if (is(k, "Anchored"))     { lua_pushboolean(L, n->anchored); return 1; }
         if (is(k, "CanCollide"))   { lua_pushboolean(L, n->canCollide); return 1; }
         if (is(k, "CastShadow"))   { lua_pushboolean(L, n->castShadow); return 1; }
-        if (is(k, "Material"))     { lua_pushstring(L, materialNames[(int)n->material]); return 1; }
+        if (is(k, "Material"))     { lua_pushstring(L, kMaterialNames[(int)n->material]); return 1; }
         if (is(k, "Shape"))        { lua_pushstring(L, shapeName(n->primitiveType)); return 1; }
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { LuaApi::pushVector3(L, n->velocity); return 1; }
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }
         if (is(k, "Clicked"))      { LuaApi::pushSignal(L, SignalKind::Clicked, n->id); return 1; }
     }
     if (n->kind == NodeKind::Script) {
-        if (is(k, "Enabled"))  { lua_pushboolean(L, n->scriptEnabled); return 1; }
-        if (is(k, "Disabled")) { lua_pushboolean(L, !n->scriptEnabled); return 1; }
+        if (is(k, "Enabled"))  { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "Disabled")) { lua_pushboolean(L, !n->enabled); return 1; }
         if (is(k, "Source"))   { lua_pushstring(L, n->source.c_str()); return 1; }
+    }
+    if (n->isLight()) {
+        if (is(k, "Enabled"))    { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "Brightness")) { lua_pushnumber(L, n->brightness); return 1; }
+        if (is(k, "Range"))      { lua_pushnumber(L, n->range); return 1; }
+        if (is(k, "Angle"))      { lua_pushnumber(L, n->spotAngle); return 1; }
+        if (is(k, "Color"))      { LuaApi::pushColor3(L, n->color); return 1; }
     }
     if (n == E(L)->scene()->root() && is(k, "Gravity")) {
         lua_pushnumber(L, E(L)->scene()->world().gravity);
@@ -341,7 +349,7 @@ int inst_newindex(lua_State* L) {
         if (is(k, "CastShadow"))   { n->castShadow = lua_toboolean(L, 3); return 0; }
         if (is(k, "Material")) {
             if (!parseMaterial(luaL_checkstring(L, 3), n->material))
-                return luaL_error(L, "Unknown material '%s' (try Plastic, Metal, Neon or Wood)", lua_tostring(L, 3));
+                return luaL_error(L, "Unknown material '%s' (try Plastic, Metal, Neon, Wood, Glass, Concrete or Ice)", lua_tostring(L, 3));
             return 0;
         }
         if (is(k, "Shape")) {
@@ -355,8 +363,15 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { n->velocity = LuaApi::checkVector3(L, 3); return 0; }
     }
     if (n->kind == NodeKind::Script) {
-        if (is(k, "Enabled"))  { n->scriptEnabled = lua_toboolean(L, 3); return 0; }
-        if (is(k, "Disabled")) { n->scriptEnabled = !lua_toboolean(L, 3); return 0; }
+        if (is(k, "Enabled"))  { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Disabled")) { n->enabled = !lua_toboolean(L, 3); return 0; }
+    }
+    if (n->isLight()) {
+        if (is(k, "Enabled"))    { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Brightness")) { n->brightness = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "Range"))      { n->range = std::max(0.1f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "Angle"))      { n->spotAngle = glm::clamp((float)luaL_checknumber(L, 3), 1.0f, 179.0f); return 0; }
+        if (is(k, "Color"))      { n->color = LuaApi::checkColor3(L, 3); return 0; }
     }
     if (n == scene->root() && is(k, "Gravity")) {
         scene->world().gravity = (float)luaL_checknumber(L, 3);
@@ -388,6 +403,10 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Model);
     } else if (cls == "Script") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Script);
+    } else if (cls == "PointLight" || cls == "SpotLight") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Light);
+        n->lightType = cls == "SpotLight" ? LightType::Spot : LightType::Point;
+        n->color = {1.0f, 1.0f, 1.0f};
     } else if (parseShape(cls, shape) || cls == "SpawnLocation" || cls == "WedgePart" || cls == "TrussPart") {
         if (cls == "SpawnLocation" || cls == "WedgePart" || cls == "TrussPart") shape = PrimitiveType::Cube;
         n = std::make_unique<SceneNode>(cls == "Block" || cls == "Cube" ? "Part" : cls);
@@ -398,7 +417,7 @@ int inst_new(lua_State* L) {
         n->transform.position = {0.0f, 0.5f, 0.0f};
     } else {
         return luaL_error(L, "Instance.new: unknown class '%s' (try \"Part\", \"Ball\", "
-                             "\"Cylinder\", \"Model\" or \"Folder\")", cls.c_str());
+                             "\"Cylinder\", \"Model\", \"Folder\" or \"PointLight\")", cls.c_str());
     }
     SceneNode* raw = E(L)->adopt(std::move(n));
     if (!lua_isnoneornil(L, 2)) {

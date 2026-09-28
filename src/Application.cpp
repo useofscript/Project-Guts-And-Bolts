@@ -3,6 +3,7 @@
 #include "editor/Editor.h"
 #include "editor/Theme.h"
 #include "renderer/MeshLibrary.h"
+#include "core/Settings.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -12,6 +13,8 @@
 #include <stdexcept>
 #include <cstdio>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -25,6 +28,7 @@
 #endif
 
 Application::Application(LaunchOptions opts) : m_opts(std::move(opts)) {
+    GraphicsSettings::get().load();
     initWindow();
     initGL();
     initImGui();
@@ -105,7 +109,15 @@ void Application::saveScreenshot(const std::string& path) {
 void Application::run() {
     float lastTime = (float)glfwGetTime();
     int frame = 0;
+    int appliedVsync = -1;
+    using Clock = std::chrono::steady_clock;
+    auto nextFrame = Clock::now();
     while (!glfwWindowShouldClose(m_window)) {
+        // Frame-rate settings: VSync on = monitor rate, off = FPS limit (or unlimited).
+        const GraphicsSettings& gs = GraphicsSettings::get();
+        int wantVsync = (gs.vsync && m_opts.screenshot.empty()) ? 1 : 0;
+        if (wantVsync != appliedVsync) { glfwSwapInterval(wantVsync); appliedVsync = wantVsync; }
+
         float now = (float)glfwGetTime();
         float dt  = now - lastTime;
         lastTime  = now;
@@ -141,6 +153,22 @@ void Application::run() {
             glfwSetWindowShouldClose(m_window, GLFW_TRUE);
         }
         glfwSwapBuffers(m_window);
+
+        if (!gs.vsync && gs.fpsCap > 0) {
+            auto step = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / gs.fpsCap));
+            nextFrame += step;
+            auto now = Clock::now();
+            if (nextFrame > now) {
+                // Sleep most of the wait, then spin for accuracy.
+                if (nextFrame - now > std::chrono::milliseconds(2))
+                    std::this_thread::sleep_for(nextFrame - now - std::chrono::milliseconds(1));
+                while (Clock::now() < nextFrame) {}
+            } else if (now - nextFrame > step * 4) {
+                nextFrame = now;   // fell far behind; don't try to catch up
+            }
+        } else {
+            nextFrame = Clock::now();
+        }
     }
 }
 

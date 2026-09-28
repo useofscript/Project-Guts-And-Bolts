@@ -31,12 +31,14 @@ const char* kindName(NodeKind k) {
     switch (k) {
         case NodeKind::Model:  return "Model";
         case NodeKind::Script: return "Script";
+        case NodeKind::Light:  return "Light";
         default:               return "Part";
     }
 }
 NodeKind kindFrom(const std::string& s) {
     if (s == "Model")  return NodeKind::Model;
     if (s == "Script") return NodeKind::Script;
+    if (s == "Light")  return NodeKind::Light;
     return NodeKind::Part;
 }
 
@@ -57,9 +59,8 @@ PrimitiveType shapeFrom(const std::string& s) {
     return PrimitiveType::None;
 }
 
-const char* materialNames[] = {"Plastic", "Metal", "Neon", "Wood"};
 Material materialFrom(const std::string& s) {
-    for (int i = 0; i < 4; ++i) if (s == materialNames[i]) return (Material)i;
+    for (int i = 0; i < kMaterialCount; ++i) if (s == kMaterialNames[i]) return (Material)i;
     return Material::Plastic;
 }
 
@@ -75,14 +76,22 @@ json toJson(const SceneNode& n) {
         j["shape"]        = shapeName(n.primitiveType);
         j["color"]        = vec(n.color);
         j["transparency"] = n.transparency;
-        j["material"]     = materialNames[(int)n.material];
+        j["material"]     = kMaterialNames[(int)n.material];
         j["anchored"]     = n.anchored;
         j["canCollide"]   = n.canCollide;
         j["castShadow"]   = n.castShadow;
     }
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
-        j["enabled"] = n.scriptEnabled;
+        j["enabled"] = n.enabled;
+    }
+    if (n.kind == NodeKind::Light) {
+        j["lightType"]  = n.lightType == LightType::Spot ? "Spot" : "Point";
+        j["color"]      = vec(n.color);
+        j["brightness"] = n.brightness;
+        j["range"]      = n.range;
+        j["spotAngle"]  = n.spotAngle;
+        j["enabled"]    = n.enabled;
     }
     if (!n.visible) j["visible"]  = false;
     if (n.internal) j["internal"] = true;
@@ -113,8 +122,15 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->canCollide    = get<bool>(j, "canCollide", true);
         n->castShadow    = get<bool>(j, "castShadow", true);
     }
+    if (n->kind == NodeKind::Light) {
+        n->lightType  = get<std::string>(j, "lightType", "Point") == "Spot" ? LightType::Spot : LightType::Point;
+        n->color      = vec(j, "color", {1, 1, 1});
+        n->brightness = get<float>(j, "brightness", 2.0f);
+        n->range      = get<float>(j, "range", 14.0f);
+        n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
     n->source        = get<std::string>(j, "source", "");
-    n->scriptEnabled = get<bool>(j, "enabled", true);
+    n->enabled = get<bool>(j, "enabled", true);
     n->visible       = get<bool>(j, "visible", true);
     n->internal      = get<bool>(j, "internal", false);
 
@@ -123,34 +139,37 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     return n;
 }
 
+// Every Environment field, listed once so saving and loading can't drift apart.
+#define ENV_FIELDS(X)                                                              \
+    X(clockTime) X(sunAzimuth) X(sunElevation) X(sunColor) X(sunIntensity) X(sunSize)            \
+    X(shadows) X(shadowSoftness) X(shadowStrength) X(shadowDistance)                \
+    X(ambientColor) X(groundAmbient) X(ambientIntensity) X(reflections)             \
+    X(showSky) X(skyZenith) X(skyHorizon) X(skyGround) X(skyBrightness)             \
+    X(clouds) X(cloudCover) X(cloudSpeed) X(cloudColor) X(stars)                    \
+    X(fogEnabled) X(fogColor) X(fogDensity) X(fogSunGlow)                           \
+    X(exposure) X(bloomIntensity) X(bloomThreshold) X(aoIntensity) X(contrast)      \
+    X(saturation) X(vignette) X(tint)
+
+json toJsonValue(float v) { return v; }
+json toJsonValue(bool v) { return v; }
+json toJsonValue(const glm::vec3& v) { return vec(v); }
+void fromJsonValue(const json& j, const char* k, float& v) { v = get<float>(j, k, v); }
+void fromJsonValue(const json& j, const char* k, bool& v)  { v = get<bool>(j, k, v); }
+void fromJsonValue(const json& j, const char* k, glm::vec3& v) { v = vec(j, k, v); }
+
 json envToJson(const Environment& e) {
-    return {
-        {"sunAzimuth", e.sunAzimuth}, {"sunElevation", e.sunElevation},
-        {"sunColor", vec(e.sunColor)}, {"sunIntensity", e.sunIntensity},
-        {"shadows", e.shadows},
-        {"ambientColor", vec(e.ambientColor)}, {"ambientIntensity", e.ambientIntensity},
-        {"showSky", e.showSky}, {"skyZenith", vec(e.skyZenith)},
-        {"skyHorizon", vec(e.skyHorizon)}, {"skyGround", vec(e.skyGround)},
-        {"fogEnabled", e.fogEnabled}, {"fogColor", vec(e.fogColor)}, {"fogDensity", e.fogDensity},
-    };
+    json j;
+#define SAVE_FIELD(f) j[#f] = toJsonValue(e.f);
+    ENV_FIELDS(SAVE_FIELD)
+#undef SAVE_FIELD
+    return j;
 }
 
 Environment envFromJson(const json& j) {
     Environment e;
-    e.sunAzimuth       = get<float>(j, "sunAzimuth", e.sunAzimuth);
-    e.sunElevation     = get<float>(j, "sunElevation", e.sunElevation);
-    e.sunColor         = vec(j, "sunColor", e.sunColor);
-    e.sunIntensity     = get<float>(j, "sunIntensity", e.sunIntensity);
-    e.shadows          = get<bool>(j, "shadows", e.shadows);
-    e.ambientColor     = vec(j, "ambientColor", e.ambientColor);
-    e.ambientIntensity = get<float>(j, "ambientIntensity", e.ambientIntensity);
-    e.showSky          = get<bool>(j, "showSky", e.showSky);
-    e.skyZenith        = vec(j, "skyZenith", e.skyZenith);
-    e.skyHorizon       = vec(j, "skyHorizon", e.skyHorizon);
-    e.skyGround        = vec(j, "skyGround", e.skyGround);
-    e.fogEnabled       = get<bool>(j, "fogEnabled", e.fogEnabled);
-    e.fogColor         = vec(j, "fogColor", e.fogColor);
-    e.fogDensity       = get<float>(j, "fogDensity", e.fogDensity);
+#define LOAD_FIELD(f) fromJsonValue(j, #f, e.f);
+    ENV_FIELDS(LOAD_FIELD)
+#undef LOAD_FIELD
     return e;
 }
 

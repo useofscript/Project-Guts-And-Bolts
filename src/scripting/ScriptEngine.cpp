@@ -289,7 +289,7 @@ void ScriptEngine::start() {
     // Collect first, then run: scripts may add or remove objects as they start.
     std::vector<uint64_t> scripts;
     m_scene->forEach([&](SceneNode* n) {
-        if (n->isScript() && n->scriptEnabled) scripts.push_back(n->id);
+        if (n->isScript() && n->enabled) scripts.push_back(n->id);
     });
     for (uint64_t id : scripts)
         if (SceneNode* s = resolve(id)) runScript(s);
@@ -575,33 +575,10 @@ bool ScriptEngine::destroy(SceneNode* node, std::string& err) {
 // Lighting.ClockTime — moves the sun and blends day / sunset / night colours.
 // ---------------------------------------------------------------------------
 
+float& ScriptEngine::clockTime() { return m_scene->environment().clockTime; }
+
 void ScriptEngine::applyClockTime() {
-    Environment& env = m_scene->environment();
-    float t = std::fmod(std::fmod(m_clockTime, 24.0f) + 24.0f, 24.0f);
-    float angle = (t - 6.0f) / 12.0f * 3.14159265f;    // 6am sunrise, noon overhead
-    float height = std::sin(angle);
-
-    glm::vec3 dir = glm::normalize(glm::vec3(std::cos(angle), height, 0.35f));
-    bool night = height < -0.05f;
-    if (night) dir = -dir;                              // show the moon instead
-
-    env.sunElevation = glm::degrees(std::asin(glm::clamp(dir.y, -1.0f, 1.0f)));
-    env.sunAzimuth   = glm::degrees(std::atan2(dir.z, dir.x));
-
-    Environment day = EnvironmentPresets::day(), dusk = EnvironmentPresets::sunset(),
-                nite = EnvironmentPresets::night();
-    float dayK  = glm::smoothstep(-0.15f, 0.35f, height);
-    float duskK = glm::clamp(1.0f - std::abs(height) / 0.35f, 0.0f, 1.0f) * 0.8f;
-    auto blend = [&](glm::vec3 Environment::*f) {
-        return glm::mix(glm::mix(nite.*f, day.*f, dayK), dusk.*f, duskK);
-    };
-    env.skyZenith    = blend(&Environment::skyZenith);
-    env.skyHorizon   = blend(&Environment::skyHorizon);
-    env.skyGround    = blend(&Environment::skyGround);
-    env.fogColor     = blend(&Environment::fogColor);
-    env.ambientColor = blend(&Environment::ambientColor);
-    env.sunColor     = night ? nite.sunColor : glm::mix(dusk.sunColor, day.sunColor, glm::clamp(height * 3.0f, 0.0f, 1.0f));
-    env.sunIntensity = night ? nite.sunIntensity : glm::mix(0.4f, day.sunIntensity, dayK);
+    EnvironmentPresets::applyTimeOfDay(m_scene->environment(), clockTime());
 }
 
 // ---------------------------------------------------------------------------

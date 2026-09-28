@@ -45,7 +45,7 @@ void ScriptEditorPanel::render() {
     ImGui::SameLine();
     ImGui::TextUnformatted(s->fullName().c_str());
     ImGui::SameLine();
-    ImGui::Checkbox("Enabled", &s->scriptEnabled);
+    ImGui::Checkbox("Enabled", &s->enabled);
     ImGui::SameLine();
     if (ImGui::Button("Insert code..."))
         ImGui::OpenPopup("##snippets");

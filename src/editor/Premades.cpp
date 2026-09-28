@@ -145,6 +145,20 @@ while true do
 end
 )";
 
+const char* kDisco = R"(-- Disco Floor: every tile (and the light) changes colour to the beat.
+local floor = script.Parent
+
+while true do
+    for _, tile in ipairs(floor:GetChildren()) do
+        if tile:IsA("BasePart") then
+            tile.Color = Color3.fromHSV(math.random(), 0.9, 1)
+        end
+    end
+    floor.PartyLight.Color = Color3.fromHSV(math.random(), 0.8, 1)
+    wait(0.4)
+end
+)";
+
 SceneNode* addPart(Scene& scene, const char* name, PrimitiveType shape, glm::vec3 pos,
                    glm::vec3 size, glm::vec3 color, Material mat = Material::Plastic) {
     SceneNode* n = scene.addNode(name, shape, MeshLibrary::get(shape));
@@ -176,6 +190,8 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::ClickButton,          "Click Button",    "Click it with the mouse during Play"},
         {Premade::FallingBall,          "Falling Ball",    "An unanchored ball that drops with gravity"},
         {Premade::DayNightCycle,        "Day/Night Cycle", "A script that makes time pass"},
+        {Premade::LampPost,             "Lamp Post",       "A street lamp with a real light (try it at night)"},
+        {Premade::DiscoFloor,           "Disco Floor",     "Tiles and a light that change colour"},
     };
     return list;
 }
@@ -225,6 +241,48 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
             n = addPart(scene, "Ball", PrimitiveType::Sphere, at + glm::vec3(0, 6.0f, 0), {1.5f, 1.5f, 1.5f}, {0.95f, 0.95f, 0.95f});
             n->anchored = false;
             break;
+        case Premade::LampPost: {
+            n = addPart(scene, "LampPost", PrimitiveType::Cylinder, at + glm::vec3(0, 2.0f, 0), {0.25f, 4.0f, 0.25f}, {0.15f, 0.15f, 0.17f}, Material::Metal);
+            auto bulb = std::make_unique<SceneNode>("Bulb");
+            bulb->primitiveType = PrimitiveType::Sphere;
+            bulb->mesh = MeshLibrary::get(PrimitiveType::Sphere);
+            bulb->transform.position = {0, 0.56f, 0};       // in the pole's (scaled) space
+            bulb->transform.scale    = {2.4f, 0.15f, 2.4f};
+            bulb->color = {1.0f, 0.85f, 0.55f};
+            bulb->material = Material::Neon;
+            bulb->castShadow = false;
+            SceneNode* b = scene.insert(std::move(bulb), n);
+            auto light = std::make_unique<SceneNode>("PointLight", NodeKind::Light);
+            light->color = {1.0f, 0.8f, 0.55f};
+            light->brightness = 3.0f;
+            light->range = 16.0f;
+            light->transform.position = {0, -1.0f, 0};
+            scene.insert(std::move(light), b);
+            break;
+        }
+        case Premade::DiscoFloor: {
+            auto model = std::make_unique<SceneNode>("DiscoFloor", NodeKind::Model);
+            n = scene.insert(std::move(model));
+            for (int x = 0; x < 4; ++x)
+                for (int z = 0; z < 4; ++z) {
+                    auto t = std::make_unique<SceneNode>("Tile");
+                    t->primitiveType = PrimitiveType::Cube;
+                    t->mesh = MeshLibrary::get(PrimitiveType::Cube);
+                    t->transform.position = at + glm::vec3(x * 2.0f - 3.0f, 0.05f, z * 2.0f - 3.0f);
+                    t->transform.scale = {1.9f, 0.1f, 1.9f};
+                    t->material = Material::Neon;
+                    t->color = {0.5f, 0.2f, 0.9f};
+                    scene.insert(std::move(t), n);
+                }
+            auto light = std::make_unique<SceneNode>("PartyLight", NodeKind::Light);
+            light->transform.position = at + glm::vec3(0, 5, 0);
+            light->brightness = 4.0f;
+            light->range = 20.0f;
+            light->color = {1, 0.3f, 0.8f};
+            scene.insert(std::move(light), n);
+            addScript(scene, n, kDisco);
+            break;
+        }
         case Premade::DayNightCycle: {
             auto s = std::make_unique<SceneNode>("DayNightCycle", NodeKind::Script);
             s->source = kDayNight;
