@@ -46,7 +46,6 @@ that it's from an unknown developer.
   folder to play it in the Player. Parts, models, scripts (Luau is converted),
   lights, sounds, constraints, attributes and tags come across. Studio can also
   export your game back to Roblox (File > Export to Roblox).
-
 - Accounts with the official **Guts** staff account, Administrator badge and
   signed official badges.
 - The Catalog (empty for now; only staff can add items).
