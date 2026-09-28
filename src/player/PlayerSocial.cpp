@@ -234,7 +234,7 @@ void PlayerApp::drawProfile() {
     if (backLink()) m_page = Page::People;
     if (needsServer("Profiles")) return;
     if (m_loaded.find("profile ") == std::string::npos) { m_loaded += "profile "; if (m_profile.empty()) openProfile(m_profileId); }
-    if (!m_profile.contains("user")) { ImGui::TextDisabled(m_socialMsg.empty() ? "Loading..." : m_socialMsg.c_str()); return; }
+    if (!m_profile.contains("user")) { ImGui::TextDisabled("%s", m_socialMsg.empty() ? "Loading..." : m_socialMsg.c_str()); return; }
     const json& u = m_profile["user"];
     std::string id = u.value("id", std::string()), name = u.value("name", std::string());
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -369,7 +369,7 @@ void PlayerApp::drawGroups() {
         emblem(ImGui::GetWindowDrawList(), p, 96, col, m_newGroupName.empty() ? "?" : m_newGroupName);
     }
     ImGui::Spacing();
-    ImGui::TextDisabled(verified ? "Making a group is free for you (Verified)." : "Making a group costs 50 Bolts (free for Verified people).");
+    ImGui::TextDisabled("%s", verified ? "Making a group is free for you (Verified)." : "Making a group costs 50 Bolts (free for Verified people).");
     ImGui::BeginDisabled(m_busy);
     if (Classic::button(m_busy ? "Making..." : "Create group", Classic::kPlay, ImVec2(180, 34))) {
         int col = ((int)std::lround(m_newGroupColor.r * 255) << 16) | ((int)std::lround(m_newGroupColor.g * 255) << 8) |
@@ -394,7 +394,7 @@ void PlayerApp::drawGroup() {
     if (backLink()) { m_page = Page::Groups; m_loaded.clear(); }
     if (needsServer("Groups")) return;
     if (m_loaded.find("group ") == std::string::npos) { m_loaded += "group "; if (m_group.empty()) openGroup(m_groupId); }
-    if (!m_group.contains("group")) { ImGui::TextDisabled(m_socialMsg.empty() ? "Loading..." : m_socialMsg.c_str()); return; }
+    if (!m_group.contains("group")) { ImGui::TextDisabled("%s", m_socialMsg.empty() ? "Loading..." : m_socialMsg.c_str()); return; }
     const json g = m_group["group"];
     const std::string myRole = m_group.value("myRole", std::string());
     const bool member = !myRole.empty(), owner = myRole == "Owner", manage = owner || myRole == "Admin";
