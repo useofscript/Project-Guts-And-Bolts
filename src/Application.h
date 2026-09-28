@@ -16,6 +16,8 @@ struct LaunchOptions {
     bool        teamHost = false;  // --team-host       start Team Create
     std::string teamJoin;          // --team-join <addr>
     std::string testAddPart;       // --test-add-part <name>  (tests: add + select a part)
+    std::string testKeys;          // --test-keys "ctrl+a ctrl+g f2"  (tests: press these one by one)
+    std::string testSelect;        // --test-select "Name1,Name2"  (tests)
     std::string testPremades;      // --test-premades <comma list or "all">  (tests)
 };
 

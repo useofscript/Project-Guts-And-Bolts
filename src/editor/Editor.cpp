@@ -44,6 +44,16 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_viewport = std::make_unique<ViewportPanel>(window, scene, &m_state);
     auto open  = [this](SceneNode* n) { openScript(n); };
     m_outliner = std::make_unique<OutlinerPanel>(scene, open, [this](SceneNode* n) { addScript(n); });
+    m_outliner->contextMenuExtras = [this] {
+        ImGui::Separator();
+        if (ImGui::MenuItem("Expand Selected", "Ctrl+Right")) m_outliner->expand(m_scene->selection());
+        if (ImGui::MenuItem("Collapse Selected", "Ctrl+Left")) m_outliner->collapse(m_scene->selection());
+        if (ImGui::MenuItem("Group", "Ctrl+G")) m_deferred = [this] { groupSelected(); };
+        SceneNode* sel = m_scene->selected();
+        if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Ungroup", "Ctrl+U"))
+            m_deferred = [this] { ungroupSelected(); };
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_deferred = [this] { duplicateSelected(); };
+    };
     m_properties   = std::make_unique<PropertiesPanel>(scene, open);
     m_environment  = std::make_unique<EnvironmentPanel>(scene);
     m_player       = std::make_unique<PlayerPanel>(scene);
@@ -97,6 +107,7 @@ void Editor::render(float dt) {
     buildDockspace();
     m_viewport->render(dt);
     m_outliner->render();
+    if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
     m_properties->render();
     m_environment->render();
     m_toolbox->render();
@@ -104,6 +115,7 @@ void Editor::render(float dt) {
     m_output->render();
     m_scriptEditor->render();
     renderDialogs();
+    renderShortcuts();
     renderTeamPanel();
     SettingsWindow::draw(&m_showSettings);
     if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
@@ -162,9 +174,10 @@ void Editor::trackChanges() {
 }
 
 void Editor::restore(const std::string& snapshot) {
-    uint64_t sel = m_scene->selected() ? m_scene->selected()->id : 0;
+    std::vector<uint64_t> sel;
+    for (SceneNode* n : m_scene->selection()) sel.push_back(n->id);
     Serializer::loadScene(*m_scene, snapshot);
-    m_scene->select(m_scene->findById(sel));
+    for (uint64_t id : sel) m_scene->addToSelection(m_scene->findById(id));
     m_committed = snapshot;
     m_dirty = true;
     m_team->localChanged();
@@ -250,6 +263,15 @@ void Editor::testAddPart(const std::string& name) {
     n->transform.position = {-3, 0.5f, 2};
 }
 
+void Editor::testSelect(const std::string& names) {
+    m_scene->deselect();
+    std::string list = "," + names + ",";
+    m_scene->forEach([&](SceneNode* n) {
+        if (list.find("," + n->name + ",") != std::string::npos) m_scene->addToSelection(n);
+    });
+    Log::info("Selected " + std::to_string(m_scene->selection().size()) + " object(s)");
+}
+
 void Editor::testPremades(const std::string& list) {
     int i = 0;
     for (const PremadeInfo& p : premadeList()) {
@@ -309,35 +331,110 @@ void Editor::openScript(SceneNode* script) {
 }
 
 void Editor::duplicateSelected() {
-    SceneNode* sel = m_scene->selected();
-    if (!canEdit(sel)) return;
-    auto copy = Serializer::clone(*sel);
-    copy->name += " Copy";
-    if (copy->kind == NodeKind::Part) copy->transform.position.x += 1.0f;   // so it's visible
-    SceneNode* dup = m_scene->insert(std::move(copy), sel->parent);
-    m_scene->select(dup);
+    std::vector<SceneNode*> copies;
+    for (SceneNode* sel : m_scene->selectionRoots()) {
+        if (!canEdit(sel)) continue;
+        auto copy = Serializer::clone(*sel);
+        copy->name += " Copy";
+        if (copy->kind == NodeKind::Part) copy->transform.position.x += 1.0f;   // so it's visible
+        copies.push_back(m_scene->insert(std::move(copy), sel->parent));
+    }
+    if (copies.empty()) return;
+    m_scene->deselect();
+    for (SceneNode* c : copies) m_scene->addToSelection(c);
 }
 
 void Editor::deleteSelected() {
-    SceneNode* sel = m_scene->selected();
-    if (sel && !m_scene->isProtected(sel)) m_scene->removeNode(sel);
+    for (SceneNode* sel : m_scene->selectionRoots())
+        if (!m_scene->isProtected(sel)) m_scene->removeNode(sel);
 }
 
 void Editor::copySelected() {
-    SceneNode* sel = m_scene->selected();
-    if (!canEdit(sel)) return;
-    m_clipboard = Serializer::nodeToString(*sel);
+    std::vector<std::string> clip;
+    for (SceneNode* sel : m_scene->selectionRoots())
+        if (canEdit(sel)) clip.push_back(Serializer::nodeToString(*sel));
+    if (!clip.empty()) m_clipboard = std::move(clip);
 }
 
 void Editor::paste() {
     if (m_clipboard.empty()) return;
-    auto n = Serializer::nodeFromString(m_clipboard, true);
-    if (!n) return;
     SceneNode* parent = m_scene->selected();
     if (!parent || parent->kind != NodeKind::Model || m_scene->isCharacterPart(parent))
         parent = m_scene->root();
-    if (n->kind == NodeKind::Part) n->transform.position.x += 1.0f;
-    m_scene->select(m_scene->insert(std::move(n), parent));
+    std::vector<SceneNode*> pasted;
+    for (const std::string& c : m_clipboard) {
+        auto n = Serializer::nodeFromString(c, true);
+        if (!n) continue;
+        if (n->kind == NodeKind::Part) n->transform.position.x += 1.0f;
+        pasted.push_back(m_scene->insert(std::move(n), parent));
+    }
+    if (pasted.empty()) return;
+    m_scene->deselect();
+    for (SceneNode* n : pasted) m_scene->addToSelection(n);
+}
+
+// Ctrl+G: put everything selected inside a new Model.
+void Editor::groupSelected() {
+    std::vector<SceneNode*> items;
+    for (SceneNode* n : m_scene->selectionRoots()) if (canEdit(n)) items.push_back(n);
+    if (items.empty()) return;
+    SceneNode* parent = items.back()->parent ? items.back()->parent : m_scene->root();
+    for (SceneNode* n : items) if (n->parent != parent) { parent = m_scene->root(); break; }
+    SceneNode* model = m_scene->insert(std::make_unique<SceneNode>("Model", NodeKind::Model), parent);
+    for (SceneNode* n : items) m_scene->reparent(n, model);
+    m_scene->select(model);
+    m_outliner->expand({model});
+    Log::info("Grouped " + std::to_string(items.size()) + " object(s) into a Model.");
+}
+
+// Ctrl+U: take everything out of the selected Models and remove the Models.
+void Editor::ungroupSelected() {
+    std::vector<SceneNode*> freed;
+    for (SceneNode* m : m_scene->selectionRoots()) {
+        if (m->kind != NodeKind::Model || !canEdit(m) || !m->parent) continue;
+        SceneNode* parent = m->parent;
+        std::vector<SceneNode*> kids;
+        for (auto& c : m->children) kids.push_back(c.get());
+        for (SceneNode* k : kids) if (m_scene->reparent(k, parent)) freed.push_back(k);
+        m_scene->removeNode(m);
+    }
+    if (freed.empty()) return;
+    m_scene->deselect();
+    for (SceneNode* n : freed) m_scene->addToSelection(n);
+}
+
+void Editor::selectAll() {
+    m_scene->deselect();
+    for (auto& c : m_scene->root()->children)
+        if (canEdit(c.get()) && !c->internal) m_scene->addToSelection(c.get());
+}
+
+void Editor::selectParent() {
+    std::vector<SceneNode*> parents;
+    for (SceneNode* n : m_scene->selection())
+        if (n->parent && n->parent != m_scene->root() &&
+            std::find(parents.begin(), parents.end(), n->parent) == parents.end())
+            parents.push_back(n->parent);
+    if (parents.empty()) return;
+    m_scene->deselect();
+    for (SceneNode* p : parents) m_scene->addToSelection(p);
+}
+
+void Editor::selectChildren() {
+    std::vector<SceneNode*> kids;
+    for (SceneNode* n : m_scene->selection())
+        for (auto& c : n->children) if (!c->internal) kids.push_back(c.get());
+    if (kids.empty()) return;
+    m_outliner->expand(m_scene->selection());
+    m_scene->deselect();
+    for (SceneNode* k : kids) m_scene->addToSelection(k);
+}
+
+void Editor::toggleHidden() {
+    auto sel = m_scene->selectionRoots();
+    if (sel.empty()) return;
+    bool show = !sel.back()->visible;
+    for (SceneNode* n : sel) if (!m_scene->isCharacterPart(n)) n->visible = show;
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +513,8 @@ void Editor::handleShortcuts() {
         return;
     }
 
+    if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) m_showShortcuts = !m_showShortcuts;
+
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) { io.KeyShift ? redo() : undo(); }
         if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) redo();
@@ -425,6 +524,18 @@ void Editor::handleShortcuts() {
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) { m_nameInput = m_scene->info().title; m_openSaveAs = true; } else save(); }
         if (ImGui::IsKeyPressed(ImGuiKey_O, false)) { m_pending = Pending::Open; m_openDiscard = m_dirty; if (!m_dirty) m_openOpen = true; }
         if (ImGui::IsKeyPressed(ImGuiKey_N, false)) { m_pending = Pending::New;  m_openDiscard = m_dirty; if (!m_dirty) { newScene(); m_pending = Pending::None; } }
+        if (ImGui::IsKeyPressed(ImGuiKey_A, false)) selectAll();
+        if (ImGui::IsKeyPressed(ImGuiKey_G, false)) groupSelected();
+        if (ImGui::IsKeyPressed(ImGuiKey_U, false)) ungroupSelected();
+        if (ImGui::IsKeyPressed(ImGuiKey_I, false)) addScript(m_scene->selected());
+        if (ImGui::IsKeyPressed(ImGuiKey_L, false)) m_state.gizmoLocal = !m_state.gizmoLocal;
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) m_outliner->expand(m_scene->selection());
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
+            if (io.KeyShift) m_outliner->collapseAll();
+            else             m_outliner->collapse(m_scene->selection());
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false))   selectParent();
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) selectChildren();
         return;
     }
 
@@ -432,9 +543,67 @@ void Editor::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_W, false)) m_state.tool = GizmoTool::Translate;
     if (ImGui::IsKeyPressed(ImGuiKey_E, false)) m_state.tool = GizmoTool::Rotate;
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_state.tool = GizmoTool::Scale;
+    if (ImGui::IsKeyPressed(ImGuiKey_H, false)) toggleHidden();
+    if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) m_outliner->beginRename(m_scene->selected());
 
     if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) deleteSelected();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_scene->deselect();
+}
+
+// F1: every keyboard shortcut in one place.
+void Editor::renderShortcuts() {
+    if (!m_showShortcuts) return;
+    struct Row { const char* keys; const char* what; };
+    static const Row kSections[][14] = {
+        {{"Q / W / E / R", "Select / Move / Rotate / Scale tool"},
+         {"Ctrl+L", "Switch the gizmo between local and world"},
+         {"F", "Focus the camera on the selection"},
+         {"Middle-drag", "Orbit the camera (Shift+middle-drag pans)"},
+         {"Mouse wheel", "Zoom"}},
+        {{"Click", "Select one thing"},
+         {"Ctrl+click", "Add or remove from the selection"},
+         {"Shift+click", "Add to the selection"},
+         {"Ctrl+A", "Select everything in the Workspace"},
+         {"Ctrl+Up", "Select the parent of what's selected"},
+         {"Ctrl+Down", "Select everything inside what's selected"},
+         {"Esc", "Select nothing"}},
+        {{"Ctrl+Right", "Expand selected (open everything inside)"},
+         {"Ctrl+Left", "Collapse selected (close everything inside)"},
+         {"Ctrl+Shift+Left", "Collapse the whole Explorer"},
+         {"F2", "Rename"},
+         {"H", "Hide / show"}},
+        {{"Ctrl+C / Ctrl+V", "Copy / paste"},
+         {"Ctrl+D", "Duplicate"},
+         {"Del", "Delete"},
+         {"Ctrl+G", "Group into a Model"},
+         {"Ctrl+U", "Ungroup a Model"},
+         {"Ctrl+I", "Insert a Script into the selection"},
+         {"Ctrl+Z / Ctrl+Y", "Undo / redo"}},
+        {{"Ctrl+N / Ctrl+O", "New / open game"},
+         {"Ctrl+S", "Save (Ctrl+Shift+S: save as)"},
+         {"F5", "Play / stop"},
+         {"F1", "Show / hide this list"}},
+    };
+    static const char* kTitles[] = {"Camera & tools", "Selecting", "Explorer", "Editing", "Files & testing"};
+    ImGui::SetNextWindowSize(ImVec2(520, 560), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (ImGui::Begin("Keyboard Shortcuts", &m_showShortcuts)) {
+        for (int s = 0; s < 5; ++s) {
+            ImGui::SeparatorText(kTitles[s]);
+            if (ImGui::BeginTable(kTitles[s], 2)) {
+                ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch);
+                for (const Row& r : kSections[s]) {
+                    if (!r.keys) break;
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "%s", r.keys);
+                    ImGui::TableNextColumn(); ImGui::TextUnformatted(r.what);
+                }
+                ImGui::EndTable();
+            }
+        }
+    }
+    ImGui::End();
 }
 
 // ---------------------------------------------------------------------------
@@ -550,6 +719,15 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Paste",     "Ctrl+V", false, !m_clipboard.empty())) paste();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editable)) duplicateSelected();
         if (ImGui::MenuItem("Delete",    "Del",    false, sel && !m_scene->isProtected(sel))) deleteSelected();
+        if (ImGui::MenuItem("Rename",    "F2",     false, editable)) m_outliner->beginRename(sel);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Select All", "Ctrl+A")) selectAll();
+        if (ImGui::MenuItem("Select Parent", "Ctrl+Up", false, sel != nullptr)) selectParent();
+        if (ImGui::MenuItem("Select Children", "Ctrl+Down", false, sel != nullptr)) selectChildren();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Group", "Ctrl+G", false, editable)) groupSelected();
+        if (ImGui::MenuItem("Ungroup", "Ctrl+U", false, editable && sel->kind == NodeKind::Model)) ungroupSelected();
+        if (ImGui::MenuItem("Hide / Show", "H", false, sel != nullptr)) toggleHidden();
         ImGui::EndMenu();
     }
 
@@ -578,7 +756,13 @@ void Editor::renderMenuBar() {
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Reset Camera")) m_viewport->resetCamera();
         ImGui::Separator();
+        SceneNode* sel = m_scene->selected();
+        if (ImGui::MenuItem("Expand Selected", "Ctrl+Right", false, sel != nullptr)) m_outliner->expand(m_scene->selection());
+        if (ImGui::MenuItem("Collapse Selected", "Ctrl+Left", false, sel != nullptr)) m_outliner->collapse(m_scene->selection());
+        if (ImGui::MenuItem("Collapse All", "Ctrl+Shift+Left")) m_outliner->collapseAll();
+        ImGui::Separator();
         if (ImGui::MenuItem("Settings...")) m_showSettings = true;
+        if (ImGui::MenuItem("Keyboard Shortcuts", "F1", m_showShortcuts)) m_showShortcuts = !m_showShortcuts;
         ImGui::EndMenu();
     }
 

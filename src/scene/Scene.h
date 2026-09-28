@@ -70,8 +70,16 @@ public:
     bool           goreEnabled() const;
     GoreKind       goreKind() const;
 
+    // Selection. select() picks just one thing; addToSelection / toggleSelection
+    // build a multi-selection (Ctrl+click). selected() is the one picked last.
     void select  (SceneNode* node);
     void deselect();
+    void addToSelection(SceneNode* node);
+    void toggleSelection(SceneNode* node);
+    const std::vector<SceneNode*>& selection() const { return m_selection; }
+    // The selection without anything whose ancestor is also selected
+    // (so deleting / copying a model doesn't handle its insides twice).
+    std::vector<SceneNode*> selectionRoots() const;
 
     // Create a Part directly under the Workspace.
     SceneNode* addNode(const std::string& name, PrimitiveType type, std::shared_ptr<Mesh> mesh);
@@ -119,6 +127,8 @@ private:
 
     std::unique_ptr<SceneNode> m_root;
     SceneNode*                 m_selected = nullptr;
+    std::vector<SceneNode*>    m_selection;
+    void unselectSubtree(SceneNode* node);
     Environment                m_env;
     WorldSettings              m_world;
     GameInfo                   m_info;

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "Scene.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Settings.h"
@@ -36,6 +37,7 @@ Scene::Scene() {
 
 void Scene::buildDefault() {
     m_selected = nullptr;
+    m_selection.clear();
     m_root = std::make_unique<SceneNode>("Workspace", NodeKind::Model);
     markDirty();
 
@@ -76,14 +78,51 @@ GoreKind Scene::goreKind() const {
 }
 
 void Scene::select(SceneNode* node) {
-    if (m_selected) m_selected->selected = false;
-    m_selected = node;
-    if (m_selected) m_selected->selected = true;
+    deselect();
+    addToSelection(node);
 }
 
 void Scene::deselect() {
-    if (m_selected) m_selected->selected = false;
+    for (SceneNode* n : m_selection) n->selected = false;
+    m_selection.clear();
     m_selected = nullptr;
+}
+
+void Scene::addToSelection(SceneNode* node) {
+    if (!node) return;
+    auto it = std::find(m_selection.begin(), m_selection.end(), node);
+    if (it != m_selection.end()) m_selection.erase(it);
+    m_selection.push_back(node);
+    node->selected = true;
+    m_selected = node;
+}
+
+void Scene::toggleSelection(SceneNode* node) {
+    if (!node) return;
+    auto it = std::find(m_selection.begin(), m_selection.end(), node);
+    if (it == m_selection.end()) { addToSelection(node); return; }
+    node->selected = false;
+    m_selection.erase(it);
+    m_selected = m_selection.empty() ? nullptr : m_selection.back();
+}
+
+std::vector<SceneNode*> Scene::selectionRoots() const {
+    std::vector<SceneNode*> out;
+    for (SceneNode* n : m_selection) {
+        bool inside = false;
+        for (SceneNode* o : m_selection) if (o != n && o->isAncestorOf(n)) { inside = true; break; }
+        if (!inside) out.push_back(n);
+    }
+    return out;
+}
+
+void Scene::unselectSubtree(SceneNode* node) {
+    bool changed = false;
+    for (auto it = m_selection.begin(); it != m_selection.end();) {
+        if (*it == node || node->isAncestorOf(*it)) { (*it)->selected = false; it = m_selection.erase(it); changed = true; }
+        else ++it;
+    }
+    if (changed) m_selected = m_selection.empty() ? nullptr : m_selection.back();
 }
 
 SceneNode* Scene::addNode(const std::string& name, PrimitiveType type, std::shared_ptr<Mesh> mesh) {
@@ -102,14 +141,14 @@ SceneNode* Scene::insert(std::unique_ptr<SceneNode> node, SceneNode* parent) {
 
 void Scene::removeNode(SceneNode* node) {
     if (!node || node == m_root.get()) return;
-    if (m_selected && (node == m_selected || node->isAncestorOf(m_selected))) deselect();
+    unselectSubtree(node);
     if (node->parent) node->parent->removeChild(node);
     markDirty();
 }
 
 std::unique_ptr<SceneNode> Scene::detach(SceneNode* node) {
     if (!node || node == m_root.get() || !node->parent) return nullptr;
-    if (m_selected && (node == m_selected || node->isAncestorOf(m_selected))) deselect();
+    unselectSubtree(node);
     markDirty();
     return node->parent->detachChild(node);
 }
@@ -120,7 +159,6 @@ bool Scene::reparent(SceneNode* node, SceneNode* newParent) {
     if (node->parent == newParent) return false;
 
     glm::mat4 world = node->worldMatrix();
-    SceneNode* sel = m_selected;
     std::unique_ptr<SceneNode> owned = node->parent->detachChild(node);
     glm::mat4 local = glm::inverse(newParent->worldMatrix()) * world;
 
@@ -131,13 +169,13 @@ bool Scene::reparent(SceneNode* node, SceneNode* newParent) {
     owned->transform.scale    = {s[0], s[1], s[2]};
 
     newParent->addChild(std::move(owned));
-    m_selected = sel;
     markDirty();
     return true;
 }
 
 void Scene::replaceRoot(std::unique_ptr<SceneNode> root) {
     m_selected = nullptr;
+    m_selection.clear();
     m_particles.clear();
     m_root = std::move(root);
     markDirty();

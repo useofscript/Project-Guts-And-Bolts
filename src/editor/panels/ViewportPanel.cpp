@@ -115,6 +115,17 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         glm::vec3 newRot{r[0], r[1], r[2]};
         // Accumulate the rotation delta to avoid Euler-angle flips at +/-90 deg.
         glm::vec3 deltaRot = newRot - sel->transform.rotation;
+        // Moving several things: everything else selected slides along too.
+        glm::vec3 before = glm::vec3(sel->worldMatrix()[3]);
+        glm::vec3 moved  = glm::vec3(world[3]) - before;
+        if (m_state->tool == GizmoTool::Translate && glm::length(moved) > 0.0f) {
+            for (SceneNode* o : m_scene->selectionRoots()) {
+                if (o == sel || m_scene->isProtected(o) || m_scene->isCharacterPart(o)) continue;
+                glm::vec3 d = moved;
+                if (o->parent) d = glm::vec3(glm::inverse(o->parent->worldMatrix()) * glm::vec4(moved, 0.0f));
+                o->transform.position += d;
+            }
+        }
         sel->transform.position = {t[0], t[1], t[2]};
         sel->transform.rotation += deltaRot;
         sel->transform.scale    = {s[0], s[1], s[2]};
@@ -263,14 +274,22 @@ void ViewportPanel::render(float dt) {
 
             // Left-click to pick — but not while interacting with the gizmo.
             bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            // Ctrl+click adds / removes, Shift+click adds.
+            auto pick = [&](SceneNode* hit) {
+                ImGuiIO& io = ImGui::GetIO();
+                if (io.KeyCtrl)       m_scene->toggleSelection(hit);
+                else if (io.KeyShift) m_scene->addToSelection(hit);
+                else if (hit)         m_scene->select(hit);
+                else                  m_scene->deselect();
+            };
             if (m_hovered && !overGizmo && iconHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                m_scene->select(iconHit);
+                pick(iconHit);
             } else if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 m = ImGui::GetMousePos();
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
-                if (SceneNode* hit = Physics::raycast(*m_scene, ro, rd)) m_scene->select(hit);
-                else                                                      m_scene->deselect();
+                SceneNode* hit = Physics::raycast(*m_scene, ro, rd);
+                if (hit || !(ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) pick(hit);
             }
         }
     }

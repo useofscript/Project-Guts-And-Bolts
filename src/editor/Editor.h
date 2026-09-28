@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,6 +31,7 @@ public:
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);
     void testPremades(const std::string& list);
+    void testSelect(const std::string& names);
 
 private:
     void buildDockspace();
@@ -54,6 +56,13 @@ private:
     void       deleteSelected();
     void       copySelected();
     void       paste();
+    void       groupSelected();
+    void       ungroupSelected();
+    void       selectAll();
+    void       selectParent();
+    void       selectChildren();
+    void       toggleHidden();
+    void       renderShortcuts();
     bool       canEdit(const SceneNode* n) const;
     glm::vec3  spawnPoint() const;
 
@@ -98,7 +107,9 @@ private:
     std::string              m_playSnapshot;   // world before Play
     std::vector<std::string> m_undo, m_redo;
     std::string              m_committed;      // last known scene state
-    std::string              m_clipboard;
+    std::vector<std::string> m_clipboard;
+    bool                     m_showShortcuts = false;
+    std::function<void()>    m_deferred;       // tree changes asked for while the Explorer was drawing
 
     std::string m_path;                         // current file ("" = never saved)
     bool        m_dirty = false;
