@@ -16,6 +16,9 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--screenshot")) opts.screenshot = next();
         else if (!std::strcmp(argv[i], "--frames"))     opts.frames     = std::atoi(next());
         else if (!std::strcmp(argv[i], "--hold"))       opts.holdKey    = next();
+        else if (!std::strcmp(argv[i], "--team-host"))  opts.teamHost   = true;
+        else if (!std::strcmp(argv[i], "--team-join"))  opts.teamJoin   = next();
+        else if (!std::strcmp(argv[i], "--test-add-part")) opts.testAddPart = next();
         else if (argv[i][0] != '-')                     opts.openFile   = argv[i];  // double-clicked file
     }
 

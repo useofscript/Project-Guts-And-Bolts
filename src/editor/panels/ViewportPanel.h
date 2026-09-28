@@ -9,6 +9,7 @@ struct GLFWwindow;
 struct EditorState;
 class Scene;
 class GameSession;
+class TeamCreate;
 
 // 3D viewport: renders the scene to an off-screen framebuffer and displays it
 // as an ImGui image. In edit mode it handles camera navigation, click-to-select
@@ -31,6 +32,7 @@ public:
     // While a session is set, the viewport is in Play mode.
     void setSession(GameSession* session) { m_session = session; }
     void focus() { m_wantFocus = true; }
+    void setTeam(TeamCreate* t) { m_team = t; }
 
 private:
     void handleInput();
@@ -44,6 +46,7 @@ private:
     Scene*       m_scene;
     EditorState* m_state;
     GameSession* m_session = nullptr;
+    TeamCreate*  m_team = nullptr;
 
     Camera        m_camera;
     Framebuffer   m_fbo;

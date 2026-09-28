@@ -17,6 +17,7 @@ class ToolboxPanel;
 class PlayerPanel;
 class OutputPanel;
 class ScriptEditorPanel;
+class TeamCreate;
 
 class Editor {
 public:
@@ -25,6 +26,9 @@ public:
     void render(float dt);
     void openFile(const std::string& path);
     void togglePlay();
+    // Test / command-line helpers.
+    void startTeamCreate(bool host, const std::string& address);
+    void testAddPart(const std::string& name);
 
 private:
     void buildDockspace();
@@ -32,6 +36,7 @@ private:
     void renderToolbar();
     void renderStatusBar();
     void renderDialogs();
+    void renderTeamPanel();
     void handleShortcuts();
 
     // Creating / removing things
@@ -76,6 +81,11 @@ private:
     std::unique_ptr<PlayerPanel>       m_player;
     std::unique_ptr<OutputPanel>       m_output;
     std::unique_ptr<ScriptEditorPanel> m_scriptEditor;
+    std::unique_ptr<TeamCreate>        m_team;
+    bool        m_openTeam = false;
+    std::string m_teamAddress;
+    std::string m_teamChat;
+    std::string m_teamError;
 
     bool m_firstLayout = true;
     bool m_showSettings = false;

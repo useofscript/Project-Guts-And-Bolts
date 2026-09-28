@@ -21,6 +21,15 @@ std::string                nodeToString(const SceneNode& node);
 std::unique_ptr<SceneNode> nodeFromString(const std::string& text, bool freshIds);
 std::unique_ptr<SceneNode> clone(const SceneNode& node);
 
+// Everything except the object tree (lighting, rules, game info, character setup).
+std::string settingsToString(Scene& scene);
+void        settingsFromString(Scene& scene, const std::string& text);
+
+// One object without its children (Team Create syncs objects one by one).
+std::string                nodeShallowToString(const SceneNode& node);
+std::unique_ptr<SceneNode> nodeShallowFromString(const std::string& text);
+void                       applyNodeShallow(SceneNode& dst, const std::string& text);
+
 std::string environmentToString(const Environment& env);
 void        environmentFromString(Environment& env, const std::string& text);
 

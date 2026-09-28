@@ -177,6 +177,7 @@ set(EDITOR_SOURCES
     src/Application.cpp
     src/editor/Editor.cpp
     src/editor/Premades.cpp
+    src/editor/TeamCreate.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/OutlinerPanel.cpp
     src/editor/panels/PropertiesPanel.cpp

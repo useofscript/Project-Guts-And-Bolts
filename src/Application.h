@@ -13,6 +13,9 @@ struct LaunchOptions {
     std::string screenshot;        // --screenshot <out.ppm>  (then quit)
     int         frames = 120;      // --frames <n>      when to take it
     std::string holdKey;           // --hold <key>      hold a key during Play (W, A, S, D, Space)
+    bool        teamHost = false;  // --team-host       start Team Create
+    std::string teamJoin;          // --team-join <addr>
+    std::string testAddPart;       // --test-add-part <name>  (tests: add + select a part)
 };
 
 // The editor application ("Guts and Bolts Studio").

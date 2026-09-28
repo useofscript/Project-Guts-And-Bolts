@@ -32,6 +32,9 @@ void Application::run() {
             }
         });
         if (m_opts.play && frame == 3) m_editor->togglePlay();
+        if (m_opts.teamHost && frame == 2) m_editor->startTeamCreate(true, "");
+        if (!m_opts.teamJoin.empty() && frame == 2) m_editor->startTeamCreate(false, m_opts.teamJoin);
+        if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
 
         m_editor->render(dt);
 

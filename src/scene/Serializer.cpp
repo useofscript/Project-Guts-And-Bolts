@@ -192,7 +192,8 @@ Environment envFromJson(const json& j) {
 
 namespace Serializer {
 
-std::string saveScene(Scene& scene, bool pretty) {
+namespace {
+json settingsJson(Scene& scene) {
     json j;
     j["format"]  = "GutsAndBolts";
     j["version"] = 2;
@@ -213,6 +214,56 @@ std::string saveScene(Scene& scene, bool pretty) {
                           {"autoRotate", h.autoRotate}}},
         };
     }
+    return j;
+}
+
+void applySettings(Scene& scene, const json& j) {
+    GameInfo info;
+    if (j.contains("info")) {
+        info.title       = get<std::string>(j["info"], "title", info.title);
+        info.description = get<std::string>(j["info"], "description", info.description);
+        info.author      = get<std::string>(j["info"], "author", info.author);
+    }
+    scene.info() = info;
+
+    scene.environment() = j.contains("environment") ? envFromJson(j["environment"]) : Environment{};
+    WorldSettings w;
+    if (j.contains("world")) {
+        w.gravity           = get<float>(j["world"], "gravity", w.gravity);
+        w.fallenPartsHeight = get<float>(j["world"], "fallenPartsHeight", w.fallenPartsHeight);
+        w.deathStyle        = (DeathStyle)get<int>(j["world"], "deathStyle", (int)w.deathStyle);
+        w.gore              = (GoreLevel)get<int>(j["world"], "gore", (int)w.gore);
+        w.dismemberment     = get<bool>(j["world"], "dismemberment", w.dismemberment);
+        w.fallDamage        = get<bool>(j["world"], "fallDamage", w.fallDamage);
+        w.fallDamageSpeed   = get<float>(j["world"], "fallDamageSpeed", w.fallDamageSpeed);
+        w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
+    }
+    scene.world() = w;
+
+    if (Player* p = scene.player()) {
+        p->resetSettings();
+        p->setRootId(0);
+        if (j.contains("player")) {
+            const json& pj = j["player"];
+            p->setRootId(get<uint64_t>(pj, "rootId", 0));
+            p->setSpawn(vec(pj, "spawn", {0, 0, 0}));
+            p->rememberHat((HatStyle)get<int>(pj, "hat", 0));
+            if (pj.contains("humanoid")) {
+                const json& hj = pj["humanoid"];
+                Humanoid& h  = p->humanoid();
+                h.walkSpeed  = get<float>(hj, "walkSpeed", h.walkSpeed);
+                h.jumpPower  = get<float>(hj, "jumpPower", h.jumpPower);
+                h.maxHealth  = get<float>(hj, "maxHealth", h.maxHealth);
+                h.health     = get<float>(hj, "health", h.maxHealth);
+                h.autoRotate = get<bool>(hj, "autoRotate", h.autoRotate);
+            }
+        }
+    }
+}
+} // namespace
+
+std::string saveScene(Scene& scene, bool pretty) {
+    json j = settingsJson(scene);
     j["workspace"] = toJson(*scene.root());
     return pretty ? j.dump(2) : j.dump();
 }
@@ -227,54 +278,53 @@ bool loadScene(Scene& scene, const std::string& text, std::string* error) {
         auto root = fromJson(j["workspace"], false);
         root->kind = NodeKind::Model;
         scene.replaceRoot(std::move(root));
-
-        GameInfo info;
-        if (j.contains("info")) {
-            info.title       = get<std::string>(j["info"], "title", info.title);
-            info.description = get<std::string>(j["info"], "description", info.description);
-            info.author      = get<std::string>(j["info"], "author", info.author);
-        }
-        scene.info() = info;
-
-        scene.environment() = j.contains("environment") ? envFromJson(j["environment"]) : Environment{};
-        WorldSettings w;
-        if (j.contains("world")) {
-            w.gravity           = get<float>(j["world"], "gravity", w.gravity);
-            w.fallenPartsHeight = get<float>(j["world"], "fallenPartsHeight", w.fallenPartsHeight);
-            w.deathStyle        = (DeathStyle)get<int>(j["world"], "deathStyle", (int)w.deathStyle);
-            w.gore              = (GoreLevel)get<int>(j["world"], "gore", (int)w.gore);
-            w.dismemberment     = get<bool>(j["world"], "dismemberment", w.dismemberment);
-            w.fallDamage        = get<bool>(j["world"], "fallDamage", w.fallDamage);
-            w.fallDamageSpeed   = get<float>(j["world"], "fallDamageSpeed", w.fallDamageSpeed);
-            w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
-        }
-        scene.world() = w;
-
-        if (Player* p = scene.player()) {
-            p->resetSettings();
-            p->setRootId(0);
-            if (j.contains("player")) {
-                const json& pj = j["player"];
-                p->setRootId(get<uint64_t>(pj, "rootId", 0));
-                p->setSpawn(vec(pj, "spawn", {0, 0, 0}));
-                p->rememberHat((HatStyle)get<int>(pj, "hat", 0));
-                if (pj.contains("humanoid")) {
-                    const json& hj = pj["humanoid"];
-                    Humanoid& h  = p->humanoid();
-                    h.walkSpeed  = get<float>(hj, "walkSpeed", h.walkSpeed);
-                    h.jumpPower  = get<float>(hj, "jumpPower", h.jumpPower);
-                    h.maxHealth  = get<float>(hj, "maxHealth", h.maxHealth);
-                    h.health     = get<float>(hj, "health", h.maxHealth);
-                    h.autoRotate = get<bool>(hj, "autoRotate", h.autoRotate);
-                }
-            }
+        applySettings(scene, j);
+        if (Player* p = scene.player())
             if (!p->root()) p->build();   // older files / missing character
-        }
     } catch (const std::exception& e) {
         if (error) *error = e.what();
         return false;
     }
     return true;
+}
+
+std::string settingsToString(Scene& scene) { return settingsJson(scene).dump(); }
+
+void settingsFromString(Scene& scene, const std::string& text) {
+    json j = json::parse(text, nullptr, false);
+    if (j.is_object()) {
+        try { applySettings(scene, j); } catch (...) {}
+    }
+}
+
+std::string nodeShallowToString(const SceneNode& node) {
+    json j = toJson(node);
+    j.erase("children");
+    return j.dump();
+}
+
+std::unique_ptr<SceneNode> nodeShallowFromString(const std::string& text) {
+    json j = json::parse(text, nullptr, false);
+    if (!j.is_object()) return nullptr;
+    j.erase("children");
+    try { return fromJson(j, false); } catch (...) { return nullptr; }
+}
+
+void applyNodeShallow(SceneNode& dst, const std::string& text) {
+    auto src = nodeShallowFromString(text);
+    if (!src) return;
+    // Copy every saved property, keeping the node's place in the tree.
+    dst.name = src->name;           dst.kind = src->kind;
+    dst.transform = src->transform; dst.primitiveType = src->primitiveType;
+    dst.mesh = src->mesh;           dst.color = src->color;
+    dst.visible = src->visible;     dst.internal = src->internal;
+    dst.transparency = src->transparency; dst.material = src->material;
+    dst.anchored = src->anchored;   dst.canCollide = src->canCollide; dst.castShadow = src->castShadow;
+    dst.source = src->source;       dst.enabled = src->enabled;
+    dst.lightType = src->lightType; dst.brightness = src->brightness;
+    dst.range = src->range;         dst.spotAngle = src->spotAngle;
+    dst.soundId = src->soundId;     dst.volume = src->volume; dst.pitch = src->pitch;
+    dst.looped = src->looped;       dst.autoplay = src->autoplay;
 }
 
 std::string nodeToString(const SceneNode& node) { return toJson(node).dump(); }

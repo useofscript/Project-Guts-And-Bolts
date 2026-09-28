@@ -7,6 +7,7 @@
 #include "panels/PlayerPanel.h"
 #include "panels/OutputPanel.h"
 #include "panels/ScriptEditorPanel.h"
+#include "TeamCreate.h"
 #include "../scene/Scene.h"
 #include "../scene/Player.h"
 #include "../scene/Serializer.h"
@@ -47,6 +48,8 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_player       = std::make_unique<PlayerPanel>(scene);
     m_output       = std::make_unique<OutputPanel>();
     m_scriptEditor = std::make_unique<ScriptEditorPanel>(scene);
+    m_team         = std::make_unique<TeamCreate>(scene);
+    m_viewport->setTeam(m_team.get());
 
     ToolboxPanel::Actions actions;
     actions.spawnPart    = [this](PrimitiveType t) { spawnPrimitive(t); };
@@ -63,6 +66,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
 
 // Out-of-line so the panel types are complete here.
 Editor::~Editor() {
+    m_team.reset();
     if (m_session) m_session->stop();
 }
 
@@ -70,6 +74,16 @@ void Editor::render(float dt) {
     ImGuizmo::BeginFrame();
     // Docked tabs appear over a few frames; make sure the 3D view ends up on top.
     if (++m_frame <= 3) m_viewport->focus();
+
+    // Team Create: bring in other people's edits (they wait while playtesting).
+    m_team->update(!m_playing);
+    if (m_team->consumeRemoteEdit()) {
+        m_committed = Serializer::saveScene(*m_scene);
+        m_undo.clear();          // undo can't safely rewind other people's work
+        m_redo.clear();
+        m_dirty = true;
+    }
+    m_team->setSelection(m_scene->selected() ? m_scene->selected()->id : 0);
     handleShortcuts();
     if (m_playing) {
         m_session->update(dt, m_viewport->cameraYaw(), true);
@@ -85,6 +99,7 @@ void Editor::render(float dt) {
     m_output->render();
     m_scriptEditor->render();
     renderDialogs();
+    renderTeamPanel();
     SettingsWindow::draw(&m_showSettings);
     if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 
@@ -138,6 +153,7 @@ void Editor::trackChanges() {
     m_redo.clear();
     m_committed = std::move(now);
     m_dirty = true;
+    m_team->localChanged();
 }
 
 void Editor::restore(const std::string& snapshot) {
@@ -146,6 +162,7 @@ void Editor::restore(const std::string& snapshot) {
     m_scene->select(m_scene->findById(sel));
     m_committed = snapshot;
     m_dirty = true;
+    m_team->localChanged();
 }
 
 void Editor::undo() {
@@ -213,6 +230,19 @@ void Editor::addScript(SceneNode* parent) {
 void Editor::addModel() {
     SceneNode* m = m_scene->insert(std::make_unique<SceneNode>("Model", NodeKind::Model));
     m_scene->select(m);
+}
+
+void Editor::startTeamCreate(bool host, const std::string& address) {
+    std::string err;
+    bool ok = host ? m_team->host(kTeamCreatePort, err) : m_team->join(address, err);
+    if (!ok) Log::error("Team Create: " + err);
+}
+
+void Editor::testAddPart(const std::string& name) {
+    SceneNode* n = addPrimitive("Cube", PrimitiveType::Cube);
+    n->name = name;
+    n->color = {0.2f, 0.4f, 1.0f};
+    n->transform.position = {-3, 0.5f, 2};
 }
 
 void Editor::addLight(LightType type) {
@@ -422,6 +452,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderDockWindow("Script Editor", center);
         ImGui::DockBuilderDockWindow("Viewport",      center);
         ImGui::DockBuilderDockWindow("Output",        bottom);
+        ImGui::DockBuilderDockWindow("Team",          bottom);
         ImGui::DockBuilderDockWindow("Properties",    right);
         ImGui::DockBuilderDockWindow("Lighting",      right);
         ImGui::DockBuilderDockWindow("Player",        right);
@@ -453,6 +484,8 @@ void Editor::renderMenuBar() {
             m_nameInput = m_scene->info().title;
             m_openSaveAs = true;
         }
+        ImGui::Separator();
+        if (ImGui::MenuItem(m_team->active() ? "Team Create (on)..." : "Team Create...")) m_openTeam = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
         if (ImGui::MenuItem("Play in Guts&BoltsPlayer")) {
@@ -529,6 +562,44 @@ void Editor::renderDialogs() {
     if (m_openSaveAs)  { ImGui::OpenPopup("Save Game");       m_openSaveAs = false; }
     if (m_openOpen)    { ImGui::OpenPopup("Open Game");       m_openOpen = false; m_openPathInput.clear(); }
     if (m_openInfo)    { ImGui::OpenPopup("Game Settings");   m_openInfo = false; }
+    if (m_openTeam)    { ImGui::OpenPopup("Team Create");     m_openTeam = false; m_teamError.clear(); }
+
+    // --- Team Create: host or join ---
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Team Create", nullptr)) {
+        if (m_team->active()) {
+            ImGui::TextWrapped("You're in Team Create with %d %s.", (int)m_team->members().size(),
+                               m_team->members().size() == 1 ? "person" : "people");
+            ImGui::TextDisabled("See the Team panel for who's here and to chat.");
+            ImGui::Spacing();
+            if (ImGui::Button("Leave Team Create", ImVec2(180, 0))) { m_team->leave(); ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Close", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+        } else {
+            ImGui::TextWrapped("Build a game together! Everyone sees everyone else's changes as they happen.");
+            ImGui::SeparatorText("Host");
+            ImGui::TextWrapped("Share the game that's open right now. Friends join with your address.");
+            if (ImGui::Button("Start Team Create", ImVec2(200, 0))) {
+                std::string err;
+                if (m_team->host(kTeamCreatePort, err)) ImGui::CloseCurrentPopup();
+                else m_teamError = err;
+            }
+            ImGui::SeparatorText("Join");
+            ImGui::TextWrapped("Joining replaces what you have open with the host's game (save first!).");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputTextWithHint("##tcaddr", "host address, e.g. 192.168.1.20", &m_teamAddress);
+            if (ImGui::Button("Join", ImVec2(120, 0))) {
+                std::string err;
+                if (m_team->join(m_teamAddress, err)) ImGui::CloseCurrentPopup();
+                else m_teamError = err;
+            }
+            if (!m_teamError.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", m_teamError.c_str());
+            ImGui::Spacing();
+            if (ImGui::Button("Cancel", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 
     // --- Discard changes? ---
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -614,6 +685,53 @@ void Editor::renderDialogs() {
         if (ImGui::Button("Done", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+}
+
+void Editor::renderTeamPanel() {
+    ImGui::Begin("Team");
+    if (!m_team->active()) {
+        if (m_team->waiting()) ImGui::TextDisabled("Joining...");
+        else {
+            ImGui::TextDisabled("Not in Team Create.");
+            if (ImGui::Button("Start or join Team Create...")) m_openTeam = true;
+        }
+    } else {
+        ImGui::TextDisabled(m_team->hosting() ? "Hosting Team Create" : "In Team Create");
+        for (const auto& mem : m_team->members()) {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetTextLineHeight();
+            ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + h * 0.5f, p.y + h * 0.5f), h * 0.35f,
+                ImGui::ColorConvertFloat4ToU32(ImVec4(mem.color.r, mem.color.g, mem.color.b, 1)));
+            ImGui::Dummy(ImVec2(h, h));
+            ImGui::SameLine();
+            ImGui::Text("%s%s", mem.name.c_str(), mem.id == m_team->myId() ? " (you)" : "");
+            if (SceneNode* n = mem.selected ? m_scene->findById(mem.selected) : nullptr) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("- editing %s", n->name.c_str());
+            }
+        }
+    }
+    ImGui::Separator();
+    ImGui::BeginChild("##teamchat", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+    for (const auto& l : m_team->chat()) {
+        if (l.system) ImGui::TextColored(ImVec4(1, 0.8f, 0.4f, 1), "%s", l.text.c_str());
+        else {
+            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1, 1), "%s:", l.from.c_str());
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", l.text.c_str());
+        }
+    }
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4) ImGui::SetScrollHereY(1.0f);
+    ImGui::EndChild();
+    ImGui::BeginDisabled(!m_team->active());
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputTextWithHint("##teamsay", "Message your team...", &m_teamChat, ImGuiInputTextFlags_EnterReturnsTrue)) {
+        m_team->say(m_teamChat);
+        m_teamChat.clear();
+        ImGui::SetKeyboardFocusHere(-1);
+    }
+    ImGui::EndDisabled();
+    ImGui::End();
 }
 
 void Editor::renderToolbar() {

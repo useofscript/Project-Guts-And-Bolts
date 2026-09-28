@@ -6,6 +6,7 @@
 #include "../../game/GameSession.h"
 #include "../../game/Hud.h"
 #include "../../core/Audio.h"
+#include "../TeamCreate.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -169,6 +170,33 @@ void ViewportPanel::render(float dt) {
                         IM_COL32(255, 255, 255, 170), tip);
         } else {
             drawGizmo(view, proj, imgMin, imgSize);
+
+            // Team Create: a coloured box around what each other person has selected.
+            if (m_team && m_team->active()) {
+                for (const auto& mem : m_team->members()) {
+                    if (mem.id == m_team->myId() || !mem.selected) continue;
+                    SceneNode* n = m_scene->findById(mem.selected);
+                    if (!n || !n->isPart()) continue;
+                    AABB b = Physics::worldBounds(n);
+                    ImVec2 lo(1e9f, 1e9f), hi(-1e9f, -1e9f);
+                    bool behind = false;
+                    for (int c = 0; c < 8; ++c) {
+                        glm::vec3 p{(c & 1) ? b.max.x : b.min.x, (c & 2) ? b.max.y : b.min.y, (c & 4) ? b.max.z : b.min.z};
+                        glm::vec4 clip = proj * view * glm::vec4(p, 1.0f);
+                        if (clip.w <= 0.05f) { behind = true; break; }
+                        float sx = imgMin.x + (clip.x / clip.w * 0.5f + 0.5f) * imgSize.x;
+                        float sy = imgMin.y + (0.5f - clip.y / clip.w * 0.5f) * imgSize.y;
+                        lo = ImVec2(std::min(lo.x, sx), std::min(lo.y, sy));
+                        hi = ImVec2(std::max(hi.x, sx), std::max(hi.y, sy));
+                    }
+                    if (behind) continue;
+                    ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(mem.color.r, mem.color.g, mem.color.b, 1));
+                    dl->AddRect(lo, hi, col, 3.0f, 0, 2.0f);
+                    ImVec2 ts = ImGui::CalcTextSize(mem.name.c_str());
+                    dl->AddRectFilled(ImVec2(lo.x, lo.y - ts.y - 6), ImVec2(lo.x + ts.x + 10, lo.y), col, 3.0f);
+                    dl->AddText(ImVec2(lo.x + 5, lo.y - ts.y - 3), IM_COL32(20, 20, 25, 255), mem.name.c_str());
+                }
+            }
 
             // Light icons (lights have no shape, so draw a marker you can click).
             SceneNode* iconHit = nullptr;
