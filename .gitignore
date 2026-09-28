@@ -23,3 +23,12 @@ imgui.ini
 
 # Crash handler output
 crash_log.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Per-user app data (created next to the programs)
+settings.json
+profile.json
+player_layout.ini
