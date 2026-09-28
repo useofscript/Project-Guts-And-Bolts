@@ -307,6 +307,15 @@ Each game picks its own rules in the Player panel (**Death & Gore**):
 Players can switch blood and gore off in every game with **Settings > Show
 blood & gore**.
 
+### The character model
+
+Everyone's character is built from `assets/models/player.obj`: a Blender
+model with six objects named `Torso`, `Head`, `Left_Arm`, `Right_Arm`,
+`Left_Leg` and `Right_Leg`, at Roblox size (a 2 x 2 x 1 torso, feet at 0).
+The model is built into the apps when they're compiled, so to change how
+characters look, edit that file (keep the names and sizes) and rebuild.
+Games saved with the old blocky character get the new one when they load.
+
 ## Guts&Bolts Player
 
 - **Home:** every game in the `games` folder, each with a rendered preview.

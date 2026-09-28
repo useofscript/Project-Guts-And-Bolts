@@ -2,6 +2,7 @@
 #include "Scene.h"
 #include "SceneNode.h"
 #include "Physics.h"
+#include "PlayerModel.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Audio.h"
 
@@ -91,6 +92,8 @@ SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::ve
     addPart(r, "Right Arm",        Cube, { 0.75f, 1.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kYellow);
     addPart(r, "Left Leg",         Cube, {-0.25f, 0.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kGreen);
     addPart(r, "Right Leg",        Cube, { 0.25f, 0.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kGreen);
+    // Then give them the default character model's shapes (assets/models/player.obj).
+    for (auto& c : r->children) usePlayerModel(*c);
 
     // --- Smiley face on the front (+Z) of the head, in head-local space ---
     addPart(head, "Eye.L", Cube, {-0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
@@ -107,6 +110,23 @@ SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::ve
     }
     scene.markDirty();
     return r;
+}
+
+bool Player::usePlayerModel(SceneNode& part) {
+    glm::vec3 pos, size;
+    if (part.primitiveType == PrimitiveType::Mesh && PlayerModel::nameOf(part.editMesh.get())) return false;   // already
+    if (!PlayerModel::placement(part.name, pos, size) || !PlayerModel::apply(part)) return false;
+    part.transform.position = pos;
+    part.transform.scale = size;
+    return true;
+}
+
+void Player::upgradeRig(SceneNode* rig) {
+    // Characters saved before the new model: swap the blocky parts for the model's.
+    // (The face still fits: both heads are round with the same radius.)
+    if (!rig) return;
+    for (auto& c : rig->children)
+        if (c->primitiveType == PrimitiveType::Cube || c->primitiveType == PrimitiveType::Cylinder) usePlayerModel(*c);
 }
 
 glm::vec3 Player::position() const {
@@ -197,20 +217,28 @@ void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style, glm::vec3 tint
         n->material           = mat;
         r->addChild(std::move(n));
     };
-    const float top = 2.65f;   // top of the head
+    // Top of the head, and how much narrower it is than the hats were made for (0.72 wide).
+    glm::vec3 headPos{0.0f, 2.325f, 0.0f}, headSize{0.72f, 0.65f, 0.72f};
+    PlayerModel::placement("Head", headPos, headSize);
+    const float top = headPos.y + headSize.y * 0.5f;
+    const float w = headSize.x / 0.72f;
+    auto addW = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale, glm::vec3 col,
+                    Material mat = Material::Plastic) {
+        add(name, shape, {pos.x * w, pos.y, pos.z * w}, {scale.x * w, scale.y, scale.z * w}, col, mat);
+    };
     switch (style) {
         case HatStyle::TopHat:
-            add("Hat Brim", PrimitiveType::Cylinder, {0, top + 0.025f, 0}, {1.0f, 0.05f, 1.0f}, main(kBlack));
-            add("Hat",      PrimitiveType::Cylinder, {0, top + 0.325f, 0}, {0.62f, 0.55f, 0.62f}, main(kBlack));
-            add("Hat Band", PrimitiveType::Cylinder, {0, top + 0.11f, 0}, {0.64f, 0.1f, 0.64f}, {0.75f, 0.12f, 0.12f});
+            addW("Hat Brim", PrimitiveType::Cylinder, {0, top + 0.025f, 0}, {1.0f, 0.05f, 1.0f}, main(kBlack));
+            addW("Hat",      PrimitiveType::Cylinder, {0, top + 0.325f, 0}, {0.62f, 0.55f, 0.62f}, main(kBlack));
+            addW("Hat Band", PrimitiveType::Cylinder, {0, top + 0.11f, 0}, {0.64f, 0.1f, 0.64f}, {0.75f, 0.12f, 0.12f});
             break;
         case HatStyle::Cap:
-            add("Hat",       PrimitiveType::Sphere, {0, top - 0.05f, 0}, {0.78f, 0.5f, 0.78f}, main({0.85f, 0.15f, 0.15f}));
-            add("Hat Visor", PrimitiveType::Cube,   {0, top - 0.03f, 0.46f}, {0.52f, 0.04f, 0.36f}, main({0.85f, 0.15f, 0.15f}));
+            addW("Hat",       PrimitiveType::Sphere, {0, top - 0.05f, 0}, {0.78f, 0.5f, 0.78f}, main({0.85f, 0.15f, 0.15f}));
+            addW("Hat Visor", PrimitiveType::Cube,   {0, top - 0.03f, 0.46f}, {0.52f, 0.04f, 0.36f}, main({0.85f, 0.15f, 0.15f}));
             break;
         case HatStyle::Crown:
-            add("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, main({1.0f, 0.78f, 0.2f}), Material::Metal);
-            add("Hat Jewel", PrimitiveType::Cube, {0, top + 0.14f, 0.37f}, {0.12f, 0.12f, 0.05f}, {0.9f, 0.1f, 0.2f}, Material::Neon);
+            addW("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, main({1.0f, 0.78f, 0.2f}), Material::Metal);
+            addW("Hat Jewel", PrimitiveType::Cube, {0, top + 0.14f, 0.37f}, {0.12f, 0.12f, 0.05f}, {0.9f, 0.1f, 0.2f}, Material::Neon);
             break;
         default: break;
     }

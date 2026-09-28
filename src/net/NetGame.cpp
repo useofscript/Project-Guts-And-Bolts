@@ -1,4 +1,5 @@
 #include "NetGame.h"
+#include "../scene/PlayerModel.h"
 #include "../game/Badges.h"
 #include "../game/GameSession.h"
 #include "../game/Profile.h"
@@ -125,7 +126,10 @@ void applyUpdate(SceneNode* n, const json& u) {
     n->enabled      = u.value("e", true);
     n->material     = (Material)std::clamp(u.value("m", 0), 0, kMaterialCount - 1);
     auto shape = (PrimitiveType)u.value("sh", (int)n->primitiveType);
-    if (shape != n->primitiveType) { n->primitiveType = shape; n->mesh = MeshLibrary::get(shape); }
+    if (shape != n->primitiveType) {
+        if (shape == PrimitiveType::Mesh) PlayerModel::apply(*n);   // (only the character's shapes change like this)
+        else { n->primitiveType = shape; n->mesh = MeshLibrary::get(shape); }
+    }
     n->brightness   = u.value("b", n->brightness);
     n->range        = u.value("rg", n->range);
     n->spotAngle    = u.value("sa", n->spotAngle);

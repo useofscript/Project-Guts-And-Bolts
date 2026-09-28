@@ -193,6 +193,9 @@ endif()
 # Version.h: which commit this build is (for the update checker).
 set(GB_GENERATED "${CMAKE_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${GB_GENERATED}")
+# The default character (assets/models/player.obj), baked into the program.
+include(cmake/Embed.cmake)
+gb_embed("${CMAKE_SOURCE_DIR}/assets/models/player.obj" kPlayerObj "${GB_GENERATED}/PlayerObj.h")
 add_custom_target(gb_version ALL
     COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${GB_GENERATED}
             -DVERSION=${PROJECT_VERSION} -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
@@ -211,6 +214,8 @@ add_library(gb_engine STATIC
     src/core/Audio.cpp
     src/core/UpdateChecker.cpp
     src/core/Account.cpp
+    src/scene/ObjImport.cpp
+    src/scene/PlayerModel.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp

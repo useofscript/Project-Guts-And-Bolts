@@ -85,6 +85,10 @@ public:
 
     // --- Building characters (also used for other players' characters) ----
     static SceneNode* buildRig(Scene& scene, const std::string& name, const glm::vec3& feet);
+    // The default character model (assets/models/player.obj) for one rig part; false if it has none.
+    static bool usePlayerModel(SceneNode& part);
+    // A character saved before that model: give it the model's parts.
+    static void upgradeRig(SceneNode* rig);
     static void       applyColors(SceneNode* root, const BodyColors& c);
     // `tint` recolours the hat (catalog hats); negative = its normal colours.
     static void       applyHat(Scene& scene, SceneNode* root, HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));

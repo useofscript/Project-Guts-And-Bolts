@@ -5,6 +5,7 @@
 #include "Scene.h"
 #include "SceneNode.h"
 #include "Player.h"
+#include "PlayerModel.h"
 #include "../renderer/MeshLibrary.h"
 
 #include <nlohmann/json.hpp>
@@ -88,7 +89,9 @@ json toJson(const SceneNode& n) {
     j["size"] = vec(n.transform.scale);
     if (n.kind == NodeKind::Part) {
         j["shape"]        = shapeName(n.primitiveType);
-        if (n.primitiveType == PrimitiveType::Mesh && n.editMesh) {
+        if (const char* body = n.primitiveType == PrimitiveType::Mesh ? PlayerModel::nameOf(n.editMesh.get()) : nullptr) {
+            j["body"] = body;   // the default character's shape: no need to save its points
+        } else if (n.primitiveType == PrimitiveType::Mesh && n.editMesh) {
             // A custom mesh: "v" = x,y,z,x,y,z..., "f" = lists of corner numbers.
             json v = json::array(), f = json::array();
             for (const auto& p : n.editMesh->verts) { v.push_back(p.x); v.push_back(p.y); v.push_back(p.z); }
@@ -167,7 +170,13 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     if (n->kind == NodeKind::Part) {
         n->primitiveType = shapeFrom(get<std::string>(j, "shape", "None"));
         n->mesh          = MeshLibrary::get(n->primitiveType);
-        if (n->primitiveType == PrimitiveType::Mesh) {
+        if (n->primitiveType == PrimitiveType::Mesh && j.contains("body")) {
+            std::string body = get<std::string>(j, "body", std::string());
+            std::string keep = n->name;
+            n->name = body;
+            if (!PlayerModel::apply(*n)) MeshEdit::attach(*n, MeshEdit::fromPrimitive(PrimitiveType::Cube));
+            n->name = keep;
+        } else if (n->primitiveType == PrimitiveType::Mesh) {
             auto m = std::make_shared<EditMesh>();
             if (auto it = j.find("mesh"); it != j.end() && it->is_object()) {
                 const json& v = (*it)["v"];
@@ -341,6 +350,7 @@ void applySettings(Scene& scene, const json& j) {
         if (j.contains("player")) {
             const json& pj = j["player"];
             p->setRootId(get<uint64_t>(pj, "rootId", 0));
+            Player::upgradeRig(p->root());   // saved with the old blocky character?
             p->setSpawn(vec(pj, "spawn", {0, 0, 0}));
             p->rememberHat((HatStyle)get<int>(pj, "hat", 0));
             if (pj.contains("humanoid")) {
