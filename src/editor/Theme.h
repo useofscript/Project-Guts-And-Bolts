@@ -8,7 +8,7 @@ namespace EditorTheme {
 
 // Load a crisp UI font (system Segoe UI if available, else ImGui's default).
 // Must be called once, before the first frame.
-void loadFonts();
+void loadFonts(float scale = 1.0f);   // scale: bigger text on phones
 
 // Monospace font for the script editor (falls back to the default font).
 ImFont* codeFont();

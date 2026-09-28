@@ -149,6 +149,8 @@ void AppWindow::endFrame(const std::string& screenshotPath) {
     }
 }
 
+void AppWindow::injectTouch(long long, float, float, bool) {}   // no touch screen here
+
 void AppWindow::saveScreenshot(const std::string& path) {
     int w, h;
     glfwGetFramebufferSize(m_window, &w, &h);

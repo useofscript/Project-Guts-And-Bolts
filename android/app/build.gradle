@@ -1,0 +1,101 @@
+// Guts&Bolts Player for Android: the same C++ Player as on computers, built
+// with the NDK (see GB_MOBILE in the top-level CMakeLists.txt), started by
+// SDL's Java activity.
+plugins {
+    id 'com.android.application'
+}
+
+def gbVersionName = project.findProperty('gbVersion') ?: '0.4.0'
+def gbVersionCode = (project.findProperty('gbVersionCode') ?: '4') as int
+
+android {
+    namespace 'com.gutsandbolts.player'
+    compileSdk 34
+    ndkVersion '26.3.11579264'
+
+    defaultConfig {
+        applicationId 'com.gutsandbolts.player'
+        minSdk 24
+        targetSdk 34
+        versionCode gbVersionCode
+        versionName gbVersionName
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared', '-DCMAKE_BUILD_TYPE=Release'
+            }
+        }
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+    }
+
+    // Release signing: a real key from the environment (GitHub secrets) when
+    // there is one, so new versions install over old ones; otherwise the
+    // standard debug key (fine for trying it out).
+    def ks = System.getenv('GB_KEYSTORE_FILE')
+    signingConfigs {
+        if (ks && file(ks).exists()) {
+            gbRelease {
+                storeFile file(ks)
+                storePassword System.getenv('GB_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('GB_KEY_ALIAS')
+                keyPassword System.getenv('GB_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig (ks && file(ks).exists()) ? signingConfigs.gbRelease : signingConfigs.debug
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path '../../CMakeLists.txt'
+            version '3.31.5'
+        }
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += ["$buildDir/generated/gbassets"]
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        abortOnError false
+    }
+}
+
+// Pack the sample games and official catalog items into the APK, plus a
+// manifest the app uses to unpack them on first run (and after updates).
+tasks.register('gbAssets') {
+    def out = file("$buildDir/generated/gbassets")
+    def root = file('../..')
+    inputs.dir(new File(root, 'games'))
+    inputs.dir(new File(root, 'catalog'))
+    outputs.dir(out)
+    doLast {
+        delete out
+        out.mkdirs()
+        def names = []
+        ['games', 'catalog'].each { dir ->
+            def src = new File(root, dir)
+            src.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+                def rel = dir + '/' + src.toPath().relativize(f.toPath()).toString().replace('\\', '/')
+                def dest = new File(out, rel)
+                dest.parentFile.mkdirs()
+                dest.bytes = f.bytes
+                names << rel
+            }
+        }
+        new File(out, 'gb_manifest.txt').text = "${gbVersionName}-${gbVersionCode}-${System.currentTimeMillis()}\n" + names.join('\n') + '\n'
+    }
+}
+preBuild.dependsOn 'gbAssets'

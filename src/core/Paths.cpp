@@ -12,13 +12,21 @@
 #include <mach-o/dyld.h>
 #include <climits>
 #endif
+#ifdef __ANDROID__
+#include <SDL.h>
+#include <fstream>
+#include <sstream>
+#endif
 
 namespace Paths {
 
 std::filesystem::path appFolder() {
     static std::filesystem::path cached = [] {
         std::error_code ec;
-#ifdef _WIN32
+#if defined(__ANDROID__)
+        // The app's private storage (the APK itself is read-only).
+        if (const char* p = SDL_AndroidGetInternalStoragePath()) return std::filesystem::path(p);
+#elif defined(_WIN32)
         wchar_t buf[MAX_PATH];
         DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
         if (n > 0) return std::filesystem::path(std::wstring(buf, n)).parent_path();
@@ -37,6 +45,48 @@ std::filesystem::path appFolder() {
 }
 
 std::filesystem::path file(const char* name) { return appFolder() / name; }
+
+#ifdef __ANDROID__
+namespace {
+bool readAsset(const std::string& name, std::string& out) {
+    SDL_RWops* rw = SDL_RWFromFile(name.c_str(), "rb");   // SDL reads files inside the APK
+    if (!rw) return false;
+    Sint64 size = SDL_RWsize(rw);
+    out.resize(size > 0 ? (size_t)size : 0);
+    size_t got = size > 0 ? SDL_RWread(rw, out.data(), 1, (size_t)size) : 0;
+    SDL_RWclose(rw);
+    out.resize(got);
+    return true;
+}
+} // namespace
+#endif
+
+void installBundledFiles() {
+#ifdef __ANDROID__
+    // gb_manifest.txt (made when the APK is built): a version line, then one file per line.
+    std::string manifest;
+    if (!readAsset("gb_manifest.txt", manifest)) return;
+    std::istringstream lines(manifest);
+    std::string version;
+    std::getline(lines, version);
+    std::filesystem::path stamp = appFolder() / "bundle_version.txt";
+    std::string have;
+    { std::ifstream f(stamp); std::getline(f, have); }
+    if (have == version) return;                      // already unpacked this version
+    std::string name;
+    std::error_code ec;
+    while (std::getline(lines, name)) {
+        if (name.empty() || name.find("..") != std::string::npos) continue;
+        std::string data;
+        if (!readAsset(name, data)) continue;
+        std::filesystem::path dest = appFolder() / name;
+        std::filesystem::create_directories(dest.parent_path(), ec);
+        std::ofstream out(dest, std::ios::binary | std::ios::trunc);
+        out.write(data.data(), (std::streamsize)data.size());
+    }
+    std::ofstream(stamp) << version << "\n";
+#endif
+}
 
 std::filesystem::path gamesFolder() {
     std::filesystem::path p = appFolder() / "games";

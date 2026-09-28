@@ -153,8 +153,11 @@ void icon(Id id, float size) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(size, size));
     drawIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size, id);
-    if (ImGui::IsItemHovered())
+    if (ImGui::IsItemHovered()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));   // readable on the dark tooltip
         ImGui::SetTooltip("%s\n%s", info(id).name, info(id).description);
+        ImGui::PopStyleColor();
+    }
 }
 
 } // namespace Badges

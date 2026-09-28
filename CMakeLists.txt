@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.3.0 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +12,14 @@ if(WIN32)
 endif()
 
 include(FetchContent)
+
+# GB_MOBILE builds the phone / tablet version of the Player (SDL2 + OpenGL ES 3,
+# touch controls). It's on automatically for Android; turning it on for Linux
+# lets you try the phone version on a computer.
+option(GB_MOBILE "Build the phone/tablet Player (SDL2 + OpenGL ES 3)" OFF)
+if(ANDROID)
+    set(GB_MOBILE ON)
+endif()
 
 # ImGui (docking branch — includes the full editor UI system)
 FetchContent_Declare(
@@ -89,10 +97,53 @@ FetchContent_MakeAvailable(monocypher)
 add_library(monocypher STATIC ${monocypher_SOURCE_DIR}/src/monocypher.c)
 target_include_directories(monocypher PUBLIC ${monocypher_SOURCE_DIR}/src)
 
-find_package(glfw3  REQUIRED)
-find_package(GLEW   REQUIRED)
-find_package(glm    REQUIRED)
-find_package(OpenGL REQUIRED)
+if(GB_MOBILE)
+    # SDL2: window, OpenGL ES context, multi-touch, the Android activity.
+    FetchContent_Declare(
+        SDL2
+        URL https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-2.30.9.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    if(ANDROID)
+        set(SDL_SHARED ON CACHE BOOL "" FORCE)
+        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    else()
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    endif()
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(SDL2)
+    if(ANDROID)
+        set(GB_SDL_LIBS SDL2::SDL2 SDL2::SDL2main)
+    else()
+        set(GB_SDL_LIBS SDL2::SDL2-static SDL2::SDL2main)
+    endif()
+
+    # glm is header-only; phones don't have it installed.
+    FetchContent_Declare(
+        glm
+        GIT_REPOSITORY https://github.com/g-truc/glm.git
+        GIT_TAG        1.0.1
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  cmake-build-disabled
+    )
+    FetchContent_MakeAvailable(glm)
+    add_library(gb_glm INTERFACE)
+    target_include_directories(gb_glm INTERFACE ${glm_SOURCE_DIR})
+    set(GB_GLM gb_glm)
+
+    if(ANDROID)
+        set(GB_GL_LIBS GLESv3 EGL android log)
+    else()
+        set(GB_GL_LIBS GLESv2 EGL)
+    endif()
+else()
+    find_package(glfw3  REQUIRED)
+    find_package(GLEW   REQUIRED)
+    find_package(glm    REQUIRED)
+    find_package(OpenGL REQUIRED)
+    set(GB_GLM glm::glm)
+endif()
 
 # ---------------------------------------------------------------------------
 # Dear ImGui + ImGuizmo (UI for both apps)
@@ -103,17 +154,26 @@ add_library(gb_imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
     ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
+if(GB_MOBILE)
+    target_sources(gb_imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp)
+    target_compile_definitions(gb_imgui PUBLIC IMGUI_IMPL_OPENGL_ES3)
+else()
+    target_sources(gb_imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
+endif()
 target_include_directories(gb_imgui PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
 )
-target_link_libraries(gb_imgui PUBLIC glfw OpenGL::GL)
+if(GB_MOBILE)
+    target_link_libraries(gb_imgui PUBLIC ${GB_SDL_LIBS} ${GB_GL_LIBS})
+else()
+    target_link_libraries(gb_imgui PUBLIC glfw OpenGL::GL)
+endif()
 
 # Version.h: which commit this build is (for the update checker).
 set(GB_GENERATED "${CMAKE_BINARY_DIR}/generated")
@@ -133,7 +193,6 @@ add_library(gb_engine STATIC
     src/core/Log.cpp
     src/core/Settings.cpp
     src/core/Paths.cpp
-    src/core/AppWindow.cpp
     src/core/Audio.cpp
     src/core/UpdateChecker.cpp
     src/core/Account.cpp
@@ -167,6 +226,12 @@ add_library(gb_engine STATIC
     src/net/NetGame.cpp
     src/editor/Theme.cpp
 )
+if(GB_MOBILE)
+    target_sources(gb_engine PRIVATE src/core/AppWindowSDL.cpp)
+    target_compile_definitions(gb_engine PUBLIC GB_MOBILE GB_GLES)
+else()
+    target_sources(gb_engine PRIVATE src/core/AppWindow.cpp)
+endif()
 target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR} ${GB_GENERATED})
 add_dependencies(gb_engine gb_version)
 find_package(Threads REQUIRED)
@@ -176,16 +241,37 @@ if(APPLE)
 endif()
 target_link_libraries(gb_engine PUBLIC
     gb_imgui
-    glfw
-    GLEW::GLEW
-    OpenGL::GL
+    ${GB_GLM}
     lua_static
     nlohmann_json::nlohmann_json
     monocypher
 )
+if(NOT GB_MOBILE)
+    target_link_libraries(gb_engine PUBLIC glfw GLEW::GLEW OpenGL::GL)
+endif()
 target_compile_definitions(gb_engine PUBLIC GLM_ENABLE_EXPERIMENTAL)
 if(WIN32)
     target_link_libraries(gb_engine PUBLIC dbghelp ws2_32 bcrypt)
+endif()
+
+if(GB_MOBILE)
+    # Phones and tablets get the Player only. On Android it's a library that
+    # SDL's Java activity loads (it must be called "main").
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp)
+    if(ANDROID)
+        add_library(main SHARED ${PLAYER_SOURCES})
+        target_link_libraries(main PRIVATE gb_engine)
+    else()
+        add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
+        target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
+        add_custom_command(TARGET GutsAndBoltsPlayer POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/games"
+                    "$<TARGET_FILE_DIR:GutsAndBoltsPlayer>/games"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/catalog"
+                    "$<TARGET_FILE_DIR:GutsAndBoltsPlayer>/catalog"
+            VERBATIM)
+    endif()
+    return()
 endif()
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,7 @@
 #include "PlayerApp.h"
+#ifdef GB_MOBILE
+#include <SDL.h>   // on Android, SDL starts the app through this main()
+#endif
 #include "../core/CrashHandler.h"
 #include <cstdlib>
 #include <cstring>

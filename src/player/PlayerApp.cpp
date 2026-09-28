@@ -17,10 +17,12 @@
 #include "../game/Badges.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 
 namespace {
@@ -134,7 +136,8 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     m_scene    = std::make_unique<Scene>();
     m_session  = std::make_unique<GameSession>(m_scene.get());
     m_soloChat = std::make_unique<ChatLog>();
-    if (!m_opts.touchTest.empty()) GraphicsSettings::get().touchControls = GraphicsSettings::TouchOn;
+    if (!m_opts.touchTest.empty() && m_opts.touchTest.rfind("sdl-", 0) != 0)
+        GraphicsSettings::get().touchControls = GraphicsSettings::TouchOn;
     if (m_opts.createStaff) {
         m_notice = Account::createStaffAccount();
         std::string err;
@@ -204,6 +207,23 @@ void PlayerApp::run() {
                 ImGui::GetIO().AddKeyEvent(k, true);
             }
         });
+        // Test helper: real (SDL) touch events, as a phone would send them.
+        if (m_opts.touchTest.rfind("sdl-", 0) == 0 && m_frame > 40) {
+            float k = std::min(1.0f, (m_frame - 40) / 6.0f);
+            if (m_opts.touchTest == "sdl-stick") m_window->injectTouch(7, 0.12f, 0.80f - 0.08f * k, true);
+            if (m_opts.touchTest == "sdl-jump")  m_window->injectTouch(8, 0.93f, 0.86f, ((m_frame - 40) / 15) % 2 == 0);
+            // "sdl-tap:x,y" taps once; "sdl-swipe:x,y1,y2" drags a finger (0..1 screen coords).
+            float a = 0, b = 0, c = 0;
+            int t = m_frame - 40;
+            if (std::sscanf(m_opts.touchTest.c_str(), "sdl-tap:%f,%f", &a, &b) == 2 && t <= 4)
+                m_window->injectTouch(10, a, b, t < 3);
+            if (std::sscanf(m_opts.touchTest.c_str(), "sdl-swipe:%f,%f,%f", &a, &b, &c) == 3 && t <= 21)
+                m_window->injectTouch(11, a, b + (c - b) * std::min(1.0f, t / 20.0f), t < 21);
+            if (m_opts.touchTest == "sdl-both") {
+                m_window->injectTouch(7, 0.12f, 0.80f - 0.08f * k, true);
+                m_window->injectTouch(9, 0.55f + 0.004f * (m_frame - 40), 0.4f, true);
+            }
+        }
         frame(dt);
         if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
@@ -366,6 +386,10 @@ void PlayerApp::frame(float dt) {
         ImVec2 cpos = ImGui::GetWindowPos(), csize = ImGui::GetWindowSize();
         Classic::stripes(ImGui::GetWindowDrawList(), cpos, ImVec2(cpos.x + csize.x, cpos.y + csize.y));
         Classic::pushLight();
+        // Esc / Android Back: go back to the home page.
+        if (m_page != Page::Home && !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
+            ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+            m_page = Page::Home;
         switch (m_page) {
             case Page::Home:     drawHome(); break;
             case Page::Games:    drawGames(); break;
@@ -382,6 +406,7 @@ void PlayerApp::frame(float dt) {
     }
 
     ImGui::End();
+    if (m_page != Page::Game) touchScroll();
     SettingsWindow::draw(&m_showSettings);
     drawJoinDialog();
     drawItemDialog();
@@ -418,10 +443,17 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     Profile& me = Profile::get();
 
     // --- Banner: your avatar standing in the sky, with the logo ---
+#ifdef GB_MOBILE
+    const float bannerH = 72.0f;     // phones are short: keep the banner slim
+    const float logoSize = 40.0f;
+#else
     const float bannerH = 118.0f;
-    m_bannerView.resize((int)width, (int)bannerH);
+    const float logoSize = 64.0f;
+#endif
+    const float fb = ImGui::GetIO().DisplayFramebufferScale.x;   // > 1 on phones: draw with every real pixel
+    m_bannerView.resize((int)(width * fb), (int)(bannerH * fb));
     Camera cam;
-    cam.resize((int)width, (int)bannerH);
+    cam.resize((int)(width * fb), (int)(bannerH * fb));
     cam.fov = 30.0f;
     cam.pivot = {-5.2f, 1.45f, 0.0f};      // look left of the avatar so it stands on the right
     cam.yaw = 90.0f;
@@ -431,7 +463,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     ImVec2 b0 = pos, b1(pos.x + width, pos.y + bannerH);
     dl->AddImageRounded((ImTextureID)(intptr_t)m_bannerView.colorTexture(), b0, b1, ImVec2(0, 1), ImVec2(1, 0),
                         IM_COL32_WHITE, 8.0f, ImDrawFlags_RoundCornersTop);
-    Classic::logo(dl, ImVec2(pos.x + 26, pos.y + 24), 64.0f, "GUTS&BOLTS");
+    Classic::logo(dl, ImVec2(pos.x + 26, pos.y + (bannerH - logoSize) * 0.5f - 4), logoSize, "GUTS&BOLTS");
 
     // Account box, top-right of the banner.
     std::string hi = "Hi, " + me.name;
@@ -462,6 +494,10 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Avatar", 2}, {"Join a Friend", 3},
                                {"Develop", 4}, {"Settings", 5}};
     if (staff) items.push_back({"Staff", 7});
+#ifdef GB_MOBILE
+    // No Studio on phones.
+    items.erase(std::remove_if(items.begin(), items.end(), [](const Item& i) { return i.action == 4; }), items.end());
+#endif
     float x = n0.x + 14;
     for (const Item& it : items) {
         ImVec2 sz = ImGui::CalcTextSize(it.label);
@@ -520,7 +556,11 @@ bool PlayerApp::drawTile(int index) {
     ImGui::TextDisabled("by %s", g.info.author.c_str());
     ImGui::Dummy(ImVec2(w, 0));
     ImGui::EndGroup();
-    if (hover && !g.info.description.empty()) ImGui::SetTooltip("%s", g.info.description.c_str());
+    if (hover && !g.info.description.empty() && !m_window->hasTouchScreen()) {   // no hovering on phones
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));   // light text on the dark tooltip
+        ImGui::SetTooltip("%s", g.info.description.c_str());
+        ImGui::PopStyleColor();
+    }
     ImGui::PopID();
     if (clicked) { m_selected = index; m_page = Page::GameInfo; }
     return clicked;
@@ -701,12 +741,17 @@ void PlayerApp::drawAvatar(float dt) {
 
     // Left: 3D preview (drag to spin).
     ImVec2 avail = ImGui::GetContentRegionAvail();
+#ifdef GB_MOBILE
+    float previewW = std::max(160.0f, avail.x * 0.38f);
+#else
     float previewW = std::max(200.0f, avail.x * 0.55f);
+#endif
     ImGui::BeginChild("##preview", ImVec2(previewW, 0), ImGuiChildFlags_Borders);
     ImVec2 size = ImGui::GetContentRegionAvail();
     if (size.x > 1 && size.y > 1) {
-        m_avatarView.resize((int)size.x, (int)size.y);
-        m_avatarCam.resize((int)size.x, (int)size.y);
+        const float fb = ImGui::GetIO().DisplayFramebufferScale.x;
+        m_avatarView.resize((int)(size.x * fb), (int)(size.y * fb));
+        m_avatarCam.resize((int)(size.x * fb), (int)(size.y * fb));
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_avatarCam.yaw += dt * 12.0f;   // slow turntable
         m_renderer->render(*m_avatarScene, m_avatarCam, m_avatarView, false);
         ImGui::Image((ImTextureID)(intptr_t)m_avatarView.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
@@ -736,7 +781,10 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::SeparatorText("Outfits");
     int i = 0;
     for (const auto& [name, colors] : Player::colorPresets()) {
-        if (ImGui::Button(name, ImVec2(130, 30))) { me.colors = colors; changed = true; }
+        // Three per row, shrinking to fit narrow (phone) screens.
+        float rowW = ImGui::GetWindowContentRegionMax().x - ImGui::GetWindowContentRegionMin().x;
+        float bw = std::min(130.0f, (rowW - ImGui::GetStyle().ItemSpacing.x * 2) / 3.0f);
+        if (ImGui::Button(name, ImVec2(bw, 30))) { me.colors = colors; changed = true; }
         if (++i % 3 != 0) ImGui::SameLine();
     }
     if (i % 3 != 0) ImGui::NewLine();
@@ -753,8 +801,10 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::SeparatorText("Hat");
     for (int h = 0; h < 4; ++h) {
         bool on = (int)me.hat == h;
-        bool pressed = on ? Classic::button(Player::hatName((HatStyle)h), Classic::kBlue, ImVec2(95, 30))
-                          : ImGui::Button(Player::hatName((HatStyle)h), ImVec2(95, 30));
+        float rowW = ImGui::GetWindowContentRegionMax().x - ImGui::GetWindowContentRegionMin().x;
+        float hw = std::min(95.0f, (rowW - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
+        bool pressed = on ? Classic::button(Player::hatName((HatStyle)h), Classic::kBlue, ImVec2(hw, 30))
+                          : ImGui::Button(Player::hatName((HatStyle)h), ImVec2(hw, 30));
         if (pressed) {
             me.hat = (HatStyle)h;
             me.hatColor = glm::vec3(-1.0f);   // back to its normal colours
@@ -838,8 +888,14 @@ void PlayerApp::drawGame(float dt) {
         m_camera.pivot += (target - m_camera.pivot) * std::min(1.0f, dt * 12.0f);
     }
 
-    m_view.resize((int)size.x, (int)size.y);
-    m_camera.resize((int)size.x, (int)size.y);
+#ifdef GB_MOBILE
+    // Phones: render with the real pixels, not the (bigger) UI pixels.
+    ImVec2 px(size.x * io.DisplayFramebufferScale.x, size.y * io.DisplayFramebufferScale.y);
+#else
+    ImVec2 px = size;
+#endif
+    m_view.resize((int)px.x, (int)px.y);
+    m_camera.resize((int)px.x, (int)px.y);
     m_renderer->render(*m_scene, m_camera, m_view, false);
     Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
     ImGui::Image((ImTextureID)(intptr_t)m_view.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
@@ -860,7 +916,12 @@ void PlayerApp::drawGame(float dt) {
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    Hud::draw(dl, pos, max, *m_scene, m_session->gui(), touch ? 240.0f : 0.0f);
+    float labelsAt = 0.0f;
+    if (touch) {
+        bool chatShowing = m_chatOpen || ImGui::GetTime() < m_chatShowUntil;
+        labelsAt = chatShowing ? (m_chatOpen ? 216.0f : 156.0f) : 58.0f;   // under the chat box when it's up
+    }
+    Hud::draw(dl, pos, max, *m_scene, m_session->gui(), labelsAt);
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
     if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
@@ -885,9 +946,17 @@ void PlayerApp::drawGame(float dt) {
 
 void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ChatLog& log = chat();
+    const bool touchUi = GraphicsSettings::get().touchEnabled();
+    if (touchUi) {
+        // Phones: chat stays out of the way until you tap the chat button, and
+        // pops up for a few seconds when someone says something.
+        double now = ImGui::GetTime();
+        if (log.lines.size() != m_chatSeen) { m_chatSeen = log.lines.size(); m_chatShowUntil = now + 6.0; }
+        if (!m_chatOpen && now > m_chatShowUntil) { m_chatMin = m_chatMax = ImVec2(0, 0); return; }
+    }
     // Bottom-left normally; top-left on touch screens (the thumbstick lives bottom-left).
     const bool touch = GraphicsSettings::get().touchEnabled();
-    const float w = touch ? 360.0f : 420.0f, h = touch ? 170.0f : 210.0f;
+    const float w = touch ? 340.0f : 420.0f, h = touch ? (m_chatOpen ? 150.0f : 90.0f) : 210.0f;
     ImVec2 p = touch ? ImVec2(min.x + 12, min.y + 70) : ImVec2(min.x + 12, max.y - 60 - h);
     ImGui::SetNextWindowPos(p);
     ImGui::SetNextWindowSize(ImVec2(w, h));
@@ -895,7 +964,10 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ImGuiWindowFlags f = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
     ImGui::Begin("##chat", nullptr, f);
-    ImGui::BeginChild("##lines", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_None);
+    m_chatMin = ImGui::GetWindowPos();
+    m_chatMax = ImVec2(m_chatMin.x + ImGui::GetWindowWidth(), m_chatMin.y + ImGui::GetWindowHeight());
+    float footer = (touch && !m_chatOpen) ? 0.0f : ImGui::GetFrameHeightWithSpacing();
+    ImGui::BeginChild("##lines", ImVec2(0, -footer), ImGuiChildFlags_None);
     size_t first = log.lines.size() > 40 ? log.lines.size() - 40 : 0;
     for (size_t i = first; i < log.lines.size(); ++i) {
         const auto& l = log.lines[i];
@@ -920,25 +992,30 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
 
     if (m_chatOpen) {
         if (!ImGui::IsAnyItemActive()) ImGui::SetKeyboardFocusHere();
-        ImGui::SetNextItemWidth(-60);
+        ImGui::SetNextItemWidth(touch ? -100 : -60);
         bool enter = ImGui::InputTextWithHint("##say", touch ? "Type a message" : "Type a message and press Enter (Esc to cancel)",
                                               &m_chatInput, ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::SameLine();
-        if (enter || ImGui::Button("Send", ImVec2(-1, 0))) {
+        if (enter || ImGui::Button("Send", ImVec2(touch ? 56 : -1, 0))) {
             sendChat(m_chatInput);
             m_chatInput.clear();
             m_chatOpen = false;
         }
+        if (touch) {   // phones have no Esc key
+            ImGui::SameLine();
+            if (ImGui::Button("X", ImVec2(-1, 0))) { m_chatOpen = false; m_chatInput.clear(); }
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_chatOpen = false; m_chatInput.clear(); }
     } else {
-        ImGui::TextDisabled(touch ? "Tap the chat button to talk" : "Press / to chat");
+        if (!touch) ImGui::TextDisabled("Press / to chat");
     }
     ImGui::End();
 }
 
 void PlayerApp::drawPauseMenu() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::GetForegroundDrawList()->AddRectFilled(vp->WorkPos,
+    // Darken the game behind the menu (not the menu itself).
+    ImGui::GetWindowDrawList()->AddRectFilled(vp->WorkPos,
         ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y), IM_COL32(0, 0, 0, 120));
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(320, 0));
@@ -967,7 +1044,13 @@ void PlayerApp::drawPauseMenu() {
 void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
     const float scale = GraphicsSettings::get().touchSize;
     m_touch.begin(min, max, scale);
-    if (!m_opts.touchTest.empty()) {
+    m_touch.setBlocked({{m_chatMin, m_chatMax}});
+    if (m_window->hasTouchScreen()) {
+        // A real touch screen: every finger counts (thumbstick + look + jump at once).
+        std::vector<TouchControls::Finger> f;
+        for (const TouchPoint& t : m_window->touches()) f.push_back({(int)t.id, ImVec2(t.x, t.y), true});
+        m_touch.feed(f, acceptInput);
+    } else if (!m_opts.touchTest.empty()) {
         // Test helper: pretend fingers are on the screen.
         std::vector<TouchControls::Finger> f;
         int k = m_frame - 40;
@@ -1326,4 +1409,23 @@ void PlayerApp::drawCreateItemDialog() {
     if (ImGui::Button("Cancel", ImVec2(100, 34))) ImGui::CloseCurrentPopup();
     if (!m_catalogMsg.empty()) ImGui::TextWrapped("%s", m_catalogMsg.c_str());
     ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------
+// Touch scrolling: drag a list up and down with your finger, like a phone.
+// ---------------------------------------------------------------------------
+
+void PlayerApp::touchScroll() {
+    if (!m_window->hasTouchScreen()) return;
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    ImGuiIO& io = ImGui::GetIO();
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || io.WantTextInput) return;
+    ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
+    if (std::abs(drag.y) < 12.0f || std::abs(drag.y) < std::abs(drag.x) * 1.5f) return;   // not a vertical swipe
+    // The scrollable window under the finger (or the one it's inside).
+    ImGuiWindow* w = g.HoveredWindow;
+    while (w && w->ScrollMax.y <= 0.0f && (w->Flags & ImGuiWindowFlags_ChildWindow)) w = w->ParentWindow;
+    if (!w || w->ScrollMax.y <= 0.0f) return;
+    ImGui::SetScrollY(w, std::clamp(w->Scroll.y - io.MouseDelta.y, 0.0f, w->ScrollMax.y));
+    if (g.ActiveId != 0) ImGui::ClearActiveID();   // a swipe isn't a tap on whatever it started on
 }

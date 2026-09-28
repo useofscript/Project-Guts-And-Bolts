@@ -38,6 +38,16 @@ void GraphicsSettings::applyPreset(int q) {
 
 void GraphicsSettings::load() {
     std::ifstream f(settingsFile());
+#ifdef GB_MOBILE
+    if (!f) {
+        // First run on a phone: lighter settings so it stays smooth and cool.
+        applyPreset(Medium);
+        renderScale = 0.8f;
+        showFps = false;
+        checkUpdates = false;
+        return;
+    }
+#endif
     if (!f) return;
     nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) return;

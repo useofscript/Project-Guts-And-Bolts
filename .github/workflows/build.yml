@@ -1,0 +1,151 @@
+# Builds Guts and Bolts for every platform. Pushing a tag like v0.4.0 also
+# publishes a GitHub release with the Android app and the computer versions.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install the NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.3.11579264" "cmake;3.31.5" "platforms;android-34" "build-tools;34.0.0"
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; else v="0.4.0-dev"; fi
+          echo "name=$v" >> "$GITHUB_OUTPUT"
+          echo "code=$(( GITHUB_RUN_NUMBER + 10 ))" >> "$GITHUB_OUTPUT"
+      - name: Signing key (optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "GB_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Build the APK
+        working-directory: android
+        env:
+          GB_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          GB_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GB_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon -PgbVersion=${{ steps.ver.outputs.name }} -PgbVersionCode=${{ steps.ver.outputs.code }}
+      - name: Rename
+        run: cp android/app/build/outputs/apk/release/app-release.apk GutsAndBoltsPlayer-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: GutsAndBoltsPlayer-Android.apk
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libraries
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libglfw3-dev libglew-dev libglm-dev
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Package
+        run: |
+          mkdir -p GutsAndBolts-Linux
+          cp build/GutsAndBolts build/GutsAndBoltsPlayer GutsAndBolts-Linux/
+          cp -r games catalog GutsAndBolts-Linux/
+          tar czf GutsAndBolts-Linux.tar.gz GutsAndBolts-Linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: GutsAndBolts-Linux.tar.gz
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-glfw mingw-w64-x86_64-glew mingw-w64-x86_64-glm git
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Package
+        run: |
+          mkdir -p GutsAndBolts-Windows
+          cp build/*.exe build/*.dll GutsAndBolts-Windows/ 2>/dev/null || cp build/*.exe GutsAndBolts-Windows/
+          cp -r games catalog GutsAndBolts-Windows/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: GutsAndBolts-Windows
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libraries
+        run: brew install glfw glew glm ninja
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Package
+        run: |
+          mkdir -p GutsAndBolts-macOS
+          cp build/GutsAndBolts build/GutsAndBoltsPlayer GutsAndBolts-macOS/
+          cp -r games catalog GutsAndBolts-macOS/
+          zip -r GutsAndBolts-macOS.zip GutsAndBolts-macOS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: GutsAndBolts-macOS.zip
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v') && always() && needs.android.result == 'success'
+    needs: [android, linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Gather files
+        run: |
+          mkdir -p out
+          cp dist/android/*.apk out/ || true
+          cp dist/linux/*.tar.gz out/ 2>/dev/null || true
+          cp dist/macos/*.zip out/ 2>/dev/null || true
+          if [ -d dist/windows ]; then (cd dist && zip -qr ../out/GutsAndBolts-Windows.zip windows); fi
+          ls -la out
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          prerelease: true
+          body_path: RELEASE_NOTES.md

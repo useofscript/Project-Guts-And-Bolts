@@ -33,6 +33,27 @@ apps and adds Desktop / menu shortcuts. The first build takes a few minutes.
 > No window? Run `python3 install.py --cli` for the text version.
 > `python3 install.py --check` just shows what it detected.
 
+## Android (experimental)
+
+The Player also runs on Android phones and tablets (Android 7.0+). Download
+`GutsAndBoltsPlayer-Android.apk` from the
+[Releases page](https://github.com/useofscript/Project-Guts-And-Bolts/releases),
+open it on your phone and allow installing it. It has the thumbstick / jump
+button touch controls, swipe scrolling, the Back button, the sample games
+built in, and it can host or join games with phones and computers on the same
+Wi-Fi. Studio (making games) stays on computers.
+
+To build the APK yourself you need the Android SDK and NDK:
+
+```sh
+cd android
+./gradlew assembleRelease     # -> app/build/outputs/apk/release/app-release.apk
+```
+
+To try the phone version on a Linux computer:
+`cmake -S . -B build-mobile -DGB_MOBILE=ON && cmake --build build-mobile`, then
+run `GB_TOUCH_SCREEN=1 GB_UI_SCALE=2 ./build-mobile/GutsAndBoltsPlayer`.
+
 ## Guts and Bolts Studio (the editor)
 
 The window has a toolbar, a status bar and docked panels:
@@ -259,6 +280,7 @@ Handy command-line options: `GutsAndBolts --open file.gbscene --play`,
 
 ```
 install.py, Install.bat, Install.command, install.sh    the installer
+android/                the Android app (Gradle project around the same C++ Player)
 games/                  sample games (copied next to the apps)
 catalog/                official catalog items (signed; copied next to the apps)
 tools/                  make_sample_games.py

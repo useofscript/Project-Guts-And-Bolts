@@ -9,7 +9,8 @@
 #include "../core/Settings.h"
 #include "MeshLibrary.h"
 
-#include <GL/glew.h>
+#include "GL.h"
+#include <cstring>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <chrono>
@@ -34,6 +35,27 @@ void destroyTarget(SceneRenderer::Target& t) {
     t = SceneRenderer::Target{};
 }
 
+// The HDR buffers need float colour targets. Every computer has them; phones
+// usually do (an extension), and the rare ones that don't fall back to 8 bits.
+GLenum hdrFormat() {
+#ifdef GB_GLES
+    static GLenum fmt = [] {
+        GLint n = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+        for (GLint i = 0; i < n; ++i) {
+            const char* e = (const char*)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+            if (e && (std::strcmp(e, "GL_EXT_color_buffer_float") == 0 ||
+                      std::strcmp(e, "GL_EXT_color_buffer_half_float") == 0))
+                return (GLenum)GL_RGBA16F;
+        }
+        return (GLenum)GL_RGBA8;
+    }();
+    return fmt;
+#else
+    return GL_RGBA16F;
+#endif
+}
+
 void createTarget(SceneRenderer::Target& t, int w, int h, GLenum fmt, bool withDepth) {
     destroyTarget(t);
     t.w = std::max(1, w);
@@ -44,7 +66,8 @@ void createTarget(SceneRenderer::Target& t, int w, int h, GLenum fmt, bool withD
     glGenTextures(1, &t.color);
     glBindTexture(GL_TEXTURE_2D, t.color);
     GLenum base = (fmt == GL_R8) ? GL_RED : GL_RGBA;
-    glTexImage2D(GL_TEXTURE_2D, 0, fmt, t.w, t.h, 0, base, GL_FLOAT, nullptr);
+    GLenum type = (fmt == GL_RGBA16F) ? GL_FLOAT : GL_UNSIGNED_BYTE;   // OpenGL ES is strict about this
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt, t.w, t.h, 0, base, type, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -55,7 +78,7 @@ void createTarget(SceneRenderer::Target& t, int w, int h, GLenum fmt, bool withD
         glGenTextures(1, &t.depth);
         glBindTexture(GL_TEXTURE_2D, t.depth);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, t.w, t.h, 0,
-                     GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+                     GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -150,12 +173,12 @@ void SceneRenderer::buildAxes() {
 
 void SceneRenderer::ensureTargets(int w, int h) {
     if (m_hdr.w == w && m_hdr.h == h && m_hdr.fbo) return;
-    createTarget(m_hdr, w, h, GL_RGBA16F, true);
+    createTarget(m_hdr, w, h, hdrFormat(), true);
     createTarget(m_ao, w, h, GL_R8, false);
     createTarget(m_ldr, w, h, GL_RGBA8, false);
     int bw = w / 2, bh = h / 2;
     for (auto& b : m_bloom) {
-        createTarget(b, bw, bh, GL_RGBA16F, false);
+        createTarget(b, bw, bh, hdrFormat(), false);
         bw = std::max(1, bw / 2);
         bh = std::max(1, bh / 2);
     }

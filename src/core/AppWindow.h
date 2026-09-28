@@ -1,8 +1,16 @@
 #pragma once
 #include <functional>
 #include <string>
+#include <vector>
 
 struct GLFWwindow;
+struct SDL_Window;
+
+// A finger on a touch screen, in the same pixels ImGui uses.
+struct TouchPoint {
+    long long id;
+    float     x, y;
+};
 
 // Window + OpenGL + Dear ImGui setup and the per-frame loop helpers, shared by
 // the editor and the Player app. Also applies the VSync / FPS-limit settings.
@@ -11,7 +19,9 @@ public:
     AppWindow(const char* title, int width, int height, const char* layoutFile);
     ~AppWindow();
 
+#ifndef GB_MOBILE
     GLFWwindow* handle() const { return m_window; }
+#endif
     bool shouldClose() const;
     void close();
     void setTitle(const std::string& title);
@@ -24,10 +34,27 @@ public:
     void endFrame(const std::string& screenshotPath = {});
 
     void setFixedTimestep(bool on) { m_fixedDt = on; }   // deterministic test runs
+
+    // Touch screens (phones / tablets): the fingers that are down right now.
+    const std::vector<TouchPoint>& touches() const { return m_touches; }
+    bool  hasTouchScreen() const { return m_touchScreen; }
+    float uiScale() const { return m_uiScale; }         // bigger UI on small, dense screens
+    // Tests: pretend a finger went down / moved / lifted (x, y from 0 to 1).
+    void  injectTouch(long long id, float x, float y, bool down);
     void saveScreenshot(const std::string& path);         // binary PPM
 
 private:
+#ifdef GB_MOBILE
+    SDL_Window* m_sdl = nullptr;
+    void*       m_gl = nullptr;
+    bool        m_quit = false;
+    int         m_backPressed = 0;
+#else
     GLFWwindow* m_window = nullptr;
+#endif
+    std::vector<TouchPoint> m_touches;
+    bool        m_touchScreen = false;
+    float       m_uiScale = 1.0f;
     double      m_lastTime = 0.0;
     double      m_nextFrame = 0.0;
     int         m_appliedVsync = -1;

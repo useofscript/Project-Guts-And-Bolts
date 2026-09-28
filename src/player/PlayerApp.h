@@ -126,6 +126,10 @@ private:
     std::string m_grantTo, m_grantCode, m_grantError;
 
     TouchControls m_touch;
+    ImVec2      m_chatMin{0, 0}, m_chatMax{0, 0};  // where the chat box was last frame
+    size_t      m_chatSeen = 0;                    // phones: chat pops up briefly for new messages
+    double      m_chatShowUntil = 0.0;
+    void        touchScroll();
 
     bool        m_paused = false;
     bool        m_showSettings = false;

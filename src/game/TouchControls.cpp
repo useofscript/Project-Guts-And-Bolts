@@ -33,7 +33,7 @@ void TouchControls::buttonRects(ImVec2& chatA, ImVec2& chatB, ImVec2& menuA, ImV
     chatB = ImVec2(chatA.x + s, chatA.y + s);
 }
 
-void TouchControls::feed(const std::vector<Finger>& fingers) {
+void TouchControls::feed(const std::vector<Finger>& fingers, bool allowNew) {
     ImVec2 chatA, chatB, menuA, menuB;
     buttonRects(chatA, chatB, menuA, menuB);
 
@@ -64,7 +64,10 @@ void TouchControls::feed(const std::vector<Finger>& fingers) {
             it->age += m_dt;
             continue;
         }
-        if (!inRect(f.pos, m_min, m_max)) continue;
+        if (!allowNew || !inRect(f.pos, m_min, m_max)) continue;
+        bool blocked = false;
+        for (const auto& [a, b] : m_blocked) if (inRect(f.pos, a, b)) blocked = true;
+        if (blocked) continue;
         Touch t;
         t.id = f.id;
         t.start = t.pos = t.last = f.pos;
@@ -120,11 +123,9 @@ void TouchControls::feed(const std::vector<Finger>& fingers) {
 }
 
 void TouchControls::feedMouse(bool allowed) {
-    bool tracking = !m_touches.empty();
     std::vector<Finger> f;
-    if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && (allowed || tracking))
-        f.push_back({0, ImGui::GetMousePos(), true});
-    feed(f);
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) f.push_back({0, ImGui::GetMousePos(), true});
+    feed(f, allowed);
 }
 
 void TouchControls::draw(ImDrawList* dl) const {

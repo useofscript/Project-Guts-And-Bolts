@@ -23,6 +23,10 @@ std::vector<std::filesystem::path> listGames();
 // Path of the other app (editor <-> player) next to this one.
 std::filesystem::path sibling(const char* programName);
 
+// Phones: copy the games and catalog items packed inside the app into its
+// storage (once per app version). Does nothing on computers.
+void installBundledFiles();
+
 // Start another program (without waiting for it to finish).
 bool launch(const std::filesystem::path& program, const std::string& argument = {});
 

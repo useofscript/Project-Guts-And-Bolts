@@ -59,7 +59,19 @@ void Shader::setBool (const char* n, bool v)              const { glUniform1i (l
 
 GLuint Shader::compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
+#ifdef GB_GLES
+    // Phones: same shaders, OpenGL ES header instead of desktop GLSL 4.1.
+    std::string text = src;
+    const std::string desktop = "#version 410 core";
+    size_t at = text.find(desktop);
+    if (at != std::string::npos)
+        text.replace(at, desktop.size(),
+                     "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;");
+    const char* esSrc = text.c_str();
+    glShaderSource(s, 1, &esSrc, nullptr);
+#else
     glShaderSource(s, 1, &src, nullptr);
+#endif
     glCompileShader(s);
     GLint ok;
     glGetShaderiv(s, GL_COMPILE_STATUS, &ok);

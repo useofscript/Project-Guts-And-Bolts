@@ -81,6 +81,9 @@ void check() {
 } // namespace
 
 void start() {
+#ifdef GB_MOBILE
+    return;   // phones get updates from the new APK instead
+#endif
     if (g_running.exchange(true)) return;
     setState(State::Checking);
     std::thread(check).detach();

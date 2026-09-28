@@ -1,6 +1,7 @@
 #pragma once
 #include <imgui.h>
 #include <glm/glm.hpp>
+#include <utility>
 #include <vector>
 
 // On-screen controls for phones and tablets, laid out like Roblox mobile:
@@ -16,7 +17,11 @@ public:
 
     // Call once per frame, before feeding fingers: the game view's rectangle.
     void begin(ImVec2 min, ImVec2 max, float scale);
-    void feed(const std::vector<Finger>& fingers);
+    // allowNew = false: fingers already down keep working, new ones are ignored
+    // (e.g. while a menu is open).
+    void feed(const std::vector<Finger>& fingers, bool allowNew = true);
+    // Areas where a new finger isn't a control (the chat box, ...).
+    void setBlocked(std::vector<std::pair<ImVec2, ImVec2>> rects) { m_blocked = std::move(rects); }
     void feedMouse(bool allowed);
     void draw(ImDrawList* dl) const;
 
@@ -47,6 +52,7 @@ private:
     void   buttonRects(ImVec2& chatA, ImVec2& chatB, ImVec2& menuA, ImVec2& menuB) const;
 
     ImVec2 m_min{0, 0}, m_max{0, 0};
+    std::vector<std::pair<ImVec2, ImVec2>> m_blocked;
     float  m_scale = 1.0f;
     float  m_dt = 0.0f;
     std::vector<Touch> m_touches;

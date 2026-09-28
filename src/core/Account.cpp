@@ -1,6 +1,7 @@
 #include "Account.h"
 #include "OfficialKey.h"
 #include "Log.h"
+#include "Paths.h"
 #include "Version.h"
 
 #include <monocypher.h>
@@ -111,7 +112,9 @@ fs::path localOfficialFile() { return fs::path(GB_SOURCE_DIR) / "official_key.lo
 
 fs::path folder() {
     if (const char* o = std::getenv("GB_ACCOUNT_DIR"); o && *o) return o;   // tests: several accounts on one PC
-#ifdef _WIN32
+#if defined(__ANDROID__)
+    return Paths::appFolder() / "account";   // the app's private storage
+#elif defined(_WIN32)
     if (const char* a = std::getenv("APPDATA")) return fs::path(a) / "GutsAndBolts";
 #elif defined(__APPLE__)
     if (const char* h = std::getenv("HOME")) return fs::path(h) / "Library/Application Support/GutsAndBolts";

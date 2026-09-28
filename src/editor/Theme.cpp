@@ -26,7 +26,7 @@ ImVec4 withAlpha(ImVec4 c, float a) { c.w = a; return c; }
 ImFont* g_codeFont = nullptr;
 } // namespace
 
-void loadFonts() {
+void loadFonts(float scale) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
 
@@ -42,17 +42,25 @@ void loadFonts() {
     const char* candidates[] = {
         "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/SegoeUI.ttf",
+#ifdef GB_MOBILE
+        // Phones: Android's own font, or a common Linux one for the desktop test build.
+        "/system/fonts/Roboto-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+#endif
     };
     ImFont* loaded = nullptr;
     for (const char* path : candidates) {
         if (FILE* f = std::fopen(path, "rb")) {
             std::fclose(f);
-            loaded = io.Fonts->AddFontFromFileTTF(path, 17.0f, &cfg);
+            loaded = io.Fonts->AddFontFromFileTTF(path, 17.0f * scale, &cfg);
             if (loaded) break;
         }
     }
-    if (!loaded)
-        io.Fonts->AddFontDefault();
+    if (!loaded) {
+        ImFontConfig def;
+        def.SizePixels = 13.0f * scale;
+        io.Fonts->AddFontDefault(&def);
+    }
 
     // Monospace font for code. ImGui's built-in font is monospace too, so it
     // makes a fine fallback.

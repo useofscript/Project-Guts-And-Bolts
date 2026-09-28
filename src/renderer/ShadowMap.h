@@ -1,5 +1,5 @@
 #pragma once
-#include <GL/glew.h>
+#include "GL.h"
 
 // A depth-only framebuffer used as a shadow map. Render the scene into it from
 // the light's point of view, then sample it in the lit shader.

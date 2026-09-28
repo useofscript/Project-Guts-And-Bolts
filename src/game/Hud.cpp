@@ -64,7 +64,8 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& 
     if (!gui.message.empty()) {
         float big = base * 2.0f;
         ImVec2 s = font->CalcTextSizeA(big, FLT_MAX, 0, gui.message.c_str());
-        ImVec2 c((min.x + max.x) * 0.5f, min.y + (max.y - min.y) * 0.22f);
+        // Touch screens: a bit lower, clear of the buttons and the player list.
+        ImVec2 c((min.x + max.x) * 0.5f, min.y + (max.y - min.y) * (topOffset > 0.0f ? 0.34f : 0.22f));
         dl->AddRectFilled(ImVec2(c.x - s.x * 0.5f - 18, c.y - s.y * 0.5f - 10),
                           ImVec2(c.x + s.x * 0.5f + 18, c.y + s.y * 0.5f + 10), IM_COL32(0, 0, 0, 140), 8);
         shadowText(dl, font, big, ImVec2(c.x - s.x * 0.5f, c.y - s.y * 0.5f), IM_COL32(255, 255, 255, 255),
