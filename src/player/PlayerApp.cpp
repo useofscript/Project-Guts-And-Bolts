@@ -7,6 +7,7 @@
 #include "../game/Hud.h"
 #include "../game/Profile.h"
 #include "../game/SettingsWindow.h"
+#include "../game/UpdateToast.h"
 #include "../renderer/SceneRenderer.h"
 #include "../scene/Physics.h"
 #include "../scene/Serializer.h"
@@ -343,6 +344,7 @@ void PlayerApp::frame(float dt) {
     ImGui::End();
     SettingsWindow::draw(&m_showSettings);
     drawJoinDialog();
+    if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
 }
 
 void PlayerApp::drawJoinDialog() {

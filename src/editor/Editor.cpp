@@ -12,6 +12,7 @@
 #include "../scene/Serializer.h"
 #include "../game/GameSession.h"
 #include "../game/SettingsWindow.h"
+#include "../game/UpdateToast.h"
 #include "../core/Settings.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
@@ -85,6 +86,7 @@ void Editor::render(float dt) {
     m_scriptEditor->render();
     renderDialogs();
     SettingsWindow::draw(&m_showSettings);
+    if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 
     trackChanges();
     updateTitle();

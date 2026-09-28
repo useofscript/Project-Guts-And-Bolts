@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.2.0 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -102,6 +102,15 @@ target_include_directories(gb_imgui PUBLIC
 )
 target_link_libraries(gb_imgui PUBLIC glfw OpenGL::GL)
 
+# Version.h: which commit this build is (for the update checker).
+set(GB_GENERATED "${CMAKE_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${GB_GENERATED}")
+add_custom_target(gb_version ALL
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${GB_GENERATED}
+            -DVERSION=${PROJECT_VERSION} -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
+    BYPRODUCTS "${GB_GENERATED}/Version.h"
+    COMMENT "Checking version")
+
 # ---------------------------------------------------------------------------
 # The engine: scene, physics, scripting, rendering, game session.
 # Shared by the editor (GutsAndBolts) and the player app (GutsAndBoltsPlayer).
@@ -113,6 +122,7 @@ add_library(gb_engine STATIC
     src/core/Paths.cpp
     src/core/AppWindow.cpp
     src/core/Audio.cpp
+    src/core/UpdateChecker.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp
@@ -134,11 +144,13 @@ add_library(gb_engine STATIC
     src/game/Hud.cpp
     src/game/SettingsWindow.cpp
     src/game/Profile.cpp
+    src/game/UpdateToast.cpp
     src/net/Socket.cpp
     src/net/NetGame.cpp
     src/editor/Theme.cpp
 )
-target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR})
+target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR} ${GB_GENERATED})
+add_dependencies(gb_engine gb_version)
 find_package(Threads REQUIRED)
 target_link_libraries(gb_engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 if(APPLE)

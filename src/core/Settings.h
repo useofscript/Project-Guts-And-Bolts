@@ -12,6 +12,7 @@ struct GraphicsSettings {
 
     // Content
     bool  allowGore   = true;   // false hides blood / gore in every game
+    bool  checkUpdates = true;  // look for a newer version on GitHub at startup
 
     // Graphics
     int   quality       = High;

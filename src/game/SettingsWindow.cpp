@@ -1,5 +1,6 @@
 #include "SettingsWindow.h"
 #include "../core/Settings.h"
+#include "../core/UpdateChecker.h"
 
 #include <imgui.h>
 #include <cstring>
@@ -69,6 +70,19 @@ void draw(bool* open) {
 
     ImGui::Spacing();
     if (ImGui::Button("Reset to High")) s.applyPreset(GraphicsSettings::High);
+
+    ImGui::SeparatorText("Updates");
+    ImGui::Checkbox("Check for updates when starting", &s.checkUpdates);
+    ImGui::TextDisabled("Version %s", UpdateChecker::currentVersion());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Check now")) UpdateChecker::start();
+    switch (UpdateChecker::info().state) {
+        case UpdateChecker::State::Checking:  ImGui::TextDisabled("Checking..."); break;
+        case UpdateChecker::State::UpToDate:  ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.45f, 1), "You're up to date!"); break;
+        case UpdateChecker::State::Available: ImGui::TextColored(ImVec4(1, 0.6f, 0.25f, 1), "An update is available."); break;
+        case UpdateChecker::State::Failed:    ImGui::TextDisabled("Couldn't check (offline, or a private repository)."); break;
+        default: break;
+    }
 
     if (std::memcmp(&before, &s, sizeof(GraphicsSettings)) != 0) s.save();
     ImGui::End();

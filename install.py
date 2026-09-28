@@ -11,6 +11,8 @@ Double-click Install.bat (Windows), Install.command (macOS) or install.sh
   4. adds shortcuts for Guts and Bolts Studio and Guts&Bolts Player.
 
 Options:
+  --update    get the newest version from GitHub and rebuild
+  --relaunch <program>   start this program when finished (used by the apps)
   --cli       use the text version instead of a window
   --check     just print what was detected and exit
   --build-dir <folder>   where to build (default: ./build)
@@ -25,11 +27,16 @@ import shutil
 import subprocess
 import sys
 import threading
+import json
+import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 APP_NAME = "Guts and Bolts"
+REPO = "useofscript/Project-Guts-And-Bolts"
+BRANCH = "main"
 
 # ---------------------------------------------------------------------------
 # Detecting the computer
@@ -100,7 +107,9 @@ class InstallError(Exception):
 
 
 class Installer:
-    def __init__(self, ui, build_dir=None, shortcuts=True):
+    def __init__(self, ui, build_dir=None, shortcuts=True, update=False, relaunch=None):
+        self.update = update
+        self.relaunch = relaunch
         self.ui = ui                     # has .log(text), .ask_password(prompt)
         self.sys = System()
         self.build_dir = Path(build_dir) if build_dir else ROOT / "build"
@@ -136,12 +145,74 @@ class Installer:
         return shutil.which(program, path=self.env.get("PATH")) is not None
 
     def steps(self):
+        if self.update:
+            return [
+                ("Get the newest version", self.step_download),
+                ("Check the tools", self.step_dependencies),
+                ("Rebuild", self.step_build),
+                ("Start it again", self.step_relaunch),
+            ]
         return [
             ("Check this computer", self.step_check),
             ("Install compiler and libraries", self.step_dependencies),
             ("Download and build the engine", self.step_build),
             ("Add shortcuts", self.step_shortcuts),
         ]
+
+    # -- updating ---------------------------------------------------------------
+
+    @staticmethod
+    def latest_commit():
+        url = f"https://api.github.com/repos/{REPO}/commits/{BRANCH}"
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                                   "User-Agent": "GutsAndBolts-installer"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.load(r)["sha"]
+
+    def step_download(self):
+        self.ui.log("Waiting a moment for the apps to close...")
+        time.sleep(2)
+        if (ROOT / ".git").exists() and shutil.which("git"):
+            self.ui.log("Downloading the newest changes with git...")
+            self.run(["git", "-C", ROOT, "pull", "--ff-only", "origin", BRANCH])
+            return
+        # Not a git folder (downloaded as a zip): grab the newest zip and unpack it over this one.
+        url = f"https://github.com/{REPO}/archive/refs/heads/{BRANCH}.zip"
+        tmp = ROOT / ".update.zip"
+        self.ui.log(f"Downloading {url} ...")
+        urllib.request.urlretrieve(url, tmp)
+        with zipfile.ZipFile(tmp) as z:
+            prefix = z.namelist()[0].split("/")[0] + "/"
+            for member in z.infolist():
+                rel = member.filename[len(prefix):]
+                if not rel or rel.startswith("build/"):
+                    continue
+                target = ROOT / rel
+                if member.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with z.open(member) as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+        tmp.unlink(missing_ok=True)
+        self.remember_commit()
+        self.ui.log("Unpacked the new version.")
+
+    def remember_commit(self):
+        """Zip installs have no git history: note which version this is for the update checker."""
+        if (ROOT / ".git").exists():
+            return
+        try:
+            (ROOT / ".gb_commit").write_text(self.latest_commit())
+        except Exception as e:   # noqa: BLE001 - offline is fine
+            self.ui.log(f"(Couldn't check the version number: {e})")
+
+    def step_relaunch(self):
+        if self.relaunch and Path(self.relaunch).exists():
+            self.ui.log(f"Starting {Path(self.relaunch).name}...")
+            self.launch(self.relaunch)
+        else:
+            self.ui.log("All up to date.")
 
     # -- 1. check -------------------------------------------------------------
 
@@ -161,6 +232,7 @@ class Installer:
         self.ui.log(f"Free disk space: {free:.1f} GB")
         if free < 2:
             raise InstallError("You need about 2 GB of free disk space.")
+        self.remember_commit()
 
     # -- 2. dependencies ------------------------------------------------------
 
@@ -261,9 +333,10 @@ class Installer:
         self.ui.log("Building - this is the slow bit, grab a snack...")
         jobs = str(max(1, (os.cpu_count() or 2)))
         self.run(["cmake", "--build", self.build_dir, "--config", "Release", "--parallel", jobs])
-        for exe in ("GutsAndBolts", "GutsAndBoltsPlayer"):
-            if not self.exe_path(exe).exists():
-                raise InstallError(f"The build finished but {exe} wasn't made. See the details below.")
+        if not self.exe_path("GutsAndBolts").exists():
+            raise InstallError("The build finished but the Guts and Bolts program wasn't made. See the details below.")
+        if not self.exe_path("GutsAndBoltsPlayer").exists():
+            self.ui.log("Note: this version doesn't include Guts&Bolts Player.")
         self.ui.log("Built successfully!")
 
     def exe_path(self, name):
@@ -378,8 +451,10 @@ class ConsoleUI:
 
 def run_console(args):
     ui = ConsoleUI()
-    inst = Installer(ui, args.get("build_dir"), args.get("shortcuts", True))
-    print(f"\n=== Installing {APP_NAME} on {inst.sys.pretty} ===\n")
+    inst = Installer(ui, args.get("build_dir"), args.get("shortcuts", True), args.get("update", False),
+                     args.get("relaunch"))
+    verb = "Updating" if inst.update else "Installing"
+    print(f"\n=== {verb} {APP_NAME} on {inst.sys.pretty} ===\n")
     steps = inst.steps()
     for i, (title, fn) in enumerate(steps, 1):
         print(f"[{i}/{len(steps)}] {title}")
@@ -435,7 +510,9 @@ def run_window(args):
 
     ui = WindowUI()
     shortcuts_var = tk.BooleanVar(value=args.get("shortcuts", True))
-    inst = Installer(ui, args.get("build_dir"), True)
+    inst = Installer(ui, args.get("build_dir"), True, args.get("update", False), args.get("relaunch"))
+    if inst.update:
+        root.title(f"Updating {APP_NAME}")
 
     # --- Header ---
     header = tk.Frame(root, bg=BG)
@@ -532,6 +609,10 @@ def run_window(args):
         threading.Thread(target=worker, daemon=True).start()
 
     def finished():
+        if inst.update:
+            status.configure(text="Updated! Enjoy the new version.", fg=GREEN)
+            root.after(1500, root.destroy)
+            return
         status.configure(text="All done! Guts and Bolts is installed.", fg=GREEN)
         install_btn.pack_forget()
         button(buttons, "Open Player", "#3f6fd0", lambda: inst.launch(inst.exe_path("GutsAndBoltsPlayer"))
@@ -571,6 +652,8 @@ def run_window(args):
         root.after(80, pump)
 
     pump()
+    if inst.update:
+        root.after(300, start)       # updating starts by itself
     root.mainloop()
     return 0
 
@@ -590,6 +673,10 @@ def parse_args(argv):
             args["shortcuts"] = False
         elif a == "--build-dir":
             args["build_dir"] = next(it, None)
+        elif a == "--update":
+            args["update"] = True
+        elif a == "--relaunch":
+            args["relaunch"] = next(it, None)
     return args
 
 
