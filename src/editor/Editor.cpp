@@ -20,6 +20,7 @@
 #include "../core/Paths.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtx/euler_angles.hpp>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -57,6 +58,10 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     actions.addModel     = [this] { addModel(); };
     actions.addLight     = [this](LightType t) { addLight(t); };
     actions.addSound     = [this] { addSound(); };
+    actions.startConnect = [this](int t) { m_state.connectTool = t; m_state.connectFirst = 0; m_viewport->focus(); };
+    m_viewport->onConnect = [this](SceneNode* a, glm::vec3 pa, SceneNode* b, glm::vec3 pb) {
+        connectParts(m_state.connectTool, a, pa, b, pb);
+    };
     actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
     m_toolbox = std::make_unique<ToolboxPanel>(actions);
 
@@ -245,6 +250,16 @@ void Editor::testAddPart(const std::string& name) {
     n->transform.position = {-3, 0.5f, 2};
 }
 
+void Editor::testPremades(const std::string& list) {
+    int i = 0;
+    for (const PremadeInfo& p : premadeList()) {
+        if (list != "all" && list.find(p.name) == std::string::npos) continue;
+        glm::vec3 at((i % 4) * 14.0f - 21.0f, 0.0f, (i / 4) * -14.0f - 8.0f);
+        buildPremade(*m_scene, p.kind, at);
+        ++i;
+    }
+}
+
 void Editor::addLight(LightType type) {
     auto l = std::make_unique<SceneNode>(type == LightType::Spot ? "SpotLight" : "PointLight", NodeKind::Light);
     l->lightType = type;
@@ -264,6 +279,26 @@ void Editor::addSound() {
         parent = m_scene->root();
     auto s = std::make_unique<SceneNode>("Sound", NodeKind::Sound);
     m_scene->select(m_scene->insert(std::move(s), parent));
+}
+
+void Editor::connectParts(int type, SceneNode* a, glm::vec3 pa, SceneNode* b, glm::vec3 pb) {
+    if (!canEdit(a) || !canEdit(b)) {
+        Log::warn("Constraints can only connect normal parts (not the character).");
+        return;
+    }
+    bool motor = type == 5;
+    ConstraintType ct = motor ? ConstraintType::Hinge : (ConstraintType)type;
+    // Hinges turn around the direction the first clicked surface faces.
+    glm::mat4 wa = a->worldMatrix();
+    glm::vec3 local = glm::vec3(glm::inverse(wa) * glm::vec4(pa, 1.0f));
+    int ax = 0;
+    for (int i = 1; i < 3; ++i) if (std::abs(local[i]) > std::abs(local[ax])) ax = i;
+    glm::vec3 normal = glm::normalize(glm::vec3(wa[ax])) * (local[ax] >= 0 ? 1.0f : -1.0f);
+
+    SceneNode* made = makeConstraint(*m_scene, ct, a, pa, b, pb, normal, motor);
+    m_scene->select(made);
+    Log::system(std::string("Connected ") + a->name + " and " + b->name + " with a " +
+                (motor ? "motor" : kConstraintNames[(int)ct]) + ". Press Play to try it!");
 }
 
 void Editor::openScript(SceneNode* script) {

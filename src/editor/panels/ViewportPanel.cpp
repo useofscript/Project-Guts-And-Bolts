@@ -14,6 +14,8 @@
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
+#include <cstdio>
 
 ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* state)
     : m_window(window), m_scene(scene), m_state(state) {
@@ -219,6 +221,45 @@ void ViewportPanel::render(float dt) {
                 float dx = mouse.x - sp.x, dy = mouse.y - sp.y;
                 if (dx * dx + dy * dy < 12.0f * 12.0f) iconHit = n;
             });
+
+            // Connect tool: click part A, then part B.
+            if (m_state->connectTool >= 0) {
+                static const char* names[] = {"rope", "rod", "spring", "weld", "hinge", "motor"};
+                const char* what = names[std::clamp(m_state->connectTool, 0, 5)];
+                char hint[160];
+                if (!m_state->connectFirst)
+                    std::snprintf(hint, sizeof(hint), "Adding a %s: click the FIRST part   (Esc to cancel)", what);
+                else
+                    std::snprintf(hint, sizeof(hint), "Adding a %s: now click the SECOND part   (Esc to cancel)", what);
+                ImVec2 ts = ImGui::CalcTextSize(hint);
+                ImVec2 hp(imgMin.x + (imgSize.x - ts.x) * 0.5f, imgMin.y + 14);
+                dl->AddRectFilled(ImVec2(hp.x - 10, hp.y - 6), ImVec2(hp.x + ts.x + 10, hp.y + ts.y + 6), IM_COL32(20, 90, 200, 230), 6);
+                dl->AddText(hp, IM_COL32(255, 255, 255, 255), hint);
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_state->connectTool = -1; m_state->connectFirst = 0; }
+                if (m_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    ImVec2 m = ImGui::GetMousePos();
+                    glm::vec3 ro, rd;
+                    mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
+                    float dist = 0.0f;
+                    if (SceneNode* hit = Physics::raycast(*m_scene, ro, rd, &dist)) {
+                        glm::vec3 point = ro + rd * dist;
+                        if (!m_state->connectFirst) {
+                            m_state->connectFirst = hit->id;
+                            m_state->connectPoint[0] = point.x; m_state->connectPoint[1] = point.y; m_state->connectPoint[2] = point.z;
+                            m_scene->select(hit);
+                        } else if (hit->id != m_state->connectFirst) {
+                            SceneNode* first = m_scene->findById(m_state->connectFirst);
+                            glm::vec3 p0(m_state->connectPoint[0], m_state->connectPoint[1], m_state->connectPoint[2]);
+                            if (first && onConnect) onConnect(first, p0, hit, point);
+                            m_state->connectTool = -1;
+                            m_state->connectFirst = 0;
+                        }
+                    }
+                }
+                ImGui::End();
+                ImGui::PopStyleVar();
+                return;
+            }
 
             // Left-click to pick — but not while interacting with the gizmo.
             bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();

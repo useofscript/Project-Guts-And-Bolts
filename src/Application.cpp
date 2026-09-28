@@ -35,6 +35,7 @@ void Application::run() {
         if (m_opts.teamHost && frame == 2) m_editor->startTeamCreate(true, "");
         if (!m_opts.teamJoin.empty() && frame == 2) m_editor->startTeamCreate(false, m_opts.teamJoin);
         if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
+        if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
 
         m_editor->render(dt);
 

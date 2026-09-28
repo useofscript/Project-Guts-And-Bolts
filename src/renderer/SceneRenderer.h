@@ -27,7 +27,8 @@ public:
 
 private:
     void renderShadowPass(Scene& scene, const glm::mat4& lightSpace);
-    void drawGeometry(Scene& scene, const Camera& camera);
+    void drawGeometry(Scene& scene, const Camera& camera, bool editing);
+    void drawConstraints(Scene& scene, bool editing);
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
     void ensureTargets(int w, int h);
     void buildGrid();

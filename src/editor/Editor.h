@@ -29,6 +29,7 @@ public:
     // Test / command-line helpers.
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);
+    void testPremades(const std::string& list);
 
 private:
     void buildDockspace();
@@ -47,6 +48,7 @@ private:
     void       addModel();
     void       addLight(LightType type);
     void       addSound();
+    void       connectParts(int type, SceneNode* a, glm::vec3 pa, SceneNode* b, glm::vec3 pb);
     void       openScript(SceneNode* script);
     void       duplicateSelected();
     void       deleteSelected();

@@ -13,6 +13,7 @@ public:
         std::function<void()>              addModel;
         std::function<void(LightType)>     addLight;
         std::function<void()>              addSound;
+        std::function<void(int)>           startConnect;   // ConstraintType (5 = motor)
         std::function<void(Premade)>       spawnPremade;
     };
 

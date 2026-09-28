@@ -313,6 +313,11 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
                 up.y = c.box.max.y + 0.001f;
                 if (!blocked(characterBox(up))) { pos = up; continue; }
             }
+            if (c.dynamic) {       // shove loose parts out of the way
+                glm::vec3 dir(0.0f);
+                dir[axis] = delta[axis] > 0.0f ? 1.0f : -1.0f;
+                r.pushed.push_back({c.node, dir});
+            }
             if (delta[axis] > 0.0f) pos[axis] = c.box.min[axis] - kCharHalfWidth - 1e-4f;
             else                    pos[axis] = c.box.max[axis] + kCharHalfWidth + 1e-4f;
         }
@@ -397,72 +402,7 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
     return r;
 }
 
-void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
-    const float g = scene.world().gravity;
-    for (size_t i = 0; i < m_colliders.size(); ++i) {
-        Collider& me = m_colliders[i];
-        if (!me.dynamic) continue;
-        SceneNode* n = me.node;
-
-        n->velocity.y -= g * dt;
-        glm::vec3 worldDelta = n->velocity * dt;
-
-        // Resolve against every other solid part, one axis at a time.
-        AABB box = me.box;
-        for (int axis : {1, 0, 2}) {
-            float d = worldDelta[axis];
-            if (std::abs(d) < 1e-8f) continue;
-            box.min[axis] += d;
-            box.max[axis] += d;
-            if (!me.solid) continue;
-            for (size_t j = 0; j < m_colliders.size(); ++j) {
-                if (j == i) continue;
-                const Collider& o = m_colliders[j];
-                if (!o.solid || o.rotated || !box.overlaps(o.box)) continue;
-                if (o.node->isAncestorOf(n) || n->isAncestorOf(o.node)) continue;
-                float fix = (d > 0.0f) ? (o.box.min[axis] - box.max[axis])
-                                       : (o.box.max[axis] - box.min[axis]);
-                box.min[axis] += fix;
-                box.max[axis] += fix;
-                worldDelta[axis] += fix;
-                n->velocity[axis] = 0.0f;
-                if (axis == 1 && d < 0.0f) {
-                    // Resting on something: ground friction.
-                    float f = std::max(0.0f, 1.0f - 6.0f * dt);
-                    n->velocity.x *= f;
-                    n->velocity.z *= f;
-                }
-            }
-        }
-
-        // Tilted parts: slide off along their surface (so balls roll down ramps).
-        if (me.solid) {
-            for (size_t j = 0; j < m_colliders.size(); ++j) {
-                const Collider& o = m_colliders[j];
-                if (j == i || !o.solid || !o.rotated || !box.overlaps(o.box)) continue;
-                glm::vec3 nrm; float depth;
-                if (!obbOverlap(OBB::fromAABB(box), o.obb, nrm, depth)) continue;
-                glm::vec3 fix = nrm * depth;
-                box.min += fix; box.max += fix;
-                worldDelta += fix;
-                float vn = glm::dot(n->velocity, nrm);
-                if (vn < 0.0f) n->velocity -= nrm * vn;          // stop going into the surface
-                if (nrm.y > 0.5f) {
-                    float f = std::max(0.0f, 1.0f - 2.0f * dt);  // a little friction
-                    n->velocity *= f;
-                }
-            }
-        }
-
-        // Apply the world-space move in the parent's local space.
-        glm::mat3 toLocal(1.0f);
-        if (n->parent) toLocal = glm::inverse(glm::mat3(n->parent->worldMatrix()));
-        n->transform.position += toLocal * worldDelta;
-        me.box = box;
-
-        if (box.max.y < scene.world().fallenPartsHeight) fallen.push_back(n->id);
-    }
-}
+// stepParts (rigid bodies + constraints) lives in RigidBodies.cpp.
 
 void Physics::collectTouches(Scene& scene, std::vector<TouchEvent>& out) {
     std::set<std::pair<uint64_t, uint64_t>> now;

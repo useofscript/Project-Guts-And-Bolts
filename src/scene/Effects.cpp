@@ -29,6 +29,8 @@ void explode(Scene& scene, const glm::vec3& pos, float radius, float power) {
         if (dist > radius) continue;
         glm::vec3 dir = dist > 1e-3f ? d / dist : glm::vec3(0, 1, 0);
         n->velocity += (dir + glm::vec3(0, 0.6f, 0)) * 30.0f * power * (1.0f - dist / radius);
+        n->angularVelocity += glm::cross(glm::vec3(0, 1, 0), dir) * 8.0f * power * (1.0f - dist / radius);
+        Physics::wake(n);
     }
 
     // Hurt the player.

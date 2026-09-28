@@ -25,6 +25,8 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Script   ? "Script"
                     : node->kind == NodeKind::Light    ? (node->lightType == LightType::Spot ? "SpotLight" : "PointLight")
                     : node->kind == NodeKind::Sound    ? "Sound"
+                    : node->kind == NodeKind::Attachment ? "Attachment"
+                    : node->kind == NodeKind::Constraint ? "Constraint"
                     : node->kind == NodeKind::ForceField ? "ForceField"
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
@@ -68,6 +70,50 @@ void PropertiesPanel::render() {
             else preview = Audio::play(node->soundId, node->volume, node->pitch, false);
         }
         ImGui::TextDisabled("Scripts: script.Parent:Play()  /  Sounds.Play(\"coin\")");
+        ImGui::End();
+        return;
+    }
+
+    if (node->isAttachment()) {
+        ImGui::DragFloat3("Offset", &node->transform.position.x, 0.01f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where on the part (in the part's own space)");
+        ImGui::DragFloat3("Rotation", &node->transform.rotation.x, 0.5f);
+        ImGui::TextDisabled("Its red (X) direction is the hinge axis.");
+        ImGui::End();
+        return;
+    }
+    if (node->isConstraint()) {
+        int t = (int)node->constraintType;
+        if (ImGui::Combo("Type", &t, kConstraintNames, 5)) { node->constraintType = (ConstraintType)t; node->jointReady = false; }
+        ImGui::Checkbox("Enabled", &node->enabled);
+        ImGui::SameLine();
+        ImGui::Checkbox("Visible", &node->visible);
+        SceneNode* r0 = m_scene->findById(node->ref0);
+        SceneNode* r1 = m_scene->findById(node->ref1);
+        auto owner = [](SceneNode* r) { return r ? (r->isAttachment() && r->parent ? r->parent->name : r->name) : std::string("(missing)"); };
+        ImGui::TextDisabled("Connects %s  <->  %s", owner(r0).c_str(), owner(r1).c_str());
+        ConstraintType ct = node->constraintType;
+        if (ct == ConstraintType::Rope || ct == ConstraintType::Rod || ct == ConstraintType::Spring) {
+            bool autoLen = node->length < 0.0f;
+            if (ImGui::Checkbox("Length as placed", &autoLen)) node->length = autoLen ? -1.0f : 4.0f;
+            if (!autoLen) ImGui::DragFloat("Length", &node->length, 0.05f, 0.0f, 500.0f);
+        }
+        if (ct == ConstraintType::Spring) {
+            ImGui::DragFloat("Stiffness", &node->stiffness, 1.0f, 0.0f, 100000.0f);
+            ImGui::DragFloat("Damping", &node->damping, 0.1f, 0.0f, 10000.0f);
+        }
+        if (ct == ConstraintType::Hinge) {
+            bool motor = node->motorTorque > 0.0f;
+            if (ImGui::Checkbox("Motor", &motor)) node->motorTorque = motor ? 3000.0f : 0.0f;
+            if (motor) {
+                ImGui::DragFloat("Speed", &node->motorSpeed, 0.05f, -100.0f, 100.0f, "%.2f rad/s");
+                ImGui::DragFloat("Strength", &node->motorTorque, 10.0f, 0.0f, 1e7f);
+            }
+        }
+        if (ct != ConstraintType::Weld) {
+            ImGui::ColorEdit3("Color", &node->color.x);
+            ImGui::SliderFloat("Thickness", &node->thickness, 0.02f, 1.0f);
+        }
         ImGui::End();
         return;
     }
@@ -145,6 +191,26 @@ void PropertiesPanel::render() {
         ImGui::Checkbox("Can Collide", &node->canCollide);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn off to let things pass through");
         ImGui::Checkbox("Cast Shadow", &node->castShadow);
+    }
+
+    // --- Physics (how it behaves when unanchored) ---
+    if (ImGui::CollapsingHeader("Physics")) {
+        auto prop = [&](const char* label, float& v, float def, float mn, float mx, const char* tip) {
+            bool custom = v >= 0.0f;
+            ImGui::PushID(label);
+            if (ImGui::Checkbox("##custom", &custom)) v = custom ? def : -1.0f;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tick to override the material's value");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!custom);
+            float shown = custom ? v : def;
+            if (ImGui::SliderFloat(label, &shown, mn, mx) && custom) v = shown;
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+            ImGui::PopID();
+        };
+        prop("Density", node->density, 1.0f, 0.05f, 10.0f, "Heavier parts are harder to push");
+        prop("Friction", node->friction, 0.5f, 0.0f, 2.0f, "0 = slides like ice");
+        prop("Bounciness", node->elasticity, 0.3f, 0.0f, 1.0f, "1 = bounces like a rubber ball");
     }
 
     if (!m_scene->isCharacterPart(node)) {

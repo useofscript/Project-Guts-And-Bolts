@@ -133,6 +133,7 @@ add_library(gb_engine STATIC
     src/scene/Scene.cpp
     src/scene/Player.cpp
     src/scene/Physics.cpp
+    src/scene/RigidBodies.cpp
     src/scene/Particles.cpp
     src/scene/Ragdoll.cpp
     src/scene/Effects.cpp

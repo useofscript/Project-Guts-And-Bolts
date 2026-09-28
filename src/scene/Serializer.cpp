@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 
 using json = nlohmann::json;
 
@@ -34,6 +35,8 @@ const char* kindName(NodeKind k) {
         case NodeKind::Light:  return "Light";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Sound:  return "Sound";
+        case NodeKind::Attachment: return "Attachment";
+        case NodeKind::Constraint: return "Constraint";
         default:               return "Part";
     }
 }
@@ -43,6 +46,8 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Light")  return NodeKind::Light;
     if (s == "ForceField") return NodeKind::ForceField;
     if (s == "Sound")  return NodeKind::Sound;
+    if (s == "Attachment") return NodeKind::Attachment;
+    if (s == "Constraint") return NodeKind::Constraint;
     return NodeKind::Part;
 }
 
@@ -84,6 +89,16 @@ json toJson(const SceneNode& n) {
         j["anchored"]     = n.anchored;
         j["canCollide"]   = n.canCollide;
         j["castShadow"]   = n.castShadow;
+        if (n.density >= 0)    j["density"]    = n.density;
+        if (n.friction >= 0)   j["friction"]   = n.friction;
+        if (n.elasticity >= 0) j["elasticity"] = n.elasticity;
+    }
+    if (n.kind == NodeKind::Constraint) {
+        j["type"] = kConstraintNames[(int)n.constraintType];
+        j["ref0"] = n.ref0; j["ref1"] = n.ref1;
+        j["length"] = n.length; j["stiffness"] = n.stiffness; j["damping"] = n.damping;
+        j["motorSpeed"] = n.motorSpeed; j["motorTorque"] = n.motorTorque;
+        j["thickness"] = n.thickness; j["color"] = vec(n.color); j["enabled"] = n.enabled;
     }
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
@@ -129,6 +144,22 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->anchored      = get<bool>(j, "anchored", true);
         n->canCollide    = get<bool>(j, "canCollide", true);
         n->castShadow    = get<bool>(j, "castShadow", true);
+        n->density       = get<float>(j, "density", -1.0f);
+        n->friction      = get<float>(j, "friction", -1.0f);
+        n->elasticity    = get<float>(j, "elasticity", -1.0f);
+    }
+    if (n->kind == NodeKind::Constraint) {
+        std::string type = get<std::string>(j, "type", "Rope");
+        for (int i = 0; i < 5; ++i) if (type == kConstraintNames[i]) n->constraintType = (ConstraintType)i;
+        n->ref0 = get<uint64_t>(j, "ref0", 0);
+        n->ref1 = get<uint64_t>(j, "ref1", 0);
+        n->length = get<float>(j, "length", -1.0f);
+        n->stiffness = get<float>(j, "stiffness", 200.0f);
+        n->damping = get<float>(j, "damping", 5.0f);
+        n->motorSpeed = get<float>(j, "motorSpeed", 0.0f);
+        n->motorTorque = get<float>(j, "motorTorque", 0.0f);
+        n->thickness = get<float>(j, "thickness", 0.1f);
+        n->color = vec(j, "color", {0.45f, 0.32f, 0.2f});
     }
     if (n->kind == NodeKind::Light) {
         n->lightType  = get<std::string>(j, "lightType", "Point") == "Spot" ? LightType::Spot : LightType::Point;
@@ -325,6 +356,10 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.range = src->range;         dst.spotAngle = src->spotAngle;
     dst.soundId = src->soundId;     dst.volume = src->volume; dst.pitch = src->pitch;
     dst.looped = src->looped;       dst.autoplay = src->autoplay;
+    dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
+    dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
+    dst.length = src->length;       dst.stiffness = src->stiffness; dst.damping = src->damping;
+    dst.motorSpeed = src->motorSpeed; dst.motorTorque = src->motorTorque; dst.thickness = src->thickness;
 }
 
 std::string nodeToString(const SceneNode& node) { return toJson(node).dump(); }
@@ -339,11 +374,35 @@ void environmentFromString(Environment& env, const std::string& text) {
 std::unique_ptr<SceneNode> nodeFromString(const std::string& text, bool freshIds) {
     json j = json::parse(text, nullptr, false);
     if (j.is_discarded() || !j.is_object()) return nullptr;
-    try { return fromJson(j, freshIds); } catch (...) { return nullptr; }
+    try {
+        if (!freshIds) return fromJson(j, false);
+        auto original = fromJson(j, false);
+        return clone(*original);
+    } catch (...) { return nullptr; }
 }
 
+namespace {
+void collectIds(const SceneNode& a, const SceneNode& b, std::unordered_map<uint64_t, uint64_t>& map) {
+    map[a.id] = b.id;
+    for (size_t i = 0; i < a.children.size() && i < b.children.size(); ++i)
+        collectIds(*a.children[i], *b.children[i], map);
+}
+void remapRefs(SceneNode& n, const std::unordered_map<uint64_t, uint64_t>& map) {
+    if (n.isConstraint()) {
+        if (auto it = map.find(n.ref0); it != map.end()) n.ref0 = it->second;
+        if (auto it = map.find(n.ref1); it != map.end()) n.ref1 = it->second;
+    }
+    for (auto& c : n.children) remapRefs(*c, map);
+}
+} // namespace
+
 std::unique_ptr<SceneNode> clone(const SceneNode& node) {
-    return fromJson(toJson(node), true);
+    auto copy = fromJson(toJson(node), true);
+    // Ropes / hinges inside the copy connect to the copied attachments.
+    std::unordered_map<uint64_t, uint64_t> map;
+    collectIds(node, *copy, map);
+    remapRefs(*copy, map);
+    return copy;
 }
 
 bool writeFile(const std::string& path, const std::string& text) {

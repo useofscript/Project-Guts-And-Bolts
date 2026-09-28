@@ -4,6 +4,7 @@
 #include "../renderer/MeshLibrary.h"
 
 #include <memory>
+#include <glm/gtx/euler_angles.hpp>
 #include <string>
 
 namespace {
@@ -239,6 +240,38 @@ barrel.Touched:Connect(function(hit)
 end)
 )";
 
+const char* kCart = R"(-- Motor Cart: hold the Up / Down arrow keys to drive. Hop on first!
+local cart = script.Parent
+local input = game:GetService("UserInputService")
+
+game:GetService("RunService").Heartbeat:Connect(function()
+    local speed = 0
+    if input:IsKeyDown(Enum.KeyCode.Up) then speed = 9
+    elseif input:IsKeyDown(Enum.KeyCode.Down) then speed = -9 end
+    -- Look the motors up every time, so a cart that got blown apart still works.
+    for _, thing in ipairs(cart:GetDescendants()) do
+        if thing:IsA("HingeConstraint") then
+            thing.AngularVelocity = speed
+        end
+    end
+end)
+)";
+
+const char* kTrampoline = R"(-- Trampoline: bounces the player (and anything else) up high.
+local pad = script.Parent
+
+pad.Touched:Connect(function(hit)
+    local character = hit.Parent
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if root and character:FindFirstChild("Humanoid") then
+        root.AssemblyLinearVelocity = Vector3.new(0, 26, 0)
+        Sounds.Play("boing", pad.Position)
+    elseif not hit.Anchored then
+        hit.AssemblyLinearVelocity = hit.AssemblyLinearVelocity + Vector3.new(0, 30, 0)
+    end
+end)
+)";
+
 SceneNode* addPart(Scene& scene, const char* name, PrimitiveType shape, glm::vec3 pos,
                    glm::vec3 size, glm::vec3 color, Material mat = Material::Plastic) {
     SceneNode* n = scene.addNode(name, shape, MeshLibrary::get(shape));
@@ -257,6 +290,43 @@ void addScript(Scene& scene, SceneNode* parent, const char* source) {
 
 } // namespace
 
+SceneNode* makeConstraint(Scene& scene, ConstraintType type, SceneNode* a, const glm::vec3& pa,
+                          SceneNode* b, const glm::vec3& pb, const glm::vec3& axis, bool motor) {
+    auto c = std::make_unique<SceneNode>(std::string(kConstraintNames[(int)type]) + (motor ? "Motor" : "Constraint"),
+                                         NodeKind::Constraint);
+    c->constraintType = type;
+    c->color = type == ConstraintType::Rope ? glm::vec3(0.45f, 0.32f, 0.2f) : glm::vec3(0.6f, 0.62f, 0.66f);
+    if (motor) { c->motorTorque = 3000.0f; c->motorSpeed = 3.0f; }
+    if (type == ConstraintType::Weld) {
+        c->ref0 = a->id;
+        c->ref1 = b->id;
+        c->visible = false;
+    } else {
+        auto makeAttachment = [&](SceneNode* part, const glm::vec3& worldPoint) {
+            auto att = std::make_unique<SceneNode>("Attachment", NodeKind::Attachment);
+            glm::mat4 w = part->worldMatrix();
+            att->transform.position = glm::vec3(glm::inverse(w) * glm::vec4(worldPoint, 1.0f));
+            // The attachment's X axis points along `axis` (the hinge axis).
+            glm::vec3 x = glm::normalize(axis);
+            glm::vec3 y = std::abs(x.y) < 0.9f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+            glm::vec3 z = glm::normalize(glm::cross(x, y));
+            y = glm::cross(z, x);
+            glm::vec3 sc(glm::length(glm::vec3(w[0])), glm::length(glm::vec3(w[1])), glm::length(glm::vec3(w[2])));
+            glm::mat3 parentRot(w);
+            for (int i = 0; i < 3; ++i) parentRot[i] /= std::max(sc[i], 1e-6f);
+            glm::mat3 localRot = glm::transpose(parentRot) * glm::mat3(x, y, z);
+            float rz, ry, rx;
+            glm::extractEulerAngleZYX(glm::mat4(localRot), rz, ry, rx);
+            att->transform.rotation = glm::degrees(glm::vec3(rx, ry, rz));
+            att->transform.scale = glm::vec3(1.0f) / glm::max(sc, glm::vec3(1e-3f));   // not stretched by the part
+            return scene.insert(std::move(att), part);
+        };
+        c->ref0 = makeAttachment(a, pa)->id;
+        c->ref1 = makeAttachment(b, type == ConstraintType::Hinge ? pa : pb)->id;
+    }
+    return scene.insert(std::move(c), a);
+}
+
 const std::vector<PremadeInfo>& premadeList() {
     static const std::vector<PremadeInfo> list = {
         {Premade::SpawnLocation,        "Spawn Location",  "Where the player appears when you press Play"},
@@ -271,6 +341,14 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::FallingBall,          "Falling Ball",    "An unanchored ball that drops with gravity"},
         {Premade::DayNightCycle,        "Day/Night Cycle", "A script that makes time pass"},
         {Premade::Ramp,                 "Ramp",            "A slope you can walk (or roll things) up"},
+        {Premade::SwingingRope,         "Swinging Rope",   "A ball hanging from a rope - push it!"},
+        {Premade::WreckingBall,         "Wrecking Ball",   "A heavy ball on a rod that swings through things"},
+        {Premade::Windmill,             "Windmill",        "Spinning blades driven by a motor"},
+        {Premade::Seesaw,               "Seesaw",          "A plank on a hinge - jump on one end"},
+        {Premade::MotorCart,            "Motor Cart",      "Hop on and drive with the arrow keys"},
+        {Premade::DominoRun,            "Domino Run",      "Knock the first one over..."},
+        {Premade::CratePyramid,         "Crate Pyramid",   "A stack of loose crates to knock down"},
+        {Premade::Trampoline,           "Trampoline",      "Super bouncy - throws players and parts up"},
         {Premade::Landmine,             "Landmine",        "Explodes when stepped on"},
         {Premade::SawBlade,             "Saw Blade",       "A spinning blade. Touch it and lose limbs"},
         {Premade::SpikeTrap,            "Spike Trap",      "Spikes shoot up every few seconds"},
@@ -329,6 +407,98 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
         case Premade::Ramp:
             n = addPart(scene, "Ramp", PrimitiveType::Cube, at + glm::vec3(0, 1.5f, 0), {4, 0.5f, 9}, {0.8f, 0.55f, 0.3f}, Material::Wood);
             n->transform.rotation = {20, 0, 0};
+            break;
+        case Premade::SwingingRope: {
+            n = scene.insert(std::make_unique<SceneNode>("SwingingRope", NodeKind::Model));
+            SceneNode* beam = addPart(scene, "Beam", PrimitiveType::Cube, at + glm::vec3(0, 8, 0), {1, 1, 1}, {0.3f, 0.3f, 0.32f}, Material::Metal);
+            SceneNode* ball = addPart(scene, "Ball", PrimitiveType::Sphere, at + glm::vec3(3, 5.5f, 0), {1.4f, 1.4f, 1.4f}, {1, 0.8f, 0.1f});
+            ball->anchored = false;
+            scene.reparent(beam, n); scene.reparent(ball, n);
+            makeConstraint(scene, ConstraintType::Rope, beam, at + glm::vec3(0, 7.5f, 0), ball, ball->transform.position, {1, 0, 0}, false);
+            break;
+        }
+        case Premade::WreckingBall: {
+            n = scene.insert(std::make_unique<SceneNode>("WreckingBall", NodeKind::Model));
+            glm::vec3 metal = {0.35f, 0.35f, 0.38f};
+            SceneNode* l = addPart(scene, "PostL", PrimitiveType::Cube, at + glm::vec3(-4, 6, 0), {0.8f, 12, 0.8f}, {0.8f, 0.6f, 0.1f}, Material::Metal);
+            SceneNode* r = addPart(scene, "PostR", PrimitiveType::Cube, at + glm::vec3(4, 6, 0), {0.8f, 12, 0.8f}, {0.8f, 0.6f, 0.1f}, Material::Metal);
+            SceneNode* top = addPart(scene, "TopBeam", PrimitiveType::Cube, at + glm::vec3(0, 12.4f, 0), {9, 0.8f, 0.8f}, {0.8f, 0.6f, 0.1f}, Material::Metal);
+            SceneNode* ball = addPart(scene, "Ball", PrimitiveType::Sphere, at + glm::vec3(0, 12.0f - 7.0f * 0.5f, 7.0f * 0.866f), {2.6f, 2.6f, 2.6f}, metal, Material::Metal);
+            ball->anchored = false;
+            ball->density = 6.0f;
+            for (SceneNode* p : {l, r, top, ball}) scene.reparent(p, n);
+            SceneNode* rod = makeConstraint(scene, ConstraintType::Rod, top, at + glm::vec3(0, 12.0f, 0), ball, ball->transform.position, {1, 0, 0}, false);
+            rod->thickness = 0.15f;
+            break;
+        }
+        case Premade::Windmill: {
+            n = scene.insert(std::make_unique<SceneNode>("Windmill", NodeKind::Model));
+            SceneNode* post = addPart(scene, "Post", PrimitiveType::Cube, at + glm::vec3(0, 4, 0), {1, 8, 1}, {0.55f, 0.4f, 0.25f}, Material::Wood);
+            glm::vec3 hub = at + glm::vec3(0, 7.5f, 0.9f);
+            SceneNode* b1 = addPart(scene, "Blade1", PrimitiveType::Cube, hub, {8, 0.8f, 0.2f}, {0.92f, 0.92f, 0.95f}, Material::Wood);
+            SceneNode* b2 = addPart(scene, "Blade2", PrimitiveType::Cube, hub, {0.8f, 8, 0.2f}, {0.92f, 0.92f, 0.95f}, Material::Wood);
+            b1->anchored = b2->anchored = false;
+            for (SceneNode* p : {post, b1, b2}) scene.reparent(p, n);
+            makeConstraint(scene, ConstraintType::Weld, b1, hub, b2, hub, {1, 0, 0}, false);
+            SceneNode* m = makeConstraint(scene, ConstraintType::Hinge, post, hub, b1, hub, {0, 0, 1}, true);
+            m->motorSpeed = 1.2f;
+            break;
+        }
+        case Premade::Seesaw: {
+            n = scene.insert(std::make_unique<SceneNode>("Seesaw", NodeKind::Model));
+            SceneNode* base = addPart(scene, "Base", PrimitiveType::Cube, at + glm::vec3(0, 0.5f, 0), {0.8f, 1, 1.4f}, {0.4f, 0.4f, 0.45f}, Material::Metal);
+            SceneNode* plank = addPart(scene, "Plank", PrimitiveType::Cube, at + glm::vec3(0, 1.2f, 0), {9, 0.3f, 1.6f}, {0.75f, 0.5f, 0.3f}, Material::Wood);
+            plank->anchored = false;
+            scene.reparent(base, n); scene.reparent(plank, n);
+            makeConstraint(scene, ConstraintType::Hinge, base, at + glm::vec3(0, 1.0f, 0), plank, at + glm::vec3(0, 1.0f, 0), {0, 0, 1}, false);
+            break;
+        }
+        case Premade::MotorCart: {
+            n = scene.insert(std::make_unique<SceneNode>("MotorCart", NodeKind::Model));
+            SceneNode* body = addPart(scene, "Body", PrimitiveType::Cube, at + glm::vec3(0, 1.35f, 0), {3.2f, 0.6f, 5}, {0.8f, 0.2f, 0.15f});
+            body->anchored = false;
+            scene.reparent(body, n);
+            for (int i = 0; i < 4; ++i) {
+                glm::vec3 wp = at + glm::vec3(i % 2 ? 2.05f : -2.05f, 0.7f, i / 2 ? 1.7f : -1.7f);
+                SceneNode* wheel = addPart(scene, "Wheel", PrimitiveType::Sphere, wp, {1.4f, 1.4f, 1.4f}, {0.1f, 0.1f, 0.12f});
+                wheel->anchored = false;
+                wheel->friction = 1.2f;
+                scene.reparent(wheel, n);   // beside the body, not inside it, so it can spin
+                SceneNode* motor = makeConstraint(scene, ConstraintType::Hinge, body, wp, wheel, wp, {1, 0, 0}, true);
+                motor->motorSpeed = 0.0f;
+                motor->visible = false;
+            }
+            addScript(scene, n, kCart);
+            break;
+        }
+        case Premade::DominoRun: {
+            n = scene.insert(std::make_unique<SceneNode>("DominoRun", NodeKind::Model));
+            for (int i = 0; i < 14; ++i) {
+                float ang = i * 0.12f;
+                glm::vec3 p = at + glm::vec3(std::sin(ang) * 10.0f, 1.2f, -std::cos(ang) * 10.0f + 10.0f);
+                SceneNode* d = addPart(scene, "Domino", PrimitiveType::Cube, p, {1.2f, 2.4f, 0.3f},
+                                       glm::vec3(0.2f + 0.05f * (i % 4), 0.3f, 0.9f - 0.05f * (i % 3)));
+                d->anchored = false;
+                d->transform.rotation = {i == 0 ? -14.0f : 0.0f, -glm::degrees(ang), 0.0f};
+                scene.reparent(d, n);
+            }
+            break;
+        }
+        case Premade::CratePyramid: {
+            n = scene.insert(std::make_unique<SceneNode>("CratePyramid", NodeKind::Model));
+            for (int row = 0; row < 4; ++row)
+                for (int i = 0; i < 4 - row; ++i) {
+                    glm::vec3 p = at + glm::vec3((i - (3 - row) * 0.5f) * 1.25f, 0.6f + row * 1.2f, 0);
+                    SceneNode* c = addPart(scene, "Crate", PrimitiveType::Cube, p, {1.2f, 1.2f, 1.2f}, {0.62f, 0.42f, 0.22f}, Material::Wood);
+                    c->anchored = false;
+                    scene.reparent(c, n);
+                }
+            break;
+        }
+        case Premade::Trampoline:
+            n = addPart(scene, "Trampoline", PrimitiveType::Cylinder, at + glm::vec3(0, 0.25f, 0), {4, 0.5f, 4}, {0.2f, 0.5f, 1.0f});
+            n->elasticity = 1.0f;
+            addScript(scene, n, kTrampoline);
             break;
         case Premade::Landmine:
             n = addPart(scene, "Landmine", PrimitiveType::Cylinder, at + glm::vec3(0, 0.05f, 0), {0.9f, 0.1f, 0.9f}, {0.3f, 0.05f, 0.05f}, Material::Neon);

@@ -49,6 +49,7 @@ public:
         bool      grounded   = false;
         bool      hitCeiling = false;
         uint64_t  groundId   = 0;    // the part we are standing on
+        std::vector<std::pair<SceneNode*, glm::vec3>> pushed;   // loose parts we walked into
     };
 
     static constexpr float kCharHalfWidth = 0.5f;
@@ -69,9 +70,11 @@ public:
     void gather(Scene& scene);          // collect this frame's parts
 
     MoveResult moveCharacter(const glm::vec3& feet, const glm::vec3& delta, bool wasGrounded) const;
-    // Unanchored parts: gravity + collision. Ids of parts that fell out of the
-    // world are appended to `fallen`.
+    // Unanchored parts: rigid-body physics (tumbling, stacking, bouncing) and
+    // constraints (ropes, rods, springs, welds, hinges). Ids of parts that fell
+    // out of the world are appended to `fallen`. See RigidBodies.cpp.
     void stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen);
+    static void wake(SceneNode* n);   // make a sleeping part move again
     // How far `box` must move up to rest on top of a solid part (0 = free).
     float pushUp(const AABB& box) const;
     // Is this point inside any solid part?

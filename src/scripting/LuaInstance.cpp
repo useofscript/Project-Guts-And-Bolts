@@ -67,6 +67,15 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Sound:      return "Sound";
+        case NodeKind::Attachment: return "Attachment";
+        case NodeKind::Constraint:
+            switch (n->constraintType) {
+                case ConstraintType::Rope:   return "RopeConstraint";
+                case ConstraintType::Rod:    return "RodConstraint";
+                case ConstraintType::Spring: return "SpringConstraint";
+                case ConstraintType::Weld:   return "WeldConstraint";
+                default:                     return "HingeConstraint";
+            }
         default:               return "Part";
     }
 }
@@ -79,6 +88,7 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Model && (cls == "Model" || cls == "Folder" || cls == "PVInstance")) return true;
     if (n->kind == NodeKind::Script && (cls == "BaseScript" || cls == "LuaSourceContainer")) return true;
     if (n->kind == NodeKind::Light && cls == "Light") return true;
+    if (n->kind == NodeKind::Constraint && cls == "Constraint") return true;
     return false;
 }
 
@@ -206,6 +216,28 @@ int m_Clone(lua_State* L) {
     return 1;
 }
 
+// part:ApplyImpulse(Vector3) / part:ApplyAngularImpulse(Vector3)
+float partMass(const SceneNode* n) {
+    glm::vec3 s(glm::length(glm::vec3(n->worldMatrix()[0])), glm::length(glm::vec3(n->worldMatrix()[1])),
+                glm::length(glm::vec3(n->worldMatrix()[2])));
+    float d = n->density >= 0 ? n->density : 1.0f;
+    return std::max(0.001f, d * s.x * s.y * s.z);
+}
+int m_ApplyImpulse(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (!n->isPart()) return 0;
+    n->velocity += LuaApi::checkVector3(L, 2) / partMass(n);
+    n->sleepTime = 0;
+    return 0;
+}
+int m_ApplyAngularImpulse(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (!n->isPart()) return 0;
+    n->angularVelocity += LuaApi::checkVector3(L, 2) / partMass(n);
+    n->sleepTime = 0;
+    return 0;
+}
+
 // sound:Play() / sound:Stop()
 void startSound(lua_State* L, SceneNode* n) {
     Audio::stop(n->audioHandle);
@@ -268,6 +300,7 @@ const luaL_Reg kMethods[] = {
     {"IsDescendantOf", m_IsDescendantOf}, {"GetFullName", m_GetFullName},
     {"GetPivot", m_GetPivot}, {"PivotTo", m_PivotTo}, {"BreakJoints", m_BreakJoints},
     {"Play", m_Play}, {"Stop", m_Stop},
+    {"ApplyImpulse", m_ApplyImpulse}, {"ApplyAngularImpulse", m_ApplyAngularImpulse},
     {nullptr, nullptr}};
 
 // ===========================================================================
@@ -292,6 +325,24 @@ int inst_index(lua_State* L) {
 
     if (is(k, "Name"))      { lua_pushstring(L, n->name.c_str()); return 1; }
     if (is(k, "ClassName")) { lua_pushstring(L, className(L, n)); return 1; }
+    if (n->isAttachment()) {
+        if (is(k, "Position"))      { LuaApi::pushVector3(L, n->transform.position); return 1; }
+        if (is(k, "WorldPosition")) { LuaApi::pushVector3(L, worldPosition(n)); return 1; }
+    }
+    if (n->isConstraint()) {
+        bool weld = n->constraintType == ConstraintType::Weld;
+        if ((!weld && is(k, "Attachment0")) || (weld && is(k, "Part0"))) { LuaApi::pushInstance(L, n->ref0); return 1; }
+        if ((!weld && is(k, "Attachment1")) || (weld && is(k, "Part1"))) { LuaApi::pushInstance(L, n->ref1); return 1; }
+        if (is(k, "Length") || is(k, "FreeLength")) { lua_pushnumber(L, n->length); return 1; }
+        if (is(k, "Stiffness"))      { lua_pushnumber(L, n->stiffness); return 1; }
+        if (is(k, "Damping"))        { lua_pushnumber(L, n->damping); return 1; }
+        if (is(k, "AngularVelocity")){ lua_pushnumber(L, n->motorSpeed); return 1; }
+        if (is(k, "MotorMaxTorque")) { lua_pushnumber(L, n->motorTorque); return 1; }
+        if (is(k, "ActuatorType"))   { lua_pushstring(L, n->motorTorque > 0 ? "Motor" : "None"); return 1; }
+        if (is(k, "Thickness"))      { lua_pushnumber(L, n->thickness); return 1; }
+        if (is(k, "Color"))          { LuaApi::pushColor3(L, n->color); return 1; }
+        if (is(k, "Enabled"))        { lua_pushboolean(L, n->enabled); return 1; }
+    }
     if (is(k, "Parent"))    { LuaApi::pushInstance(L, n->parent ? n->parent->id : 0); return 1; }
     if (is(k, "Position"))  { LuaApi::pushVector3(L, worldPosition(n)); return 1; }
     if (is(k, "Orientation") || is(k, "Rotation")) { LuaApi::pushVector3(L, n->transform.rotation); return 1; }
@@ -315,6 +366,10 @@ int inst_index(lua_State* L) {
         if (is(k, "Material"))     { lua_pushstring(L, kMaterialNames[(int)n->material]); return 1; }
         if (is(k, "Shape"))        { lua_pushstring(L, shapeName(n->primitiveType)); return 1; }
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { LuaApi::pushVector3(L, n->velocity); return 1; }
+        if (is(k, "RotVelocity") || is(k, "AssemblyAngularVelocity")) { LuaApi::pushVector3(L, n->angularVelocity); return 1; }
+        if (is(k, "Density"))    { lua_pushnumber(L, n->density); return 1; }
+        if (is(k, "Friction"))   { lua_pushnumber(L, n->friction); return 1; }
+        if (is(k, "Elasticity")) { lua_pushnumber(L, n->elasticity); return 1; }
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }
         if (is(k, "Clicked"))      { LuaApi::pushSignal(L, SignalKind::Clicked, n->id); return 1; }
     }
@@ -359,6 +414,33 @@ int inst_newindex(lua_State* L) {
     bool part = n->kind == NodeKind::Part;
     Scene* scene = E(L)->scene();
 
+    if (n->isAttachment()) {
+        if (is(k, "Position"))      { n->transform.position = LuaApi::checkVector3(L, 3); return 0; }
+        if (is(k, "WorldPosition")) { setWorldPosition(L, n, LuaApi::checkVector3(L, 3)); return 0; }
+    }
+    if (n->isConstraint()) {
+        bool weld = n->constraintType == ConstraintType::Weld;
+        auto ref = [&](uint64_t& r) {
+            SceneNode* t = lua_isnil(L, 3) ? nullptr : LuaApi::checkNode(L, 3);
+            r = t ? t->id : 0;
+            n->jointReady = false;
+        };
+        if ((!weld && is(k, "Attachment0")) || (weld && is(k, "Part0"))) { ref(n->ref0); return 0; }
+        if ((!weld && is(k, "Attachment1")) || (weld && is(k, "Part1"))) { ref(n->ref1); return 0; }
+        if (is(k, "Length") || is(k, "FreeLength")) { n->length = (float)luaL_checknumber(L, 3); return 0; }
+        if (is(k, "Stiffness"))      { n->stiffness = (float)luaL_checknumber(L, 3); return 0; }
+        if (is(k, "Damping"))        { n->damping = (float)luaL_checknumber(L, 3); return 0; }
+        if (is(k, "AngularVelocity")){ n->motorSpeed = (float)luaL_checknumber(L, 3); return 0; }
+        if (is(k, "MotorMaxTorque")) { n->motorTorque = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "ActuatorType")) {
+            bool motor = std::string(luaL_checkstring(L, 3)) == "Motor";
+            n->motorTorque = motor ? (n->motorTorque > 0 ? n->motorTorque : 2000.0f) : 0.0f;
+            return 0;
+        }
+        if (is(k, "Thickness"))      { n->thickness = (float)luaL_checknumber(L, 3); return 0; }
+        if (is(k, "Color"))          { n->color = LuaApi::checkColor3(L, 3); return 0; }
+        if (is(k, "Enabled"))        { n->enabled = lua_toboolean(L, 3); return 0; }
+    }
     if (is(k, "Name")) {
         if (scene->isProtected(n)) return luaL_error(L, "You can't rename %s", n->name.c_str());
         n->name = luaL_checkstring(L, 3);
@@ -405,11 +487,15 @@ int inst_newindex(lua_State* L) {
             n->mesh = MeshLibrary::get(t);
             return 0;
         }
-        if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { n->velocity = LuaApi::checkVector3(L, 3); return 0; }
+        if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { n->velocity = LuaApi::checkVector3(L, 3); n->sleepTime = 0; return 0; }
+        if (is(k, "RotVelocity") || is(k, "AssemblyAngularVelocity")) { n->angularVelocity = LuaApi::checkVector3(L, 3); n->sleepTime = 0; return 0; }
+        if (is(k, "Density"))    { n->density = std::max(0.01f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "Friction"))   { n->friction = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "Elasticity")) { n->elasticity = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
     }
     if (n->kind == NodeKind::Script) {
-        if (is(k, "Enabled"))  { n->enabled = lua_toboolean(L, 3); return 0; }
-        if (is(k, "Disabled")) { n->enabled = !lua_toboolean(L, 3); return 0; }
+        if (is(k, "Enabled"))  { LuaApi::engine(L)->setScriptEnabled(n, lua_toboolean(L, 3)); return 0; }
+        if (is(k, "Disabled")) { LuaApi::engine(L)->setScriptEnabled(n, !lua_toboolean(L, 3)); return 0; }
     }
     if (n->isSound()) {
         if (is(k, "SoundId"))  { n->soundId = luaL_checkstring(L, 3); return 0; }
@@ -466,6 +552,16 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Model);
     } else if (cls == "Script") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Script);
+    } else if (cls == "Attachment") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Attachment);
+    } else if (cls == "RopeConstraint" || cls == "RodConstraint" || cls == "SpringConstraint" ||
+               cls == "WeldConstraint" || cls == "HingeConstraint") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Constraint);
+        n->constraintType = cls == "RodConstraint"    ? ConstraintType::Rod
+                          : cls == "SpringConstraint" ? ConstraintType::Spring
+                          : cls == "WeldConstraint"   ? ConstraintType::Weld
+                          : cls == "HingeConstraint"  ? ConstraintType::Hinge : ConstraintType::Rope;
+        n->color = n->constraintType == ConstraintType::Rope ? glm::vec3(0.45f, 0.32f, 0.2f) : glm::vec3(0.6f);
     } else if (cls == "Sound") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Sound);
     } else if (cls == "ForceField") {

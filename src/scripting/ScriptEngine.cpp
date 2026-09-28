@@ -414,7 +414,39 @@ void ScriptEngine::runScript(SceneNode* script) {
     lua_State* co = lua_newthread(L);
     int ref = luaL_ref(L, LUA_REGISTRYINDEX);
     lua_xmove(L, co, 1);
+    m_stopped.erase(script->id);
+    uint64_t prev = m_current;
+    m_current = script->id;
     resume(co, ref, 0);
+    m_current = prev;
+}
+
+void ScriptEngine::stopScripts(SceneNode* root) {
+    if (!root) return;
+    std::vector<SceneNode*> stack{root};
+    std::unordered_set<uint64_t> ids;
+    while (!stack.empty()) {
+        SceneNode* n = stack.back(); stack.pop_back();
+        if (n->isScript()) ids.insert(n->id);
+        for (auto& c : n->children) stack.push_back(c.get());
+    }
+    if (ids.empty()) return;
+    m_stopped.insert(ids.begin(), ids.end());
+    for (size_t i = 0; i < m_conns.size(); ++i)
+        if (m_conns[i].alive && ids.count(m_conns[i].owner)) disconnect((int)i);
+    for (auto it = m_waiting.begin(); it != m_waiting.end();) {
+        if (ids.count(it->owner)) {
+            if (m_L) luaL_unref(m_L, LUA_REGISTRYINDEX, it->ref);
+            it = m_waiting.erase(it);
+        } else ++it;
+    }
+}
+
+void ScriptEngine::setScriptEnabled(SceneNode* script, bool on) {
+    if (!script || !script->isScript() || script->enabled == on) return;
+    script->enabled = on;
+    if (!on) stopScripts(script);
+    else if (m_L) runScript(script);
 }
 
 void ScriptEngine::stop() {
@@ -422,6 +454,8 @@ void ScriptEngine::stop() {
     m_L = nullptr;
     m_waiting.clear();
     m_conns.clear();
+    m_stopped.clear();
+    m_current = 0;
     m_detached.clear();
     m_gui = GuiState{};
 }
@@ -465,7 +499,11 @@ void ScriptEngine::resume(lua_State* co, int ref, int nargs, lua_State* from) {
 }
 
 void ScriptEngine::schedule(lua_State* co, int ref, double delay, int startArgs) {
-    m_waiting.push_back({ref, co, m_time + delay, m_time, startArgs});
+    if (m_stopped.count(m_current)) {   // its script was stopped while it ran
+        if (m_L) luaL_unref(m_L, LUA_REGISTRYINDEX, ref);
+        return;
+    }
+    m_waiting.push_back({ref, co, m_time + delay, m_time, startArgs, m_current});
 }
 
 void ScriptEngine::update(float dt) {
@@ -497,6 +535,8 @@ void ScriptEngine::update(float dt) {
     }
     for (auto& w : ready) {
         if (!m_L) return;
+        if (m_stopped.count(w.owner)) { luaL_unref(m_L, LUA_REGISTRYINDEX, w.ref); continue; }
+        m_current = w.owner;
         if (w.startArgs >= 0) {
             resume(w.co, w.ref, w.startArgs);
         } else {
@@ -504,6 +544,7 @@ void ScriptEngine::update(float dt) {
             resume(w.co, w.ref, 1);
         }
     }
+    m_current = 0;
 
     fire(SignalKind::Heartbeat, 0, [dt](lua_State* co) { lua_pushnumber(co, dt); return 1; });
 
@@ -520,6 +561,9 @@ void ScriptEngine::fire(SignalKind kind, uint64_t id, const std::function<int(lu
         if (!m_L) return;
         Connection& c = m_conns[i];
         if (!c.alive || c.kind != kind || c.id != id) continue;
+        uint64_t prev = m_current;
+        m_current = c.owner;
+        struct Restore { uint64_t& cur; uint64_t val; ~Restore() { cur = val; } } restore{m_current, prev};
 
         if (c.waiter) {
             // A thread parked in :Wait() — wake it with the event's arguments.
@@ -585,14 +629,14 @@ void ScriptEngine::removePlayer(const std::string& name) {
 
 int ScriptEngine::connect(SignalKind kind, uint64_t id, int fnRef, bool once) {
     Connection c;
-    c.kind = kind; c.id = id; c.fnRef = fnRef; c.once = once;
+    c.kind = kind; c.id = id; c.fnRef = fnRef; c.once = once; c.owner = m_current;
     m_conns.push_back(c);
     return (int)m_conns.size() - 1;
 }
 
 int ScriptEngine::connectWaiter(SignalKind kind, uint64_t id, lua_State* thread) {
     Connection c;
-    c.kind = kind; c.id = id; c.waiter = thread; c.threadRef = LUA_NOREF;
+    c.kind = kind; c.id = id; c.waiter = thread; c.threadRef = LUA_NOREF; c.owner = m_current;
     m_conns.push_back(c);
     return (int)m_conns.size() - 1;
 }
@@ -679,6 +723,7 @@ bool ScriptEngine::setParent(SceneNode* node, SceneNode* newParent, std::string&
 
 bool ScriptEngine::destroy(SceneNode* node, std::string& err) {
     if (m_scene->isProtected(node)) { err = "You can't Destroy " + node->name; return false; }
+    stopScripts(node);
     if (topOf(node) == m_scene->root()) {
         m_scene->removeNode(node);
     } else if (node->parent) {

@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <memory>
 #include <glm/glm.hpp>
 #include "../../renderer/Camera.h"
@@ -10,6 +11,7 @@ struct EditorState;
 class Scene;
 class GameSession;
 class TeamCreate;
+class SceneNode;
 
 // 3D viewport: renders the scene to an off-screen framebuffer and displays it
 // as an ImGui image. In edit mode it handles camera navigation, click-to-select
@@ -33,6 +35,8 @@ public:
     void setSession(GameSession* session) { m_session = session; }
     void focus() { m_wantFocus = true; }
     void setTeam(TeamCreate* t) { m_team = t; }
+    // Called when the connect tool has picked two parts (and the clicked points).
+    std::function<void(SceneNode*, glm::vec3, SceneNode*, glm::vec3)> onConnect;
 
 private:
     void handleInput();

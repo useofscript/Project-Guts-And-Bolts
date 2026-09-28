@@ -32,6 +32,8 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     else if (node->isLight())            { col = {1.00f, 0.95f, 0.60f, 1}; tag = "[L] "; }
     else if (node->kind == NodeKind::ForceField) { col = {0.60f, 0.90f, 1.00f, 1}; tag = "[F] "; }
     else if (node->isSound())            { col = {0.80f, 0.65f, 1.00f, 1}; tag = "[A] "; }
+    else if (node->isAttachment())       { col = {0.40f, 1.00f, 0.50f, 1}; tag = "[+] "; }
+    else if (node->isConstraint())       { col = {0.95f, 0.70f, 0.45f, 1}; tag = "[C] "; }
     if (!node->visible || (node->isScript() && !node->enabled)) col.w = 0.5f;
     ImGui::PushStyleColor(ImGuiCol_Text, col);
 
@@ -61,7 +63,7 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     if (ImGui::BeginPopupContextItem()) {
         m_scene->select(node);
         if (node->isScript() && ImGui::MenuItem("Edit Script")) m_openScript(node);
-        if (!node->isScript() && !node->isLight() && !node->isSound() && ImGui::MenuItem("Add Script inside")) m_addScriptTo(node);
+        if (node->isPart() && ImGui::MenuItem("Add Script inside")) m_addScriptTo(node);
         if (ImGui::MenuItem(node->visible ? "Hide" : "Show"))
             node->visible = !node->visible;
         if (node->parent && node->parent != m_scene->root() && !locked &&

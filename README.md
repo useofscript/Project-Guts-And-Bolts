@@ -43,7 +43,11 @@ The window has a toolbar, a status bar and docked panels:
 - **Toolbox**: parts, scripts, lights and **ready-made** objects that already
   contain scripts: kill brick, coin, jump pad, spinner, moving and fading
   platforms, speed pad, click button, lamp post, disco floor, landmine, saw
-  blade, spike trap, exploding barrel and a day/night cycle.
+  blade, spike trap, exploding barrel and a day/night cycle. There are also
+  physics toys: swinging rope, wrecking ball, windmill, seesaw, a drivable
+  **Motor Cart**, domino run, crate pyramid and trampoline.
+- **Constraints** (in the Toolbox): pick Rope, Rod, Spring, Weld, Hinge or
+  Motor, then click two parts in the Viewport to join them.
 - **Properties**: colour, material (Plastic, Metal, Neon, Wood, Glass,
   Concrete, Ice), size, anchored, can-collide and so on.
 - **Lighting**: sun, shadows, sky light, clouds, stars, fog, exposure,
@@ -111,11 +115,37 @@ What you can use:
 - **Screen text:** `Gui.Label("Score", "Score: 5")`, `Gui.Message("You win!", 3)`
 - **Mayhem:** `Explode(position, radius)`, `Effects.Blood(pos, amount)`, `Effects.Oil(...)`, `Effects.Gibs(...)`,
   `Effects.Sparks(...)`
+- **Physics:** `part:ApplyImpulse(v)`, `AssemblyLinearVelocity`, `AssemblyAngularVelocity`, `Density`,
+  `Friction`, `Elasticity`, and constraint properties such as `rope.Length` or `hinge.AngularVelocity`
+- **Sound:** `Sounds.Play("coin", position)` (built in: jump, coin, oof, explosion, splat, click, hit, win,
+  boing, spawn) or a Sound object with `:Play()` / `:Stop()`
 - **Game rules:** `workspace.Gravity`, `workspace.DeathStyle = "Classic" | "Ragdoll"`, `workspace.Gore = "Off" | "Oil" | "Blood"`
+
+`script:Destroy()` or `script.Disabled = true` stops a script (and all of its
+events), just like in Roblox.
 
 A script that loops forever without `wait()` is stopped after 5 seconds with a
 friendly error, so it can't freeze your game. Scripts can't touch files on
 your computer.
+
+## Physics
+
+Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,
+slide and bounce. Each part has **Density** (heavier), **Friction** (grippier)
+and **Elasticity** (bouncier) in the Properties panel, with sensible defaults
+per material (ice is slippery, metal is heavy). Parts that stop moving go to
+sleep so big piles stay fast, and your character can shove light things around.
+
+Constraints join parts together through **Attachments** (little points on a part):
+
+| Constraint | What it does |
+| --- | --- |
+| Rope | Keeps two points no further apart than its length (it can go slack) |
+| Rod | Keeps two points exactly the same distance apart |
+| Spring | Pulls back towards its length, with stiffness and damping |
+| Weld | Glues two parts together |
+| Hinge | Lets a part swing around one axis, like a door or a wheel |
+| Motor | A hinge that spins by itself (`AngularVelocity`, `MotorMaxTorque`) |
 
 ## Death, ragdolls and gore
 

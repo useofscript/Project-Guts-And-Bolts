@@ -15,7 +15,12 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder };
 //   Light  — a PointLight / SpotLight, usually placed inside a part
 //   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
 //   Sound  — a sound effect or music (inside a part = it comes from there)
-enum class NodeKind { Part, Model, Script, Light, ForceField, Sound };
+//   Attachment — a point on a part that constraints connect to
+//   Constraint — joins two parts: rope, rod, spring, weld or hinge (+ motor)
+enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint };
+
+enum class ConstraintType { Rope, Rod, Spring, Weld, Hinge };
+inline const char* const kConstraintNames[5] = {"Rope", "Rod", "Spring", "Weld", "Hinge"};
 
 enum class LightType { Point, Spot };
 
@@ -75,6 +80,29 @@ public:
     bool        autoplay = false;          // start playing when the game starts
     int         audioHandle = 0;           // runtime only
 
+    // Physics (parts). Negative = use the material's value.
+    float       density    = -1.0f;
+    float       friction   = -1.0f;
+    float       elasticity = -1.0f;        // bounciness 0..1
+
+    // Constraint (kind == Constraint). ref0 / ref1 are Attachments (or, for a
+    // Weld, the two Parts).
+    ConstraintType constraintType = ConstraintType::Rope;
+    uint64_t    ref0 = 0, ref1 = 0;
+    float       length      = -1.0f;       // rope / rod / spring length (-1 = as placed)
+    float       stiffness   = 200.0f;      // spring
+    float       damping     = 5.0f;        // spring
+    float       motorSpeed  = 0.0f;        // hinge motor, radians / second
+    float       motorTorque = 0.0f;        // hinge motor strength (0 = no motor)
+    float       thickness   = 0.1f;        // how thick the rope / rod looks
+
+    // Runtime-only physics state (not saved).
+    glm::vec3   angularVelocity = {0.0f, 0.0f, 0.0f};
+    float       sleepTime = 0.0f;
+    bool        jointReady = false;        // weld: rest pose captured
+    glm::vec3   jointA{0.0f}, jointB{0.0f};
+    glm::vec4   jointRot{0.0f, 0.0f, 0.0f, 1.0f};
+
     // Runtime-only physics state (not saved).
     glm::vec3   velocity = {0.0f, 0.0f, 0.0f};
 
@@ -85,6 +113,8 @@ public:
     bool isScript() const { return kind == NodeKind::Script; }
     bool isLight()  const { return kind == NodeKind::Light; }
     bool isSound()  const { return kind == NodeKind::Sound; }
+    bool isAttachment() const { return kind == NodeKind::Attachment; }
+    bool isConstraint() const { return kind == NodeKind::Constraint; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;

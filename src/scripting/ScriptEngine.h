@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 struct lua_State;
@@ -64,6 +65,10 @@ public:
     float&     clockTime();
     void       applyClockTime();
     bool       isKeyDown(const std::string& key) const;
+    // Stop (or restart) every script in this part of the tree, like
+    // Destroy() / Disabled in Roblox.
+    void       stopScripts(SceneNode* root);
+    void       setScriptEnabled(SceneNode* script, bool on);
 
 private:
     struct Waiting {
@@ -72,6 +77,7 @@ private:
         double     wakeAt;
         double     since;
         int        startArgs;   // >= 0: not started yet (task.delay), else a wait()
+        uint64_t   owner = 0;   // the Script that started this thread
     };
     struct Connection {
         SignalKind kind;
@@ -81,6 +87,7 @@ private:
         lua_State* waiter    = nullptr;
         bool       once      = false;
         bool       alive     = true;
+        uint64_t   owner     = 0;
     };
 
     void openLibraries();
@@ -93,6 +100,8 @@ private:
     double     m_time = 0.0;
     double     m_resumeStart = 0.0;
     int        m_depth = 0;
+    uint64_t   m_current = 0;              // the Script whose code is running right now
+    std::unordered_set<uint64_t> m_stopped;
 
     std::vector<Waiting>                    m_waiting;
     std::vector<Connection>                 m_conns;

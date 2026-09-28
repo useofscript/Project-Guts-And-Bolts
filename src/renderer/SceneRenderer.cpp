@@ -321,13 +321,102 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     m_lit->setVec4Array("uLightColor", lc, count);
     m_lit->setVec4Array("uLightDir", ld, count);
 
-    drawGeometry(scene, camera);
+    drawGeometry(scene, camera, showGrid);
     glBindVertexArray(0);
 
     postProcess(scene, camera, target);
 }
 
-void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera) {
+namespace {
+// A cylinder from a to b (used for ropes, rods and springs).
+glm::mat4 segment(const glm::vec3& a, const glm::vec3& b, float thickness) {
+    glm::vec3 d = b - a;
+    float len = glm::length(d);
+    glm::vec3 y = len > 1e-6f ? d / len : glm::vec3(0, 1, 0);
+    glm::vec3 x = std::abs(y.y) < 0.99f ? glm::normalize(glm::cross(glm::vec3(0, 1, 0), y)) : glm::vec3(1, 0, 0);
+    glm::vec3 z = glm::cross(x, y);
+    glm::mat4 m(1.0f);
+    m[0] = glm::vec4(x * thickness, 0);
+    m[1] = glm::vec4(y * len, 0);
+    m[2] = glm::vec4(z * thickness, 0);
+    m[3] = glm::vec4((a + b) * 0.5f, 1);
+    return m;
+}
+} // namespace
+
+void SceneRenderer::drawConstraints(Scene& scene, bool editing) {
+    auto cyl = MeshLibrary::get(PrimitiveType::Cylinder);
+    auto ball = MeshLibrary::get(PrimitiveType::Sphere);
+    m_lit->setBool("uSelected", false);
+    m_lit->setFloat("uAlpha", 1.0f);
+    auto draw = [&](const glm::mat4& m, const glm::vec3& color, Material mat, Mesh& mesh) {
+        m_lit->setMat4("uModel", m);
+        m_lit->setMat3("uNormalMat", glm::transpose(glm::inverse(glm::mat3(m))));
+        m_lit->setVec3("uColor", color);
+        m_lit->setInt("uMaterial", (int)mat);
+        mesh.draw();
+    };
+    scene.forEach([&](SceneNode* n) {
+        if (n->isAttachment() && editing) {
+            glm::vec3 p(n->worldMatrix()[3]);
+            glm::mat4 m = glm::translate(glm::mat4(1.0f), p) * glm::scale(glm::mat4(1.0f), glm::vec3(0.18f));
+            draw(m, n->selected ? glm::vec3(1, 0.6f, 0.1f) : glm::vec3(0.2f, 1.0f, 0.3f), Material::Neon, *ball);
+            return;
+        }
+        if (!n->isConstraint() || !n->visible || n->constraintType == ConstraintType::Weld) return;
+        SceneNode* a0 = scene.findById(n->ref0);
+        SceneNode* a1 = scene.findById(n->ref1);
+        if (!a0 || !a1) return;
+        glm::vec3 p0(a0->worldMatrix()[3]), p1(a1->worldMatrix()[3]);
+        float th = std::max(0.02f, n->thickness);
+        glm::vec3 col = n->selected ? glm::vec3(1, 0.6f, 0.1f) : n->color;
+        switch (n->constraintType) {
+            case ConstraintType::Rope: {
+                // Slack ropes sag in the middle.
+                float d = glm::length(p1 - p0);
+                float sag = n->length > d ? std::sqrt(n->length * n->length - d * d) * 0.5f : 0.0f;
+                const int segs = 12;
+                glm::vec3 prev = p0;
+                for (int i = 1; i <= segs; ++i) {
+                    float t = (float)i / segs;
+                    glm::vec3 p = glm::mix(p0, p1, t) - glm::vec3(0, sag * 4.0f * t * (1.0f - t), 0);
+                    draw(segment(prev, p, th), col, Material::Plastic, *cyl);
+                    prev = p;
+                }
+                break;
+            }
+            case ConstraintType::Rod:
+                draw(segment(p0, p1, th), col, Material::Metal, *cyl);
+                break;
+            case ConstraintType::Spring: {
+                // Zig-zag coil.
+                glm::vec3 d = p1 - p0;
+                float len = glm::length(d);
+                if (len < 1e-4f) break;
+                glm::vec3 y = d / len;
+                glm::vec3 x = std::abs(y.y) < 0.99f ? glm::normalize(glm::cross(glm::vec3(0, 1, 0), y)) : glm::vec3(1, 0, 0);
+                glm::vec3 z = glm::cross(x, y);
+                const int turns = 8, per = 6;
+                glm::vec3 prev = p0;
+                for (int i = 1; i <= turns * per; ++i) {
+                    float t = (float)i / (turns * per);
+                    float ang = t * turns * 6.2831853f;
+                    float r = (i == turns * per) ? 0.0f : 0.25f;
+                    glm::vec3 p = p0 + d * t + (x * std::cos(ang) + z * std::sin(ang)) * r;
+                    draw(segment(prev, p, th * 0.6f), col, Material::Metal, *cyl);
+                    prev = p;
+                }
+                break;
+            }
+            case ConstraintType::Hinge:
+                draw(segment(p0 - glm::vec3(a0->worldMatrix()[0]) * 0.0f, p1, th * 0.5f), col, Material::Metal, *cyl);
+                break;
+            default: break;
+        }
+    });
+}
+
+void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editing) {
     struct Item { SceneNode* node; glm::mat4 model; float dist; };
     std::vector<Item> opaque, transparent, shielded;
     glm::vec3 camPos = camera.position();
@@ -367,6 +456,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera) {
 
     glDisable(GL_BLEND);
     for (auto& it : opaque) draw(it);
+    drawConstraints(scene, editing);
 
     // --- Particles (blood, oil, gibs, bolts, sparks, fire, smoke) ---
     const auto& parts = scene.particles().items();

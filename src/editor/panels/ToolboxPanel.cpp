@@ -47,6 +47,24 @@ void ToolboxPanel::render() {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shines in a cone (downwards - rotate it to aim).\nGoes inside the selected part.");
     }
 
+    if (ImGui::CollapsingHeader("Constraints", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextDisabled("Click one, then click two parts.");
+        struct C { const char* label; int type; const char* tip; };
+        static const C items[] = {
+            {"Rope",   0, "Holds parts within a distance - can go slack"},
+            {"Rod",    1, "Keeps parts at an exact distance"},
+            {"Spring", 2, "A bouncy spring between two parts"},
+            {"Weld",   3, "Glues two parts together"},
+            {"Hinge",  4, "Lets a part swing around a point (like a door)"},
+            {"Motor",  5, "A hinge that spins by itself (wheels, fans)"},
+        };
+        for (int i = 0; i < 6; ++i) {
+            if (ImGui::Button(items[i].label, ImVec2(btnW, 34)) && m_do.startConnect) m_do.startConnect(items[i].type);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", items[i].tip);
+            if (i % 2 == 0) ImGui::SameLine();
+        }
+    }
+
     if (ImGui::CollapsingHeader("Ready-made", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextDisabled("These already have scripts inside.");
         int i = 0;
