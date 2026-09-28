@@ -1,0 +1,155 @@
+#pragma once
+// The Guts&Bolts site's look (2011-style): colours, buttons and drawings shared
+// by the site's pages (PlayerApp.cpp, PlayerOnline.cpp).
+#include <imgui.h>
+#include <algorithm>
+#include <cmath>
+#include "../game/Catalog.h"
+
+namespace Site {
+
+inline const ImVec4 kAccent   = {0.26f, 0.55f, 0.96f, 1.0f};
+inline const ImVec4 kGreen    = {0.20f, 0.68f, 0.32f, 1.0f};
+inline const ImVec4 kCardBg   = {0.16f, 0.17f, 0.20f, 1.0f};
+inline const ImVec4 kTopBarBg = {0.086f, 0.094f, 0.114f, 1.0f};
+
+inline bool bigButton(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
+    ImGui::PushStyleColor(ImGuiCol_Button, col);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.08f, col.y + 0.08f, col.z + 0.08f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(col.x - 0.05f, col.y - 0.05f, col.z - 0.05f, 1));
+    bool r = ImGui::Button(label, size);
+    ImGui::PopStyleColor(3);
+    return r;
+}
+
+// Tall (portrait) phone screen?
+inline bool portraitScreen() { const ImVec2 d = ImGui::GetIO().DisplaySize; return d.y > d.x; }
+// A dialog width that still fits on a narrow phone screen.
+inline float fitWidth(float want) { return std::min(want, ImGui::GetIO().DisplaySize.x - 24.0f); }
+
+
+// --- 2011-style look -----------------------------------------------------------
+namespace Classic {
+inline const ImU32  kSkyTop    = IM_COL32(22, 70, 148, 255);
+inline const ImU32  kSkyBottom = IM_COL32(110, 170, 232, 255);
+inline const ImU32  kNavTop    = IM_COL32(64, 146, 232, 255);
+inline const ImU32  kNavBottom = IM_COL32(16, 96, 186, 255);
+inline const ImU32  kStripeA   = IM_COL32(255, 255, 255, 255);
+inline const ImU32  kStripeB   = IM_COL32(236, 239, 244, 255);
+inline const ImVec4 kInk       = {0.16f, 0.17f, 0.20f, 1.0f};
+inline const ImVec4 kInkDim    = {0.42f, 0.44f, 0.50f, 1.0f};
+inline const ImVec4 kLink      = {0.02f, 0.33f, 0.74f, 1.0f};
+inline const ImVec4 kPlay      = {0.02f, 0.66f, 0.30f, 1.0f};
+inline const ImVec4 kBlue      = {0.10f, 0.45f, 0.82f, 1.0f};
+
+// Dark text and light widgets for the white striped panel.
+inline void pushLight() {
+    ImGui::PushStyleColor(ImGuiCol_Text, kInk);
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, kInkDim);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1, 1, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.93f, 0.96f, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.88f, 0.93f, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.93f, 0.93f, 0.94f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.86f, 0.91f, 0.98f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.78f, 0.86f, 0.97f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.72f, 0.74f, 0.78f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.78f, 0.8f, 0.84f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, kBlue);
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.9f, 0.91f, 0.93f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.7f, 0.72f, 0.76f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+}
+inline void popLight() {
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(14);
+}
+
+inline bool button(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(col.x * 0.7f, col.y * 0.7f, col.z * 0.7f, 1));
+    bool r = bigButton(label, col, size);
+    ImGui::PopStyleColor(2);
+    return r;
+}
+
+inline void stripes(ImDrawList* dl, ImVec2 a, ImVec2 b) {
+    dl->AddRectFilled(a, b, kStripeB);
+    dl->PushClipRect(a, b, true);
+    float h = b.y - a.y;
+    for (float x = a.x - h; x < b.x; x += 18.0f)
+        dl->AddLine(ImVec2(x, b.y), ImVec2(x + h, a.y), kStripeA, 9.0f);
+    dl->PopClipRect();
+    dl->AddRect(a, b, IM_COL32(150, 160, 180, 255));
+}
+
+// Big chunky logo text with an outline, like the old logo.
+inline void logo(ImDrawList* dl, ImVec2 p, float size, const char* text) {
+    ImFont* f = ImGui::GetFont();
+    for (int dx = -3; dx <= 3; ++dx)
+        for (int dy = -3; dy <= 3; ++dy)
+            if (dx * dx + dy * dy >= 4)
+                dl->AddText(f, size, ImVec2(p.x + dx, p.y + dy + 2), IM_COL32(40, 10, 10, 255), text);
+    for (int dx = -2; dx <= 2; ++dx)
+        for (int dy = -2; dy <= 2; ++dy)
+            dl->AddText(f, size, ImVec2(p.x + dx, p.y + dy), IM_COL32(255, 255, 255, 255), text);
+    dl->AddText(f, size, p, IM_COL32(222, 34, 28, 255), text);
+}
+} // namespace Classic
+// A simple picture of a catalog item, drawn in its colour.
+inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it) {
+    ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(it.color.r, it.color.g, it.color.b, 1));
+    ImU32 line = IM_COL32(40, 40, 50, 255);
+    float t = std::max(1.5f, s * 0.02f);
+    switch (it.type) {
+    case Catalog::Type::Hat:
+        if (it.hat == HatStyle::TopHat) {
+            ImVec2 a(c.x - s * 0.2f, c.y - s * 0.3f), b(c.x + s * 0.2f, c.y + s * 0.15f);
+            dl->AddRectFilled(a, b, fill); dl->AddRect(a, b, line, 0, 0, t);
+            ImVec2 ba(c.x - s * 0.38f, c.y + s * 0.15f), bb(c.x + s * 0.38f, c.y + s * 0.24f);
+            dl->AddRectFilled(ba, bb, fill, 4); dl->AddRect(ba, bb, line, 4, 0, t);
+        } else if (it.hat == HatStyle::Crown) {
+            ImVec2 pts[] = {{c.x - s * 0.34f, c.y + s * 0.2f}, {c.x - s * 0.34f, c.y - s * 0.22f}, {c.x - s * 0.17f, c.y - s * 0.02f},
+                            {c.x, c.y - s * 0.3f}, {c.x + s * 0.17f, c.y - s * 0.02f}, {c.x + s * 0.34f, c.y - s * 0.22f},
+                            {c.x + s * 0.34f, c.y + s * 0.2f}};
+            for (int i = 1; i < 6; ++i) dl->AddTriangleFilled(pts[0], pts[i], pts[i + 1], fill);
+            dl->AddPolyline(pts, 7, line, ImDrawFlags_Closed, t);
+        } else {   // cap
+            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.1f), s * 0.3f, 3.14159f, 6.28318f, 24);
+            dl->PathFillConvex(fill);
+            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.1f), s * 0.3f, 3.14159f, 6.28318f, 24);
+            dl->PathStroke(line, 0, t);
+            ImVec2 va(c.x, c.y + s * 0.06f), vb(c.x + s * 0.46f, c.y + s * 0.14f);
+            dl->AddRectFilled(va, vb, fill, 3); dl->AddRect(va, vb, line, 3, 0, t);
+        }
+        break;
+    case Catalog::Type::Shirt: {
+        ImVec2 pts[] = {{c.x - s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.4f, c.y - s * 0.12f},
+                        {c.x + s * 0.3f, c.y + s * 0.0f}, {c.x + s * 0.22f, c.y - s * 0.06f}, {c.x + s * 0.22f, c.y + s * 0.34f},
+                        {c.x - s * 0.22f, c.y + s * 0.34f}, {c.x - s * 0.22f, c.y - s * 0.06f}, {c.x - s * 0.3f, c.y + s * 0.0f},
+                        {c.x - s * 0.4f, c.y - s * 0.12f}};
+        dl->AddRectFilled(ImVec2(c.x - s * 0.22f, c.y - s * 0.32f), ImVec2(c.x + s * 0.22f, c.y + s * 0.34f), fill);
+        dl->AddTriangleFilled(pts[1], pts[2], pts[3], fill); dl->AddTriangleFilled(pts[1], pts[3], pts[4], fill);
+        dl->AddTriangleFilled(pts[0], pts[9], pts[8], fill); dl->AddTriangleFilled(pts[0], pts[8], pts[7], fill);
+        dl->AddPolyline(pts, 10, line, ImDrawFlags_Closed, t);
+        break;
+    }
+    case Catalog::Type::Pants: {
+        // Waistband plus two legs.
+        ImVec2 w0(c.x - s * 0.25f, c.y - s * 0.34f), w1(c.x + s * 0.25f, c.y - s * 0.22f);
+        ImVec2 l0(c.x - s * 0.25f, c.y - s * 0.22f), l1(c.x - s * 0.02f, c.y + s * 0.36f);
+        ImVec2 r0(c.x + s * 0.02f, c.y - s * 0.22f), r1(c.x + s * 0.25f, c.y + s * 0.36f);
+        ImVec2 mid0(c.x - s * 0.03f, c.y - s * 0.22f), mid1(c.x + s * 0.03f, c.y - s * 0.05f);
+        for (auto [a, b] : {std::pair{w0, w1}, std::pair{l0, l1}, std::pair{r0, r1}, std::pair{mid0, mid1}})
+            dl->AddRectFilled(a, b, fill);
+        dl->AddRect(w0, w1, line, 0, 0, t);
+        dl->AddRect(l0, l1, line, 0, 0, t);
+        dl->AddRect(r0, r1, line, 0, 0, t);
+        break;
+    }
+    default: break;
+    }
+}
+
+} // namespace Site

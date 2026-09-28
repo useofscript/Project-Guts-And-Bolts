@@ -1,4 +1,5 @@
 #include "PlayerApp.h"
+#include "SiteUi.h"
 #include "../core/AppWindow.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
@@ -17,6 +18,7 @@
 #include "../game/Badges.h"
 #include "../game/Bolts.h"
 #include "../online/OnlineClient.h"
+#include "../online/AssetCache.h"
 #include "../online/Protocol.h"
 
 #include <imgui.h>
@@ -31,26 +33,9 @@
 #include <cmath>
 #include <cstdio>
 
+using namespace Site;
+
 namespace {
-
-const ImVec4 kAccent   = {0.26f, 0.55f, 0.96f, 1.0f};
-const ImVec4 kGreen    = {0.20f, 0.68f, 0.32f, 1.0f};
-const ImVec4 kCardBg   = {0.16f, 0.17f, 0.20f, 1.0f};
-const ImVec4 kTopBarBg = {0.086f, 0.094f, 0.114f, 1.0f};
-
-bool bigButton(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
-    ImGui::PushStyleColor(ImGuiCol_Button, col);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.08f, col.y + 0.08f, col.z + 0.08f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(col.x - 0.05f, col.y - 0.05f, col.z - 0.05f, 1));
-    bool r = ImGui::Button(label, size);
-    ImGui::PopStyleColor(3);
-    return r;
-}
-
-// Tall (portrait) phone screen?
-bool portraitScreen() { const ImVec2 d = ImGui::GetIO().DisplaySize; return d.y > d.x; }
-// A dialog width that still fits on a narrow phone screen.
-float fitWidth(float want) { return std::min(want, ImGui::GetIO().DisplaySize.x - 24.0f); }
 
 std::string lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
@@ -68,75 +53,7 @@ void frameSpawn(Scene& scene, Camera& cam) {
     cam.distance = 22.0f;
 }
 
-// --- 2011-style look -----------------------------------------------------------
-namespace Classic {
-const ImU32  kSkyTop    = IM_COL32(22, 70, 148, 255);
-const ImU32  kSkyBottom = IM_COL32(110, 170, 232, 255);
-const ImU32  kNavTop    = IM_COL32(64, 146, 232, 255);
-const ImU32  kNavBottom = IM_COL32(16, 96, 186, 255);
-const ImU32  kStripeA   = IM_COL32(255, 255, 255, 255);
-const ImU32  kStripeB   = IM_COL32(236, 239, 244, 255);
-const ImVec4 kInk       = {0.16f, 0.17f, 0.20f, 1.0f};
-const ImVec4 kInkDim    = {0.42f, 0.44f, 0.50f, 1.0f};
-const ImVec4 kLink      = {0.02f, 0.33f, 0.74f, 1.0f};
-const ImVec4 kPlay      = {0.02f, 0.66f, 0.30f, 1.0f};
-const ImVec4 kBlue      = {0.10f, 0.45f, 0.82f, 1.0f};
 
-// Dark text and light widgets for the white striped panel.
-void pushLight() {
-    ImGui::PushStyleColor(ImGuiCol_Text, kInk);
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, kInkDim);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1, 1, 1, 1));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.93f, 0.96f, 1, 1));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.88f, 0.93f, 1, 1));
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.93f, 0.93f, 0.94f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.86f, 0.91f, 0.98f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.78f, 0.86f, 0.97f, 1));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.72f, 0.74f, 0.78f, 1));
-    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.78f, 0.8f, 0.84f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_CheckMark, kBlue);
-    ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.9f, 0.91f, 0.93f, 1));
-    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.7f, 0.72f, 0.76f, 1));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-}
-void popLight() {
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(14);
-}
-
-bool button(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(col.x * 0.7f, col.y * 0.7f, col.z * 0.7f, 1));
-    bool r = bigButton(label, col, size);
-    ImGui::PopStyleColor(2);
-    return r;
-}
-
-void stripes(ImDrawList* dl, ImVec2 a, ImVec2 b) {
-    dl->AddRectFilled(a, b, kStripeB);
-    dl->PushClipRect(a, b, true);
-    float h = b.y - a.y;
-    for (float x = a.x - h; x < b.x; x += 18.0f)
-        dl->AddLine(ImVec2(x, b.y), ImVec2(x + h, a.y), kStripeA, 9.0f);
-    dl->PopClipRect();
-    dl->AddRect(a, b, IM_COL32(150, 160, 180, 255));
-}
-
-// Big chunky logo text with an outline, like the old logo.
-void logo(ImDrawList* dl, ImVec2 p, float size, const char* text) {
-    ImFont* f = ImGui::GetFont();
-    for (int dx = -3; dx <= 3; ++dx)
-        for (int dy = -3; dy <= 3; ++dy)
-            if (dx * dx + dy * dy >= 4)
-                dl->AddText(f, size, ImVec2(p.x + dx, p.y + dy + 2), IM_COL32(40, 10, 10, 255), text);
-    for (int dx = -2; dx <= 2; ++dx)
-        for (int dy = -2; dy <= 2; ++dy)
-            dl->AddText(f, size, ImVec2(p.x + dx, p.y + dy), IM_COL32(255, 255, 255, 255), text);
-    dl->AddText(f, size, p, IM_COL32(222, 34, 28, 255), text);
-}
-} // namespace Classic
 
 } // namespace
 
@@ -249,6 +166,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "settings") m_showSettings = true;
     if (m_opts.page == "catalog") m_page = Page::Catalog;
     if (m_opts.page == "bolts") m_page = Page::Bolts;
+    if (m_opts.page == "create") m_page = Page::Create;
     if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
@@ -343,6 +261,7 @@ void PlayerApp::joinGame(const std::filesystem::path& path, bool host) {
         m_page = Page::Home;
         return;
     }
+    Online::fetchSounds(*m_scene);   // server audio ("gb:" sounds) this game uses
     Profile& me = Profile::get();
     if (Player* p = m_scene->player()) {
         me.applyTo(*p);
@@ -424,6 +343,7 @@ void PlayerApp::leaveGame() {
 // ---------------------------------------------------------------------------
 
 void PlayerApp::frame(float dt) {
+    Online::update();   // replies from the Guts&Bolts server
     m_window->lockLandscape(m_page == Page::Game);   // phones: games are landscape, the site isn't
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -471,6 +391,7 @@ void PlayerApp::frame(float dt) {
             case Page::Catalog:  drawCatalog(); break;
             case Page::Staff:    drawStaff(); break;
             case Page::Bolts:    drawBolts(); break;
+            case Page::Create:   drawCreate(); break;
             default: break;
         }
         Classic::popLight();
@@ -485,6 +406,9 @@ void PlayerApp::frame(float dt) {
     drawJoinDialog();
     drawItemDialog();
     drawCreateItemDialog();
+    drawServerDialog();
+    drawOnlineItemDialog();
+    drawOnlineGameDialog();
     drawNotice();
     if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
 }
@@ -539,6 +463,9 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     dl->AddImageRounded((ImTextureID)(intptr_t)m_bannerView.colorTexture(), b0, b1, ImVec2(0, 1), ImVec2(1, 0),
                         IM_COL32_WHITE, 8.0f, ImDrawFlags_RoundCornersTop);
     Classic::logo(dl, ImVec2(pos.x + 26, pos.y + (bannerH - logoSize) * 0.5f - 4), logoSize, "GUTS&BOLTS");
+#ifndef GB_MOBILE
+    drawServerButton(ImVec2(pos.x + 26, b1.y - 30));   // online / offline (phones: in the nav bar)
+#endif
 
     // Account box, top-right of the banner: name, your Bolts and a link to the avatar editor.
     std::string hi = "Hi, " + me.name;
@@ -546,7 +473,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     const bool staff = Account::iAmStaff();
     const bool verifiedMe = Badges::iHave(Badges::Id::Verified);
     float badgeW = (staff ? 24.0f : 0.0f) + (verifiedMe ? 20.0f : 0.0f);
-    std::string boltsText = Bolts::format(Bolts::balance());
+    std::string boltsText = Bolts::format(Online::online() ? Online::bolts() : Bolts::balance());
     float boltsW = 18 + 4 + ImGui::CalcTextSize(boltsText.c_str()).x;
     float line2 = boltsW + 14 + ImGui::CalcTextSize("Edit avatar").x;
     float boxW = std::max(ts.x + badgeW, line2) + 24;
@@ -579,9 +506,12 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
     const float navH = 34.0f;
     struct Item { const char* label; int action; };
-    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Avatar", 2}, {"Join a Friend", 3},
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Avatar", 2}, {"Join a Friend", 3},
                                {"Develop", 4}, {"Settings", 5}};
     if (Badges::canVerify()) items.push_back({"Staff", 7});
+#ifdef GB_MOBILE
+    items.push_back({Online::online() ? "Online" : "Offline", 10});
+#endif
 #ifdef GB_MOBILE
     // No Studio on phones.
     items.erase(std::remove_if(items.begin(), items.end(), [](const Item& i) { return i.action == 4; }), items.end());
@@ -613,14 +543,15 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
         ImGui::PopID();
         bool active = (it.action == 0 && m_page == Page::Home) || (it.action == 1 && m_page == Page::Games) ||
                       (it.action == 2 && m_page == Page::Avatar) || (it.action == 6 && m_page == Page::Catalog) ||
-                      (it.action == 7 && m_page == Page::Staff) || (it.action == 8 && m_page == Page::Bolts);
+                      (it.action == 7 && m_page == Page::Staff) || (it.action == 8 && m_page == Page::Bolts) ||
+                      (it.action == 9 && m_page == Page::Create);
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
         dl->AddText(ImVec2(x + 1, rowY + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
         dl->AddText(ImVec2(x, rowY + (navH - sz.y) * 0.5f), IM_COL32(255, 255, 255, 255), it.label);
         if (clicked) {
             switch (it.action) {
-                case 0: m_page = Page::Home; break;
+                case 0: m_page = Page::Home; m_loaded.clear(); break;
                 case 1: m_page = Page::Games; m_category = "all"; break;
                 case 2: m_page = Page::Avatar; break;
                 case 3: m_showJoin = true; break;
@@ -629,9 +560,11 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                         m_status = "Couldn't find the Guts and Bolts editor next to this app.";
                     break;
                 case 5: m_showSettings = true; break;
-                case 6: m_page = Page::Catalog; m_items = Catalog::load(); break;
+                case 6: m_page = Page::Catalog; m_items = Catalog::load(); m_loaded.clear(); break;
                 case 7: m_page = Page::Staff; break;
-                case 8: m_page = Page::Bolts; break;
+                case 8: m_page = Page::Bolts; m_loaded.clear(); break;
+                case 9: m_page = Page::Create; m_loaded.clear(); break;
+                case 10: m_serverInput = Online::serverAddress(); m_showServer = true; break;
             }
         }
     }
@@ -699,8 +632,10 @@ void PlayerApp::drawHome() {
         ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_status.c_str());
         ImGui::Spacing();
     }
+    // Online: games people published.
+    drawOnlineGames();
     // Daily Bolts waiting for you?
-    if (Bolts::canClaimDaily()) {
+    if (Online::online() ? Online::me().value("canDaily", false) : Bolts::canClaimDaily()) {
         ImVec2 p = ImGui::GetCursorScreenPos();
         float w = ImGui::GetContentRegionAvail().x;
         const bool narrow = w < 560;   // phones held upright: the button goes under the text
@@ -716,8 +651,13 @@ void PlayerApp::drawHome() {
         ImGui::SetCursorScreenPos(narrow ? ImVec2(p.x + 50, p.y + 44) : ImVec2(p.x + w - 130, p.y + 8));
         if (Classic::button(narrow ? ("Claim " + std::to_string(Bolts::kDaily) + " Bolts").c_str() : "Claim", Classic::kPlay,
                             ImVec2(narrow ? 170.0f : 120.0f, 30))) {
-            Bolts::claimDaily(m_boltsMsg);
+            if (Online::online())
+                Online::request("bolts.daily", nlohmann::json::object(), [this](const nlohmann::json& r) {
+                    m_boltsMsg = r.value("ok", false) ? "You got 25 Bolts! Come back tomorrow for more." : r.value("error", std::string());
+                });
+            else Bolts::claimDaily(m_boltsMsg);
             m_page = Page::Bolts;
+            m_loaded.clear();
         }
         ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 10));
     }
@@ -1007,8 +947,9 @@ void PlayerApp::drawGame(float dt) {
     else       m_session->setTouchInput(glm::vec2(0.0f), false);
     m_session->update(dt, m_camera.yaw, acceptInput);
 
-    // Bolts for playing (not while the menu is open).
-    if (!m_paused) {
+    // Bolts for playing (not while the menu is open). Online, the server keeps count.
+    if (!m_paused && Online::online()) onlinePlayTick(dt);
+    else if (!m_paused) {
         if (long long got = Bolts::addPlayTime(dt)) {
             m_boltsToast = "+" + Bolts::format(got) + " Bolts for playing!";
             m_boltsToastUntil = ImGui::GetTime() + 4.0;
@@ -1311,6 +1252,7 @@ void PlayerApp::drawStaff() {
         if (ImGui::Button("Copy code")) ImGui::SetClipboardText(m_grantCode.c_str());
     }
 
+    if (Online::online()) drawOnlineStaff();   // verify people straight from the server
     if (!official) return;   // the rest is for the official account only
 
     ImGui::SeparatorText("Give someone Bolts");
@@ -1354,6 +1296,7 @@ void PlayerApp::drawStaff() {
 
 // The Bolts page: your balance, the daily reward, ways to earn, codes and history.
 void PlayerApp::drawBolts() {
+    if (Online::online()) { drawOnlineBolts(); return; }   // Bolts kept on the server
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetCursorScreenPos();
     Bolts::drawIcon(dl, ImVec2(p.x + 30, p.y + 30), 58.0f);
@@ -1480,64 +1423,9 @@ void PlayerApp::drawNotice() {
 // Catalog
 // ---------------------------------------------------------------------------
 
-namespace {
-// A simple picture of a catalog item, drawn in its colour.
-void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it) {
-    ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(it.color.r, it.color.g, it.color.b, 1));
-    ImU32 line = IM_COL32(40, 40, 50, 255);
-    float t = std::max(1.5f, s * 0.02f);
-    switch (it.type) {
-    case Catalog::Type::Hat:
-        if (it.hat == HatStyle::TopHat) {
-            ImVec2 a(c.x - s * 0.2f, c.y - s * 0.3f), b(c.x + s * 0.2f, c.y + s * 0.15f);
-            dl->AddRectFilled(a, b, fill); dl->AddRect(a, b, line, 0, 0, t);
-            ImVec2 ba(c.x - s * 0.38f, c.y + s * 0.15f), bb(c.x + s * 0.38f, c.y + s * 0.24f);
-            dl->AddRectFilled(ba, bb, fill, 4); dl->AddRect(ba, bb, line, 4, 0, t);
-        } else if (it.hat == HatStyle::Crown) {
-            ImVec2 pts[] = {{c.x - s * 0.34f, c.y + s * 0.2f}, {c.x - s * 0.34f, c.y - s * 0.22f}, {c.x - s * 0.17f, c.y - s * 0.02f},
-                            {c.x, c.y - s * 0.3f}, {c.x + s * 0.17f, c.y - s * 0.02f}, {c.x + s * 0.34f, c.y - s * 0.22f},
-                            {c.x + s * 0.34f, c.y + s * 0.2f}};
-            for (int i = 1; i < 6; ++i) dl->AddTriangleFilled(pts[0], pts[i], pts[i + 1], fill);
-            dl->AddPolyline(pts, 7, line, ImDrawFlags_Closed, t);
-        } else {   // cap
-            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.1f), s * 0.3f, 3.14159f, 6.28318f, 24);
-            dl->PathFillConvex(fill);
-            dl->PathArcTo(ImVec2(c.x, c.y + s * 0.1f), s * 0.3f, 3.14159f, 6.28318f, 24);
-            dl->PathStroke(line, 0, t);
-            ImVec2 va(c.x, c.y + s * 0.06f), vb(c.x + s * 0.46f, c.y + s * 0.14f);
-            dl->AddRectFilled(va, vb, fill, 3); dl->AddRect(va, vb, line, 3, 0, t);
-        }
-        break;
-    case Catalog::Type::Shirt: {
-        ImVec2 pts[] = {{c.x - s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.4f, c.y - s * 0.12f},
-                        {c.x + s * 0.3f, c.y + s * 0.0f}, {c.x + s * 0.22f, c.y - s * 0.06f}, {c.x + s * 0.22f, c.y + s * 0.34f},
-                        {c.x - s * 0.22f, c.y + s * 0.34f}, {c.x - s * 0.22f, c.y - s * 0.06f}, {c.x - s * 0.3f, c.y + s * 0.0f},
-                        {c.x - s * 0.4f, c.y - s * 0.12f}};
-        dl->AddRectFilled(ImVec2(c.x - s * 0.22f, c.y - s * 0.32f), ImVec2(c.x + s * 0.22f, c.y + s * 0.34f), fill);
-        dl->AddTriangleFilled(pts[1], pts[2], pts[3], fill); dl->AddTriangleFilled(pts[1], pts[3], pts[4], fill);
-        dl->AddTriangleFilled(pts[0], pts[9], pts[8], fill); dl->AddTriangleFilled(pts[0], pts[8], pts[7], fill);
-        dl->AddPolyline(pts, 10, line, ImDrawFlags_Closed, t);
-        break;
-    }
-    case Catalog::Type::Pants: {
-        // Waistband plus two legs.
-        ImVec2 w0(c.x - s * 0.25f, c.y - s * 0.34f), w1(c.x + s * 0.25f, c.y - s * 0.22f);
-        ImVec2 l0(c.x - s * 0.25f, c.y - s * 0.22f), l1(c.x - s * 0.02f, c.y + s * 0.36f);
-        ImVec2 r0(c.x + s * 0.02f, c.y - s * 0.22f), r1(c.x + s * 0.25f, c.y + s * 0.36f);
-        ImVec2 mid0(c.x - s * 0.03f, c.y - s * 0.22f), mid1(c.x + s * 0.03f, c.y - s * 0.05f);
-        for (auto [a, b] : {std::pair{w0, w1}, std::pair{l0, l1}, std::pair{r0, r1}, std::pair{mid0, mid1}})
-            dl->AddRectFilled(a, b, fill);
-        dl->AddRect(w0, w1, line, 0, 0, t);
-        dl->AddRect(l0, l1, line, 0, 0, t);
-        dl->AddRect(r0, r1, line, 0, 0, t);
-        break;
-    }
-    default: break;
-    }
-}
-} // namespace
 
 void PlayerApp::drawCatalog() {
+    if (Online::online()) { drawOnlineCatalog(); return; }   // the server's catalog
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted("Catalog");
     ImGui::SetWindowFontScale(1.0f);

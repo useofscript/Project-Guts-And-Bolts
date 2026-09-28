@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 #include "../scene/Player.h"
@@ -39,6 +40,10 @@ bool owns(const Item& item);
 bool buy(const Item& item, std::string& message);
 // Put an item on the profile. Paid items must be bought first.
 void wear(const Item& item);
+// Put it on without checking who owns it (the server checked that already).
+void applyLook(const Item& item);
+// A catalog item from a server upload (hat / shirt / pants).
+Item fromServer(const nlohmann::json& asset);
 bool isWearing(const Item& item);
 
 } // namespace Catalog

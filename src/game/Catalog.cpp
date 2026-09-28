@@ -127,6 +127,24 @@ bool remove(const Item& it, std::string& msg) {
     return true;
 }
 
+Item fromServer(const json& a) {
+    Item it;
+    it.id = a.value("id", std::string());
+    it.name = a.value("name", std::string());
+    it.description = a.value("description", std::string());
+    std::string kind = a.value("kind", std::string());
+    it.type = kind == "hat" ? Type::Hat : kind == "shirt" ? Type::Shirt : Type::Pants;
+    it.price = a.value("price", 0LL);
+    it.created = a.value("created", 0LL);
+    if (a.contains("meta") && a["meta"].is_object()) {
+        const json& m = a["meta"];
+        it.hat = (HatStyle)std::clamp(m.value("style", 2), 1, 3);
+        if (m.contains("color") && m["color"].is_array() && m["color"].size() == 3)
+            it.color = {m["color"][0].get<int>() / 255.0f, m["color"][1].get<int>() / 255.0f, m["color"][2].get<int>() / 255.0f};
+    }
+    return it;
+}
+
 bool owns(const Item& it) {
     if (it.price > 0) return Bolts::has("item:" + it.id);
     const auto& inv = Profile::get().inventory;
@@ -147,6 +165,11 @@ void wear(const Item& it) {
     if (it.price > 0 && !owns(it)) return;   // buy it first
     Profile& me = Profile::get();
     if (std::find(me.inventory.begin(), me.inventory.end(), it.id) == me.inventory.end()) me.inventory.push_back(it.id);
+    applyLook(it);
+}
+
+void applyLook(const Item& it) {
+    Profile& me = Profile::get();
     switch (it.type) {
         case Type::Hat:
             me.hat = it.hat;
@@ -162,8 +185,14 @@ void wear(const Item& it) {
     }
     // Only one item of each type at a time.
     std::vector<std::string> keep;
+    const std::string prefix = std::string(typeName(it.type)) + "-";   // server items: "hat-1a2b3c"
+    auto lowerPrefix = [&](const std::string& w) {
+        std::string p;
+        for (char c : prefix) p += (char)std::tolower((unsigned char)c);
+        return w.rfind(p, 0) == 0;
+    };
     for (const std::string& w : me.wearing) {
-        bool sameType = false;
+        bool sameType = lowerPrefix(w);
         for (const Item& other : load()) if (other.id == w && other.type == it.type) sameType = true;
         if (!sameType && w != it.id) keep.push_back(w);
     }

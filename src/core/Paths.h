@@ -13,6 +13,10 @@ namespace Paths {
 
 std::filesystem::path appFolder();
 std::filesystem::path gamesFolder();
+// Things downloaded from a Guts&Bolts server (games, audio, plugins): <id>.<ext>
+std::filesystem::path downloadsFolder();
+// The downloaded file for a server asset id, or "" if we don't have it yet.
+std::filesystem::path downloaded(const std::string& assetId);
 std::filesystem::path file(const char* name);   // appFolder() / name
 
 inline constexpr const char* kExtension = ".gbscene";

@@ -207,10 +207,17 @@ int play(const std::string& soundId, float volume, float pitch, bool loop, const
             return 0;
         }
     } else {
-        // A file: look in the games folder first, then treat it as a full path.
-        std::filesystem::path p = Paths::gamesFolder() / soundId;
+        // A file: "gb:<id>" is audio from a Guts&Bolts server (downloaded when the
+        // game loads); otherwise look in the games folder first, then treat it as a full path.
+        std::filesystem::path p;
         std::error_code ec;
-        if (!std::filesystem::exists(p, ec)) p = soundId;
+        if (soundId.rfind("gb:", 0) == 0) {
+            p = Paths::downloaded(soundId.substr(3));
+            if (p.empty()) return 0;   // still downloading
+        } else {
+            p = Paths::gamesFolder() / soundId;
+            if (!std::filesystem::exists(p, ec)) p = soundId;
+        }
         if (ma_sound_init_from_file(&g_engine, p.string().c_str(), flags | MA_SOUND_FLAG_STREAM, nullptr, nullptr,
                                     &in->sound) != MA_SUCCESS) {
             Log::warn("Couldn't play sound \"" + soundId + "\" (use a built-in name or a .wav / .mp3 / .flac file)");

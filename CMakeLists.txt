@@ -241,6 +241,7 @@ add_library(gb_engine STATIC
     src/game/Bolts.cpp
     src/online/Protocol.cpp
     src/online/OnlineClient.cpp
+    src/online/AssetCache.cpp
     src/game/Catalog.cpp
     src/game/TouchControls.cpp
     src/net/Socket.cpp
@@ -279,7 +280,7 @@ endif()
 if(GB_MOBILE)
     # Phones and tablets get the Player only. On Android it's a library that
     # SDL's Java activity loads (it must be called "main").
-    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp)
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp)
     if(ANDROID)
         add_library(main SHARED ${PLAYER_SOURCES})
         target_link_libraries(main PRIVATE gb_engine)
@@ -330,6 +331,7 @@ target_link_libraries(GutsAndBolts PRIVATE gb_engine)
 set(PLAYER_SOURCES
     src/player/main.cpp
     src/player/PlayerApp.cpp
+    src/player/PlayerOnline.cpp
 )
 if(WIN32)
     list(APPEND PLAYER_SOURCES resources/app.rc)

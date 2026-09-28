@@ -46,6 +46,20 @@ std::filesystem::path appFolder() {
 
 std::filesystem::path file(const char* name) { return appFolder() / name; }
 
+std::filesystem::path downloadsFolder() {
+    std::error_code ec;
+    auto p = appFolder() / "downloads";
+    std::filesystem::create_directories(p, ec);
+    return p;
+}
+
+std::filesystem::path downloaded(const std::string& assetId) {
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(downloadsFolder(), ec))
+        if (e.is_regular_file() && e.path().stem().string() == assetId) return e.path();
+    return {};
+}
+
 #ifdef __ANDROID__
 namespace {
 bool readAsset(const std::string& name, std::string& out) {

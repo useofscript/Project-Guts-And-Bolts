@@ -9,6 +9,7 @@
 #include "../game/Catalog.h"
 #include "../game/TouchControls.h"
 #include <imgui.h>
+#include <nlohmann/json.hpp>
 
 class AppWindow;
 class NetServer;
@@ -46,7 +47,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create };
 
     struct GameCard {
         std::filesystem::path        path;
@@ -72,6 +73,19 @@ private:
     void drawCreateItemDialog();
     void drawStaff();
     void drawBolts();
+
+    // Online (a Guts&Bolts server) — PlayerOnline.cpp
+    void drawServerButton(ImVec2 at);
+    void drawServerDialog();
+    void drawOnlineCatalog();
+    void drawOnlineItemDialog();
+    void drawCreate();
+    void drawOnlineGames();
+    void drawOnlineGameDialog();
+    void drawOnlineBolts();
+    void drawOnlineStaff();
+    void refreshOnline(const std::string& what);   // "catalog", "games", "mine", "history"
+    void onlinePlayTick(float dt);
     void drawAccount();
     void drawNotice();
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
@@ -137,6 +151,23 @@ private:
     std::string m_boltsToast;                      // "+5 Bolts for playing!"
     double      m_boltsToastUntil = 0.0;
     std::string m_buyMsg;                          // catalog item dialog
+
+    // Online
+    bool           m_showServer = false;
+    std::string    m_serverInput, m_serverMsg;
+    nlohmann::json m_onlineItems = nlohmann::json::array();   // server hats / shirts / pants
+    nlohmann::json m_onlineGames = nlohmann::json::array();
+    nlohmann::json m_myCreations = nlohmann::json::array();
+    nlohmann::json m_onlineHistory = nlohmann::json::array();
+    nlohmann::json m_foundUsers = nlohmann::json::array();
+    int            m_openOnlineItem = -1, m_openOnlineGame = -1;
+    std::string    m_onlineMsg, m_createMsg, m_staffMsg, m_findQuery;
+    int            m_createKind = 0, m_createStyle = 2, m_createPrice = 0, m_giveServerBolts = 100;
+    std::string    m_createName, m_createDesc, m_createPath;
+    glm::vec3      m_createColor{0.9f, 0.2f, 0.2f};
+    bool           m_busy = false;                 // waiting on the server
+    float          m_onlinePlaySeconds = 0.0f;
+    std::string    m_loaded;                       // lists already fetched this visit ("catalog games ...")
 
     TouchControls m_touch;
     ImVec2      m_chatMin{0, 0}, m_chatMax{0, 0};  // where the chat box was last frame
