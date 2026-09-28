@@ -2,6 +2,7 @@
 // Lighting, and the Signal / Connection event objects.
 #include "LuaApi.h"
 #include "ScriptEngine.h"
+#include "../scene/Player.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../scene/Serializer.h"
@@ -68,6 +69,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
+        case NodeKind::Tool:       return "Tool";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint:
@@ -91,6 +93,7 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Script && (cls == "BaseScript" || cls == "LuaSourceContainer")) return true;
     if (n->kind == NodeKind::Light && cls == "Light") return true;
     if (n->kind == NodeKind::Constraint && cls == "Constraint") return true;
+    if (n->kind == NodeKind::Tool && cls == "BackpackItem") return true;
     return false;
 }
 
@@ -487,6 +490,17 @@ int inst_index(lua_State* L) {
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }
         if (is(k, "Clicked"))      { LuaApi::pushSignal(L, SignalKind::Clicked, n->id); return 1; }
     }
+    if (n->isTool()) {
+        if (is(k, "Enabled"))        { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "ToolTip"))        { lua_pushstring(L, n->toolTip.c_str()); return 1; }
+        if (is(k, "CanBeDropped"))   { lua_pushboolean(L, n->canBeDropped); return 1; }
+        if (is(k, "RequiresHandle")) { lua_pushboolean(L, true); return 1; }
+        if (is(k, "GripPos"))        { LuaApi::pushVector3(L, n->gripPos); return 1; }
+        if (is(k, "Activated"))      { LuaApi::pushSignal(L, SignalKind::Activated, n->id); return 1; }
+        if (is(k, "Deactivated"))    { LuaApi::pushSignal(L, SignalKind::Deactivated, n->id); return 1; }
+        if (is(k, "Equipped"))       { LuaApi::pushSignal(L, SignalKind::Equipped, n->id); return 1; }
+        if (is(k, "Unequipped"))     { LuaApi::pushSignal(L, SignalKind::Unequipped, n->id); return 1; }
+    }
     if (n->kind == NodeKind::Script) {
         if (is(k, "Enabled"))  { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "Disabled")) { lua_pushboolean(L, !n->enabled); return 1; }
@@ -622,6 +636,12 @@ int inst_newindex(lua_State* L) {
             return 0;
         }
     }
+    if (n->isTool()) {
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "ToolTip"))      { n->toolTip = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "CanBeDropped")) { n->canBeDropped = lua_toboolean(L, 3); return 0; }
+        if (is(k, "GripPos"))      { n->gripPos = LuaApi::checkVector3(L, 3); return 0; }
+    }
     if (n->isLight()) {
         if (is(k, "Enabled"))    { n->enabled = lua_toboolean(L, 3); return 0; }
         if (is(k, "Brightness")) { n->brightness = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
@@ -680,6 +700,8 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Sound);
     } else if (cls == "ForceField") {
         n = std::make_unique<SceneNode>(cls, NodeKind::ForceField);
+    } else if (cls == "Tool") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Tool);
     } else if (cls == "PointLight" || cls == "SpotLight") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Light);
         n->lightType = cls == "SpotLight" ? LightType::Spot : LightType::Point;
@@ -784,6 +806,21 @@ int hum_breakJoints(lua_State* L) {
     return 0;
 }
 
+// humanoid:EquipTool(tool) / humanoid:UnequipTools() (your own character only)
+Player* toolPlayer(lua_State* L) {
+    Player* p = E(L)->scene()->player();
+    return p && p->rootId() == humRoot(L) ? p : nullptr;
+}
+int hum_equipTool(lua_State* L) {
+    SceneNode* tool = LuaApi::checkNode(L, 2);
+    if (Player* p = toolPlayer(L); p && tool->isTool()) p->equip(tool->id);
+    return 0;
+}
+int hum_unequipTools(lua_State* L) {
+    if (Player* p = toolPlayer(L)) p->equip(0);
+    return 0;
+}
+
 int hum_isA(lua_State* L) {
     const char* c = luaL_checkstring(L, 2);
     lua_pushboolean(L, is(c, "Humanoid") || is(c, "Instance"));
@@ -803,6 +840,8 @@ int hum_index(lua_State* L) {
     if (is(k, "Died"))       { LuaApi::pushSignal(L, SignalKind::Died, humRoot(L)); return 1; }
     if (is(k, "TakeDamage")) { lua_pushcfunction(L, hum_takeDamage); return 1; }
     if (is(k, "BreakJoints")) { lua_pushcfunction(L, hum_breakJoints); return 1; }
+    if (is(k, "EquipTool"))   { lua_pushcfunction(L, hum_equipTool); return 1; }
+    if (is(k, "UnequipTools")) { lua_pushcfunction(L, hum_unequipTools); return 1; }
     if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
     return luaL_error(L, "'%s' is not a valid member of Humanoid", k);
 }

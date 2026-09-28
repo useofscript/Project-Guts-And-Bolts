@@ -31,6 +31,7 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Attachment ? "Attachment"
                     : node->kind == NodeKind::Constraint ? "Constraint"
                     : node->kind == NodeKind::ForceField ? "ForceField"
+                    : node->kind == NodeKind::Tool       ? "Tool"
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
@@ -54,6 +55,24 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::TextDisabled("Runs when you press Play.");
         ImGui::TextDisabled("Inside the code, 'script.Parent' is the");
         ImGui::TextDisabled("object this script is inside of.");
+        return;
+    }
+
+    if (node->isTool()) {
+        ImGui::SeparatorText("Tool");
+        ImGui::Checkbox("Enabled", &node->enabled);
+        ImGui::InputText("ToolTip", &node->toolTip);
+        ImGui::Checkbox("CanBeDropped", &node->canBeDropped);
+        ImGui::Checkbox("In StarterPack", &node->starterTool);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Everyone gets this tool in their backpack when they spawn.");
+        ImGui::DragFloat3("GripPos", &node->gripPos.x, 0.02f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where on the Handle the hand holds it (in the Handle's own space).");
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Put a part called Handle inside: that's what the character holds (its long side, Y, "
+                            "points forward out of the hand). Players pick tools up by touching them, and press "
+                            "1-9 to equip. Scripts inside get tool.Activated when the player clicks.");
+        ImGui::PopTextWrapPos();
         return;
     }
 

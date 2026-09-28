@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <string>
+#include <vector>
 
 namespace Hud {
 
@@ -99,6 +101,69 @@ void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm
     };
     if (Player* p = scene.player()) drawFor(p->root());
     for (auto& rc : scene.remotes()) drawFor(scene.findById(rc.rootId));
+}
+
+namespace {
+constexpr float kSlot = 58.0f, kGap = 6.0f;
+ImVec2 hotbarStart(ImVec2 min, ImVec2 max, int n) {
+    float w = n * kSlot + (n - 1) * kGap;
+    return ImVec2(std::floor((min.x + max.x - w) * 0.5f), max.y - kSlot - 14.0f);
+}
+int hotbarCount(Scene& scene) {
+    Player* p = scene.player();
+    return p && !p->isDead() ? (int)p->tools().size() : 0;
+}
+} // namespace
+
+bool overHotbar(ImVec2 min, ImVec2 max, Scene& scene, ImVec2 p) {
+    int n = hotbarCount(scene);
+    if (!n) return false;
+    ImVec2 a = hotbarStart(min, max, n);
+    return p.x >= a.x && p.x <= a.x + n * (kSlot + kGap) && p.y >= a.y && p.y <= a.y + kSlot;
+}
+
+int drawHotbar(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const ImVec2* tap) {
+    Player* p = scene.player();
+    int n = hotbarCount(scene);
+    if (!n) return -1;
+    std::vector<SceneNode*> list = p->tools();
+    SceneNode* held = p->equippedTool();
+    ImVec2 a = hotbarStart(min, max, n);
+    ImVec2 mouse = ImGui::GetIO().MousePos;
+    int clicked = -1;
+    ImFont* font = ImGui::GetFont();
+    for (int i = 0; i < n; ++i) {
+        SceneNode* t = list[(size_t)i];
+        ImVec2 s0(a.x + i * (kSlot + kGap), a.y), s1(s0.x + kSlot, s0.y + kSlot);
+        bool on = t == held;
+        bool hover = mouse.x >= s0.x && mouse.x < s1.x && mouse.y >= s0.y && mouse.y < s1.y;
+        dl->AddRectFilled(s0, s1, on ? IM_COL32(245, 245, 245, 215) : IM_COL32(20, 22, 28, hover ? 200 : 160), 7.0f);
+        dl->AddRect(s0, s1, on ? IM_COL32(40, 140, 255, 255) : IM_COL32(255, 255, 255, 60), 7.0f, 0, on ? 3.0f : 1.0f);
+        // A little picture: the Handle's colour as a diagonal stick.
+        if (SceneNode* h = t->findChild("Handle")) {
+            ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(h->color.r, h->color.g, h->color.b, 1.0f));
+            dl->AddLine(ImVec2(s0.x + kSlot * 0.3f, s1.y - kSlot * 0.3f), ImVec2(s1.x - kSlot * 0.28f, s0.y + kSlot * 0.26f), col, 6.0f);
+        }
+        char num[4];
+        std::snprintf(num, sizeof(num), "%d", i + 1);
+        dl->AddText(ImVec2(s0.x + 5, s0.y + 3), on ? IM_COL32(30, 30, 40, 255) : IM_COL32(255, 255, 255, 200), num);
+        // The name along the bottom, cut to fit.
+        std::string name = t->name;
+        while (name.size() > 1 && ImGui::CalcTextSize(name.c_str()).x > kSlot - 6) name.pop_back();
+        ImVec2 ts = ImGui::CalcTextSize(name.c_str());
+        dl->AddText(font, ImGui::GetFontSize(), ImVec2(s0.x + (kSlot - ts.x) * 0.5f, s1.y - ts.y - 3),
+                    on ? IM_COL32(20, 20, 30, 255) : IM_COL32(255, 255, 255, 235), name.c_str());
+        if (hover) {
+            const std::string& tip = t->toolTip.empty() ? t->name : t->toolTip;
+            ImVec2 tt = ImGui::CalcTextSize(tip.c_str());
+            ImVec2 b0(s0.x + (kSlot - tt.x) * 0.5f - 6, s0.y - tt.y - 12);
+            dl->AddRectFilled(b0, ImVec2(b0.x + tt.x + 12, b0.y + tt.y + 6), IM_COL32(20, 22, 28, 220), 4.0f);
+            dl->AddText(ImVec2(b0.x + 6, b0.y + 3), IM_COL32(255, 255, 255, 255), tip.c_str());
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) clicked = i;
+        }
+        if (tap && tap->x >= s0.x && tap->x < s1.x && tap->y >= s0.y && tap->y < s1.y) clicked = i;
+    }
+    return clicked;
 }
 
 void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players) {

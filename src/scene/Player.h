@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -56,6 +57,23 @@ public:
     // One simulation step. Fills `touched` with ids of parts the body touches.
     void update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics);
     bool consumeDied();               // true once, right after dying
+    bool consumeRespawned();          // true once, right after coming back
+
+    // --- Tools (like Roblox's Backpack and hotbar) ---
+    // Tools you carry live in a hidden "Backpack" inside the character; the one
+    // you hold sits in the character itself, its Handle in your right hand.
+    uint64_t   backpackId();                           // makes the Backpack if needed
+    SceneNode* equippedTool() const;
+    std::vector<SceneNode*> tools();                   // hotbar order (slot 1 first), held one included
+    bool       give(SceneNode* tool);                  // into the backpack (false if full / not a tool)
+    void       equip(uint64_t toolId);                 // 0 = put it away
+    void       toggleSlot(int slot);                   // 0-based: equip it, or put it away if held
+    SceneNode* drop();                                 // the held tool goes on the ground in front of you
+    void       clearTools();                           // everything in the backpack and hand, gone
+    void       swingTool() { if (equippedTool()) m_toolSwing = kToolSwingTime; }   // the "use" animation
+    // Tool events for scripts (Equipped / Unequipped), and when the world changed.
+    std::function<void(uint64_t tool, bool equipped)> onToolEquip;
+    static constexpr int kMaxTools = 9;
     // Kill the character. `force` 0..1 = how violent (1 = limbs fly off),
     // `impulse` = which way the body gets thrown.
     void kill(float force = 0.0f, const glm::vec3& impulse = glm::vec3(0.0f));
@@ -99,11 +117,18 @@ public:
 private:
     SceneNode* part(const char* name) const;
     void animate(float dt, bool moving, bool grounded);
+    void updateGrip();                // put the held tool's Handle in the right hand
+    void syncSlots();
     void startDeath();
     void bleed(float damage);
     void updateDeath(float dt, Physics& physics);
     void respawn();
 
+    std::vector<uint64_t> m_slots;    // tool ids in hotbar order
+    float    m_holdBlend = 0.0f;       // right arm raised to hold a tool
+    float    m_toolSwing = 0.0f;       // seconds left of the swing animation
+    static constexpr float kToolSwingTime = 0.4f;
+    bool     m_respawnedFlag = false;
     Scene*   m_scene  = nullptr;
     uint64_t m_rootId = 0;
     Humanoid m_humanoid;

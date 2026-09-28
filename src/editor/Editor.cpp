@@ -774,6 +774,19 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     else if (what == "Sound") { m_scene->select(parent); addSound(); }
     else if (what == "Attachment") put(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment));
     else if (what == "ForceField") put(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
+    else if (what == "Tool") {
+        // A tool with a Handle ready to hold, sitting where you're looking.
+        SceneNode* tool = put(std::make_unique<SceneNode>("Tool", NodeKind::Tool));
+        tool->transform.position = parent ? glm::vec3(0.0f) : spawnPoint() + glm::vec3(0.0f, 1.0f, 0.0f);
+        auto handle = std::make_unique<SceneNode>("Handle");
+        handle->primitiveType = PrimitiveType::Cube;
+        handle->mesh = MeshLibrary::get(PrimitiveType::Cube);
+        handle->transform.scale = {0.2f, 1.2f, 0.2f};
+        handle->color = {0.55f, 0.35f, 0.2f};
+        handle->canCollide = false;
+        tool->addChild(std::move(handle));
+        m_scene->markDirty();
+    }
     else {
         for (const PremadeInfo& p : premadeList()) if (what == p.name) { spawnPremade(p.kind); break; }
     }
@@ -795,7 +808,7 @@ void Editor::renderInsertObject() {
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
-        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}};
+        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;
     for (char& c : f) c = (char)std::tolower((unsigned char)c);

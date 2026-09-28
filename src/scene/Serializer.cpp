@@ -41,6 +41,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Sound:  return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint: return "Constraint";
+        case NodeKind::Tool:   return "Tool";
         default:               return "Part";
     }
 }
@@ -52,6 +53,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Sound")  return NodeKind::Sound;
     if (s == "Attachment") return NodeKind::Attachment;
     if (s == "Constraint") return NodeKind::Constraint;
+    if (s == "Tool")   return NodeKind::Tool;
     return NodeKind::Part;
 }
 
@@ -118,6 +120,13 @@ json toJson(const SceneNode& n) {
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
         j["enabled"] = n.enabled;
+    }
+    if (n.kind == NodeKind::Tool) {
+        j["enabled"] = n.enabled;
+        j["toolTip"] = n.toolTip;
+        j["canBeDropped"] = n.canBeDropped;
+        j["starterTool"] = n.starterTool;
+        j["gripPos"] = vec(n.gripPos);
     }
     if (n.kind == NodeKind::Sound) {
         j["soundId"] = n.soundId; j["volume"] = n.volume; j["pitch"] = n.pitch;
@@ -221,6 +230,12 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->brightness = get<float>(j, "brightness", 2.0f);
         n->range      = get<float>(j, "range", 14.0f);
         n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
+    if (n->kind == NodeKind::Tool) {
+        n->toolTip      = get<std::string>(j, "toolTip", std::string());
+        n->canBeDropped = get<bool>(j, "canBeDropped", true);
+        n->starterTool  = get<bool>(j, "starterTool", false);
+        n->gripPos      = vec(j, "gripPos", {0, 0, 0});
     }
     if (n->kind == NodeKind::Sound) {
         n->soundId  = get<std::string>(j, "soundId", "coin");
@@ -433,6 +448,8 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.range = src->range;         dst.spotAngle = src->spotAngle;
     dst.soundId = src->soundId;     dst.volume = src->volume; dst.pitch = src->pitch;
     dst.looped = src->looped;       dst.autoplay = src->autoplay;
+    dst.toolTip = src->toolTip;     dst.canBeDropped = src->canBeDropped;
+    dst.starterTool = src->starterTool; dst.gripPos = src->gripPos;
     dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
     dst.length = src->length;       dst.stiffness = src->stiffness; dst.damping = src->damping;

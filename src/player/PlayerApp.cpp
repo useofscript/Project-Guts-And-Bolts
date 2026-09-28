@@ -207,6 +207,24 @@ PlayerApp::~PlayerApp() {
 void PlayerApp::run() {
     while (!m_window->shouldClose()) {
         ++m_frame;
+        // Test helper: drive the tool hotbar, one step every 25 frames.
+        if (!m_opts.testTools.empty() && m_page == Page::Game && m_frame > 40 && m_frame % 25 == 0) {
+            size_t sp = m_opts.testTools.find(' ');
+            std::string step = m_opts.testTools.substr(0, sp);
+            m_opts.testTools = sp == std::string::npos ? "" : m_opts.testTools.substr(sp + 1);
+            if (step.size() == 1 && step[0] >= '1' && step[0] <= '9') m_session->selectToolSlot(step[0] - '1');
+            else if (step == "click") m_session->click(0);
+            else if (step == "drop") m_session->dropTool();
+            else if (step == "print" && m_scene->player()) {
+                Player* p = m_scene->player();
+                std::string names;
+                for (SceneNode* t : p->tools()) names += (names.empty() ? "" : ",") + t->name;
+                SceneNode* held = p->equippedTool();
+                glm::vec3 at = p->position();
+                std::printf("TOOLS held=%s slots=%s at=%.1f,%.1f,%.1f\n", held ? held->name.c_str() : "-", names.c_str(), at.x, at.y, at.z);
+                std::fflush(stdout);
+            }
+        }
         float dt = m_window->beginFrame([&] {
             if (!m_opts.holdKey.empty() && m_frame > 3) {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
@@ -292,6 +310,7 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     m_camera.distance = 12.0f;
     m_camera.pitch = 20.0f;
     m_camera.yaw = 90.0f;        // behind the character, looking the way it faces (-Z)
+    if (m_opts.cameraYaw > -999.0f) m_camera.yaw = m_opts.cameraYaw;
     m_paused = false;
     m_status.clear();
     Log::clear();
@@ -1077,8 +1096,10 @@ void PlayerApp::drawGame(float dt) {
     // Clicking parts (for part.Clicked in scripts). With touch controls, a tap does it.
     ImVec2 tapAt;
     bool tapped = touch && m_touch.tapped(tapAt);
-    if (acceptInput && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
-        ImVec2 m = tapped ? tapAt : ImGui::GetMousePos();
+    ImVec2 pointer = tapped ? tapAt : ImGui::GetMousePos();
+    const bool onHotbar = Hud::overHotbar(pos, max, *m_scene, pointer);   // picking a tool isn't swinging it
+    if (acceptInput && !onHotbar && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
+        ImVec2 m = pointer;
         float nx = (m.x - pos.x) / size.x * 2.0f - 1.0f;
         float ny = 1.0f - (m.y - pos.y) / size.y * 2.0f;
         glm::mat4 inv = glm::inverse(m_camera.projection() * m_camera.view());
@@ -1096,6 +1117,8 @@ void PlayerApp::drawGame(float dt) {
         labelsAt = chatShowing ? (m_chatOpen ? 216.0f : 156.0f) : 58.0f;   // under the chat box when it's up
     }
     Hud::draw(dl, pos, max, *m_scene, m_session->gui(), labelsAt);
+    if (int slot = Hud::drawHotbar(dl, pos, max, *m_scene, tapped && onHotbar ? &tapAt : nullptr); slot >= 0 && acceptInput)
+        m_session->selectToolSlot(slot);
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
     if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());

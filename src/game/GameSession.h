@@ -3,6 +3,8 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
+#include <unordered_map>
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
 
@@ -40,6 +42,10 @@ public:
     // On-screen joystick (x = right, y = forward) and jump button, for touch screens.
     void setTouchInput(glm::vec2 move, bool jump) { m_touchMove = move; m_touchJump = jump; }
 
+    // Tools: the held tool's number keys, Backspace to drop, a hotbar click.
+    void selectToolSlot(int slot);
+    void dropTool();
+
     ScriptEngine& scripts() { return m_scripts; }
     GuiState&     gui()     { return m_scripts.gui(); }
 
@@ -52,4 +58,13 @@ private:
     glm::vec2    m_touchMove{0.0f};
     bool         m_touchJump = false;
     bool         m_runOnly = false;
+
+    // Tools
+    void setupTools();                         // take StarterPack tools out, hand them out
+    void giveStarterTools();
+    void pickUpTools(const std::vector<TouchEvent>& touches);
+    std::vector<std::unique_ptr<SceneNode>> m_starterPack;   // templates (like Roblox's StarterPack)
+    std::unordered_map<uint64_t, double> m_noPickupUntil;    // just dropped: don't grab it straight back
+    double       m_time = 0.0;
+    bool         m_toolDown = false;          // mouse held after activating the tool
 };

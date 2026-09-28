@@ -196,6 +196,7 @@ void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) 
     m_depth->setMat4("uLightSpace", lightSpace);
     scene.forEach([&](SceneNode* node) {
         if (!node->mesh || !node->visible || !node->castShadow) return;
+        for (SceneNode* p = node->parent; p; p = p->parent) if (!p->visible) return;   // inside something hidden (a backpack)
         if (node->kind != NodeKind::Part || node->transparency > 0.5f) return;
         m_depth->setMat4("uModel", node->worldMatrix());
         node->mesh->draw();

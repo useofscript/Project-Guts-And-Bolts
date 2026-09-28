@@ -253,7 +253,8 @@ void ViewportPanel::render(float dt) {
             dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10), IM_COL32(255, 255, 255, 190), tip);
         } else if (playing) {
             // Clicks go to the game (part.Clicked / MouseButton1), not the editor.
-            if (m_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            const bool onHotbar = Hud::overHotbar(imgPos, imgMax, *m_scene, ImGui::GetMousePos());
+            if (m_hovered && !onHotbar && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 m = ImGui::GetMousePos();
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
@@ -262,6 +263,7 @@ void ViewportPanel::render(float dt) {
                 m_session->click(hit ? hit->id : 0);
             }
             Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
+            if (int slot = Hud::drawHotbar(dl, imgPos, imgMax, *m_scene); slot >= 0 && m_hovered) m_session->selectToolSlot(slot);
             // Green frame = the game is running.
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);
             const char* tip = m_state->simPaused ? "PLAY (paused)  -  F6 resume, F7 step, Shift+F5 stop"

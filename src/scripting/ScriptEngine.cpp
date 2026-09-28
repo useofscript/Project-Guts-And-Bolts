@@ -29,7 +29,7 @@ task = { wait = __gb_wait, spawn = __gb_spawn, delay = __gb_delay, defer = __gb_
 wait, spawn, delay = task.wait, task.spawn, task.delay
 
 local LocalPlayer = { Name = __gb_playerName, DisplayName = __gb_playerName, UserId = 1,
-                      Character = __gb_character }
+                      Character = __gb_character, Backpack = __gb_backpack }
 local playerList = { LocalPlayer }
 Players = { LocalPlayer = LocalPlayer, PlayerAdded = __gb_playerAdded,
             PlayerRemoving = __gb_playerRemoving }
@@ -154,7 +154,7 @@ function table.find(t, value)
     return nil
 end
 
-__gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName = nil, nil, nil, nil, nil
+__gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 )LUA";
@@ -433,6 +433,8 @@ void ScriptEngine::start(bool runScripts) {
     lua_setglobal(L, "workspace");
     LuaApi::pushInstance(L, m_scene->player() ? m_scene->player()->rootId() : 0);
     lua_setglobal(L, "__gb_character");
+    LuaApi::pushInstance(L, m_scene->player() ? m_scene->player()->backpackId() : 0);
+    lua_setglobal(L, "__gb_backpack");
     lua_pushstring(L, m_playerName.c_str());
     lua_setglobal(L, "__gb_playerName");
     LuaApi::pushLighting(L);
@@ -582,6 +584,7 @@ void ScriptEngine::runScript(SceneNode* script) {
     lua_State* co = lua_newthread(L);
     int ref = luaL_ref(L, LUA_REGISTRYINDEX);
     lua_xmove(L, co, 1);
+    m_started.insert(script->id);
     m_stopped.erase(script->id);
     uint64_t prev = m_current;
     m_current = script->id;
@@ -610,6 +613,21 @@ void ScriptEngine::stopScripts(SceneNode* root) {
     }
 }
 
+void ScriptEngine::runScriptsIn(SceneNode* root) {
+    if (!m_L || !root) return;
+    std::vector<uint64_t> ids;
+    std::vector<SceneNode*> stack{root};
+    while (!stack.empty()) {
+        SceneNode* n = stack.back(); stack.pop_back();
+        if (n->isScript() && n->enabled && !n->isModule && !m_started.count(n->id)) ids.push_back(n->id);
+        for (auto& c : n->children) stack.push_back(c.get());
+    }
+    for (uint64_t id : ids)
+        if (SceneNode* s = resolve(id)) runScript(s);
+}
+
+void ScriptEngine::fireTool(SignalKind kind, uint64_t toolId) { fire(kind, toolId, nullptr); }
+
 void ScriptEngine::setScriptEnabled(SceneNode* script, bool on) {
     if (!script || !script->isScript() || script->enabled == on) return;
     script->enabled = on;
@@ -623,6 +641,7 @@ void ScriptEngine::stop() {
     m_waiting.clear();
     m_conns.clear();
     m_stopped.clear();
+    m_started.clear();
     m_current = 0;
     m_detached.clear();
     m_gui = GuiState{};
@@ -893,8 +912,10 @@ bool ScriptEngine::setParent(SceneNode* node, SceneNode* newParent, std::string&
     if (!owned) { err = "Couldn't move " + node->name; return false; }
 
     if (newParent) {
-        newParent->addChild(std::move(owned));
+        SceneNode* moved = newParent->addChild(std::move(owned));
         m_scene->markDirty();
+        // Like Roblox: scripts start when they arrive in the world (a clone parented in, say).
+        if (!inScene && topOf(moved) == m_scene->root()) runScriptsIn(moved);
     } else {
         m_detached.push_back(std::move(owned));
     }

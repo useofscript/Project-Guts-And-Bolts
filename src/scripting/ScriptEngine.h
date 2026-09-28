@@ -46,6 +46,10 @@ public:
     void fireDied(uint64_t characterRootId);
     void fireAttributeChanged(uint64_t id, const std::string& name);
     void fireTag(bool added, uint64_t id, const std::string& tag);
+    void fireTool(SignalKind kind, uint64_t toolId);   // Activated / Deactivated / Equipped / Unequipped
+    // Start the scripts inside `root` that haven't run yet (objects that just
+    // arrived in the world, like a cloned tool).
+    void runScriptsIn(SceneNode* root);
     // Multiplayer: other players joining / leaving (Players.PlayerAdded etc.).
     void addPlayer(const std::string& name, uint64_t characterRootId, int userId);
     void removePlayer(const std::string& name);
@@ -79,6 +83,7 @@ public:
     void       setScriptEnabled(SceneNode* script, bool on);
 
 private:
+    std::unordered_set<uint64_t> m_started;   // scripts that have run (so nothing runs twice)
     struct Waiting {
         int        ref;
         lua_State* co;

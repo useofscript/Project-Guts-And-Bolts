@@ -23,4 +23,9 @@ void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm
 // Everyone in the game (top-right, under the health bar). Administrators get
 // a little floating badge next to their name.
 void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players);
+// The tool hotbar along the bottom (slots 1-9, the held one lit up). Returns the
+// slot that was clicked or tapped (`tap`: a finger's tap, if any), or -1.
+int  drawHotbar(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const ImVec2* tap = nullptr);
+// Is `p` on the hotbar? (so clicking a slot doesn't also swing the tool)
+bool overHotbar(ImVec2 min, ImVec2 max, Scene& scene, ImVec2 p);
 }

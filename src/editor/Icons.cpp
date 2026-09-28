@@ -131,6 +131,13 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddCircle(c, s * 0.38f, rgb(120, 220, 255), 24, th * 1.4f);
         dl->AddCircleFilled(c, s * 0.3f, rgb(120, 220, 255, 60), 24);
         break;
+    case Id::Tool: {   // a little sword
+        ImVec2 tip(c.x + s * 0.38f, c.y - s * 0.38f), guard(c.x - s * 0.12f, c.y + s * 0.12f);
+        dl->AddLine(guard, tip, rgb(200, 210, 225), th * 2.0f);
+        dl->AddLine(ImVec2(c.x - s * 0.3f, c.y - s * 0.02f), ImVec2(c.x + s * 0.02f, c.y + s * 0.3f), rgb(230, 180, 60), th * 1.6f);
+        dl->AddLine(guard, ImVec2(c.x - s * 0.36f, c.y + s * 0.36f), rgb(150, 100, 50), th * 2.0f);
+        break;
+    }
     case Id::Workspace:
         dl->AddCircleFilled(c, s * 0.4f, rgb(70, 140, 230), 24);
         dl->AddEllipse(c, ImVec2(s * 0.18f, s * 0.4f), rgb(200, 230, 255), 0, 20, th * 0.8f);
@@ -394,6 +401,7 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Attachment: return Id::Attachment;
         case NodeKind::Constraint: return Id::Constraint;
         case NodeKind::ForceField: return Id::ForceField;
+        case NodeKind::Tool:       return Id::Tool;
         default: break;
     }
     switch (n.primitiveType) {

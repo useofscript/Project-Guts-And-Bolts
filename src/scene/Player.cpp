@@ -8,6 +8,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/euler_angles.hpp>
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -319,6 +320,7 @@ void Player::respawn() {
     r->transform.position = spawnAt;
 
     m_humanoid.health = m_humanoid.maxHealth;
+    m_respawnedFlag = true;
     m_velocity  = glm::vec3(0.0f);
     m_grounded  = false;
     m_groundId  = 0;
@@ -369,6 +371,156 @@ void Player::bleed(float damage) {
     int n = std::clamp((int)(damage * 0.5f), 3, 30);
     m_scene->particles().spray(m_scene->goreKind(), at, glm::vec3(0, 0.5f, 0), n, 2.5f);
     if (m_scene->goreKind() == GoreKind::Oil) m_scene->particles().sparks(at, n / 2);
+}
+
+bool Player::consumeRespawned() {
+    bool r = m_respawnedFlag;
+    m_respawnedFlag = false;
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// Tools
+// ---------------------------------------------------------------------------
+
+uint64_t Player::backpackId() {
+    SceneNode* r = root();
+    if (!r) return 0;
+    if (SceneNode* b = r->findChild("Backpack")) return b->id;
+    auto b = std::make_unique<SceneNode>("Backpack", NodeKind::Model);
+    b->visible = false;      // tools in here aren't drawn and don't collide
+    b->internal = true;      // (and don't show in the Explorer)
+    SceneNode* raw = r->addChild(std::move(b));
+    m_scene->markDirty();
+    return raw->id;
+}
+
+SceneNode* Player::equippedTool() const {
+    SceneNode* r = root();
+    if (!r) return nullptr;
+    for (auto& c : r->children) if (c->isTool()) return c.get();
+    return nullptr;
+}
+
+void Player::syncSlots() {
+    // Keep the hotbar order stable: tools keep their slot while they're held,
+    // new ones go at the end, gone ones leave a gap that closes up.
+    std::vector<uint64_t> have;
+    if (SceneNode* t = equippedTool()) have.push_back(t->id);
+    if (SceneNode* b = m_scene->findById(backpackId()))
+        for (auto& c : b->children) if (c->isTool()) have.push_back(c->id);
+    m_slots.erase(std::remove_if(m_slots.begin(), m_slots.end(), [&](uint64_t id) {
+        return std::find(have.begin(), have.end(), id) == have.end();
+    }), m_slots.end());
+    for (uint64_t id : have)
+        if (std::find(m_slots.begin(), m_slots.end(), id) == m_slots.end()) m_slots.push_back(id);
+}
+
+std::vector<SceneNode*> Player::tools() {
+    syncSlots();
+    std::vector<SceneNode*> out;
+    for (uint64_t id : m_slots) if (SceneNode* t = m_scene->findById(id)) out.push_back(t);
+    return out;
+}
+
+bool Player::give(SceneNode* tool) {
+    if (!tool || !tool->isTool() || !root()) return false;
+    if ((int)tools().size() >= kMaxTools) return false;
+    SceneNode* bag = m_scene->findById(backpackId());
+    if (!bag || tool->parent == bag) return false;
+    auto owned = m_scene->detach(tool);
+    if (!owned) return false;
+    owned->transform = Transform{};
+    bag->addChild(std::move(owned));
+    m_scene->markDirty();
+    syncSlots();
+    return true;
+}
+
+void Player::equip(uint64_t toolId) {
+    SceneNode* r = root();
+    if (!r || m_dead) return;
+    SceneNode* held = equippedTool();
+    if (held && held->id == toolId) return;
+    SceneNode* bag = m_scene->findById(backpackId());
+    if (held) {   // put the one in your hand away first
+        uint64_t id = held->id;
+        auto owned = r->detachChild(held);
+        owned->transform = Transform{};
+        bag->addChild(std::move(owned));
+        if (onToolEquip) onToolEquip(id, false);
+    }
+    if (toolId) {
+        SceneNode* t = m_scene->findById(toolId);
+        if (t && t->isTool() && t->parent == bag) {
+            r->addChild(bag->detachChild(t));
+            updateGrip();
+            if (onToolEquip) onToolEquip(toolId, true);
+        }
+    }
+    m_scene->markDirty();
+}
+
+void Player::toggleSlot(int slot) {
+    auto list = tools();
+    if (slot < 0 || slot >= (int)list.size()) return;
+    SceneNode* held = equippedTool();
+    equip(held == list[(size_t)slot] ? 0 : list[(size_t)slot]->id);
+}
+
+SceneNode* Player::drop() {
+    SceneNode* r = root();
+    SceneNode* held = equippedTool();
+    if (!r || !held || !held->canBeDropped) return nullptr;
+    uint64_t id = held->id;
+    glm::mat4 world = held->worldMatrix();   // keep it where it is, then lay it down in front
+    auto owned = r->detachChild(held);
+    if (onToolEquip) onToolEquip(id, false);
+    float yaw = glm::radians(r->transform.rotation.y);
+    glm::vec3 front = r->transform.position + glm::vec3(std::sin(yaw), 0.0f, std::cos(yaw)) * 2.5f;   // (facing = atan2(x, z))
+    owned->transform = Transform{};
+    owned->transform.position = glm::vec3(front.x, r->transform.position.y + 0.6f, front.z);
+    owned->transform.rotation = glm::vec3(90.0f, r->transform.rotation.y, 0.0f);   // lying on its side
+    (void)world;
+    SceneNode* raw = m_scene->insert(std::move(owned));
+    syncSlots();
+    return raw;
+}
+
+void Player::clearTools() {
+    std::vector<SceneNode*> gone = tools();
+    for (SceneNode* t : gone) m_scene->removeNode(t);
+    m_slots.clear();
+}
+
+void Player::updateGrip() {
+    SceneNode* r = root();
+    SceneNode* tool = equippedTool();
+    SceneNode* arm = part("Right Arm");
+    if (!r || !tool || !arm) return;
+    SceneNode* handle = tool->findChild("Handle");
+    if (!handle) { tool->transform = Transform{}; return; }
+    // The hand: the bottom of the right arm. The Handle's long side (+Y) points
+    // out of the fist, which is forward when the arm is raised.
+    glm::mat4 a = arm->worldMatrix();
+    glm::vec3 x = glm::normalize(glm::vec3(a[0])), y = glm::normalize(glm::vec3(a[1])), z = glm::normalize(glm::vec3(a[2]));
+    float len = glm::length(glm::vec3(a[1]));
+    glm::vec3 hand = glm::vec3(a[3]) - y * (len * 0.5f);
+    glm::mat4 grip(1.0f);
+    grip[0] = glm::vec4(x, 0.0f);
+    grip[1] = glm::vec4(-y, 0.0f);
+    grip[2] = glm::vec4(-z, 0.0f);
+    grip[3] = glm::vec4(hand, 1.0f);
+    grip = grip * glm::translate(glm::mat4(1.0f), -tool->gripPos);
+    // Where the Handle sits inside the tool (without its size).
+    Transform h = handle->transform;
+    h.scale = glm::vec3(1.0f);
+    glm::mat4 local = glm::inverse(r->worldMatrix()) * grip * glm::inverse(h.matrix());
+    float rz, ry, rx;
+    glm::extractEulerAngleZYX(local, rz, ry, rx);
+    tool->transform.position = glm::vec3(local[3]);
+    tool->transform.rotation = glm::degrees(glm::vec3(rx, ry, rz));
+    tool->transform.scale = glm::vec3(1.0f);
 }
 
 bool Player::consumeDied() {
@@ -477,6 +629,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
     animate(dt, moving, m_grounded);
+    updateGrip();
 }
 
 void Player::animate(float dt, bool moving, bool grounded) {
@@ -484,11 +637,22 @@ void Player::animate(float dt, bool moving, bool grounded) {
     m_airBlend = approach(m_airBlend, grounded ? 0.0f : 1.0f, 10.0f, dt);
     if (moving) m_walkPhase += dt * (2.0f + m_humanoid.walkSpeed * 0.9f);
 
+    m_holdBlend = approach(m_holdBlend, equippedTool() ? 1.0f : 0.0f, 12.0f, dt);
     float s = std::sin(m_walkPhase) * m_swing;
     // Positive angle swings the bottom of a limb backwards.
+    float rightArm = -s * (1 - m_airBlend) + (-165.0f) * m_airBlend;
+    // Using a tool: raise the arm, then slash down through the front, then back.
+    float hold = -90.0f;
+    if (m_toolSwing > 0.0f) {
+        float t = 1.0f - m_toolSwing / kToolSwingTime;
+        hold = t < 0.35f ? -90.0f + (-170.0f + 90.0f) * (t / 0.35f)
+             : t < 0.7f  ? -170.0f + (-40.0f + 170.0f) * ((t - 0.35f) / 0.35f)
+             :             -40.0f + (-90.0f + 40.0f) * ((t - 0.7f) / 0.3f);
+        m_toolSwing = std::max(0.0f, m_toolSwing - dt);
+    }
     float angles[4] = {
         s  * (1 - m_airBlend) + (-165.0f) * m_airBlend,   // Left Arm  (arms up when jumping)
-        -s * (1 - m_airBlend) + (-165.0f) * m_airBlend,   // Right Arm
+        rightArm * (1 - m_holdBlend) + hold * m_holdBlend,       // Right Arm (straight out when holding a tool)
         -s * (1 - m_airBlend) + (  12.0f) * m_airBlend,   // Left Leg
         s  * (1 - m_airBlend) + ( -12.0f) * m_airBlend,   // Right Leg
     };
@@ -512,6 +676,7 @@ void Player::animate(float dt, bool moving, bool grounded) {
 void Player::startDeath() {
     SceneNode* r = root();
     if (!r) return;
+    equip(0);   // the tool goes back in the backpack (it'd get in the ragdoll's way)
     if (SceneNode* ff = m_scene->findById(m_spawnFF)) m_scene->removeNode(ff);
     m_spawnFF = 0;
     m_dead = true;

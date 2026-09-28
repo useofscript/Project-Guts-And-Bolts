@@ -24,6 +24,10 @@ enum class SignalKind : int {
     AttributeChanged, // obj.AttributeChanged         (name)
     TagAdded,      // CollectionService (id 0)        (object, tag)
     TagRemoved,    // CollectionService (id 0)        (object, tag)
+    Activated,     // tool.Activated                  ()   (the player clicked while holding it)
+    Deactivated,   // tool.Deactivated                ()
+    Equipped,      // tool.Equipped                   ()
+    Unequipped,    // tool.Unequipped                 ()
 };
 
 namespace LuaApi {

@@ -700,7 +700,13 @@ struct Converter {
             node->locked = in.flag("Locked", false);
             node->material = materialFromRoblox((int)in.num("Material", 256));
             ++report.parts;
-        } else if (c == "Model" || c == "Folder" || c == "Configuration" || c == "Tool" || c == "Accessory") {
+        } else if (c == "Tool" || c == "HopperBin") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Tool);
+            node->enabled = in.flag("Enabled", true);
+            node->canBeDropped = in.flag("CanBeDropped", true);
+            node->toolTip = in.str("ToolTip");
+            ++report.models;
+        } else if (c == "Model" || c == "Folder" || c == "Configuration" || c == "Accessory") {
             node = std::make_unique<SceneNode>(name, NodeKind::Model);
             ++report.models;
         } else if (c == "Script" || c == "LocalScript" || c == "ModuleScript") {
@@ -934,6 +940,7 @@ struct XmlWriter {
             case NodeKind::Sound:      cls = "Sound"; break;
             case NodeKind::Attachment: cls = "Attachment"; break;
             case NodeKind::ForceField: cls = "ForceField"; break;
+            case NodeKind::Tool:       cls = "Tool"; break;
             case NodeKind::Constraint: {
                 static const char* names[] = {"RopeConstraint", "RodConstraint", "SpringConstraint", "WeldConstraint", "HingeConstraint"};
                 cls = names[(int)n.constraintType];

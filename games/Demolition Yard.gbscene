@@ -1643,6 +1643,121 @@
         ],
         "source": "Gui.Message(\"Welcome to the Demolition Yard. Click the red button if you dare.\", 5)",
         "enabled": true
+      },
+      {
+        "id": 156,
+        "name": "Bat",
+        "kind": "Tool",
+        "pos": [
+          0,
+          2,
+          10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "enabled": true,
+        "toolTip": "Click to swing. Knock the crates flying!",
+        "canBeDropped": true,
+        "starterTool": true,
+        "gripPos": [
+          0,
+          -0.55,
+          0
+        ],
+        "children": [
+          {
+            "id": 157,
+            "name": "Handle",
+            "kind": "Part",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              0.16,
+              1.4,
+              0.16
+            ],
+            "shape": "Cube",
+            "color": [
+              0.25,
+              0.18,
+              0.12
+            ],
+            "material": "Wood",
+            "anchored": true,
+            "canCollide": false,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 158,
+            "name": "Barrel",
+            "kind": "Part",
+            "pos": [
+              0,
+              1.25,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              0.32,
+              1.2,
+              0.32
+            ],
+            "shape": "Cube",
+            "color": [
+              0.72,
+              0.5,
+              0.28
+            ],
+            "material": "Wood",
+            "anchored": true,
+            "canCollide": false,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 159,
+            "name": "BatScript",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- The Bat: click to swing. Loose things you hit go flying.\nlocal tool = script.Parent\nlocal handle = tool.Handle\nlocal swinging = false\nlocal hitThisSwing = {}\n\ntool.Activated:Connect(function()\n    if swinging then return end\n    swinging = true\n    hitThisSwing = {}\n    task.wait(0.4)\n    swinging = false\nend)\n\nlocal function whack(hit)\n    if not swinging or hit.Anchored or hitThisSwing[hit] then return end\n    hitThisSwing[hit] = true\n    local away = hit.Position - handle.Position\n    away = Vector3.new(away.X, 0, away.Z)\n    if away.Magnitude < 0.01 then away = Vector3.new(0, 0, 1) end\n    hit:ApplyImpulse(away.Unit * 40 + Vector3.new(0, 25, 0))\nend\n\nhandle.Touched:Connect(whack)\ntool.Barrel.Touched:Connect(whack)\n",
+            "enabled": true
+          }
+        ]
       }
     ]
   }
