@@ -54,6 +54,9 @@ list(REMOVE_ITEM LUA_SOURCES
 add_library(lua_static STATIC ${LUA_SOURCES})
 target_include_directories(lua_static PUBLIC ${lua_SOURCE_DIR})
 set_target_properties(lua_static PROPERTIES C_STANDARD 99)
+if(NOT WIN32)
+    target_compile_definitions(lua_static PRIVATE LUA_USE_POSIX)   # safe temp files, etc.
+endif()
 
 # JSON (scene files, undo history, copy / paste).
 FetchContent_Declare(
