@@ -29,6 +29,9 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-make-items")) opts.testItems = true;
         else if (!std::strcmp(argv[i], "--test-grant"))  opts.testGrantFor = next();
         else if (!std::strcmp(argv[i], "--test-redeem")) opts.testRedeem = next();
+        else if (!std::strcmp(argv[i], "--test-bolts-code")) opts.testBoltsFor = next();
+        else if (!std::strcmp(argv[i], "--test-redeem-bolts")) opts.testRedeemBolts = next();
+        else if (!std::strcmp(argv[i], "--test-buy")) opts.testBuy = next();
         else if (argv[i][0] != '-')                     opts.game       = argv[i];
     }
 

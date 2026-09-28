@@ -314,7 +314,31 @@ public half is your **account ID** (safe to share). The secret half stays in
   else. Staff make a badge code on the **Staff** page for a player's account
   ID; the player pastes it into **Avatar > Redeem**.
 - **Catalog items** are signed files in the `catalog` folder. The app ignores
-  any item the staff account didn't sign.
+  any item the staff account didn't sign. Each item is free or has a price in
+  **Bolts** (see below).
+
+### Bolts (the currency)
+
+**Bolts** are the Guts&Bolts currency, like Robux on the old Roblox site. Your
+balance shows in the top-right of the site; click it (or **Bolts** in the nav
+bar) to open the Bolts page.
+
+- **Earning:**
+  - 100 Bolts to start.
+  - 25 Bolts every day (click **Claim**).
+  - 5 Bolts for every 5 minutes you spend playing games, up to 50 a day.
+  - Bolts codes from the staff.
+- **Spending:** catalog items can have a price. Staff set it when they make
+  the item, and it's part of the item's signature, so nobody can change it.
+  Buy an item once and it's yours to wear whenever you like.
+- **Bolts codes:** staff make them on the **Staff** page for a player's account
+  ID. Each code works once, and only for that account. Players paste it on the
+  Bolts page.
+
+Your Bolts are kept in `bolts.json` next to your account key, signed with that
+key. Editing the file by hand breaks the signature, and the app resets it. The
+same honest limit as above applies: with no central server, someone who changes
+the app's code could still cheat on their own computer.
 
 **Setting up the staff account (project owner only):** double-click
 `tools/Staff Setup.bat` (Windows) or `tools/Staff Setup.command` (Mac), or run

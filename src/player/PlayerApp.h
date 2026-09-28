@@ -31,6 +31,9 @@ struct PlayerOptions {
     bool        testItems = false;     // --test-make-items (tests, staff only)
     std::string testGrantFor;          // --test-grant <account id> (tests, staff only: print a badge code)
     std::string testRedeem;            // --test-redeem <code> (tests)
+    std::string testBoltsFor;          // --test-bolts-code <account id> (tests, staff only: print a 500 Bolts code)
+    std::string testRedeemBolts;       // --test-redeem-bolts <code> (tests)
+    std::string testBuy;               // --test-buy "<item name>" (tests: buy and wear it)
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,
@@ -42,7 +45,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts };
 
     struct GameCard {
         std::filesystem::path        path;
@@ -67,6 +70,7 @@ private:
     void drawItemDialog();
     void drawCreateItemDialog();
     void drawStaff();
+    void drawBolts();
     void drawAccount();
     void drawNotice();
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
@@ -124,6 +128,14 @@ private:
     std::string m_redeemCode, m_redeemMsg;
     int         m_grantBadge = 1;
     std::string m_grantTo, m_grantCode, m_grantError;
+
+    // Bolts
+    std::string m_boltsCode, m_boltsMsg;           // redeem box on the Bolts page
+    int         m_giveBolts = 100;                 // staff: amount for a Bolts code
+    std::string m_giveBoltsTo, m_giveBoltsCode, m_giveBoltsError;
+    std::string m_boltsToast;                      // "+5 Bolts for playing!"
+    double      m_boltsToastUntil = 0.0;
+    std::string m_buyMsg;                          // catalog item dialog
 
     TouchControls m_touch;
     ImVec2      m_chatMin{0, 0}, m_chatMax{0, 0};  // where the chat box was last frame

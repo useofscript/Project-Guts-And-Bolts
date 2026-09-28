@@ -238,6 +238,7 @@ add_library(gb_engine STATIC
     src/game/Profile.cpp
     src/game/UpdateToast.cpp
     src/game/Badges.cpp
+    src/game/Bolts.cpp
     src/game/Catalog.cpp
     src/game/TouchControls.cpp
     src/net/Socket.cpp

@@ -19,6 +19,7 @@ struct Item {
     HatStyle    hat   = HatStyle::Cap;     // hats only
     glm::vec3   color = glm::vec3(1.0f);
     long long   created = 0;               // unix time
+    long long   price = 0;                 // in Bolts; 0 = free
     std::string signature;
 };
 
@@ -31,7 +32,12 @@ bool create(Item& item, std::string& message);
 // Staff only: remove an item file.
 bool remove(const Item& item, std::string& message);
 
-// Put an item on the profile (and remember you own it).
+// Do you own it? Free items: once you've worn them. Paid items: only if your
+// (signed) Bolts history shows you bought it, so editing files can't fake it.
+bool owns(const Item& item);
+// Pay for it (free items just get added). False + a message if you can't afford it.
+bool buy(const Item& item, std::string& message);
+// Put an item on the profile. Paid items must be bought first.
 void wear(const Item& item);
 bool isWearing(const Item& item);
 

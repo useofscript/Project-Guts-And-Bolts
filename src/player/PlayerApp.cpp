@@ -15,12 +15,14 @@
 #include "../core/Audio.h"
 #include "../core/Account.h"
 #include "../game/Badges.h"
+#include "../game/Bolts.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <ctime>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -151,11 +153,11 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.testItems) {
         std::string msg;
         Catalog::Item a; a.name = "Red Cap"; a.description = "A classic."; a.type = Catalog::Type::Hat;
-        a.hat = HatStyle::Cap; a.color = {0.85f, 0.1f, 0.1f};
+        a.hat = HatStyle::Cap; a.color = {0.85f, 0.1f, 0.1f}; a.price = 75;
         Catalog::create(a, msg); Log::info(msg);
         Catalog::Item b; b.name = "Bolt Tee"; b.type = Catalog::Type::Shirt; b.color = {0.2f, 0.5f, 0.9f};
         Catalog::create(b, msg); Log::info(msg);
-        Catalog::Item c; c.name = "Oil Jeans"; c.type = Catalog::Type::Pants; c.color = {0.15f, 0.15f, 0.2f};
+        Catalog::Item c; c.name = "Oil Jeans"; c.type = Catalog::Type::Pants; c.color = {0.15f, 0.15f, 0.2f}; c.price = 250;
         Catalog::create(c, msg); Log::info(msg);
     }
     if (!m_opts.testGrantFor.empty()) {
@@ -170,11 +172,30 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
         std::printf("REDEEM %s\n", msg.c_str());
         std::fflush(stdout);
     }
+    if (!m_opts.testBoltsFor.empty()) {
+        std::string err;
+        std::string code = Bolts::makeCode(500, m_opts.testBoltsFor, err);
+        std::printf("BOLTSCODE %s %s\n", code.c_str(), err.c_str());
+        std::fflush(stdout);
+    }
+    if (!m_opts.testRedeemBolts.empty()) {
+        std::string msg;
+        Bolts::redeem(m_opts.testRedeemBolts, msg);
+        std::printf("REDEEMBOLTS %s (balance %lld)\n", msg.c_str(), Bolts::balance());
+        std::fflush(stdout);
+    }
     buildAvatarStage();
     refreshGames();
     m_items = Catalog::load();
     std::printf("CATALOG %d items, account %s, staff %d\n", (int)m_items.size(), Account::shortId().c_str(),
                 (int)Account::iAmStaff());
+    for (const Catalog::Item& it : m_items) {
+        if (m_opts.testBuy.empty() || it.name != m_opts.testBuy) continue;
+        std::string msg;
+        bool ok = Catalog::buy(it, msg);
+        if (ok) Catalog::wear(it);
+        std::printf("BUY %d %s (balance %lld, owns %d)\n", (int)ok, msg.c_str(), Bolts::balance(), (int)Catalog::owns(it));
+    }
     std::fflush(stdout);
 
     if (m_opts.page == "avatar") m_page = Page::Avatar;
@@ -182,6 +203,8 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
     if (m_opts.page == "settings") m_showSettings = true;
     if (m_opts.page == "catalog") m_page = Page::Catalog;
+    if (m_opts.page == "bolts") m_page = Page::Bolts;
+    if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
     if (!m_opts.game.empty()) joinGame(m_opts.game, m_opts.host);
@@ -402,6 +425,7 @@ void PlayerApp::frame(float dt) {
             case Page::GameInfo: drawGameInfo(); break;
             case Page::Catalog:  drawCatalog(); break;
             case Page::Staff:    drawStaff(); break;
+            case Page::Bolts:    drawBolts(); break;
             default: break;
         }
         Classic::popLight();
@@ -471,17 +495,31 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                         IM_COL32_WHITE, 8.0f, ImDrawFlags_RoundCornersTop);
     Classic::logo(dl, ImVec2(pos.x + 26, pos.y + (bannerH - logoSize) * 0.5f - 4), logoSize, "GUTS&BOLTS");
 
-    // Account box, top-right of the banner.
+    // Account box, top-right of the banner: name, your Bolts and a link to the avatar editor.
     std::string hi = "Hi, " + me.name;
     ImVec2 ts = ImGui::CalcTextSize(hi.c_str());
     const bool staff = Account::iAmStaff();
     float badgeW = staff ? 24.0f : 0.0f;
-    ImVec2 a(b1.x - ts.x - badgeW - 34, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
+    std::string boltsText = Bolts::format(Bolts::balance());
+    float boltsW = 18 + 4 + ImGui::CalcTextSize(boltsText.c_str()).x;
+    float line2 = boltsW + 14 + ImGui::CalcTextSize("Edit avatar").x;
+    float boxW = std::max(ts.x + badgeW, line2) + 24;
+    ImVec2 a(b1.x - boxW - 10, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
     dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
     if (staff) Badges::drawIcon(dl, ImVec2(a.x + 22, a.y + 15), 20.0f, Badges::Id::Administrator);
     dl->AddText(ImVec2(a.x + 12 + badgeW, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());
-    ImGui::SetCursorScreenPos(ImVec2(a.x + 12, a.y + 27));
+    // Your Bolts (click to open the Bolts page).
+    ImGui::SetCursorScreenPos(ImVec2(a.x + 10, a.y + 26));
+    if (ImGui::InvisibleButton("##boltsbox", ImVec2(boltsW + 4, 20))) m_page = Page::Bolts;
+    bool boltsHover = ImGui::IsItemHovered();
+    if (boltsHover) {
+        dl->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 200, 60, 70), 3.0f);
+        ImGui::SetTooltip("Your Bolts. Click to earn more!");
+    }
+    Bolts::drawIcon(dl, ImVec2(a.x + 21, a.y + 36), 18.0f);
+    dl->AddText(ImVec2(a.x + 33, a.y + 29), IM_COL32(140, 90, 0, 255), boltsText.c_str());
+    ImGui::SetCursorScreenPos(ImVec2(a.x + 12 + boltsW + 14, a.y + 29));
     ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.08f));
@@ -493,7 +531,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
     const float navH = 34.0f;
     struct Item { const char* label; int action; };
-    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Avatar", 2}, {"Join a Friend", 3},
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Avatar", 2}, {"Join a Friend", 3},
                                {"Develop", 4}, {"Settings", 5}};
     if (staff) items.push_back({"Staff", 7});
 #ifdef GB_MOBILE
@@ -527,7 +565,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
         ImGui::PopID();
         bool active = (it.action == 0 && m_page == Page::Home) || (it.action == 1 && m_page == Page::Games) ||
                       (it.action == 2 && m_page == Page::Avatar) || (it.action == 6 && m_page == Page::Catalog) ||
-                      (it.action == 7 && m_page == Page::Staff);
+                      (it.action == 7 && m_page == Page::Staff) || (it.action == 8 && m_page == Page::Bolts);
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
         dl->AddText(ImVec2(x + 1, rowY + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
@@ -545,6 +583,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 5: m_showSettings = true; break;
                 case 6: m_page = Page::Catalog; m_items = Catalog::load(); break;
                 case 7: m_page = Page::Staff; break;
+                case 8: m_page = Page::Bolts; break;
             }
         }
     }
@@ -611,6 +650,28 @@ void PlayerApp::drawHome() {
     if (!m_status.empty()) {
         ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_status.c_str());
         ImGui::Spacing();
+    }
+    // Daily Bolts waiting for you?
+    if (Bolts::canClaimDaily()) {
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        float w = ImGui::GetContentRegionAvail().x;
+        const bool narrow = w < 560;   // phones held upright: the button goes under the text
+        float h = narrow ? 84.0f : 46.0f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(255, 244, 205, 255), 6.0f);
+        dl->AddRect(p, ImVec2(p.x + w, p.y + h), IM_COL32(225, 180, 60, 255), 6.0f);
+        Bolts::drawIcon(dl, ImVec2(p.x + 26, p.y + 23), 30.0f);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + 50, p.y + 6));
+        ImGui::TextColored(ImVec4(0.45f, 0.3f, 0.0f, 1), "Your daily Bolts are ready!");
+        ImGui::SetCursorScreenPos(ImVec2(p.x + 50, p.y + 24));
+        if (!narrow) ImGui::TextDisabled("Claim %lld Bolts every day. Spend them in the Catalog.", Bolts::kDaily);
+        ImGui::SetCursorScreenPos(narrow ? ImVec2(p.x + 50, p.y + 44) : ImVec2(p.x + w - 130, p.y + 8));
+        if (Classic::button(narrow ? ("Claim " + std::to_string(Bolts::kDaily) + " Bolts").c_str() : "Claim", Classic::kPlay,
+                            ImVec2(narrow ? 170.0f : 120.0f, 30))) {
+            Bolts::claimDaily(m_boltsMsg);
+            m_page = Page::Bolts;
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 10));
     }
     if (m_games.empty()) {
         ImGui::TextWrapped("No games yet! Click Develop to open Guts and Bolts Studio, build something and "
@@ -898,6 +959,14 @@ void PlayerApp::drawGame(float dt) {
     else       m_session->setTouchInput(glm::vec2(0.0f), false);
     m_session->update(dt, m_camera.yaw, acceptInput);
 
+    // Bolts for playing (not while the menu is open).
+    if (!m_paused) {
+        if (long long got = Bolts::addPlayTime(dt)) {
+            m_boltsToast = "+" + Bolts::format(got) + " Bolts for playing!";
+            m_boltsToastUntil = ImGui::GetTime() + 4.0;
+        }
+    }
+
     // Camera: follow the character; right-drag to look around, wheel to zoom.
     bool hovered = ImGui::IsWindowHovered();
     if (acceptInput && hovered) {
@@ -950,6 +1019,16 @@ void PlayerApp::drawGame(float dt) {
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
     else               Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff()}});
     drawChat(pos, max);
+
+    // "+5 Bolts for playing!" popup, top middle.
+    if (ImGui::GetTime() < m_boltsToastUntil) {
+        ImVec2 ts = ImGui::CalcTextSize(m_boltsToast.c_str());
+        float w = ts.x + 50, x = pos.x + (size.x - w) * 0.5f, y = pos.y + 16;
+        float fade = (float)std::min(1.0, m_boltsToastUntil - ImGui::GetTime());
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + 34), IM_COL32(40, 30, 10, (int)(210 * fade)), 17.0f);
+        Bolts::drawIcon(dl, ImVec2(x + 20, y + 17), 22.0f);
+        dl->AddText(ImVec2(x + 38, y + (34 - ts.y) * 0.5f), IM_COL32(255, 215, 90, (int)(255 * fade)), m_boltsToast.c_str());
+    }
 
     // Menu button + FPS. (Touch screens get their own buttons instead.)
     if (touch) {
@@ -1176,6 +1255,28 @@ void PlayerApp::drawStaff() {
         if (ImGui::Button("Copy code")) ImGui::SetClipboardText(m_grantCode.c_str());
     }
 
+    ImGui::SeparatorText("Give someone Bolts");
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Same idea as badges: make a code for their account ID and send it to them. Each code "
+                        "works once, and only for that account.");
+    ImGui::PopTextWrapPos();
+    Bolts::drawIcon(ImGui::GetWindowDrawList(), ImVec2(ImGui::GetCursorScreenPos().x + 14, ImGui::GetCursorScreenPos().y + 14), 26.0f);
+    ImGui::Dummy(ImVec2(28, 28));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::InputInt("Bolts", &m_giveBolts, 25, 100)) m_giveBolts = std::clamp(m_giveBolts, 1, 1000000);
+    ImGui::SetNextItemWidth(520);
+    ImGui::InputTextWithHint("Their account ID##bolts", "64 letters and numbers", &m_giveBoltsTo);
+    if (Classic::button("Make Bolts code", Classic::kPlay, ImVec2(180, 30))) {
+        m_giveBoltsError.clear();
+        m_giveBoltsCode = Bolts::makeCode(m_giveBolts, m_giveBoltsTo, m_giveBoltsError);
+    }
+    if (!m_giveBoltsError.empty()) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_giveBoltsError.c_str());
+    if (!m_giveBoltsCode.empty()) {
+        ImGui::InputTextMultiline("##boltscode", &m_giveBoltsCode, ImVec2(520, 60), ImGuiInputTextFlags_ReadOnly);
+        if (ImGui::Button("Copy code##bolts")) ImGui::SetClipboardText(m_giveBoltsCode.c_str());
+    }
+
     ImGui::SeparatorText("Catalog");
     ImGui::Text("%d item(s) in the catalog.", (int)m_items.size());
     if (Classic::button("Create a catalog item", Classic::kBlue, ImVec2(220, 30))) {
@@ -1191,6 +1292,114 @@ void PlayerApp::drawStaff() {
     ImGui::Text("Official ID: %s...", Account::shortId().c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy official ID")) ImGui::SetClipboardText(Account::id().c_str());
+}
+
+// The Bolts page: your balance, the daily reward, ways to earn, codes and history.
+void PlayerApp::drawBolts() {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    Bolts::drawIcon(dl, ImVec2(p.x + 30, p.y + 30), 58.0f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + 72, p.y + 2));
+    ImGui::BeginGroup();
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::TextUnformatted("Bolts");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("The Guts&Bolts currency. Earn them, then spend them in the Catalog.");
+    ImGui::PopTextWrapPos();
+    ImGui::EndGroup();
+    ImGui::SetCursorScreenPos(ImVec2(p.x, std::max(p.y + 66, ImGui::GetItemRectMax().y + 8)));
+
+    // Balance card.
+    {
+        ImVec2 a = ImGui::GetCursorScreenPos();
+        float w = std::min(ImGui::GetContentRegionAvail().x, 420.0f);
+        dl->AddRectFilled(a, ImVec2(a.x + w, a.y + 70), IM_COL32(255, 248, 225, 255), 8.0f);
+        dl->AddRect(a, ImVec2(a.x + w, a.y + 70), IM_COL32(225, 180, 60, 255), 8.0f);
+        ImGui::SetCursorScreenPos(ImVec2(a.x + 14, a.y + 8));
+        ImGui::TextDisabled("Your balance");
+        ImGui::SetCursorScreenPos(ImVec2(a.x + 14, a.y + 28));
+        ImGui::SetWindowFontScale(1.6f);
+        Bolts::amount(Bolts::balance(), 30.0f);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::SetCursorScreenPos(ImVec2(a.x, a.y + 80));
+    }
+    if (Bolts::wasReset()) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.1f, 1),
+                           "Your Bolts file had been edited by hand, so your Bolts were reset. (Bolts are signed "
+                           "with your account key, so they can't be typed in.)");
+        ImGui::PopTextWrapPos();
+    }
+
+    // Daily reward.
+    ImGui::SeparatorText("Daily reward");
+    if (Bolts::canClaimDaily()) {
+        if (Classic::button(("Claim " + std::to_string(Bolts::kDaily) + " Bolts").c_str(), Classic::kPlay, ImVec2(200, 34)))
+            Bolts::claimDaily(m_boltsMsg);
+    } else {
+        ImGui::BeginDisabled();
+        ImGui::Button("Claimed today", ImVec2(200, 34));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("Next one in %s", Bolts::timeUntilDaily().c_str());
+    }
+    if (!m_boltsMsg.empty()) ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.15f, 1), "%s", m_boltsMsg.c_str());
+
+    // Ways to earn.
+    ImGui::SeparatorText("Ways to earn");
+    ImGui::PushTextWrapPos(0);
+    ImGui::Bullet(); ImGui::TextWrapped("Come back every day: %lld Bolts.", Bolts::kDaily);
+    ImGui::Bullet(); ImGui::TextWrapped("Play games: %lld Bolts for every %d minutes (up to %lld a day - %lld so far today).",
+                                        Bolts::kPlayReward, (int)(Bolts::kPlaySeconds / 60), Bolts::kPlayDailyCap,
+                                        Bolts::earnedFromPlayToday());
+    ImGui::Bullet(); ImGui::TextWrapped("Get a Bolts code from the Guts&Bolts staff (contests, helping out, finding bugs...).");
+    ImGui::PopTextWrapPos();
+
+    // Redeem a code.
+    ImGui::SeparatorText("Redeem a Bolts code");
+    ImGui::SetNextItemWidth(std::min(420.0f, ImGui::GetContentRegionAvail().x - 90));
+    ImGui::InputTextWithHint("##boltscode", "BOLTS-...", &m_boltsCode);
+    ImGui::SameLine();
+    if (Classic::button("Redeem", Classic::kBlue)) {
+        Bolts::redeem(m_boltsCode, m_boltsMsg);
+        m_boltsCode.clear();
+    }
+    ImGui::TextDisabled("Your account ID: %s...", Account::shortId().c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy full ID")) ImGui::SetClipboardText(Account::id().c_str());
+
+    // History, newest first.
+    ImGui::SeparatorText("History");
+    const auto& h = Bolts::history();
+    if (h.empty()) ImGui::TextDisabled("Nothing yet.");
+    if (ImGui::BeginTable("##boltshistory", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        const bool narrow = ImGui::GetContentRegionAvail().x < 560;
+        ImGui::TableSetupColumn("When", ImGuiTableColumnFlags_WidthFixed, narrow ? 64.0f : 150.0f);
+        ImGui::TableSetupColumn("What");
+        ImGui::TableSetupColumn("Bolts", ImGuiTableColumnFlags_WidthFixed, narrow ? 64.0f : 90.0f);
+        int shown = 0;
+        for (auto it = h.rbegin(); it != h.rend() && shown < 40; ++it, ++shown) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            std::time_t t = (std::time_t)it->time;
+            std::tm tm{};
+#ifdef _WIN32
+            localtime_s(&tm, &t);
+#else
+            localtime_r(&t, &tm);
+#endif
+            char when[32];
+            std::strftime(when, sizeof(when), narrow ? "%b %d" : "%b %d, %H:%M", &tm);
+            ImGui::TextDisabled("%s", when);
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", it->reason.c_str());
+            ImGui::TableNextColumn();
+            if (it->amount >= 0) ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "+%s", Bolts::format(it->amount).c_str());
+            else ImGui::TextColored(ImVec4(0.75f, 0.2f, 0.15f, 1), "%s", Bolts::format(it->amount).c_str());
+        }
+        ImGui::EndTable();
+    }
 }
 
 void PlayerApp::drawNotice() {
@@ -1332,7 +1541,9 @@ void PlayerApp::drawCatalog() {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
         ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
         ImGui::PopTextWrapPos();
-        ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "Free");
+        if (Catalog::owns(it) && it.price > 0) ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "Owned");
+        else if (it.price > 0) Bolts::amount(it.price);
+        else ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "Free");
         ImGui::EndGroup();
         ImGui::PopID();
     }
@@ -1357,7 +1568,10 @@ void PlayerApp::drawItemDialog() {
     ImGui::TextUnformatted(it.name.c_str());
     ImGui::SetWindowFontScale(1.0f);
     ImGui::TextDisabled("%s  -  by Guts", Catalog::typeName(it.type));
-    ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "Free");
+    const bool owned = Catalog::owns(it);
+    if (it.price == 0) ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "Free");
+    else if (owned) ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "You own this");
+    else Bolts::amount(it.price, 20.0f);
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(it.description.c_str());
     ImGui::PopTextWrapPos();
@@ -1365,14 +1579,31 @@ void PlayerApp::drawItemDialog() {
     ImGui::Spacing();
 
     bool wearing = Catalog::isWearing(it);
-    ImGui::BeginDisabled(wearing);
-    if (bigButton(wearing ? "Wearing" : "Wear", kGreen, ImVec2(140, 34))) {
-        Catalog::wear(it);
-        if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
+    if (it.price > 0 && !owned) {
+        // Buy it with Bolts.
+        long long have = Bolts::balance();
+        std::string label = "Buy for " + Bolts::format(it.price);
+        ImGui::BeginDisabled(have < it.price);
+        if (bigButton(label.c_str(), kGreen, ImVec2(170, 34))) {
+            if (Catalog::buy(it, m_buyMsg)) {
+                Catalog::wear(it);
+                if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
+            }
+        }
+        ImGui::EndDisabled();
+        if (have < it.price && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("You need %s more Bolts", Bolts::format(it.price - have).c_str());
+    } else {
+        ImGui::BeginDisabled(wearing);
+        if (bigButton(wearing ? "Wearing" : "Wear", kGreen, ImVec2(140, 34))) {
+            if (it.price == 0) Catalog::buy(it, m_buyMsg);   // free: it's yours
+            Catalog::wear(it);
+            if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
+        }
+        ImGui::EndDisabled();
     }
-    ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Close", ImVec2(100, 34))) { m_openItem = -1; ImGui::CloseCurrentPopup(); }
+    if (ImGui::Button("Close", ImVec2(100, 34))) { m_openItem = -1; m_buyMsg.clear(); ImGui::CloseCurrentPopup(); }
     if (Account::iAmStaff()) {
         ImGui::SameLine();
         if (bigButton("Remove from catalog", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(0, 34))) {
@@ -1382,6 +1613,16 @@ void PlayerApp::drawItemDialog() {
             ImGui::CloseCurrentPopup();
         }
     }
+    // Your balance, and what happened when you tried to buy.
+    ImGui::Spacing();
+    ImGui::TextDisabled("You have");
+    ImGui::SameLine();
+    Bolts::amount(Bolts::balance());
+    if (it.price > 0 && !owned && Bolts::balance() < it.price) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("- earn more on the Bolts page");
+    }
+    if (!m_buyMsg.empty()) ImGui::TextWrapped("%s", m_buyMsg.c_str());
     ImGui::EndPopup();
 }
 
@@ -1412,6 +1653,10 @@ void PlayerApp::drawCreateItemDialog() {
         if (it.hat == HatStyle::None) it.hat = HatStyle::Cap;
     }
     ImGui::ColorEdit3("Colour", &it.color.x);
+    int price = (int)it.price;
+    ImGui::SetNextItemWidth(300);
+    if (ImGui::InputInt("Price (Bolts)", &price, 5, 50)) it.price = std::clamp(price, 0, 1000000);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = free");
     ImGui::EndGroup();
     ImGui::SameLine(0, 20);
     ImVec2 p = ImGui::GetCursorScreenPos();

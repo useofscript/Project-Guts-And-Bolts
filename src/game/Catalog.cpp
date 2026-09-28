@@ -1,5 +1,6 @@
 #include "Catalog.h"
 #include "Profile.h"
+#include "Bolts.h"
 #include "../core/Account.h"
 #include "../core/Paths.h"
 #include "Version.h"
@@ -22,9 +23,11 @@ int byte(float v) { return (int)std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f);
 // The exact text that gets signed (keys are sorted, colours are whole numbers,
 // so it comes out the same on every computer).
 json body(const Item& it) {
-    return {{"id", it.id}, {"name", it.name}, {"description", it.description}, {"type", typeName(it.type)},
-            {"hat", (int)it.hat}, {"color", {byte(it.color.r), byte(it.color.g), byte(it.color.b)}},
-            {"created", it.created}};
+    json j = {{"id", it.id}, {"name", it.name}, {"description", it.description}, {"type", typeName(it.type)},
+              {"hat", (int)it.hat}, {"color", {byte(it.color.r), byte(it.color.g), byte(it.color.b)}},
+              {"created", it.created}};
+    if (it.price > 0) j["price"] = it.price;   // signed too, so nobody can change the price (free items leave it out)
+    return j;
 }
 std::string message(const Item& it) { return "gb-item:" + body(it).dump(); }
 
@@ -43,6 +46,7 @@ bool parse(const json& j, Item& it) {
     if (j.contains("color") && j["color"].is_array() && j["color"].size() == 3)
         it.color = {j["color"][0].get<int>() / 255.0f, j["color"][1].get<int>() / 255.0f, j["color"][2].get<int>() / 255.0f};
     it.created = j.value("created", 0LL);
+    it.price = std::max(0LL, j.value("price", 0LL));
     it.signature = j.value("sig", std::string());
     return !it.id.empty() && it.type != Type::Count;
 }
@@ -123,7 +127,24 @@ bool remove(const Item& it, std::string& msg) {
     return true;
 }
 
+bool owns(const Item& it) {
+    if (it.price > 0) return Bolts::has("item:" + it.id);
+    const auto& inv = Profile::get().inventory;
+    return std::find(inv.begin(), inv.end(), it.id) != inv.end();
+}
+
+bool buy(const Item& it, std::string& msg) {
+    if (owns(it)) { msg = "You already own that."; return true; }
+    if (it.price > 0 && !Bolts::spend(it.price, "Bought " + it.name, "item:" + it.id, msg)) return false;
+    Profile& me = Profile::get();
+    if (std::find(me.inventory.begin(), me.inventory.end(), it.id) == me.inventory.end()) me.inventory.push_back(it.id);
+    me.save();
+    if (it.price == 0) msg = "Got " + it.name + "!";
+    return true;
+}
+
 void wear(const Item& it) {
+    if (it.price > 0 && !owns(it)) return;   // buy it first
     Profile& me = Profile::get();
     if (std::find(me.inventory.begin(), me.inventory.end(), it.id) == me.inventory.end()) me.inventory.push_back(it.id);
     switch (it.type) {
