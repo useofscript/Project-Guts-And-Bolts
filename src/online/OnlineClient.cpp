@@ -30,6 +30,7 @@ struct State {
     json             me = json::object();
     json             server = json::object();
     double           retryAt = 0;       // seconds (steady clock) to try connecting again
+    double           pingAt = 0;        // "still here", so friends see us online
     bool             helloOut = false;
 };
 
@@ -126,11 +127,7 @@ void request(const std::string& op, const json& args, Reply done, int timeoutSec
         return;
     }
     // Sign here, on the main thread (the key lives here); the network part runs in the background.
-    long long t = unixNow();
-    std::string nonce = Account::randomHex(8);
-    json req = {{"op", op}, {"account", Account::id()}, {"time", t}, {"nonce", nonce}, {"args", args},
-                {"sig", Account::sign(requestText(op, Account::id(), t, nonce, args))}};
-    std::string text = req.dump();
+    std::string text = signedRequest(op, args).dump();
     S().running++;
     std::thread([address, text, done, timeoutSeconds]() {
         json reply;
@@ -163,6 +160,15 @@ void request(const std::string& op, const json& args, Reply done, int timeoutSec
         S().running--;
     }).detach();
 }
+
+json signedRequest(const std::string& op, const json& args) {
+    long long t = unixNow();
+    std::string nonce = Account::randomHex(8);
+    return {{"op", op}, {"account", Account::id()}, {"time", t}, {"nonce", nonce}, {"args", args},
+            {"sig", Account::sign(requestText(op, Account::id(), t, nonce, args))}};
+}
+
+bool serverHostPort(std::string& host, int& port) { return splitAddress(serverAddress(), host, port); }
 
 void connect() {
     if (!configured() || S().helloOut) return;
@@ -199,6 +205,11 @@ void update() {
     }
     if (configured() && S().status == Status::Off) connect();
     if (S().status == Status::Failed && clockSeconds() > S().retryAt) connect();
+    if (S().status == Status::Online && clockSeconds() > S().pingAt) {
+        bool first = S().pingAt == 0;   // hello just told the server we're here
+        S().pingAt = clockSeconds() + 60.0;
+        if (!first) request("ping", json::object());
+    }
 }
 
 void finishAll(int timeoutMs) {

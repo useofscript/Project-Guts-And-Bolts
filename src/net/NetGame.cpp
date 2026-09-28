@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <set>
 
@@ -212,8 +213,20 @@ bool NetServer::start(int port, std::string& error) {
     m_port = port;
     m_scene->recordFx = true;
     m_session->setRole(GameSession::Role::Host);
-    m_chat.add("", "Hosting on port " + std::to_string(port) + ". Friends can join with " +
-               (Net::localAddresses().empty() ? std::string("your IP address") : Net::localAddresses()), true);
+    // Local network only: this address is for people on the same Wi-Fi. (Online, the relay is used and no addresses are shared.)
+    m_chat.add("", "Local network server on port " + std::to_string(port) + ". People on the same Wi-Fi can join with " +
+               (Net::localAddresses().empty() ? std::string("this computer's local address") : Net::localAddresses()), true);
+    return true;
+}
+
+bool NetServer::startRelay(const std::string& server, int port, const std::string& hostRequest, std::string& error) {
+    m_control = Net::Connection::connectTo(server, port, error, 5000);
+    if (!m_control) return false;
+    m_control->send(hostRequest);
+    m_relayServer = server;
+    m_relayPort = port;
+    m_scene->recordFx = true;
+    m_session->setRole(GameSession::Role::Host);
     return true;
 }
 
@@ -224,6 +237,9 @@ void NetServer::stop() {
     }
     m_clients.clear();
     m_listener.close();
+    m_control.reset();
+    m_sessionId.clear();
+    m_code.clear();
     m_sent.clear();
     m_scene->remotes().clear();
     m_scene->recordFx = false;
@@ -265,16 +281,68 @@ void NetServer::dropClient(size_t index, const char* reason) {
     m_clients.erase(m_clients.begin() + (long)index);
 }
 
-void NetServer::update(float dt) {
-    if (!m_listener.isOpen()) return;
-    while (auto conn = m_listener.accept()) {
-        auto c = std::make_unique<Client>();
-        c->conn = std::move(conn);
-        c->id = m_nextId++;
-        c->nonce = Account::randomHex(16);
-        c->conn->send(json{{"t", "challenge"}, {"nonce", c->nonce}, {"version", kVersion}}.dump());
-        m_clients.push_back(std::move(c));
+void NetServer::addClient(std::unique_ptr<Net::Connection> conn) {
+    auto c = std::make_unique<Client>();
+    c->conn = std::move(conn);
+    c->id = m_nextId++;
+    c->nonce = Account::randomHex(16);
+    c->conn->send(json{{"t", "challenge"}, {"nonce", c->nonce}, {"version", kVersion}}.dump());
+    m_clients.push_back(std::move(c));
+}
+
+void NetServer::updateRelay(float dt) {
+    bool ok = m_control->poll();
+    std::string msg;
+    while (m_control && m_control->pop(msg)) {
+        json m = json::parse(msg, nullptr, false);
+        if (!m.is_object()) continue;
+        std::string t = m.value("t", "");
+        if (t == "relay") {
+            if (!m.value("ok", false)) {
+                m_relayError = m.value("error", std::string("The Guts&Bolts server wouldn't start this server."));
+                m_chat.add("", m_relayError + " You're playing alone.", true);
+                m_control.reset();
+                return;
+            }
+            m_sessionId = m.value("session", std::string());
+            m_code = m.value("code", std::string());
+            std::printf("RELAY server %s%s%s\n", m_sessionId.c_str(), m_code.empty() ? "" : " code ", m_code.c_str());
+            std::fflush(stdout);
+            m_chat.add("", m_code.empty() ? "Public server: anyone can join by pressing Play."
+                                          : "Private server. Friends can join from their Friends list, or anyone with the code " + m_code + ".",
+                       true);
+        } else if (t == "incoming") {
+            // Someone's joining: open a fresh line to the server for them. We only
+            // ever talk to the server, so we never learn their address (nor they ours).
+            std::string err;
+            if (auto conn = Net::Connection::connectTo(m_relayServer, m_relayPort, err, 3000)) {
+                conn->send(json{{"t", "accept"}, {"ticket", m.value("ticket", std::string())}}.dump());
+                addClient(std::move(conn));
+            }
+        }
     }
+    if (!m_control) return;
+    if (!ok || !m_control->alive()) {
+        m_relayError = "Lost the connection to the Guts&Bolts server, so nobody else can join.";
+        m_chat.add("", m_relayError, true);
+        m_control.reset();
+        return;
+    }
+    // "Still here" every 20 real seconds (not game time: a slow computer mustn't lose its server).
+    (void)dt;
+    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now >= m_pingAt) {
+        m_pingAt = now + 20.0;
+        m_control->send(json{{"t", "ping"}}.dump());
+    }
+}
+
+void NetServer::update(float dt) {
+    if (!m_listener.isOpen() && !m_control && m_clients.empty()) return;
+    while (m_listener.isOpen())
+        if (auto conn = m_listener.accept()) addClient(std::move(conn));
+        else break;
+    if (m_control) updateRelay(dt);
     for (size_t i = 0; i < m_clients.size();) {
         Client& c = *m_clients[i];
         bool ok = c.conn->poll();
@@ -513,6 +581,12 @@ void NetServer::sendTick() {
 NetClient::NetClient(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
 NetClient::~NetClient() { disconnect(); }
 
+bool NetClient::connectRelay(const std::string& server, int port, const std::string& joinRequest) {
+    if (!connect(server, port)) return false;
+    m_conn->send(joinRequest);   // the server answers {"t":"relay"}, then the host's challenge follows
+    return true;
+}
+
 bool NetClient::connect(const std::string& host, int port) {
     disconnect();
     m_conn = Net::Connection::connectTo(host, port, m_error);
@@ -581,6 +655,14 @@ void NetClient::handle(const std::string& text) {
     if (!m.is_object()) return;
     std::string t = m.value("t", "");
 
+    if (t == "relay") {   // the Guts&Bolts server, before handing us to the host
+        if (!m.value("ok", false)) {
+            m_error = m.value("error", std::string("Couldn't join that server."));
+            m_conn.reset();
+            m_state = State::Failed;
+        }
+        return;
+    }
     if (t == "challenge") {
         Profile& me = Profile::get();
         m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", me.name}, {"avatar", avatarJson(me)},

@@ -31,18 +31,27 @@ public:
     NetServer(Scene* scene, GameSession* session);
     ~NetServer();
 
-    bool start(int port, std::string& error);
+    bool start(int port, std::string& error);          // local network: players connect to us directly
+    // Through a Guts&Bolts server instead: players reach us via the server, so
+    // nobody sees anybody's IP address. `hostRequest` is a signed "relay.host".
+    bool startRelay(const std::string& server, int port, const std::string& hostRequest, std::string& error);
     void stop();
     void update(float dt);
     void say(const std::string& text);                 // the host's own chat
     std::vector<PlayerEntry> players() const;
     ChatLog& chat() { return m_chat; }
     int port() const { return m_port; }
+    bool relayed() const { return (bool)m_control; }
+    bool relayReady() const { return !m_sessionId.empty(); }
+    const std::string& relayCode() const { return m_code; }      // private servers: what friends type in
+    const std::string& relayError() const { return m_relayError; }
 
 private:
     struct Client;
     struct NodeState;
     void handle(Client& c, const std::string& msg);
+    void addClient(std::unique_ptr<Net::Connection> conn);
+    void updateRelay(float dt);
     void sendTick();
     void dropClient(size_t index, const char* reason);
     void broadcast(const std::string& msg, const Client* except = nullptr);
@@ -58,6 +67,11 @@ private:
     float       m_tick = 0.0f;
     int         m_nextId = 1;
     int         m_port = kDefaultPort;
+    // Relay (see server/ServerRelay.cpp)
+    std::unique_ptr<Net::Connection> m_control;
+    std::string m_relayServer, m_sessionId, m_code, m_relayError;
+    int         m_relayPort = 0;
+    double      m_pingAt = 0.0;   // steady-clock seconds
 };
 
 // Joining someone else's game.
@@ -69,6 +83,8 @@ public:
     ~NetClient();
 
     bool connect(const std::string& host, int port);
+    // Through a Guts&Bolts server: `joinRequest` is a signed "relay.join".
+    bool connectRelay(const std::string& server, int port, const std::string& joinRequest);
     void disconnect();
     void update(float dt);
     void say(const std::string& text);

@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,6 +37,9 @@ struct PlayerOptions {
     std::string testRedeemBolts;       // --test-redeem-bolts <code> (tests)
     std::string testBuy;               // --test-buy "<item name>" (tests: buy and wear it)
     std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
+    bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
+    bool        privateServer = false; // --private-server (with a game): start a private server once online
+    std::string joinCode;              // --join-code <code>: join a private server once online
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,
@@ -47,7 +51,10 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends };
+    // How a game is started: alone, or as the host of a server.
+    enum class HostMode { Solo, Lan, Public, Private };
+    using Starter = std::function<void(HostMode)>;   // loads the game (downloading it if needed) and starts it
 
     struct GameCard {
         std::filesystem::path        path;
@@ -99,8 +106,19 @@ private:
     void drawNotice();
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
 
+    // Friends and servers — PlayerFriends.cpp
+    void drawFriends();
+    void refreshFriends();
+    void friendButton(const std::string& accountId, const std::string& status);   // Add / Accept / Friends
+    void playGame(const std::string& gameKey, const std::string& title, Starter start);   // Play: a public server
+    void openServers(const std::string& gameKey, const std::string& title, Starter start);
+    void drawServersDialog();
+    void joinRelay(const std::string& session, const std::string& code, const std::string& title);
+    Starter localStarter(const std::filesystem::path& path);
+    Starter onlineStarter(const std::string& assetId);
+
     void refreshGames();
-    void joinGame(const std::filesystem::path& path, bool host = false);
+    void joinGame(const std::filesystem::path& path, HostMode mode = HostMode::Solo, const std::string& gameKey = "");
     void joinServer(const std::string& address);
     void drawChat(ImVec2 min, ImVec2 max);
     void drawJoinDialog();
@@ -190,6 +208,21 @@ private:
     std::string    m_newGroupName, m_newGroupDesc, m_wallInput, m_shoutInput, m_editDesc;
     glm::vec3      m_newGroupColor{0.23f, 0.48f, 0.84f};
     bool           m_newGroupOpen = true, m_editingGroup = false;
+
+    // Friends and servers
+    nlohmann::json m_friends = nlohmann::json::object();   // friends.list reply
+    double         m_friendsAt = -100.0;           // when we last asked
+    int            m_friendsTab = 0;               // Friends / Requests / Add friends
+    std::string    m_friendQuery, m_friendMsg;
+    nlohmann::json m_friendSearch = nlohmann::json::array();
+    bool           m_serversOpen = false;
+    std::string    m_serversKey, m_serversTitle, m_serversMsg, m_codeInput;
+    Starter        m_serversStart;
+    nlohmann::json m_serverList = nlohmann::json::array();
+    std::string    m_playMsg;                      // "Finding a server..."
+    bool           m_joinedOnce = false;           // fetched the game's sounds after joining
+    bool           m_autoStarted = false;          // test options that wait for the server
+    bool           m_autoServers = false;
 
     TouchControls m_touch;
     ImVec2      m_chatMin{0, 0}, m_chatMax{0, 0};  // where the chat box was last frame

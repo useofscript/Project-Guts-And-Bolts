@@ -1,0 +1,376 @@
+// Friends and game servers on the site.
+//
+// - Friends: requests, accepting, and a list showing who's online and what
+//   they're playing, with a Join button.
+// - Play: puts you in a public server of that game (or starts one if nobody's
+//   playing). Create a server: a private server (friends or a code), an offline
+//   game (just you), or a local-network one.
+//
+// Online games all go through the Guts&Bolts server's relay, so nobody ever
+// sees anybody else's IP address.
+#include "PlayerApp.h"
+#include "SocialUi.h"
+#include "../core/Account.h"
+#include "../game/Badges.h"
+#include "../net/NetGame.h"
+#include "../online/AssetCache.h"
+#include "../online/OnlineClient.h"
+
+#include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
+#include <algorithm>
+
+using namespace Social;
+using json = nlohmann::json;
+
+namespace {
+
+bool smallLink(const char* label) {
+    ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    bool r = ImGui::SmallButton(label);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    return r;
+}
+
+void statusDot(ImU32 color) {
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float h = ImGui::GetTextLineHeight();
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + 5, p.y + h * 0.5f), 4.5f, color, 12);
+    ImGui::Dummy(ImVec2(12, h));
+    ImGui::SameLine(0, 2);
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Starting games
+// ---------------------------------------------------------------------------
+
+PlayerApp::Starter PlayerApp::localStarter(const std::filesystem::path& path) {
+    return [this, path](HostMode mode) { joinGame(path, mode); };
+}
+
+PlayerApp::Starter PlayerApp::onlineStarter(const std::string& id) {
+    return [this, id](HostMode mode) {
+        m_busy = true;
+        m_playMsg = "Downloading...";
+        // Always fetch the newest version (the creator may have updated it).
+        Online::download(id, [this, id, mode](bool ok, const std::filesystem::path& file, const json& info) {
+            m_busy = false;
+            m_playMsg.clear();
+            if (!ok) { m_status = info.value("error", std::string("Couldn't download the game.")); return; }
+            joinGame(file, mode, id);
+            Online::fetchSounds(*m_scene);
+        }, true);
+    };
+}
+
+void PlayerApp::playGame(const std::string& key, const std::string& title, Starter start) {
+    if (!Online::online()) { start(HostMode::Solo); return; }   // no server: just play
+    m_busy = true;
+    m_playMsg = "Finding a server...";
+    Online::request("servers.play", {{"game", key}}, [this, title, start](const json& r) {
+        m_busy = false;
+        m_playMsg.clear();
+        if (!r.value("ok", false)) { m_status = "Couldn't find a server, so you're playing alone."; start(HostMode::Solo); return; }
+        if (r.contains("join")) joinRelay(r["join"].get<std::string>(), "", title);
+        else start(HostMode::Public);   // nobody's playing: you're the first in a new public server
+    }, 10);
+}
+
+void PlayerApp::joinRelay(const std::string& session, const std::string& code, const std::string& title) {
+    std::string server;
+    int port = 0;
+    if (!Online::online() || !Online::serverHostPort(server, port)) {
+        m_status = "You need to be connected to a Guts&Bolts server to join people.";
+        return;
+    }
+    json args = code.empty() ? json{{"session", session}} : json{{"code", code}};
+    m_client = std::make_unique<NetClient>(m_scene.get(), m_session.get());
+    if (!m_client->connectRelay(server, port, Online::signedRequest("relay.join", args).dump())) {
+        m_status = m_client->error();
+        m_client.reset();
+        return;
+    }
+    m_currentTitle = title.empty() ? std::string("Joining...") : "Joining " + title + "...";
+    m_joinedOnce = false;
+    m_paused = false;
+    m_status.clear();
+    m_page = Page::Game;
+}
+
+void PlayerApp::openServers(const std::string& key, const std::string& title, Starter start) {
+    m_serversOpen = true;
+    m_serversKey = key;
+    m_serversTitle = title;
+    m_serversStart = std::move(start);
+    m_serversMsg.clear();
+    m_serverList = json::array();
+    if (Online::online())
+        Online::request("servers.list", {{"game", key}}, [this, key](const json& r) {
+            if (key == m_serversKey && r.value("ok", false)) m_serverList = r["servers"];
+        });
+}
+
+void PlayerApp::drawServersDialog() {
+    if (m_serversOpen && !ImGui::IsPopupOpen("Servers##dlg") && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId))
+        ImGui::OpenPopup("Servers##dlg");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(560), 0));
+    if (!ImGui::BeginPopupModal("Servers##dlg", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) return;
+    if (!m_serversOpen) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+    const bool online = Online::online();
+    auto start = [this](HostMode mode) {
+        Starter s = m_serversStart;
+        m_serversOpen = false;
+        ImGui::CloseCurrentPopup();
+        if (s) s(mode);
+    };
+
+    ImGui::SetWindowFontScale(1.3f);
+    ImGui::Text("Servers - %s", m_serversTitle.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::Separator();
+
+    ImGui::SeparatorText("Start your own");
+    const float bw = std::min(170.0f, (ImGui::GetContentRegionAvail().x - 16) / 3);
+    ImGui::BeginDisabled(!online);
+    if (Classic::button("Private server", Classic::kBlue, ImVec2(bw, 34))) start(HostMode::Private);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (Classic::button("Offline", ImVec4(0.35f, 0.38f, 0.45f, 1), ImVec2(bw, 34))) start(HostMode::Solo);
+    ImGui::SameLine();
+    if (ImGui::Button("Local network", ImVec2(bw, 34))) start(HostMode::Lan);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled(online ? "Private: only your friends, and people you give the code to, can join. Offline: just you. "
+                                 "Local network: people on the same Wi-Fi."
+                               : "Private servers need a Guts&Bolts server (the button at the top of the site). "
+                                 "Offline: just you. Local network: people on the same Wi-Fi.");
+    ImGui::PopTextWrapPos();
+
+    if (online) {
+        ImGui::SeparatorText("Join with a code");
+        ImGui::SetNextItemWidth(160);
+        bool enter = ImGui::InputTextWithHint("##code", "e.g. K7PQ2M", &m_codeInput,
+                                              ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_codeInput.size() < 4);
+        if (ImGui::Button("Join") || (enter && m_codeInput.size() >= 4)) {
+            std::string code = m_codeInput, title = m_serversTitle;
+            m_serversOpen = false;
+            ImGui::CloseCurrentPopup();
+            joinRelay("", code, title);
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SeparatorText("Running now");
+        if (m_serverList.empty()) ImGui::TextDisabled("Nobody's playing this right now. Press Play to start a public server!");
+        ImGui::BeginChild("##list", ImVec2(0, std::min(220.0f, 12.0f + 44.0f * (float)m_serverList.size())), ImGuiChildFlags_None);
+        for (size_t i = 0; i < m_serverList.size(); ++i) {
+            const json& sv = m_serverList[i];
+            ImGui::PushID((int)i);
+            int players = sv.value("players", 1), max = sv.value("max", 12), friends = sv.value("friends", 0);
+            ImGui::BeginGroup();
+            ImGui::Text("%d / %d players", players, max);
+            if (sv.value("private", false)) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.7f, 0.45f, 0.0f, 1), "Private"); }
+            if (friends) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "%d friend%s", friends, friends == 1 ? "" : "s"); }
+            ImGui::TextDisabled("Host: %s", sv.value("hostName", std::string()).c_str());
+            if (sv.value("hostVerified", false)) { ImGui::SameLine(0, 3); Badges::check(); }
+            ImGui::EndGroup();
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 70);
+            ImGui::BeginDisabled(players >= max);
+            if (Classic::button(players >= max ? "Full" : "Join", Classic::kPlay, ImVec2(70, 30))) {
+                std::string id = sv.value("id", std::string()), title = m_serversTitle;
+                m_serversOpen = false;
+                ImGui::CloseCurrentPopup();
+                joinRelay(id, "", title);
+            }
+            ImGui::EndDisabled();
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Close", ImVec2(100, 30))) { m_serversOpen = false; ImGui::CloseCurrentPopup(); }
+    ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------
+// Friends
+// ---------------------------------------------------------------------------
+
+void PlayerApp::refreshFriends() {
+    m_friendsAt = ImGui::GetTime();
+    Online::request("friends.list", json::object(), [this](const json& r) {
+        if (r.value("ok", false)) m_friends = r;
+    });
+}
+
+void PlayerApp::friendButton(const std::string& id, const std::string& status) {
+    auto act = [this, id](const char* op) {
+        Online::request(op, {{"user", id}}, [this, id](const json& r) {
+            m_friendMsg = r.value("ok", false) ? std::string() : r.value("error", std::string());
+            refreshFriends();
+            if (m_page == Page::Profile && m_profileId == id) openProfile(id);   // show the new state
+        });
+    };
+    ImGui::PushID(id.c_str());
+    if (status == "none") {
+        if (Classic::button("Add Friend", Classic::kBlue, ImVec2(120, 28))) act("friends.add");
+    } else if (status == "sent") {
+        ImGui::BeginDisabled();
+        ImGui::Button("Request sent", ImVec2(120, 28));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (smallLink("cancel")) act("friends.cancel");
+    } else if (status == "received") {
+        if (Classic::button("Accept friend request", Classic::kPlay, ImVec2(180, 28))) act("friends.accept");
+        ImGui::SameLine();
+        if (smallLink("decline")) act("friends.decline");
+    } else if (status == "friends") {
+        ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Friends");
+        ImGui::SameLine();
+        if (smallLink("unfriend")) ImGui::OpenPopup("##unfriend");
+        if (ImGui::BeginPopup("##unfriend")) {
+            ImGui::TextUnformatted("Remove this friend?");
+            if (ImGui::Button("Yes, unfriend")) { act("friends.remove"); ImGui::CloseCurrentPopup(); }
+            ImGui::EndPopup();
+        }
+    }
+    ImGui::PopID();
+}
+
+void PlayerApp::drawFriends() {
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::TextUnformatted("Friends");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("See who's online and jump into their game.");
+    ImGui::Spacing();
+    if (needsServer("Friends")) {
+        ImGui::Spacing();
+        if (smallLink("Same Wi-Fi? Join a game on your local network")) m_showJoin = true;
+        return;
+    }
+    if (ImGui::GetTime() - m_friendsAt > 15.0) refreshFriends();   // keep the online dots fresh
+
+    const json& friends = m_friends.contains("friends") ? m_friends["friends"] : json::array();
+    const json& in = m_friends.contains("incoming") ? m_friends["incoming"] : json::array();
+    const json& out = m_friends.contains("outgoing") ? m_friends["outgoing"] : json::array();
+    std::string tabs[] = {"Friends (" + std::to_string(friends.size()) + ")",
+                          in.empty() ? std::string("Requests") : "Requests (" + std::to_string(in.size()) + ")",
+                          "Add Friends"};
+    for (int i = 0; i < 3; ++i) {
+        if (i) ImGui::SameLine();
+        float tw = std::min(140.0f, (ImGui::GetContentRegionAvail().x - 16) / (3 - i));
+        if (m_friendsTab == i ? Classic::button(tabs[i].c_str(), Classic::kBlue, ImVec2(tw, 28)) : ImGui::Button(tabs[i].c_str(), ImVec2(tw, 28)))
+            m_friendsTab = i;
+    }
+    ImGui::Separator();
+    if (!m_friendMsg.empty()) ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.1f, 1), "%s", m_friendMsg.c_str());
+
+    if (m_friendsTab == 0) {
+        if (friends.empty()) {
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("No friends yet. Find people under Add Friends, or click Add Friend on someone's profile.");
+            ImGui::PopTextWrapPos();
+        }
+        // Playing first, then online, then offline.
+        std::vector<const json*> sorted;
+        for (const auto& f : friends) sorted.push_back(&f);
+        auto rank = [](const json* f) { return f->contains("playing") ? 0 : f->value("online", false) ? 1 : 2; };
+        std::stable_sort(sorted.begin(), sorted.end(), [&](const json* a, const json* b) { return rank(a) < rank(b); });
+        for (size_t i = 0; i < sorted.size(); ++i) {
+            const json& f = *sorted[i];
+            std::string id = f.value("id", std::string());
+            ImGui::PushID((int)i);
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            avatarCircle(ImGui::GetWindowDrawList(), ImVec2(p.x + 20, p.y + 21), 18, id, f.value("name", std::string()));
+            ImGui::Dummy(ImVec2(44, 42));
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            if (nameLink(f, "name")) openProfile(id);
+            if (f.contains("playing")) {
+                const json& pl = f["playing"];
+                statusDot(IM_COL32(40, 160, 70, 255));
+                ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Playing %s%s", pl.value("title", std::string()).c_str(),
+                                   pl.value("private", false) ? " (private server)" : "");
+            } else if (f.value("online", false)) {
+                statusDot(IM_COL32(40, 120, 220, 255));
+                ImGui::TextColored(ImVec4(0.1f, 0.35f, 0.7f, 1), "Online");
+            } else {
+                statusDot(IM_COL32(160, 165, 175, 255));
+                ImGui::TextDisabled("Offline");
+            }
+            ImGui::EndGroup();
+            if (f.contains("playing")) {
+                const json& pl = f["playing"];
+                bool full = pl.value("full", false);
+                ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 10, ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 90));
+                ImGui::BeginDisabled(full);
+                if (Classic::button(full ? "Full" : "Join", Classic::kPlay, ImVec2(80, 30)))
+                    joinRelay(pl.value("session", std::string()), "", pl.value("title", std::string()));
+                ImGui::EndDisabled();
+            }
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+    } else if (m_friendsTab == 1) {
+        ImGui::SeparatorText("Asking to be your friend");
+        if (in.empty()) ImGui::TextDisabled("No new friend requests.");
+        for (size_t i = 0; i < in.size(); ++i) {
+            ImGui::PushID((int)i);
+            if (nameLink(in[i], "n")) openProfile(in[i].value("id", std::string()));
+            ImGui::SameLine(0, 16);
+            friendButton(in[i].value("id", std::string()), "received");
+            ImGui::PopID();
+        }
+        ImGui::SeparatorText("You asked");
+        if (out.empty()) ImGui::TextDisabled("Nothing waiting.");
+        for (size_t i = 0; i < out.size(); ++i) {
+            ImGui::PushID((int)i + 1000);
+            if (nameLink(out[i], "n")) openProfile(out[i].value("id", std::string()));
+            ImGui::SameLine(0, 16);
+            friendButton(out[i].value("id", std::string()), "sent");
+            ImGui::PopID();
+        }
+    } else {
+        ImGui::SetNextItemWidth(std::min(360.0f, ImGui::GetContentRegionAvail().x - 90));
+        bool enter = ImGui::InputTextWithHint("##fq", "Search by name", &m_friendQuery, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if ((Classic::button("Search", Classic::kBlue) || enter) && !m_friendQuery.empty())
+            Online::request("users.search", {{"query", m_friendQuery}}, [this](const json& r) {
+                m_friendSearch = r.value("ok", false) ? r["users"] : json::array();
+                m_friendMsg = r.value("ok", false) ? (m_friendSearch.empty() ? "Nobody by that name." : "") : r.value("error", std::string());
+            });
+        // Work out where we stand with each person from the lists we already have.
+        auto statusOf = [&](const std::string& id) {
+            if (id == Account::id()) return std::string("self");
+            for (const auto& f : friends) if (f.value("id", std::string()) == id) return std::string("friends");
+            for (const auto& f : out) if (f.value("id", std::string()) == id) return std::string("sent");
+            for (const auto& f : in) if (f.value("id", std::string()) == id) return std::string("received");
+            return std::string("none");
+        };
+        for (size_t i = 0; i < m_friendSearch.size(); ++i) {
+            const json& u = m_friendSearch[i];
+            std::string id = u.value("id", std::string()), st = statusOf(id);
+            ImGui::PushID((int)i);
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            avatarCircle(ImGui::GetWindowDrawList(), ImVec2(p.x + 16, p.y + 16), 14, id, u.value("name", std::string()));
+            ImGui::Dummy(ImVec2(36, 32));
+            ImGui::SameLine();
+            if (nameLink(u, "n")) openProfile(id);
+            ImGui::SameLine(0, 16);
+            if (st == "self") ImGui::TextDisabled("(you)");
+            else friendButton(id, st);
+            ImGui::PopID();
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+    if (smallLink("Same Wi-Fi? Join a game on your local network")) m_showJoin = true;
+}

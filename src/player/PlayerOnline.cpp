@@ -541,19 +541,18 @@ void PlayerApp::drawOnlineGameDialog() {
     ImGui::TextUnformatted(g.value("description", std::string()).c_str());
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
+    const std::string id = g.value("id", std::string()), name = g.value("name", std::string());
     ImGui::BeginDisabled(m_busy);
-    if (bigButton(m_busy ? "Downloading..." : "Play", kGreen, ImVec2(160, 38))) {
-        m_busy = true;
-        // Always fetch the newest version (the creator may have updated it).
-        Online::download(g.value("id", std::string()), [this](bool ok, const std::filesystem::path& file, const json& info) {
-            m_busy = false;
-            if (!ok) { m_onlineMsg = info.value("error", std::string("Couldn't download it.")); return; }
-            m_openOnlineGame = -1;
-            joinGame(file);
-            Online::fetchSounds(*m_scene);
-        }, true);
+    if (bigButton(m_busy ? "Working..." : "Play", kGreen, ImVec2(160, 38))) {
+        m_openOnlineGame = -1;
+        playGame(id, name, onlineStarter(id));   // a public server (or a new one if nobody's playing)
     }
     ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Create a server", ImVec2(150, 38))) {
+        m_openOnlineGame = -1;
+        openServers(id, name, onlineStarter(id));
+    }
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 38))) { m_openOnlineGame = -1; ImGui::CloseCurrentPopup(); }
     if (!m_onlineMsg.empty()) ImGui::TextWrapped("%s", m_onlineMsg.c_str());

@@ -169,12 +169,20 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "create") m_page = Page::Create;
     if (m_opts.page == "people") m_page = Page::People;
     if (m_opts.page == "groups") m_page = Page::Groups;
+    if (m_opts.page == "friends") m_page = Page::Friends;
+    if (m_opts.page.rfind("servers:", 0) == 0 && !m_games.empty()) {   // tests: a game's Servers window
+        m_selected = std::clamp(std::atoi(m_opts.page.c_str() + 8), 0, (int)m_games.size() - 1);
+        m_page = Page::GameInfo;
+        m_autoServers = true;
+    }
     if (m_opts.page.rfind("group:", 0) == 0) { m_groupId = m_opts.page.substr(6); m_page = Page::Group; }
     if (m_opts.page.rfind("profile:", 0) == 0) { m_profileId = m_opts.page.substr(8); m_page = Page::Profile; }
     if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
-    if (!m_opts.game.empty()) joinGame(m_opts.game, m_opts.host);
+    // (--online-play / --private-server / --join-code wait until we're online: see frame())
+    if (!m_opts.game.empty() && !m_opts.onlinePlay && !m_opts.privateServer)
+        joinGame(m_opts.game, m_opts.host ? HostMode::Lan : HostMode::Solo);
     if (!m_opts.join.empty()) joinServer(m_opts.join);
 }
 
@@ -258,7 +266,7 @@ void PlayerApp::refreshGames() {
     }
 }
 
-void PlayerApp::joinGame(const std::filesystem::path& path, bool host) {
+void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const std::string& gameKey) {
     std::string err;
     if (!Serializer::loadGameFile(*m_scene, path.string(), &err)) {
         m_status = "Couldn't load " + path.filename().string() + (err.empty() ? "" : ": " + err);
@@ -283,12 +291,26 @@ void PlayerApp::joinGame(const std::filesystem::path& path, bool host) {
     m_paused = false;
     m_status.clear();
     Log::clear();
-    if (host) {
+    if (mode == HostMode::Lan) {
         m_server = std::make_unique<NetServer>(m_scene.get(), m_session.get());
         std::string herr;
         if (!m_server->start(kDefaultPort, herr)) {
             m_status = "Couldn't host: " + herr;
             m_server.reset();
+        }
+    } else if (mode == HostMode::Public || mode == HostMode::Private) {
+        // Host through the Guts&Bolts server: players join via the server, never by our address.
+        std::string server, herr;
+        int port = 0;
+        if (Online::online() && Online::serverHostPort(server, port)) {
+            m_server = std::make_unique<NetServer>(m_scene.get(), m_session.get());
+            nlohmann::json req = Online::signedRequest("relay.host", {{"game", gameKey.empty() ? "local:" + path.stem().string() : gameKey},
+                                                            {"title", m_currentTitle}, {"private", mode == HostMode::Private},
+                                                            {"max", 12}});
+            if (!m_server->startRelay(server, port, req.dump(), herr)) {
+                m_status = "Couldn't start a server (" + herr + "), so you're playing alone.";
+                m_server.reset();
+            }
         }
     }
     m_session->start();
@@ -312,6 +334,7 @@ void PlayerApp::joinServer(const std::string& address) {
         return;
     }
     m_currentTitle = "Joining " + address + "...";
+    m_joinedOnce = false;
     m_paused = false;
     m_status.clear();
     Log::clear();
@@ -348,6 +371,25 @@ void PlayerApp::leaveGame() {
 
 void PlayerApp::frame(float dt) {
     Online::update();   // replies from the Guts&Bolts server
+    if (m_autoServers && Online::online()) {
+        m_autoServers = false;
+        const GameCard& g = m_games[m_selected];
+        openServers("local:" + g.path.stem().string(), g.info.title, localStarter(g.path));
+    }
+    if (!m_autoStarted && Online::online()) {   // test options that need the server first
+        if (m_opts.onlinePlay && !m_opts.game.empty()) {
+            m_autoStarted = true;
+            std::filesystem::path path = m_opts.game;
+            playGame("local:" + path.stem().string(), path.stem().string(), localStarter(path));
+        } else if (m_opts.privateServer && !m_opts.game.empty()) {
+            m_autoStarted = true;
+            std::filesystem::path path = m_opts.game;
+            joinGame(path, HostMode::Private);
+        } else if (!m_opts.joinCode.empty()) {
+            m_autoStarted = true;
+            joinRelay("", m_opts.joinCode, "");
+        }
+    }
     m_window->lockLandscape(m_page == Page::Game);   // phones: games are landscape, the site isn't
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -400,6 +442,7 @@ void PlayerApp::frame(float dt) {
             case Page::Profile:  drawProfile(); break;
             case Page::Groups:   drawGroups(); break;
             case Page::Group:    drawGroup(); break;
+            case Page::Friends:  drawFriends(); break;
             default: break;
         }
         Classic::popLight();
@@ -412,6 +455,7 @@ void PlayerApp::frame(float dt) {
     if (m_page != Page::Game) touchScroll();
     SettingsWindow::draw(&m_showSettings);
     drawJoinDialog();
+    drawServersDialog();
     drawItemDialog();
     drawCreateItemDialog();
     drawServerDialog();
@@ -422,12 +466,13 @@ void PlayerApp::frame(float dt) {
 }
 
 void PlayerApp::drawJoinDialog() {
-    if (m_showJoin) { ImGui::OpenPopup("Join a Friend"); m_showJoin = false; }
+    if (m_showJoin) { ImGui::OpenPopup("Join on local network"); m_showJoin = false; }
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(420), 0));
-    if (ImGui::BeginPopupModal("Join a Friend", nullptr, ImGuiWindowFlags_NoResize)) {
-        ImGui::TextWrapped("Ask your friend to click Host on a game, then type the address it shows "
-                           "(like 192.168.1.20). On the same computer, use 127.0.0.1.");
+    if (ImGui::BeginPopupModal("Join on local network", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::TextWrapped("For people on the same Wi-Fi only. Your friend opens a game, clicks Create a server, "
+                           "then Local network, and tells you the address it shows (like 192.168.1.20). "
+                           "Online, use your Friends list instead: it never shares anyone's address.");
         ImGui::Spacing();
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(-1);
@@ -514,7 +559,11 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
     const float navH = 34.0f;
     struct Item { const char* label; int action; };
-    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"People", 11}, {"Groups", 12}, {"Avatar", 2}, {"Join a Friend", 3},
+    // "Friends (2)" when friend requests are waiting.
+    static std::string friendsLabel;
+    size_t waiting = m_friends.contains("incoming") ? m_friends["incoming"].size() : 0;
+    friendsLabel = waiting ? "Friends (" + std::to_string(waiting) + ")" : std::string("Friends");
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Friends", 3}, {"People", 11}, {"Groups", 12}, {"Avatar", 2},
                                {"Develop", 4}, {"Settings", 5}};
     if (Badges::canVerify()) items.push_back({"Staff", 7});
 #ifdef GB_MOBILE
@@ -529,7 +578,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     {
         float x = pos.x + 14, row = 0;
         for (const Item& it : items) {
-            float w = ImGui::CalcTextSize(it.label).x;
+            float w = ImGui::CalcTextSize(it.action == 3 ? friendsLabel.c_str() : it.label).x;
             if (x + w + 8 > pos.x + width && x > pos.x + 14) { x = pos.x + 14; row += navH; }
             at.push_back(ImVec2(x, row));
             x += w + 26;
@@ -540,19 +589,20 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     dl->AddRectFilledMultiColor(n0, n1, Classic::kNavTop, Classic::kNavTop, Classic::kNavBottom, Classic::kNavBottom);
     dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), IM_COL32(10, 60, 130, 255));
     for (size_t k = 0; k < items.size(); ++k) {
-        const Item& it = items[k];
+        Item it = items[k];
+        if (it.action == 3) it.label = friendsLabel.c_str();
         float x = at[k].x;
         float rowY = n0.y + at[k].y;
         ImVec2 sz = ImGui::CalcTextSize(it.label);
         ImVec2 p0(x - 8, rowY), p1(x + sz.x + 8, rowY + navH);
         ImGui::SetCursorScreenPos(p0);
-        ImGui::PushID(it.label);
+        ImGui::PushID(it.action);
         bool clicked = ImGui::InvisibleButton("##nav", ImVec2(p1.x - p0.x, navH));
         ImGui::PopID();
         bool active = (it.action == 0 && m_page == Page::Home) || (it.action == 1 && m_page == Page::Games) ||
                       (it.action == 2 && m_page == Page::Avatar) || (it.action == 6 && m_page == Page::Catalog) ||
                       (it.action == 7 && m_page == Page::Staff) || (it.action == 8 && m_page == Page::Bolts) ||
-                      (it.action == 9 && m_page == Page::Create) ||
+                      (it.action == 9 && m_page == Page::Create) || (it.action == 3 && m_page == Page::Friends) ||
                       (it.action == 11 && (m_page == Page::People || m_page == Page::Profile)) ||
                       (it.action == 12 && (m_page == Page::Groups || m_page == Page::Group));
         if (ImGui::IsItemHovered() || active)
@@ -564,7 +614,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 0: m_page = Page::Home; m_loaded.clear(); break;
                 case 1: m_page = Page::Games; m_category = "all"; break;
                 case 2: m_page = Page::Avatar; break;
-                case 3: m_showJoin = true; break;
+                case 3: m_page = Page::Friends; m_friendsAt = -100.0; m_friendMsg.clear(); break;
                 case 4:
                     if (!Paths::launch(Paths::sibling("GutsAndBolts")))
                         m_status = "Couldn't find the Guts and Bolts editor next to this app.";
@@ -695,7 +745,7 @@ void PlayerApp::drawHome() {
     drawRow("Classic", classic, "classic");
 
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Tip: click Host on a game's page to play with friends, then they click Join a Friend.");
+    ImGui::TextDisabled("Tip: press Play to jump into a public server, or open a game and click Create a server to play privately with friends.");
     ImGui::PopTextWrapPos();
 }
 
@@ -770,10 +820,15 @@ void PlayerApp::drawGameInfo() {
     else      ImGui::SameLine(0, 20);
     ImGui::BeginGroup();
     ImGui::BeginDisabled(g.broken);
-    if (Classic::button("Play", Classic::kPlay, ImVec2(220, 56))) joinGame(g.path);
-    ImGui::Spacing();
-    if (Classic::button("Host (play with friends)", Classic::kBlue, ImVec2(220, 34))) joinGame(g.path, true);
+    const std::string key = "local:" + g.path.stem().string();
+    ImGui::BeginDisabled(m_busy);
+    if (Classic::button(m_busy ? "Finding a server..." : "Play", Classic::kPlay, ImVec2(220, 56)))
+        playGame(key, g.info.title, localStarter(g.path));
     ImGui::EndDisabled();
+    ImGui::Spacing();
+    if (Classic::button("Create a server", Classic::kBlue, ImVec2(220, 34))) openServers(key, g.info.title, localStarter(g.path));
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(Online::online() ? "Play puts you in a public server." : "Offline: Play is just you.");
     ImGui::Spacing();
     ImGui::TextDisabled("Death: %s", g.ragdoll ? "Ragdoll" : "Classic");
     ImGui::TextDisabled("Gore: %s", g.gore ? "Yes" : "No");
@@ -930,7 +985,10 @@ void PlayerApp::drawGame(float dt) {
             m_status = err;
             return;
         }
-        if (m_client->state() == NetClient::State::Joined) m_currentTitle = m_client->gameTitle();
+        if (m_client->state() == NetClient::State::Joined) {
+            m_currentTitle = m_client->gameTitle();
+            if (!m_joinedOnce) { m_joinedOnce = true; Online::fetchSounds(*m_scene); }   // server audio the host's game uses
+        }
     }
     if (m_server) m_server->update(dt);
     if (!m_server && !m_client) m_soloChat->update(dt);
@@ -1130,6 +1188,18 @@ void PlayerApp::drawPauseMenu() {
     ImGui::SetWindowFontScale(1.3f);
     ImGui::TextUnformatted(m_currentTitle.c_str());
     ImGui::SetWindowFontScale(1.0f);
+    if (m_server && m_server->relayed()) {
+        if (!m_server->relayCode().empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1), "Private server - code: %s", m_server->relayCode().c_str());
+            ImGui::TextDisabled("Friends can also join from their Friends list.");
+        } else {
+            ImGui::TextDisabled(m_server->relayReady() ? "Public server" : "Starting the server...");
+        }
+    } else if (m_server) {
+        ImGui::TextDisabled("Local network server");
+    } else if (!m_client) {
+        ImGui::TextDisabled("Offline - just you");
+    }
     ImGui::Separator();
     ImGui::Spacing();
     const ImVec2 full(-1, 40);

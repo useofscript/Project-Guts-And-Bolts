@@ -20,11 +20,6 @@ namespace fs = std::filesystem;
 using namespace ServerUtil;
 
 
-struct GbServer::Client {
-    std::unique_ptr<Net::Connection> conn;
-    long long lastActive = 0;
-};
-
 GbServer::GbServer(Options opts) : m_opts(std::move(opts)) {
     if (!m_opts.official.empty()) Account::setOfficialId(m_opts.official);
 }
@@ -52,28 +47,36 @@ void GbServer::runForever() {
 void GbServer::step(int waitMs) {
     long long now = Online::unixNow();
     while (auto c = m_listener->accept()) {
-        if (m_clients.size() >= 256) continue;   // too busy: drop it
+        if (m_clients.size() >= 1024) continue;   // too busy: drop it
         auto cl = std::make_unique<Client>();
         cl->conn = std::move(c);
-        cl->lastActive = now;
+        cl->lastActive = cl->since = now;
         m_clients.push_back(std::move(cl));
     }
-    for (auto& c : m_clients) {
-        if (!c->conn->poll()) continue;
+    for (size_t i = 0; i < m_clients.size(); ++i) {   // (relay requests can add clients while we go)
+        Client* c = m_clients[i].get();
+        if (!c->conn->poll() || c->closing) continue;
         std::string msg;
-        while (c->conn->pop(msg)) {
+        while (!c->closing && c->conn->pop(msg)) {
             c->lastActive = now;
+            if (c->mode == Client::Mode::Pipe) {           // game traffic: pass it on untouched
+                if (c->peer) { c->peer->conn->send(msg); c->peer->lastActive = now; }
+                continue;
+            }
             json req = json::parse(msg, nullptr, false);
-            json reply = req.is_object() ? handle(req) : fail("That wasn't a proper request.");
-            if (req.is_object() && req.contains("id")) reply["id"] = req["id"];   // lets clients match replies
+            if (c->mode == Client::Mode::HostControl) continue;   // pings keep it alive
+            if (c->mode == Client::Mode::PendingJoin) continue;   // waiting for the host
+            if (!req.is_object()) { c->conn->send(fail("That wasn't a proper request.").dump()); continue; }
+            if (req.value("t", std::string()) == "accept") { relayAccept(*c, req.value("ticket", std::string())); continue; }
+            if (req.value("op", std::string()).rfind("relay.", 0) == 0) { relayRequest(*c, req); continue; }
+            json reply = handle(req);
+            if (req.contains("id")) reply["id"] = req["id"];   // lets clients match replies
             c->conn->send(reply.dump());
         }
-        c->conn->poll();   // start sending the reply straight away
     }
-    // Drop closed and idle connections (but let big replies finish sending).
-    m_clients.erase(std::remove_if(m_clients.begin(), m_clients.end(), [&](const std::unique_ptr<Client>& c) {
-        return !c->conn->alive() || (now - c->lastActive > 120 && c->conn->pendingBytes() == 0);
-    }), m_clients.end());
+    for (auto& c : m_clients) if (c->conn->pendingBytes()) c->conn->poll();   // send what we queued straight away
+    relayStep(now);
+    dropClients(now);
     // Forget old nonces.
     for (auto it = m_seenNonces.begin(); it != m_seenNonces.end();)
         it = now - it->second > 2 * Online::kMaxClockSkew ? m_seenNonces.erase(it) : std::next(it);
@@ -85,6 +88,18 @@ void GbServer::step(int waitMs) {
 // ---------------------------------------------------------------------------
 
 json GbServer::handle(const json& req) {
+    User* me = nullptr;
+    json bad = checkRequest(req, me);
+    if (!bad.is_null()) return bad;
+    json args = req.contains("args") && req["args"].is_object() ? req["args"] : json::object();
+    try {
+        return op(req.value("op", std::string()), *me, args);
+    } catch (const std::exception& e) {
+        return fail(std::string("The server hit a problem: ") + e.what());
+    }
+}
+
+json GbServer::checkRequest(const json& req, User*& out) {
     std::string opName = req.value("op", std::string());
     std::string account = lower(req.value("account", std::string()));
     std::string nonce = req.value("nonce", std::string());
@@ -106,11 +121,8 @@ json GbServer::handle(const json& req) {
     User& me = user(account);
     me.lastSeen = now;
     if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
-    try {
-        return op(opName, me, args);
-    } catch (const std::exception& e) {
-        return fail(std::string("The server hit a problem: ") + e.what());
-    }
+    out = &me;
+    return nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +257,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             groups.push_back(pg);
         }
         r["groups"] = groups;
+        r["friendCount"] = u->friends.size();
+        r["friendship"] = u->id == me.id ? "self" : me.friends.count(u->id) ? "friends"
+                        : me.friendOut.count(u->id) ? "sent" : me.friendIn.count(u->id) ? "received" : "none";
         return r;
     }
     if (name == "users.search") {
@@ -271,6 +286,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay(); r["users"] = list; return r;
     }
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
+    if (name.rfind("friends.", 0) == 0) return friendOp(name, me, args);
+    if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
+    if (name == "ping") return okay();   // "I'm still here" (for friends' online dots)
 
     // --- Bolts --------------------------------------------------------------
     if (name == "bolts.history") {
@@ -529,7 +547,8 @@ void GbServer::saveUsers() {
         for (const Entry& e : u.ledger) ledger.push_back({e.amount, e.reason, e.time, e.ref});
         all[id] = {{"name", u.name}, {"created", u.created}, {"lastSeen", u.lastSeen}, {"ledger", ledger},
                    {"grants", u.grants}, {"owned", u.owned}, {"uploadDay", u.uploadDay}, {"uploadsToday", u.uploadsToday},
-                   {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned}};
+                   {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned},
+                   {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut}};
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -568,6 +587,11 @@ void GbServer::load() {
                 u.playEarned = j.value("playEarned", 0LL);
                 u.lastPlay = j.value("lastPlay", 0LL);
                 u.banned = j.value("banned", false);
+                for (const char* k : {"friends", "friendIn", "friendOut"}) {
+                    std::set<std::string>& set = std::string(k) == "friends" ? u.friends : std::string(k) == "friendIn" ? u.friendIn : u.friendOut;
+                    if (j.contains(k) && j[k].is_array())
+                        for (const auto& f : j[k]) if (f.is_string()) set.insert(f.get<std::string>());
+                }
                 m_users[id] = std::move(u);
             }
     }

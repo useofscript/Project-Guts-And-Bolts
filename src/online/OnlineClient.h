@@ -43,6 +43,11 @@ void takeMe(const nlohmann::json& reply);
 // Requests still waiting for an answer (for "Working..." spinners).
 int  pending();
 
+// A signed request, ready to send yourself (the game relay uses its own connection).
+nlohmann::json signedRequest(const std::string& op, const nlohmann::json& args);
+// The server's host name and port, split out of serverAddress().
+bool serverHostPort(std::string& host, int& port);
+
 // Wait for every request to finish (tests / quitting).
 void finishAll(int timeoutMs = 30000);
 

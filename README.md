@@ -310,10 +310,13 @@ blood & gore**.
 ## Guts&Bolts Player
 
 - **Home:** every game in the `games` folder, each with a rendered preview.
-  Press **Play** to play alone or **Host** to let friends join.
-- **Join a Friend:** type the host's address (the host's chat shows it). The
-  default port is 7777, so for play over the internet the host needs to
-  forward that port on their router.
+  Press **Play** to jump into a **public server** of that game (when you're
+  connected to a Guts&Bolts server; otherwise you just play alone).
+- **Create a server** (on a game's page): a **private server** (friends and
+  people with its code), **offline** (just you) or **local network** (same
+  Wi-Fi). The same window lists the servers running now and has a box for
+  joining with a code.
+- **Friends:** see "Friends and servers" below.
 - **Catalog:** hats, shirts and pants for your avatar. Only the official staff
   account can add items (see below), so it starts out empty.
 - **Avatar:** display name, outfits, body colours and hats. You wear these in
@@ -403,6 +406,36 @@ plugins:
 The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also
 make people **Staff**, give or take Bolts, and ban.
+
+### Friends and servers (no IP addresses)
+
+Online games go **through the Guts&Bolts server**. Someone's computer still
+runs the game (the host), but everyone, host included, only ever connects to
+the Guts&Bolts server, and it passes the game's messages along. So:
+
+- nobody sees anybody else's IP address, and
+- nobody has to open ports on their router.
+
+**Play** asks the server for the fullest public server of that game that still
+has room. If nobody's playing, you quietly become the host of a new public
+server, and the next person to press Play joins you.
+
+**Private servers** get a 6-letter code (it shows in the pause menu). Your
+friends can join straight from their Friends list; anyone else needs the
+code. Private servers never show up for strangers, and Play never puts
+strangers in them.
+
+The **Friends** page has three tabs:
+
+- **Friends:** who's online, who's playing what (with a **Join** button);
+- **Requests:** friend requests to accept or decline, and the ones you sent;
+- **Add Friends:** search by name.
+
+Profiles also have an **Add Friend** button. Your friends list is only shown to
+you, and nothing on the site shows anyone's address or when they were last on.
+
+The old "type an address" way of joining still exists, but only for games on
+your **local network** (same Wi-Fi).
 
 ### People and Groups
 
