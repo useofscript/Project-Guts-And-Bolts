@@ -18,6 +18,19 @@ struct AABB {
     AABB inflated(float d) const { return {min - glm::vec3(d), max + glm::vec3(d)}; }
 };
 
+// A box that can be rotated any way (used for tilted parts, ramps, etc.).
+struct OBB {
+    glm::vec3 center{0.0f};
+    glm::vec3 axis[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    glm::vec3 half{0.5f};
+    static OBB fromAABB(const AABB& b) {
+        OBB o;
+        o.center = (b.min + b.max) * 0.5f;
+        o.half = (b.max - b.min) * 0.5f;
+        return o;
+    }
+};
+
 // "part was touched by other" — fed to the Touched event in scripts.
 struct TouchEvent {
     uint64_t partId;
@@ -43,6 +56,10 @@ public:
     static constexpr float kStepHeight    = 0.55f;
 
     static AABB worldBounds(const SceneNode* node);
+    static OBB  worldOBB(const SceneNode* node);
+    // Separating-axis test. On overlap, `normal` is the direction to push `a`
+    // out of `b` and `depth` how far.
+    static bool obbOverlap(const OBB& a, const OBB& b, glm::vec3& normal, float& depth);
     // First visible part hit by a ray (skipping `ignore` and everything inside it).
     static SceneNode* raycast(Scene& scene, const glm::vec3& origin, const glm::vec3& dir,
                               float* distance = nullptr, const SceneNode* ignore = nullptr);
@@ -74,7 +91,10 @@ private:
         AABB       box;
         bool       solid;     // CanCollide
         bool       dynamic;   // unanchored
+        bool       rotated;   // not lined up with the world axes: use `obb`
+        OBB        obb;
     };
+    static OBB charOBB(const glm::vec3& feet);
     bool blocked(const AABB& box) const;
 
     std::vector<Collider>                  m_colliders;

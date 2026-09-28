@@ -10,7 +10,7 @@ class SceneNode;
 enum class Premade {
     SpawnLocation, KillBrick, Spinner, JumpPad, Coin, DisappearingPlatform,
     MovingPlatform, SpeedPad, ClickButton, FallingBall, DayNightCycle, LampPost, DiscoFloor,
-    Landmine, SawBlade, SpikeTrap, ExplodingBarrel,
+    Landmine, SawBlade, SpikeTrap, ExplodingBarrel, Ramp,
 };
 
 struct PremadeInfo {

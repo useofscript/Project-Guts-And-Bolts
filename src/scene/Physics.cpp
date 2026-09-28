@@ -92,6 +92,76 @@ SceneNode* Physics::raycast(Scene& scene, const glm::vec3& ro, const glm::vec3& 
     return best;
 }
 
+namespace {
+bool isRotated(const glm::mat4& m) {
+    for (int i = 0; i < 3; ++i) {
+        glm::vec3 c = glm::vec3(m[i]);
+        float len = glm::length(c);
+        if (len < 1e-6f) continue;
+        c /= len;
+        float mx = std::max(std::abs(c.x), std::max(std::abs(c.y), std::abs(c.z)));
+        if (mx < 0.9995f) return true;
+    }
+    return false;
+}
+} // namespace
+
+OBB Physics::worldOBB(const SceneNode* node) {
+    glm::vec3 bmin, bmax;
+    localBounds(node->primitiveType, bmin, bmax);
+    glm::mat4 m = node->worldMatrix();
+    OBB o;
+    o.center = glm::vec3(m * glm::vec4((bmin + bmax) * 0.5f, 1.0f));
+    for (int i = 0; i < 3; ++i) {
+        glm::vec3 col = glm::vec3(m[i]);
+        float len = glm::length(col);
+        o.axis[i] = len > 1e-8f ? col / len : glm::vec3(i == 0, i == 1, i == 2);
+        o.half[i] = len * (bmax[i] - bmin[i]) * 0.5f;
+    }
+    return o;
+}
+
+bool Physics::obbOverlap(const OBB& a, const OBB& b, glm::vec3& normal, float& depth) {
+    glm::vec3 axes[15];
+    int n = 0;
+    for (int i = 0; i < 3; ++i) axes[n++] = a.axis[i];
+    for (int i = 0; i < 3; ++i) axes[n++] = b.axis[i];
+    int faceAxes = n;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) {
+            glm::vec3 c = glm::cross(a.axis[i], b.axis[j]);
+            float l = glm::length(c);
+            if (l > 1e-3f) axes[n++] = c / l;
+        }
+    glm::vec3 d = b.center - a.center;
+    depth = 1e30f;
+    for (int k = 0; k < n; ++k) {
+        const glm::vec3& L = axes[k];
+        float ra = 0.0f, rb = 0.0f;
+        for (int i = 0; i < 3; ++i) {
+            ra += a.half[i] * std::abs(glm::dot(a.axis[i], L));
+            rb += b.half[i] * std::abs(glm::dot(b.axis[i], L));
+        }
+        float proj = glm::dot(d, L);
+        float overlap = ra + rb - std::abs(proj);
+        if (overlap <= 0.0f) return false;
+        // Prefer face directions a little: they give steadier pushes than edges.
+        float score = k < faceAxes ? overlap : overlap * 1.05f;
+        if (score < depth) {
+            depth = overlap;
+            normal = proj > 0.0f ? -L : L;
+        }
+    }
+    return true;
+}
+
+OBB Physics::charOBB(const glm::vec3& f) {
+    OBB o;
+    o.center = f + glm::vec3(0.0f, kCharHeight * 0.5f, 0.0f);
+    o.half = {kCharHalfWidth, kCharHeight * 0.5f, kCharHalfWidth};
+    return o;
+}
+
 AABB Physics::characterBox(const glm::vec3& f) {
     return {{f.x - kCharHalfWidth, f.y, f.z - kCharHalfWidth},
             {f.x + kCharHalfWidth, f.y + kCharHeight, f.z + kCharHalfWidth}};
@@ -112,23 +182,39 @@ void Physics::gather(Scene& scene) {
         if (!n->visible) continue;
         if (scene.isCharacterPart(n)) continue;
         if (n->isPart() && !n->internal)
+        {
+            glm::mat4 m = n->worldMatrix();
+            bool rot = isRotated(m);
             m_colliders.push_back({n, worldBounds(n), n->canCollide,
-                                   !n->anchored && !hasDynamicAncestor(n)});
+                                   !n->anchored && !hasDynamicAncestor(n), rot,
+                                   rot ? worldOBB(n) : OBB{}});
+        }
         for (auto& c : n->children) stack.push_back(c.get());
     }
 }
 
 bool Physics::blocked(const AABB& box) const {
-    for (const auto& c : m_colliders)
-        if (c.solid && box.overlaps(c.box)) return true;
+    OBB ob = OBB::fromAABB(box);
+    for (const auto& c : m_colliders) {
+        if (!c.solid || !box.overlaps(c.box)) continue;
+        if (!c.rotated) return true;
+        glm::vec3 n; float d;
+        if (obbOverlap(ob, c.obb, n, d)) return true;
+    }
     return false;
 }
 
 float Physics::pushUp(const AABB& box) const {
     float push = 0.0f;
     float h = box.max.y - box.min.y;
+    OBB ob = OBB::fromAABB(box);
     for (const auto& c : m_colliders) {
         if (!c.solid || !box.overlaps(c.box)) continue;
+        if (c.rotated) {
+            glm::vec3 n; float d;
+            if (obbOverlap(ob, c.obb, n, d) && n.y > 0.4f) push = std::max(push, std::min(d / n.y, h + 0.05f));
+            continue;
+        }
         float d = c.box.max.y - box.min.y;
         if (d > 0.0f && d <= h + 0.05f) push = std::max(push, d);
     }
@@ -136,10 +222,17 @@ float Physics::pushUp(const AABB& box) const {
 }
 
 bool Physics::solidAt(const glm::vec3& p) const {
-    for (const auto& c : m_colliders)
-        if (c.solid && p.x > c.box.min.x && p.x < c.box.max.x && p.y > c.box.min.y &&
-            p.y < c.box.max.y && p.z > c.box.min.z && p.z < c.box.max.z)
-            return true;
+    for (const auto& c : m_colliders) {
+        if (!(c.solid && p.x > c.box.min.x && p.x < c.box.max.x && p.y > c.box.min.y &&
+              p.y < c.box.max.y && p.z > c.box.min.z && p.z < c.box.max.z))
+            continue;
+        if (!c.rotated) return true;
+        glm::vec3 d = p - c.obb.center;
+        bool inside = true;
+        for (int i = 0; i < 3; ++i)
+            if (std::abs(glm::dot(d, c.obb.axis[i])) > c.obb.half[i]) inside = false;
+        if (inside) return true;
+    }
     return false;
 }
 
@@ -147,6 +240,33 @@ bool Physics::resolveSphere(glm::vec3& c, float r, glm::vec3* normal) const {
     bool hit = false;
     for (const auto& col : m_colliders) {
         if (!col.solid) continue;
+        if (col.rotated) {
+            // Work in the box's own coordinates.
+            const OBB& o = col.obb;
+            glm::vec3 rel = c - o.center;
+            glm::vec3 local(glm::dot(rel, o.axis[0]), glm::dot(rel, o.axis[1]), glm::dot(rel, o.axis[2]));
+            glm::vec3 cl = glm::clamp(local, -o.half, o.half);
+            glm::vec3 dl = local - cl;
+            float dist2 = glm::dot(dl, dl);
+            if (dist2 > r * r) continue;
+            glm::vec3 nl;
+            if (dist2 > 1e-10f) {
+                float dist = std::sqrt(dist2);
+                nl = dl / dist;
+                local = cl + nl * r;
+            } else {
+                glm::vec3 room = o.half - glm::abs(local);
+                int ax = room.x < room.y ? (room.x < room.z ? 0 : 2) : (room.y < room.z ? 1 : 2);
+                nl = glm::vec3(0.0f);
+                nl[ax] = local[ax] >= 0.0f ? 1.0f : -1.0f;
+                local[ax] = nl[ax] * (o.half[ax] + r);
+            }
+            glm::vec3 n = o.axis[0] * nl.x + o.axis[1] * nl.y + o.axis[2] * nl.z;
+            c = o.center + o.axis[0] * local.x + o.axis[1] * local.y + o.axis[2] * local.z;
+            if (normal) *normal = n;
+            hit = true;
+            continue;
+        }
         glm::vec3 closest = glm::clamp(c, col.box.min, col.box.max);
         glm::vec3 d = c - closest;
         float dist2 = glm::dot(d, d);
@@ -183,7 +303,7 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
         if (std::abs(delta[axis]) < 1e-7f) continue;
         pos[axis] += delta[axis];
         for (const auto& c : m_colliders) {
-            if (!c.solid) continue;
+            if (!c.solid || c.rotated) continue;
             AABB box = characterBox(pos);
             if (!box.overlaps(c.box)) continue;
 
@@ -201,7 +321,7 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
     // Vertical.
     pos.y += delta.y;
     for (const auto& c : m_colliders) {
-        if (!c.solid) continue;
+        if (!c.solid || c.rotated) continue;
         AABB box = characterBox(pos);
         if (!box.overlaps(c.box)) continue;
         if (delta.y <= 0.0f) {
@@ -211,6 +331,65 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
         } else {
             pos.y = c.box.min.y - kCharHeight - 1e-4f;
             r.hitCeiling = true;
+        }
+    }
+
+    // Tilted parts (ramps etc.): push out along the surface. Surfaces that are
+    // flat enough to stand on push straight up, so you don't slide down them.
+    auto resolveRotated = [&](glm::vec3& p, MoveResult& res) {
+        bool touched = false;
+        for (int iter = 0; iter < 4; ++iter) {
+            bool any = false;
+            for (const auto& c : m_colliders) {
+                if (!c.solid || !c.rotated) continue;
+                glm::vec3 n; float d;
+                if (!obbOverlap(charOBB(p), c.obb, n, d)) continue;
+                any = touched = true;
+                if (n.y > 0.55f) {
+                    p.y += std::min(d / n.y, 1.0f);
+                    res.grounded = true;
+                    res.groundId = c.node->id;
+                } else if (n.y < -0.55f) {
+                    p += n * d;
+                    res.hitCeiling = true;
+                } else {
+                    glm::vec3 h(n.x, 0.0f, n.z);
+                    float l = glm::length(h);
+                    if (l > 1e-4f) p += h / l * std::min(d / l, 1.0f);
+                }
+            }
+            if (!any) break;
+        }
+        return touched;
+    };
+    resolveRotated(pos, r);
+
+    // Stick to the ground when walking down slopes and steps (instead of
+    // flying off every little edge).
+    if (wasGrounded && delta.y <= 0.0f && !r.grounded) {
+        glm::vec3 probe = pos - glm::vec3(0.0f, 0.4f, 0.0f);
+        float bestY = -1e30f;
+        uint64_t bestId = 0;
+        for (const auto& c : m_colliders) {
+            if (!c.solid) continue;
+            if (!c.rotated) {
+                AABB box = characterBox(probe);
+                if (box.overlaps(c.box) && c.box.max.y <= pos.y + 0.01f && c.box.max.y > bestY) {
+                    bestY = c.box.max.y;
+                    bestId = c.node->id;
+                }
+            } else {
+                glm::vec3 n; float d;
+                if (obbOverlap(charOBB(probe), c.obb, n, d) && n.y > 0.55f) {
+                    float y = probe.y + d / n.y;
+                    if (y <= pos.y + 0.01f && y > bestY) { bestY = y; bestId = c.node->id; }
+                }
+            }
+        }
+        if (bestId) {
+            pos.y = bestY;
+            r.grounded = true;
+            r.groundId = bestId;
         }
     }
 
@@ -239,7 +418,7 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
             for (size_t j = 0; j < m_colliders.size(); ++j) {
                 if (j == i) continue;
                 const Collider& o = m_colliders[j];
-                if (!o.solid || !box.overlaps(o.box)) continue;
+                if (!o.solid || o.rotated || !box.overlaps(o.box)) continue;
                 if (o.node->isAncestorOf(n) || n->isAncestorOf(o.node)) continue;
                 float fix = (d > 0.0f) ? (o.box.min[axis] - box.max[axis])
                                        : (o.box.max[axis] - box.min[axis]);
@@ -252,6 +431,25 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
                     float f = std::max(0.0f, 1.0f - 6.0f * dt);
                     n->velocity.x *= f;
                     n->velocity.z *= f;
+                }
+            }
+        }
+
+        // Tilted parts: slide off along their surface (so balls roll down ramps).
+        if (me.solid) {
+            for (size_t j = 0; j < m_colliders.size(); ++j) {
+                const Collider& o = m_colliders[j];
+                if (j == i || !o.solid || !o.rotated || !box.overlaps(o.box)) continue;
+                glm::vec3 nrm; float depth;
+                if (!obbOverlap(OBB::fromAABB(box), o.obb, nrm, depth)) continue;
+                glm::vec3 fix = nrm * depth;
+                box.min += fix; box.max += fix;
+                worldDelta += fix;
+                float vn = glm::dot(n->velocity, nrm);
+                if (vn < 0.0f) n->velocity -= nrm * vn;          // stop going into the surface
+                if (nrm.y > 0.5f) {
+                    float f = std::max(0.0f, 1.0f - 2.0f * dt);  // a little friction
+                    n->velocity *= f;
                 }
             }
         }
@@ -280,8 +478,13 @@ void Physics::collectTouches(Scene& scene, std::vector<TouchEvent>& out) {
     SceneNode* charRoot = player ? player->root() : nullptr;
     if (charRoot && !player->isDead()) {
         AABB body = characterBox(player->position()).inflated(0.05f);
+        OBB bodyObb = OBB::fromAABB(body);
         for (const auto& c : m_colliders) {
             if (!body.overlaps(c.box)) continue;
+            if (c.rotated) {
+                glm::vec3 nrm; float depth;
+                if (!obbOverlap(bodyObb, c.obb, nrm, depth)) continue;
+            }
             // Report the limb that actually touched (legs for floors, etc.).
             uint64_t limb = 0;
             AABB hitBox = c.box.inflated(0.1f);

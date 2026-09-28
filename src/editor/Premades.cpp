@@ -266,6 +266,7 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::ClickButton,          "Click Button",    "Click it with the mouse during Play"},
         {Premade::FallingBall,          "Falling Ball",    "An unanchored ball that drops with gravity"},
         {Premade::DayNightCycle,        "Day/Night Cycle", "A script that makes time pass"},
+        {Premade::Ramp,                 "Ramp",            "A slope you can walk (or roll things) up"},
         {Premade::Landmine,             "Landmine",        "Explodes when stepped on"},
         {Premade::SawBlade,             "Saw Blade",       "A spinning blade. Touch it and lose limbs"},
         {Premade::SpikeTrap,            "Spike Trap",      "Spikes shoot up every few seconds"},
@@ -320,6 +321,10 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
         case Premade::FallingBall:
             n = addPart(scene, "Ball", PrimitiveType::Sphere, at + glm::vec3(0, 6.0f, 0), {1.5f, 1.5f, 1.5f}, {0.95f, 0.95f, 0.95f});
             n->anchored = false;
+            break;
+        case Premade::Ramp:
+            n = addPart(scene, "Ramp", PrimitiveType::Cube, at + glm::vec3(0, 1.5f, 0), {4, 0.5f, 9}, {0.8f, 0.55f, 0.3f}, Material::Wood);
+            n->transform.rotation = {20, 0, 0};
             break;
         case Premade::Landmine:
             n = addPart(scene, "Landmine", PrimitiveType::Cylinder, at + glm::vec3(0, 0.05f, 0), {0.9f, 0.1f, 0.9f}, {0.3f, 0.05f, 0.05f}, Material::Neon);
