@@ -24,7 +24,7 @@
             android:name=".GutsActivity"
             android:label="Guts&amp;Bolts"
             android:exported="true"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="fullUser"
             android:alwaysRetainTaskState="true"
             android:launchMode="singleInstance"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"

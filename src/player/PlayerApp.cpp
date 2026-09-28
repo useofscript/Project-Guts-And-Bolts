@@ -41,6 +41,11 @@ bool bigButton(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
     return r;
 }
 
+// Tall (portrait) phone screen?
+bool portraitScreen() { const ImVec2 d = ImGui::GetIO().DisplaySize; return d.y > d.x; }
+// A dialog width that still fits on a narrow phone screen.
+float fitWidth(float want) { return std::min(want, ImGui::GetIO().DisplaySize.x - 24.0f); }
+
 std::string lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
     return s;
@@ -351,6 +356,7 @@ void PlayerApp::leaveGame() {
 // ---------------------------------------------------------------------------
 
 void PlayerApp::frame(float dt) {
+    m_window->lockLandscape(m_page == Page::Game);   // phones: games are landscape, the site isn't
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
@@ -417,7 +423,7 @@ void PlayerApp::frame(float dt) {
 void PlayerApp::drawJoinDialog() {
     if (m_showJoin) { ImGui::OpenPopup("Join a Friend"); m_showJoin = false; }
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(420, 0));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(420), 0));
     if (ImGui::BeginPopupModal("Join a Friend", nullptr, ImGuiWindowFlags_NoResize)) {
         ImGui::TextWrapped("Ask your friend to click Host on a game, then type the address it shows "
                            "(like 192.168.1.20). On the same computer, use 127.0.0.1.");
@@ -443,8 +449,9 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
 
     // --- Banner: your avatar standing in the sky, with the logo ---
 #ifdef GB_MOBILE
-    const float bannerH = 72.0f;     // phones are short: keep the banner slim
-    const float logoSize = 40.0f;
+    const bool portrait = ImGui::GetIO().DisplaySize.y > ImGui::GetIO().DisplaySize.x;
+    const float bannerH = portrait ? 64.0f : 72.0f;   // phones are short: keep the banner slim
+    const float logoSize = portrait ? 24.0f : 40.0f;
 #else
     const float bannerH = 118.0f;
     const float logoSize = 64.0f;
@@ -483,12 +490,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
 
-    // --- The blue nav bar ---
+    // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
     const float navH = 34.0f;
-    ImVec2 n0(pos.x, b1.y), n1(pos.x + width, b1.y + navH);
-    dl->AddRectFilledMultiColor(n0, n1, Classic::kNavTop, Classic::kNavTop, Classic::kNavBottom, Classic::kNavBottom);
-    dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), IM_COL32(10, 60, 130, 255));
-
     struct Item { const char* label; int action; };
     std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Avatar", 2}, {"Join a Friend", 3},
                                {"Develop", 4}, {"Settings", 5}};
@@ -497,10 +500,27 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // No Studio on phones.
     items.erase(std::remove_if(items.begin(), items.end(), [](const Item& i) { return i.action == 4; }), items.end());
 #endif
-    float x = n0.x + 14;
-    for (const Item& it : items) {
+    // Lay the items out in rows first, so the bar knows how tall to be.
+    std::vector<ImVec2> at;
+    {
+        float x = pos.x + 14, row = 0;
+        for (const Item& it : items) {
+            float w = ImGui::CalcTextSize(it.label).x;
+            if (x + w + 8 > pos.x + width && x > pos.x + 14) { x = pos.x + 14; row += navH; }
+            at.push_back(ImVec2(x, row));
+            x += w + 26;
+        }
+    }
+    float rows = (at.empty() ? 0 : at.back().y) + navH;
+    ImVec2 n0(pos.x, b1.y), n1(pos.x + width, b1.y + rows);
+    dl->AddRectFilledMultiColor(n0, n1, Classic::kNavTop, Classic::kNavTop, Classic::kNavBottom, Classic::kNavBottom);
+    dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), IM_COL32(10, 60, 130, 255));
+    for (size_t k = 0; k < items.size(); ++k) {
+        const Item& it = items[k];
+        float x = at[k].x;
+        float rowY = n0.y + at[k].y;
         ImVec2 sz = ImGui::CalcTextSize(it.label);
-        ImVec2 p0(x - 8, n0.y), p1(x + sz.x + 8, n1.y);
+        ImVec2 p0(x - 8, rowY), p1(x + sz.x + 8, rowY + navH);
         ImGui::SetCursorScreenPos(p0);
         ImGui::PushID(it.label);
         bool clicked = ImGui::InvisibleButton("##nav", ImVec2(p1.x - p0.x, navH));
@@ -510,8 +530,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                       (it.action == 7 && m_page == Page::Staff);
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
-        dl->AddText(ImVec2(x + 1, n0.y + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
-        dl->AddText(ImVec2(x, n0.y + (navH - sz.y) * 0.5f), IM_COL32(255, 255, 255, 255), it.label);
+        dl->AddText(ImVec2(x + 1, rowY + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
+        dl->AddText(ImVec2(x, rowY + (navH - sz.y) * 0.5f), IM_COL32(255, 255, 255, 255), it.label);
         if (clicked) {
             switch (it.action) {
                 case 0: m_page = Page::Home; break;
@@ -527,7 +547,6 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 7: m_page = Page::Staff; break;
             }
         }
-        x += sz.x + 26;
     }
     ImGui::SetCursorScreenPos(ImVec2(pos.x, n1.y));
 }
@@ -614,7 +633,9 @@ void PlayerApp::drawHome() {
     drawRow("Carnage (ragdolls & gore)", carnage, "carnage");
     drawRow("Classic", classic, "classic");
 
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("Tip: click Host on a game's page to play with friends, then they click Join a Friend.");
+    ImGui::PopTextWrapPos();
 }
 
 void PlayerApp::drawGames() {
@@ -674,7 +695,8 @@ void PlayerApp::drawGameInfo() {
     ImGui::TextDisabled("by %s", g.info.author.c_str());
     ImGui::Spacing();
 
-    float picW = std::min(560.0f, ImGui::GetContentRegionAvail().x * 0.6f);
+    const bool tall = portraitScreen();
+    float picW = tall ? ImGui::GetContentRegionAvail().x : std::min(560.0f, ImGui::GetContentRegionAvail().x * 0.6f);
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(picW, picW * 9.0f / 16.0f));
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -683,7 +705,8 @@ void PlayerApp::drawGameInfo() {
                      ImVec2(p.x + picW, p.y + picW * 9.0f / 16.0f), ImVec2(0, 1), ImVec2(1, 0));
     dl->AddRect(p, ImVec2(p.x + picW, p.y + picW * 9.0f / 16.0f), IM_COL32(140, 150, 165, 255));
 
-    ImGui::SameLine(0, 20);
+    if (tall) ImGui::Spacing();   // phones held upright: buttons go under the picture
+    else      ImGui::SameLine(0, 20);
     ImGui::BeginGroup();
     ImGui::BeginDisabled(g.broken);
     if (Classic::button("Play", Classic::kPlay, ImVec2(220, 56))) joinGame(g.path);
@@ -740,12 +763,13 @@ void PlayerApp::drawAvatar(float dt) {
 
     // Left: 3D preview (drag to spin).
     ImVec2 avail = ImGui::GetContentRegionAvail();
+    const bool tall = portraitScreen();
 #ifdef GB_MOBILE
-    float previewW = std::max(160.0f, avail.x * 0.38f);
+    float previewW = tall ? avail.x : std::max(160.0f, avail.x * 0.38f);
 #else
-    float previewW = std::max(200.0f, avail.x * 0.55f);
+    float previewW = tall ? avail.x : std::max(200.0f, avail.x * 0.55f);
 #endif
-    ImGui::BeginChild("##preview", ImVec2(previewW, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("##preview", ImVec2(previewW, tall ? std::min(260.0f, avail.y * 0.4f) : 0.0f), ImGuiChildFlags_Borders);
     ImVec2 size = ImGui::GetContentRegionAvail();
     if (size.x > 1 && size.y > 1) {
         const float fb = ImGui::GetIO().DisplayFramebufferScale.x;
@@ -758,7 +782,7 @@ void PlayerApp::drawAvatar(float dt) {
             m_avatarCam.yaw += ImGui::GetIO().MouseDelta.x * 0.5f;
     }
     ImGui::EndChild();
-    ImGui::SameLine(0, 24);
+    if (!tall) ImGui::SameLine(0, 24);   // side by side, or stacked on an upright phone
 
     // Right: options.
     ImGui::BeginChild("##opts", ImVec2(0, 0));
@@ -1017,7 +1041,7 @@ void PlayerApp::drawPauseMenu() {
     ImGui::GetWindowDrawList()->AddRectFilled(vp->WorkPos,
         ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y), IM_COL32(0, 0, 0, 120));
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(320, 0));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(320), 0));
     ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoSavedSettings);
     ImGui::SetWindowFontScale(1.3f);
@@ -1174,7 +1198,7 @@ void PlayerApp::drawNotice() {
     if (m_notice.empty()) { opened = false; return; }
     if (!opened) { ImGui::OpenPopup("Guts&Bolts##notice"); opened = true; }
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(620, 0));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(620), 0));
     if (ImGui::BeginPopupModal("Guts&Bolts##notice", nullptr, ImGuiWindowFlags_NoResize)) {
         ImGui::TextWrapped("%s", m_notice.c_str());
         ImGui::Spacing();
@@ -1254,14 +1278,15 @@ void PlayerApp::drawCatalog() {
     ImGui::Spacing();
 
     const char* tabs[] = {"All", "Hats", "Shirts", "Pants"};
+    float tabW = std::min(90.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
     for (int i = 0; i < 4; ++i) {
         if (i > 0) ImGui::SameLine();
         bool on = m_itemType == i - 1;
-        if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(90, 28)) : ImGui::Button(tabs[i], ImVec2(90, 28)))
+        if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(tabW, 28)) : ImGui::Button(tabs[i], ImVec2(tabW, 28)))
             m_itemType = i - 1;
     }
     if (Account::iAmStaff()) {
-        ImGui::SameLine(ImGui::GetContentRegionMax().x - 140);
+        if (portraitScreen()) ImGui::Spacing(); else ImGui::SameLine(ImGui::GetContentRegionMax().x - 140);
         if (Classic::button("Create Item", Classic::kPlay, ImVec2(140, 28))) m_showCreate = true;
     }
     if (!m_catalogMsg.empty()) ImGui::TextWrapped("%s", m_catalogMsg.c_str());
@@ -1317,7 +1342,7 @@ void PlayerApp::drawItemDialog() {
     if (m_openItem >= (int)m_items.size()) m_openItem = -1;
     if (m_openItem >= 0 && !ImGui::IsPopupOpen("Catalog Item")) ImGui::OpenPopup("Catalog Item");
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(520, 0));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(520), 0));
     if (!ImGui::BeginPopupModal("Catalog Item", nullptr, ImGuiWindowFlags_NoResize)) return;
     if (m_openItem < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     Catalog::Item it = m_items[m_openItem];
@@ -1366,7 +1391,7 @@ void PlayerApp::drawCreateItemDialog() {
         m_showCreate = false;
     }
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(600, 0));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(600), 0));
     if (!ImGui::BeginPopupModal("Create Catalog Item", nullptr, ImGuiWindowFlags_NoResize)) return;
     if (!Account::iAmStaff()) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
 

@@ -41,6 +41,8 @@ public:
     float uiScale() const { return m_uiScale; }         // bigger UI on small, dense screens
     // Tests: pretend a finger went down / moved / lifted (x, y from 0 to 1).
     void  injectTouch(long long id, float x, float y, bool down);
+    // Phones: true = landscape only (games), false = follow the phone (the site).
+    void  lockLandscape(bool on);
     void saveScreenshot(const std::string& path);         // binary PPM
 
 private:
@@ -49,6 +51,7 @@ private:
     void*       m_gl = nullptr;
     bool        m_quit = false;
     int         m_backPressed = 0;
+    int         m_landscape = -1;
 #else
     GLFWwindow* m_window = nullptr;
 #endif

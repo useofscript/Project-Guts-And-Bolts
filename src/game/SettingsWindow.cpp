@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "SettingsWindow.h"
 #include "../core/Settings.h"
 #include "../core/UpdateChecker.h"
@@ -15,7 +16,7 @@ void help(const char* text) {
 
 void draw(bool* open) {
     if (!*open) return;
-    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(std::min(420.0f, ImGui::GetIO().DisplaySize.x - 24.0f), 0), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (!ImGui::Begin("Settings", open, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();

@@ -2,9 +2,11 @@
 # publishes a GitHub release with the Android app and the computer versions.
 name: Build
 
+# A commit whose message contains "[release vX.Y.Z]" (on main or a work branch)
+# also publishes a release, for when pushing tags isn't possible.
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -12,8 +14,10 @@ on:
 permissions:
   contents: write
 
+
 jobs:
   android:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release v')
     name: Android (APK)
     runs-on: ubuntu-latest
     steps:
@@ -28,8 +32,12 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.3.11579264" "cmake;3.31.5" "platforms;android-34" "build-tools;34.0.0"
       - name: Version
         id: ver
+        env:
+          MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; else v="0.4.0-dev"; fi
+          v="0.4.0-dev"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; fi
+          if [[ "$MSG" =~ \[release\ v([0-9][0-9A-Za-z.\-]*)\] ]]; then v="${BASH_REMATCH[1]}"; fi
           echo "name=$v" >> "$GITHUB_OUTPUT"
           echo "code=$(( GITHUB_RUN_NUMBER + 10 ))" >> "$GITHUB_OUTPUT"
       - name: Signing key (optional)
@@ -55,6 +63,7 @@ jobs:
           path: GutsAndBoltsPlayer-Android.apk
 
   linux:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release v')
     name: Linux
     runs-on: ubuntu-22.04
     steps:
@@ -77,6 +86,7 @@ jobs:
           path: GutsAndBolts-Linux.tar.gz
 
   windows:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release v')
     name: Windows
     runs-on: windows-latest
     defaults:
@@ -105,6 +115,7 @@ jobs:
           path: GutsAndBolts-Windows
 
   macos:
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release v')
     name: macOS
     runs-on: macos-latest
     steps:
@@ -128,10 +139,18 @@ jobs:
 
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v') && always() && needs.android.result == 'success'
+    if: always() && needs.android.result == 'success' && github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release v'))
     needs: [android, linux, windows, macos]
     runs-on: ubuntu-latest
     steps:
+      - name: Which version
+        id: rel
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then t="${GITHUB_REF#refs/tags/}";
+          elif [[ "$MSG" =~ \[release\ (v[0-9][0-9A-Za-z.\-]*)\] ]]; then t="${BASH_REMATCH[1]}"; fi
+          echo "tag=$t" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
@@ -146,6 +165,9 @@ jobs:
           ls -la out
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Guts&Bolts ${{ steps.rel.outputs.tag }}
           files: out/*
           prerelease: true
           body_path: RELEASE_NOTES.md

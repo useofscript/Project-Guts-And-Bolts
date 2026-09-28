@@ -30,6 +30,8 @@ that it's from an unknown developer.
 
 - A thumbstick appears under your left thumb, and there's a jump button on the right.
 - Drag anywhere else to look around, pinch to zoom, and tap things to click them.
+- Hold your phone upright to browse the site in portrait; games switch to
+  landscape by themselves when you join.
 - The chat and menu buttons are at the top. The Back button opens the menu or
   goes back a page.
 - Swipe to scroll through games, the catalog and your avatar.
@@ -38,6 +40,12 @@ that it's from an unknown developer.
 - The phone uses lighter graphics settings by default. You can change them in Settings.
 
 ## Also new
+
+- **Roblox files:** open Roblox places (`.rbxl` / `.rbxlx`) and insert Roblox
+  models (`.rbxm` / `.rbxmx`) in Studio, or drop a `.rbxl` into the `games`
+  folder to play it in the Player. Parts, models, scripts (Luau is converted),
+  lights, sounds, constraints, attributes and tags come across. Studio can also
+  export your game back to Roblox (File > Export to Roblox).
 
 - Accounts with the official **Guts** staff account, Administrator badge and
   signed official badges.

@@ -9,6 +9,9 @@
 #include "../renderer/MeshLibrary.h"
 
 #include <SDL.h>
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>
 #include <backends/imgui_impl_opengl3.h>
@@ -52,7 +55,8 @@ float pickUiScale(SDL_Window* win) {
 } // namespace
 
 AppWindow::AppWindow(const char* title, int width, int height, const char* layoutFile) {
-    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    // The site works either way up; games switch to landscape (lockLandscape).
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight Portrait");
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");        // Back = Esc (menu / go back)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");              // taps also click buttons
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
@@ -133,6 +137,22 @@ AppWindow::~AppWindow() {
 bool AppWindow::shouldClose() const { return m_quit; }
 void AppWindow::close() { m_quit = true; }
 void AppWindow::setTitle(const std::string& t) { SDL_SetWindowTitle(m_sdl, t.c_str()); }
+
+void AppWindow::lockLandscape(bool on) {
+    if (m_landscape == (int)on) return;
+    m_landscape = on;
+#ifdef __ANDROID__
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (!env || !activity) return;
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetStaticMethodID(cls, "setGameOrientation", "(Z)V");
+    if (m) env->CallStaticVoidMethod(cls, m, (jboolean)on);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+#endif
+}
 
 void AppWindow::injectTouch(long long id, float x, float y, bool down) {
     SDL_Event e{};
