@@ -1,12 +1,26 @@
 #include "Application.h"
 #include "core/CrashHandler.h"
-#include <stdexcept>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
+#include <stdexcept>
 
-int main() {
+int main(int argc, char** argv) {
     CrashHandler::install();
+
+    LaunchOptions opts;
+    for (int i = 1; i < argc; ++i) {
+        auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : ""; };
+        if      (!std::strcmp(argv[i], "--open"))       opts.openFile   = next();
+        else if (!std::strcmp(argv[i], "--play"))       opts.play       = true;
+        else if (!std::strcmp(argv[i], "--screenshot")) opts.screenshot = next();
+        else if (!std::strcmp(argv[i], "--frames"))     opts.frames     = std::atoi(next());
+        else if (!std::strcmp(argv[i], "--hold"))       opts.holdKey    = next();
+        else if (argv[i][0] != '-')                     opts.openFile   = argv[i];  // double-clicked file
+    }
+
     try {
-        Application app;
+        Application app(opts);
         app.run();
     } catch (const std::exception& e) {
         std::cerr << "Fatal: " << e.what() << "\n";

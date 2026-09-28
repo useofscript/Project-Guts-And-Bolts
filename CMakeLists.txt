@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.1.0 LANGUAGES CXX)
+project(GutsAndBolts VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,6 +34,34 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imguizmo)
 
+# Lua 5.4 — the scripting language used by Script objects. The official repo
+# has no CMake build, so only download it and compile the core library below.
+FetchContent_Declare(
+    lua
+    GIT_REPOSITORY https://github.com/lua/lua.git
+    GIT_TAG        v5.4.7
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(lua)
+
+file(GLOB LUA_SOURCES "${lua_SOURCE_DIR}/*.c")
+list(REMOVE_ITEM LUA_SOURCES
+    "${lua_SOURCE_DIR}/lua.c"       # stand-alone interpreter
+    "${lua_SOURCE_DIR}/luac.c"      # stand-alone compiler
+    "${lua_SOURCE_DIR}/onelua.c"    # amalgamation (would duplicate symbols)
+    "${lua_SOURCE_DIR}/ltests.c")   # internal test hooks
+add_library(lua_static STATIC ${LUA_SOURCES})
+target_include_directories(lua_static PUBLIC ${lua_SOURCE_DIR})
+set_target_properties(lua_static PROPERTIES C_STANDARD 99)
+
+# JSON (scene files, undo history, copy / paste).
+FetchContent_Declare(
+    json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+FetchContent_MakeAvailable(json)
+
 find_package(glfw3  REQUIRED)
 find_package(GLEW   REQUIRED)
 find_package(glm    REQUIRED)
@@ -42,23 +70,35 @@ find_package(OpenGL REQUIRED)
 set(ENGINE_SOURCES
     src/main.cpp
     src/core/CrashHandler.cpp
+    src/core/Log.cpp
     src/Application.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
     src/renderer/Camera.cpp
     src/renderer/Framebuffer.cpp
     src/renderer/ShadowMap.cpp
+    src/renderer/SceneRenderer.cpp
     src/scene/SceneNode.cpp
     src/scene/Scene.cpp
     src/scene/Player.cpp
+    src/scene/Physics.cpp
+    src/scene/Serializer.cpp
+    src/scripting/ScriptEngine.cpp
+    src/scripting/LuaTypes.cpp
+    src/scripting/LuaInstance.cpp
+    src/game/GameSession.cpp
+    src/game/Hud.cpp
     src/editor/Editor.cpp
     src/editor/Theme.cpp
+    src/editor/Premades.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/OutlinerPanel.cpp
     src/editor/panels/PropertiesPanel.cpp
     src/editor/panels/EnvironmentPanel.cpp
     src/editor/panels/ToolboxPanel.cpp
     src/editor/panels/PlayerPanel.cpp
+    src/editor/panels/OutputPanel.cpp
+    src/editor/panels/ScriptEditorPanel.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -66,6 +106,7 @@ set(ENGINE_SOURCES
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
     ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
 
@@ -86,6 +127,8 @@ target_link_libraries(GutsAndBolts PRIVATE
     glfw
     GLEW::GLEW
     OpenGL::GL
+    lua_static
+    nlohmann_json::nlohmann_json
 )
 
 if(WIN32)

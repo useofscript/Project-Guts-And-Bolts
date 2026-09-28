@@ -4,40 +4,70 @@
 
 #include <imgui.h>
 
-OutlinerPanel::OutlinerPanel(Scene* scene) : m_scene(scene) {}
+OutlinerPanel::OutlinerPanel(Scene* scene, NodeFn openScript, NodeFn addScriptTo)
+    : m_scene(scene), m_openScript(std::move(openScript)), m_addScriptTo(std::move(addScriptTo)) {}
 
 void OutlinerPanel::drawNode(SceneNode* node) {
     if (node->internal) return;   // hidden helper geometry (e.g. the face)
 
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow |
-        ImGuiTreeNodeFlags_SpanAvailWidth |
-        ImGuiTreeNodeFlags_DefaultOpen;
+        ImGuiTreeNodeFlags_OpenOnDoubleClick |
+        ImGuiTreeNodeFlags_SpanAvailWidth;
+    // Keep the character folded by default — it has lots of parts.
+    if (!m_scene->isCharacterPart(node)) flags |= ImGuiTreeNodeFlags_DefaultOpen;
 
-    if (node->children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
-    if (node->selected)         flags |= ImGuiTreeNodeFlags_Selected;
+    bool hasVisibleKids = false;
+    for (auto& c : node->children) if (!c->internal) { hasVisibleKids = true; break; }
+    if (!hasVisibleKids) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (node->selected)  flags |= ImGuiTreeNodeFlags_Selected;
 
     ImGui::PushID(node);
 
-    // Dim the label for hidden objects.
-    bool dim = !node->visible;
-    if (dim) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.55f, 1.0f));
+    // Colour-code by kind: scripts blue, models yellow, hidden objects grey.
+    ImVec4 col = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    const char* tag = "";
+    if (node->isScript())                { col = {0.55f, 0.75f, 1.00f, 1}; tag = "[S] "; }
+    else if (node->kind == NodeKind::Model) { col = {0.95f, 0.82f, 0.45f, 1}; tag = "[M] "; }
+    if (!node->visible || (node->isScript() && !node->scriptEnabled)) col.w = 0.5f;
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
 
-    bool open = ImGui::TreeNodeEx(node->name.c_str(), flags);
-
-    if (dim) ImGui::PopStyleColor();
+    bool open = ImGui::TreeNodeEx("##node", flags, "%s%s", tag, node->name.c_str());
+    ImGui::PopStyleColor();
 
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
         m_scene->select(node);
+    if (node->isScript() && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        m_openScript(node);
+
+    // Drag an object onto another one to move it inside.
+    bool locked = m_scene->isProtected(node) || m_scene->isCharacterPart(node);
+    if (!locked && ImGui::BeginDragDropSource()) {
+        ImGui::SetDragDropPayload("GB_NODE", &node, sizeof(SceneNode*));
+        ImGui::Text("Move %s", node->name.c_str());
+        ImGui::EndDragDropSource();
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("GB_NODE")) {
+            m_dragNode   = *static_cast<SceneNode* const*>(p->Data);
+            m_dropTarget = node;
+        }
+        ImGui::EndDragDropTarget();
+    }
 
     if (ImGui::BeginPopupContextItem()) {
         m_scene->select(node);
+        if (node->isScript() && ImGui::MenuItem("Edit Script")) m_openScript(node);
+        if (!node->isScript() && ImGui::MenuItem("Add Script inside")) m_addScriptTo(node);
         if (ImGui::MenuItem(node->visible ? "Hide" : "Show"))
             node->visible = !node->visible;
+        if (node->parent && node->parent != m_scene->root() && !locked &&
+            ImGui::MenuItem("Move to Workspace")) {
+            m_dragNode = node;
+            m_dropTarget = m_scene->root();
+        }
         ImGui::Separator();
-        bool protectedNode = (node == m_scene->root()) ||
-                             (m_scene->player() && node == m_scene->player()->root());
-        if (ImGui::MenuItem("Delete", nullptr, false, !protectedNode))
+        if (ImGui::MenuItem("Delete", "Del", false, !m_scene->isProtected(node)))
             m_pendingDelete = node;
         ImGui::EndPopup();
     }
@@ -52,7 +82,7 @@ void OutlinerPanel::drawNode(SceneNode* node) {
 }
 
 void OutlinerPanel::render() {
-    ImGui::Begin("Outliner");
+    ImGui::Begin("Explorer");
 
     if (SceneNode* root = m_scene->root())
         drawNode(root);
@@ -62,11 +92,19 @@ void OutlinerPanel::render() {
         ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         m_scene->deselect();
 
+    ImGui::Spacing();
+    ImGui::TextDisabled("Tip: drag objects onto each other to group them.");
+
     ImGui::End();
 
-    // Deferred so we never mutate the tree mid-traversal.
+    // Deferred so we never change the tree while drawing it.
     if (m_pendingDelete) {
         m_scene->removeNode(m_pendingDelete);
         m_pendingDelete = nullptr;
+    }
+    if (m_dragNode && m_dropTarget) {
+        if (!m_scene->isCharacterPart(m_dropTarget) || m_dropTarget == m_scene->root())
+            m_scene->reparent(m_dragNode, m_dropTarget);
+        m_dragNode = m_dropTarget = nullptr;
     }
 }

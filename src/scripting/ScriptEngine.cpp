@@ -1,0 +1,624 @@
+#include "ScriptEngine.h"
+#include "LuaApi.h"
+#include "../scene/Scene.h"
+#include "../scene/SceneNode.h"
+#include "../core/Log.h"
+
+#include <imgui.h>
+#include <glm/glm.hpp>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
+namespace {
+
+// Lua code that builds the friendly Roblox-style globals on top of the C API.
+const char* kPrelude = R"LUA(
+-- Enum.KeyCode.E -> "E", Enum.Material.Neon -> "Neon", Enum.UserInputType.Keyboard -> "Keyboard"
+Enum = setmetatable({}, { __index = function(t, category)
+    local e = setmetatable({}, { __index = function(_, name) return name end })
+    rawset(t, category, e)
+    return e
+end })
+
+task = { wait = __gb_wait, spawn = __gb_spawn, delay = __gb_delay, defer = __gb_spawn }
+wait, spawn, delay = task.wait, task.spawn, task.delay
+
+local LocalPlayer = { Name = "Player", DisplayName = "Player", UserId = 1,
+                      Character = __gb_character }
+Players = { LocalPlayer = LocalPlayer }
+function Players:GetPlayers() return { LocalPlayer } end
+function Players:GetPlayerFromCharacter(model)
+    if model ~= nil and model == LocalPlayer.Character then return LocalPlayer end
+    return nil
+end
+
+RunService = { Heartbeat = __gb_heartbeat, RenderStepped = __gb_heartbeat,
+               Stepped = __gb_heartbeat }
+UserInputService = { InputBegan = __gb_inputBegan, InputEnded = __gb_inputEnded }
+local isKeyDown = __gb_isKeyDown
+function UserInputService:IsKeyDown(key) return isKeyDown(key) end
+
+local services = { Workspace = workspace, Players = Players, Lighting = Lighting,
+                   RunService = RunService, UserInputService = UserInputService, Gui = Gui }
+game = setmetatable({}, { __index = function(_, name) return services[name] end })
+function game:GetService(name)
+    local s = services[name]
+    if s == nil then
+        error("'" .. tostring(name) .. "' is not a service Guts and Bolts knows about", 2)
+    end
+    return s
+end
+Workspace = workspace
+
+-- Handy extras that Roblox's Luau also has.
+function math.clamp(x, lo, hi) if x < lo then return lo elseif x > hi then return hi end return x end
+function math.sign(x) if x > 0 then return 1 elseif x < 0 then return -1 end return 0 end
+function math.round(x) return math.floor(x + 0.5) end
+function math.lerp(a, b, t) return a + (b - a) * t end
+function string.split(s, sep)
+    sep = sep or ","
+    local out, start = {}, 1
+    while true do
+        local i, j = string.find(s, sep, start, true)
+        if not i then table.insert(out, string.sub(s, start)) break end
+        table.insert(out, string.sub(s, start, i - 1))
+        start = j + 1
+    end
+    return out
+end
+function table.find(t, value)
+    for i, v in ipairs(t) do if v == value then return i end end
+    return nil
+end
+
+__gb_wait, __gb_spawn, __gb_delay, __gb_character = nil, nil, nil, nil
+__gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
+)LUA";
+
+constexpr double kTimeoutSeconds = 5.0;
+
+double nowSeconds() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+struct KeyName { const char* name; ImGuiKey key; };
+
+const std::vector<KeyName>& keyTable() {
+    static std::vector<KeyName> keys = [] {
+        std::vector<KeyName> k;
+        static const char* letters[] = {"A","B","C","D","E","F","G","H","I","J","K","L","M",
+                                        "N","O","P","Q","R","S","T","U","V","W","X","Y","Z"};
+        for (int i = 0; i < 26; ++i) k.push_back({letters[i], (ImGuiKey)(ImGuiKey_A + i)});
+        static const char* digits[] = {"Zero","One","Two","Three","Four","Five","Six","Seven",
+                                       "Eight","Nine"};
+        for (int i = 0; i < 10; ++i) k.push_back({digits[i], (ImGuiKey)(ImGuiKey_0 + i)});
+        k.push_back({"Space",        ImGuiKey_Space});
+        k.push_back({"Return",       ImGuiKey_Enter});
+        k.push_back({"Tab",          ImGuiKey_Tab});
+        k.push_back({"Backspace",    ImGuiKey_Backspace});
+        k.push_back({"LeftShift",    ImGuiKey_LeftShift});
+        k.push_back({"RightShift",   ImGuiKey_RightShift});
+        k.push_back({"LeftControl",  ImGuiKey_LeftCtrl});
+        k.push_back({"RightControl", ImGuiKey_RightCtrl});
+        k.push_back({"LeftAlt",      ImGuiKey_LeftAlt});
+        k.push_back({"Up",           ImGuiKey_UpArrow});
+        k.push_back({"Down",         ImGuiKey_DownArrow});
+        k.push_back({"Left",         ImGuiKey_LeftArrow});
+        k.push_back({"Right",        ImGuiKey_RightArrow});
+        return k;
+    }();
+    return keys;
+}
+
+// ---------------------------------------------------------------------------
+// Global functions
+// ---------------------------------------------------------------------------
+
+std::string joinArgs(lua_State* L) {
+    std::string out;
+    int n = lua_gettop(L);
+    for (int i = 1; i <= n; ++i) {
+        size_t len;
+        const char* s = luaL_tolstring(L, i, &len);
+        if (i > 1) out += ' ';
+        out.append(s, len);
+        lua_pop(L, 1);
+    }
+    return out;
+}
+
+int l_print(lua_State* L) { Log::info(joinArgs(L)); return 0; }
+int l_warn (lua_State* L) { Log::warn(joinArgs(L)); return 0; }
+
+// wait(seconds) — pause this script; returns how long it actually waited.
+int l_wait(lua_State* L) {
+    double t = luaL_optnumber(L, 1, 0.0);
+    lua_settop(L, 0);
+    lua_pushnumber(L, t);
+    return lua_yield(L, 1);
+}
+
+// spawn(fn, ...) — run fn right away in its own thread.
+int l_spawn(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    int n = lua_gettop(L);
+    lua_State* co = lua_newthread(L);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    for (int i = 1; i <= n; ++i) lua_pushvalue(L, i);
+    lua_xmove(L, co, n);
+    LuaApi::engine(L)->resume(co, ref, n - 1, L);
+    return 0;
+}
+
+// delay(seconds, fn, ...) — run fn later.
+int l_delay(lua_State* L) {
+    double t = luaL_checknumber(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    int n = lua_gettop(L);
+    lua_State* co = lua_newthread(L);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    for (int i = 2; i <= n; ++i) lua_pushvalue(L, i);
+    lua_xmove(L, co, n - 1);
+    LuaApi::engine(L)->schedule(co, ref, t, n - 2);
+    return 0;
+}
+
+int l_time(lua_State* L) { lua_pushnumber(L, LuaApi::engine(L)->time()); return 1; }
+int l_tick(lua_State* L) {
+    using namespace std::chrono;
+    lua_pushnumber(L, duration<double>(system_clock::now().time_since_epoch()).count());
+    return 1;
+}
+
+int l_isKeyDown(lua_State* L) {
+    lua_pushboolean(L, LuaApi::engine(L)->isKeyDown(luaL_checkstring(L, 1)));
+    return 1;
+}
+
+// Gui.Message(text, seconds), Gui.Label(key, text), Gui.Clear()
+int gui_message(lua_State* L) {
+    GuiState& g = LuaApi::engine(L)->gui();
+    g.message     = luaL_optstring(L, 1, "");
+    g.messageTime = (float)luaL_optnumber(L, 2, 3.0);
+    return 0;
+}
+int gui_label(lua_State* L) {
+    GuiState& g = LuaApi::engine(L)->gui();
+    std::string key = luaL_checkstring(L, 1);
+    if (lua_isnoneornil(L, 2)) g.labels.erase(key);
+    else g.labels[key] = luaL_tolstring(L, 2, nullptr);
+    return 0;
+}
+int gui_clear(lua_State* L) {
+    GuiState& g = LuaApi::engine(L)->gui();
+    g.labels.clear();
+    g.message.clear();
+    return 0;
+}
+
+void timeoutHook(lua_State* L, lua_Debug*) { LuaApi::engine(L)->checkTimeout(L); }
+
+} // namespace
+
+// ===========================================================================
+
+namespace LuaApi {
+ScriptEngine* engine(lua_State* L) { return *static_cast<ScriptEngine**>(lua_getextraspace(L)); }
+}
+
+ScriptEngine::ScriptEngine(Scene* scene) : m_scene(scene) {}
+ScriptEngine::~ScriptEngine() { stop(); }
+
+void ScriptEngine::openLibraries() {
+    lua_State* L = m_L;
+    static const luaL_Reg libs[] = {
+        {LUA_GNAME, luaopen_base},        {LUA_COLIBNAME, luaopen_coroutine},
+        {LUA_TABLIBNAME, luaopen_table},  {LUA_STRLIBNAME, luaopen_string},
+        {LUA_MATHLIBNAME, luaopen_math},  {LUA_UTF8LIBNAME, luaopen_utf8},
+        {LUA_OSLIBNAME, luaopen_os},      {nullptr, nullptr}};
+    for (const luaL_Reg* lib = libs; lib->func; ++lib) {
+        luaL_requiref(L, lib->name, lib->func, 1);
+        lua_pop(L, 1);
+    }
+    // Sandbox: scripts can't touch files or run programs.
+    for (const char* name : {"dofile", "loadfile"}) {
+        lua_pushnil(L);
+        lua_setglobal(L, name);
+    }
+    lua_getglobal(L, "os");
+    for (const char* name : {"execute", "exit", "remove", "rename", "tmpname", "getenv", "setlocale"}) {
+        lua_pushnil(L);
+        lua_setfield(L, -2, name);
+    }
+    lua_pop(L, 1);
+}
+
+void ScriptEngine::start() {
+    stop();
+    m_L = luaL_newstate();
+    *static_cast<ScriptEngine**>(lua_getextraspace(m_L)) = this;
+    m_time = 0.0;
+    m_depth = 0;
+    m_gui = GuiState{};
+    // Every coroutine inherits this hook, which stops runaway loops.
+    lua_sethook(m_L, timeoutHook, LUA_MASKCOUNT, 20000);
+
+    openLibraries();
+    LuaApi::registerTypes(m_L);
+    LuaApi::registerInstance(m_L);
+
+    lua_State* L = m_L;
+    lua_register(L, "print", l_print);
+    lua_register(L, "warn",  l_warn);
+    lua_register(L, "time",  l_time);
+    lua_register(L, "tick",  l_tick);
+    lua_register(L, "__gb_wait",  l_wait);
+    lua_register(L, "__gb_spawn", l_spawn);
+    lua_register(L, "__gb_delay", l_delay);
+    lua_register(L, "__gb_isKeyDown", l_isKeyDown);
+
+    LuaApi::pushInstance(L, m_scene->root()->id);
+    lua_setglobal(L, "workspace");
+    LuaApi::pushInstance(L, m_scene->player() ? m_scene->player()->rootId() : 0);
+    lua_setglobal(L, "__gb_character");
+    LuaApi::pushLighting(L);
+    lua_setglobal(L, "Lighting");
+    LuaApi::pushSignal(L, SignalKind::Heartbeat, 0);  lua_setglobal(L, "__gb_heartbeat");
+    LuaApi::pushSignal(L, SignalKind::InputBegan, 0); lua_setglobal(L, "__gb_inputBegan");
+    LuaApi::pushSignal(L, SignalKind::InputEnded, 0); lua_setglobal(L, "__gb_inputEnded");
+
+    lua_newtable(L);
+    lua_pushcfunction(L, gui_message); lua_setfield(L, -2, "Message");
+    lua_pushcfunction(L, gui_label);   lua_setfield(L, -2, "Label");
+    lua_pushcfunction(L, gui_clear);   lua_setfield(L, -2, "Clear");
+    lua_setglobal(L, "Gui");
+
+    m_resumeStart = nowSeconds();
+    ++m_depth;
+    if (luaL_loadbuffer(L, kPrelude, std::strlen(kPrelude), "=prelude") != LUA_OK ||
+        lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        Log::error(std::string("Internal script setup failed: ") + lua_tostring(L, -1));
+        lua_pop(L, 1);
+    }
+    --m_depth;
+
+    // Collect first, then run: scripts may add or remove objects as they start.
+    std::vector<uint64_t> scripts;
+    m_scene->forEach([&](SceneNode* n) {
+        if (n->isScript() && n->scriptEnabled) scripts.push_back(n->id);
+    });
+    for (uint64_t id : scripts)
+        if (SceneNode* s = resolve(id)) runScript(s);
+}
+
+void ScriptEngine::runScript(SceneNode* script) {
+    lua_State* L = m_L;
+    std::string chunk = "=" + script->fullName();
+    if (luaL_loadbuffer(L, script->source.data(), script->source.size(), chunk.c_str()) != LUA_OK) {
+        Log::error(lua_tostring(L, -1));
+        lua_pop(L, 1);
+        return;
+    }
+    // Each script gets its own globals table (falling back to the shared one),
+    // with `script` pointing at itself.
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushglobaltable(L);
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, -2);
+    LuaApi::pushInstance(L, script->id);
+    lua_setfield(L, -2, "script");
+    lua_setupvalue(L, -2, 1);          // becomes the chunk's _ENV
+
+    lua_State* co = lua_newthread(L);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_xmove(L, co, 1);
+    resume(co, ref, 0);
+}
+
+void ScriptEngine::stop() {
+    if (m_L) lua_close(m_L);
+    m_L = nullptr;
+    m_waiting.clear();
+    m_conns.clear();
+    m_detached.clear();
+    m_gui = GuiState{};
+}
+
+void ScriptEngine::reportError(lua_State* co) {
+    const char* msg = lua_tostring(co, -1);
+    Log::error(msg ? msg : "(script error with no message)");
+    lua_pop(co, 1);
+}
+
+void ScriptEngine::checkTimeout(lua_State* L) {
+    if (m_depth > 0 && nowSeconds() - m_resumeStart > kTimeoutSeconds)
+        luaL_error(L, "Script ran for more than %d seconds without waiting - "
+                      "did you forget a wait() inside a loop?", (int)kTimeoutSeconds);
+}
+
+void ScriptEngine::resume(lua_State* co, int ref, int nargs, lua_State* from) {
+    if (!m_L) return;
+    if (m_depth == 0) m_resumeStart = nowSeconds();
+    ++m_depth;
+    int nres = 0;
+    int status = lua_resume(co, from ? from : m_L, nargs, &nres);
+    --m_depth;
+
+    if (status == LUA_YIELD) {
+        // Parked by Signal:Wait()? Then the connection owns the thread now.
+        for (auto& c : m_conns) {
+            if (c.alive && c.waiter == co && c.threadRef == LUA_NOREF) {
+                c.threadRef = ref;
+                lua_pop(co, nres);
+                return;
+            }
+        }
+        double t = (nres > 0 && lua_isnumber(co, -1)) ? lua_tonumber(co, -1) : 0.0;
+        lua_pop(co, nres);
+        schedule(co, ref, std::max(t, 0.0), -1);
+        return;
+    }
+    if (status != LUA_OK) reportError(co);
+    luaL_unref(m_L, LUA_REGISTRYINDEX, ref);
+}
+
+void ScriptEngine::schedule(lua_State* co, int ref, double delay, int startArgs) {
+    m_waiting.push_back({ref, co, m_time + delay, m_time, startArgs});
+}
+
+void ScriptEngine::update(float dt) {
+    if (!m_L) return;
+    m_time += dt;
+
+    // Keyboard events.
+    if (!ImGui::GetIO().WantTextInput) {
+        for (const auto& k : keyTable()) {
+            bool began = ImGui::IsKeyPressed(k.key, false);
+            bool ended = ImGui::IsKeyReleased(k.key);
+            if (!began && !ended) continue;
+            const char* name = k.name;
+            fire(began ? SignalKind::InputBegan : SignalKind::InputEnded, 0, [name](lua_State* co) {
+                lua_newtable(co);
+                lua_pushstring(co, name);       lua_setfield(co, -2, "KeyCode");
+                lua_pushstring(co, "Keyboard"); lua_setfield(co, -2, "UserInputType");
+                lua_pushboolean(co, 0);
+                return 2;
+            });
+        }
+    }
+
+    // Wake threads whose wait() is over.
+    std::vector<Waiting> ready;
+    for (auto it = m_waiting.begin(); it != m_waiting.end();) {
+        if (it->wakeAt <= m_time) { ready.push_back(*it); it = m_waiting.erase(it); }
+        else ++it;
+    }
+    for (auto& w : ready) {
+        if (!m_L) return;
+        if (w.startArgs >= 0) {
+            resume(w.co, w.ref, w.startArgs);
+        } else {
+            lua_pushnumber(w.co, m_time - w.since);
+            resume(w.co, w.ref, 1);
+        }
+    }
+
+    fire(SignalKind::Heartbeat, 0, [dt](lua_State* co) { lua_pushnumber(co, dt); return 1; });
+
+    if (m_gui.messageTime > 0.0f) {
+        m_gui.messageTime -= dt;
+        if (m_gui.messageTime <= 0.0f) m_gui.message.clear();
+    }
+}
+
+void ScriptEngine::fire(SignalKind kind, uint64_t id, const std::function<int(lua_State*)>& pushArgs) {
+    if (!m_L) return;
+    size_t n = m_conns.size();   // connections made while firing wait for next time
+    for (size_t i = 0; i < n; ++i) {
+        if (!m_L) return;
+        Connection& c = m_conns[i];
+        if (!c.alive || c.kind != kind || c.id != id) continue;
+
+        if (c.waiter) {
+            // A thread parked in :Wait() — wake it with the event's arguments.
+            if (c.threadRef == LUA_NOREF) continue;
+            lua_State* co = c.waiter;
+            int ref = c.threadRef;
+            c.alive = false;
+            int nargs = pushArgs ? pushArgs(co) : 0;
+            resume(co, ref, nargs);
+            continue;
+        }
+
+        lua_State* co = lua_newthread(m_L);
+        int ref = luaL_ref(m_L, LUA_REGISTRYINDEX);
+        lua_rawgeti(co, LUA_REGISTRYINDEX, c.fnRef);
+        if (c.once) disconnect((int)i);
+        int nargs = pushArgs ? pushArgs(co) : 0;
+        resume(co, ref, nargs);
+    }
+}
+
+void ScriptEngine::fireTouched(uint64_t partId, uint64_t otherId) {
+    fire(SignalKind::Touched, partId, [otherId](lua_State* co) {
+        LuaApi::pushInstance(co, otherId);
+        return 1;
+    });
+}
+
+void ScriptEngine::fireClicked(uint64_t partId) {
+    fire(SignalKind::InputBegan, 0, [](lua_State* co) {
+        lua_newtable(co);
+        lua_pushstring(co, "Unknown");      lua_setfield(co, -2, "KeyCode");
+        lua_pushstring(co, "MouseButton1"); lua_setfield(co, -2, "UserInputType");
+        lua_pushboolean(co, 0);
+        return 2;
+    });
+    if (partId) fire(SignalKind::Clicked, partId, nullptr);
+}
+
+void ScriptEngine::fireDied() { fire(SignalKind::Died, 0, nullptr); }
+
+int ScriptEngine::connect(SignalKind kind, uint64_t id, int fnRef, bool once) {
+    Connection c;
+    c.kind = kind; c.id = id; c.fnRef = fnRef; c.once = once;
+    m_conns.push_back(c);
+    return (int)m_conns.size() - 1;
+}
+
+int ScriptEngine::connectWaiter(SignalKind kind, uint64_t id, lua_State* thread) {
+    Connection c;
+    c.kind = kind; c.id = id; c.waiter = thread; c.threadRef = LUA_NOREF;
+    m_conns.push_back(c);
+    return (int)m_conns.size() - 1;
+}
+
+void ScriptEngine::disconnect(int index) {
+    if (index < 0 || index >= (int)m_conns.size()) return;
+    Connection& c = m_conns[index];
+    if (!c.alive) return;
+    c.alive = false;
+    if (m_L && c.fnRef != LUA_NOREF) luaL_unref(m_L, LUA_REGISTRYINDEX, c.fnRef);
+    c.fnRef = LUA_NOREF;
+}
+
+bool ScriptEngine::connected(int index) const {
+    return index >= 0 && index < (int)m_conns.size() && m_conns[index].alive;
+}
+
+bool ScriptEngine::isKeyDown(const std::string& key) const {
+    if (ImGui::GetIO().WantTextInput) return false;
+    for (const auto& k : keyTable())
+        if (key == k.name) return ImGui::IsKeyDown(k.key);
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Object ownership (for Parent = nil / Instance.new / Clone / Destroy)
+// ---------------------------------------------------------------------------
+
+namespace {
+SceneNode* findIn(SceneNode* n, uint64_t id) {
+    if (n->id == id) return n;
+    for (auto& c : n->children)
+        if (SceneNode* f = findIn(c.get(), id)) return f;
+    return nullptr;
+}
+SceneNode* topOf(SceneNode* n) {
+    while (n->parent) n = n->parent;
+    return n;
+}
+} // namespace
+
+SceneNode* ScriptEngine::resolve(uint64_t id) {
+    if (!id) return nullptr;
+    if (SceneNode* n = m_scene->findById(id)) return n;
+    for (auto& d : m_detached)
+        if (SceneNode* f = findIn(d.get(), id)) return f;
+    return nullptr;
+}
+
+SceneNode* ScriptEngine::adopt(std::unique_ptr<SceneNode> n) {
+    m_detached.push_back(std::move(n));
+    return m_detached.back().get();
+}
+
+bool ScriptEngine::setParent(SceneNode* node, SceneNode* newParent, std::string& err) {
+    if (m_scene->isProtected(node)) { err = "You can't change the Parent of " + node->name; return false; }
+    if (newParent && (newParent == node || node->isAncestorOf(newParent))) {
+        err = "Can't put an object inside itself";
+        return false;
+    }
+    if (node->parent == newParent && newParent) return true;
+
+    // Take ownership of the node, wherever it currently lives.
+    std::unique_ptr<SceneNode> owned;
+    bool inScene = topOf(node) == m_scene->root();
+    if (inScene) {
+        owned = m_scene->detach(node);
+    } else if (node->parent) {
+        owned = node->parent->detachChild(node);
+    } else {
+        for (auto it = m_detached.begin(); it != m_detached.end(); ++it)
+            if (it->get() == node) { owned = std::move(*it); m_detached.erase(it); break; }
+    }
+    if (!owned) { err = "Couldn't move " + node->name; return false; }
+
+    if (newParent) {
+        newParent->addChild(std::move(owned));
+        m_scene->markDirty();
+    } else {
+        m_detached.push_back(std::move(owned));
+    }
+    return true;
+}
+
+bool ScriptEngine::destroy(SceneNode* node, std::string& err) {
+    if (m_scene->isProtected(node)) { err = "You can't Destroy " + node->name; return false; }
+    if (topOf(node) == m_scene->root()) {
+        m_scene->removeNode(node);
+    } else if (node->parent) {
+        node->parent->removeChild(node);
+    } else {
+        m_detached.erase(std::remove_if(m_detached.begin(), m_detached.end(),
+            [node](const auto& p) { return p.get() == node; }), m_detached.end());
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Lighting.ClockTime — moves the sun and blends day / sunset / night colours.
+// ---------------------------------------------------------------------------
+
+void ScriptEngine::applyClockTime() {
+    Environment& env = m_scene->environment();
+    float t = std::fmod(std::fmod(m_clockTime, 24.0f) + 24.0f, 24.0f);
+    float angle = (t - 6.0f) / 12.0f * 3.14159265f;    // 6am sunrise, noon overhead
+    float height = std::sin(angle);
+
+    glm::vec3 dir = glm::normalize(glm::vec3(std::cos(angle), height, 0.35f));
+    bool night = height < -0.05f;
+    if (night) dir = -dir;                              // show the moon instead
+
+    env.sunElevation = glm::degrees(std::asin(glm::clamp(dir.y, -1.0f, 1.0f)));
+    env.sunAzimuth   = glm::degrees(std::atan2(dir.z, dir.x));
+
+    Environment day = EnvironmentPresets::day(), dusk = EnvironmentPresets::sunset(),
+                nite = EnvironmentPresets::night();
+    float dayK  = glm::smoothstep(-0.15f, 0.35f, height);
+    float duskK = glm::clamp(1.0f - std::abs(height) / 0.35f, 0.0f, 1.0f) * 0.8f;
+    auto blend = [&](glm::vec3 Environment::*f) {
+        return glm::mix(glm::mix(nite.*f, day.*f, dayK), dusk.*f, duskK);
+    };
+    env.skyZenith    = blend(&Environment::skyZenith);
+    env.skyHorizon   = blend(&Environment::skyHorizon);
+    env.skyGround    = blend(&Environment::skyGround);
+    env.fogColor     = blend(&Environment::fogColor);
+    env.ambientColor = blend(&Environment::ambientColor);
+    env.sunColor     = night ? nite.sunColor : glm::mix(dusk.sunColor, day.sunColor, glm::clamp(height * 3.0f, 0.0f, 1.0f));
+    env.sunIntensity = night ? nite.sunIntensity : glm::mix(0.4f, day.sunIntensity, dayK);
+}
+
+// ---------------------------------------------------------------------------
+
+bool ScriptEngine::checkSyntax(const std::string& source, std::string& error, int& line) {
+    lua_State* L = luaL_newstate();
+    bool ok = luaL_loadbuffer(L, source.data(), source.size(), "=script") == LUA_OK;
+    line = 0;
+    if (!ok) {
+        error = lua_tostring(L, -1);
+        // Messages look like "script:12: 'end' expected near <eof>".
+        if (error.rfind("script:", 0) == 0) {
+            line = std::atoi(error.c_str() + 7);
+            size_t colon = error.find(':', 7);
+            if (colon != std::string::npos) error = error.substr(colon + 2);
+        }
+    }
+    lua_close(L);
+    return ok;
+}

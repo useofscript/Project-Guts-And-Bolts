@@ -2,8 +2,9 @@
 #include "../EditorState.h"
 #include "../../scene/Scene.h"
 #include "../../scene/SceneNode.h"
-#include "../../renderer/Shader.h"
-#include "../../renderer/Mesh.h"
+#include "../../scene/Physics.h"
+#include "../../game/GameSession.h"
+#include "../../game/Hud.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -11,304 +12,26 @@
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <vector>
-#include <limits>
-
-namespace {
-
-const char* kLitVert = R"(#version 450 core
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-
-uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProj;
-uniform mat3 uNormalMat;
-
-out vec3 vNormal;
-out vec3 vWorldPos;
-
-void main() {
-    vec4 world = uModel * vec4(aPos, 1.0);
-    vWorldPos  = world.xyz;
-    vNormal    = normalize(uNormalMat * aNormal);
-    gl_Position = uProj * uView * world;
-}
-)";
-
-const char* kLitFrag = R"(#version 450 core
-in vec3 vNormal;
-in vec3 vWorldPos;
-
-uniform vec3  uColor;
-uniform vec3  uSunDir;        // surface -> sun, normalized
-uniform vec3  uSunColor;
-uniform float uSunIntensity;
-uniform vec3  uAmbient;       // ambient colour * intensity
-uniform vec3  uViewPos;
-uniform bool  uSelected;
-uniform int   uMaterial;      // 0 plastic, 1 metal, 2 neon, 3 wood
-uniform float uAlpha;         // 1 = opaque
-
-uniform bool  uFogEnabled;
-uniform vec3  uFogColor;
-uniform float uFogDensity;
-
-uniform bool      uShadowsEnabled;
-uniform mat4      uLightSpace;
-uniform sampler2D uShadowMap;
-
-out vec4 FragColor;
-
-// Returns 1.0 = fully lit, 0.0 = fully shadowed (3x3 PCF).
-float sunVisibility(vec3 N, vec3 L) {
-    vec4 lc = uLightSpace * vec4(vWorldPos, 1.0);
-    vec3 p  = lc.xyz / lc.w * 0.5 + 0.5;
-    if (p.z > 1.0) return 1.0;
-    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
-
-    float bias = max(0.0025 * (1.0 - dot(N, L)), 0.0008);
-    vec2  texel = 1.0 / vec2(textureSize(uShadowMap, 0));
-    float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x)
-        for (int y = -1; y <= 1; ++y) {
-            float d = texture(uShadowMap, p.xy + vec2(x, y) * texel).r;
-            shadow += (p.z - bias > d) ? 1.0 : 0.0;
-        }
-    return 1.0 - shadow / 9.0;
-}
-
-void main() {
-    vec3 N = normalize(vNormal);
-    vec3 V = normalize(uViewPos - vWorldPos);
-
-    // Neon: unlit, emissive — glows regardless of the sun.
-    if (uMaterial == 2) {
-        FragColor = vec4(uColor * 1.5, uAlpha);
-        return;
-    }
-
-    vec3 L = normalize(uSunDir);
-    vec3 H = normalize(L + V);
-    float diff = max(dot(N, L), 0.0);
-
-    // Per-material specular response.
-    float specPow = 32.0, specScale = 0.30;
-    if      (uMaterial == 1) { specPow = 80.0; specScale = 0.90; }  // metal
-    else if (uMaterial == 3) { specPow =  8.0; specScale = 0.04; }  // wood (matte)
-
-    float spec = pow(max(dot(N, H), 0.0), specPow) * specScale;
-    vec3  sun  = uSunColor * uSunIntensity;
-    float vis  = uShadowsEnabled ? sunVisibility(N, L) : 1.0;
-    vec3  base = uColor * (uAmbient + sun * diff * vis) + sun * spec * vis;
-
-    if (uSelected) {
-        // Fresnel-style rim glow in editor orange for the active object.
-        float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-        base = mix(base, vec3(1.0, 0.55, 0.15), rim * 0.8);
-    }
-
-    if (uFogEnabled) {
-        float dist = length(uViewPos - vWorldPos);
-        float f = clamp(1.0 - exp(-uFogDensity * dist), 0.0, 1.0);
-        base = mix(base, uFogColor, f);
-    }
-
-    FragColor = vec4(base, uAlpha);
-}
-)";
-
-const char* kSkyVert = R"(#version 450 core
-// Fullscreen triangle generated from gl_VertexID — no vertex buffer needed.
-out vec2 vNdc;
-void main() {
-    float x = float((gl_VertexID & 1) << 2) - 1.0;  // -1, 3, -1
-    float y = float((gl_VertexID & 2) << 1) - 1.0;  // -1, -1, 3
-    vNdc = vec2(x, y);
-    gl_Position = vec4(x, y, 0.0, 1.0);
-}
-)";
-
-const char* kSkyFrag = R"(#version 450 core
-in vec2 vNdc;
-uniform mat4  uInvViewProj;
-uniform vec3  uZenith;
-uniform vec3  uHorizon;
-uniform vec3  uGround;
-uniform vec3  uSunDir;
-uniform vec3  uSunColor;
-uniform float uSunIntensity;
-out vec4 FragColor;
-
-void main() {
-    // Reconstruct the world-space view ray for this pixel.
-    vec4 near = uInvViewProj * vec4(vNdc, -1.0, 1.0);
-    vec4 far  = uInvViewProj * vec4(vNdc,  1.0, 1.0);
-    vec3 dir  = normalize(far.xyz / far.w - near.xyz / near.w);
-
-    float t = dir.y;
-    vec3 sky;
-    if (t > 0.0) sky = mix(uHorizon, uZenith, pow(clamp(t, 0.0, 1.0), 0.45));
-    else         sky = mix(uHorizon, uGround, pow(clamp(-t, 0.0, 1.0), 0.5));
-
-    // Sun disc + soft glow.
-    float d    = max(dot(dir, normalize(uSunDir)), 0.0);
-    float disc = smoothstep(0.9990, 0.9996, d);
-    float glow = pow(d, 250.0) * 0.6 + pow(d, 12.0) * 0.15;
-    sky += uSunColor * (disc * 4.0 + glow) * uSunIntensity;
-
-    FragColor = vec4(sky, 1.0);
-}
-)";
-
-const char* kGridVert = R"(#version 450 core
-layout(location=0) in vec3 aPos;
-uniform mat4 uView;
-uniform mat4 uProj;
-out float vDist;
-void main() {
-    vDist = length(aPos.xz);
-    gl_Position = uProj * uView * vec4(aPos, 1.0);
-}
-)";
-
-const char* kGridFrag = R"(#version 450 core
-in float vDist;
-uniform vec3 uColor;
-out vec4 FragColor;
-void main() {
-    // Fade grid lines out with distance from the origin.
-    float a = clamp(1.0 - vDist / 22.0, 0.0, 1.0);
-    FragColor = vec4(uColor, a * 0.6);
-}
-)";
-
-const char* kDepthVert = R"(#version 450 core
-layout(location=0) in vec3 aPos;
-uniform mat4 uLightSpace;
-uniform mat4 uModel;
-void main() { gl_Position = uLightSpace * uModel * vec4(aPos, 1.0); }
-)";
-
-const char* kDepthFrag = R"(#version 450 core
-void main() {}
-)";
-
-// Canonical local-space bounds of each primitive, used as a pick proxy. All
-// primitives fit in the unit cube; the plane is given a little thickness so a
-// near-horizontal ray can still hit it.
-void localBounds(PrimitiveType type, glm::vec3& bmin, glm::vec3& bmax) {
-    if (type == PrimitiveType::Plane) {
-        bmin = {-0.5f, -0.02f, -0.5f};
-        bmax = { 0.5f,  0.02f,  0.5f};
-    } else {
-        bmin = {-0.5f, -0.5f, -0.5f};
-        bmax = { 0.5f,  0.5f,  0.5f};
-    }
-}
-
-// Slab-method ray/AABB. Returns the nearest non-negative hit distance.
-bool rayAABB(const glm::vec3& ro, const glm::vec3& rd,
-             const glm::vec3& bmin, const glm::vec3& bmax, float& tHit) {
-    float t0 = -std::numeric_limits<float>::max();
-    float t1 =  std::numeric_limits<float>::max();
-    for (int i = 0; i < 3; ++i) {
-        if (std::abs(rd[i]) < 1e-8f) {
-            if (ro[i] < bmin[i] || ro[i] > bmax[i]) return false;
-        } else {
-            float inv = 1.0f / rd[i];
-            float ta = (bmin[i] - ro[i]) * inv;
-            float tb = (bmax[i] - ro[i]) * inv;
-            if (ta > tb) std::swap(ta, tb);
-            t0 = std::max(t0, ta);
-            t1 = std::min(t1, tb);
-            if (t0 > t1) return false;
-        }
-    }
-    tHit = (t0 >= 0.0f) ? t0 : t1;
-    return tHit >= 0.0f;
-}
-
-} // namespace
 
 ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* state)
     : m_window(window), m_scene(scene), m_state(state) {
-    m_shader      = std::make_unique<Shader>(kLitVert,   kLitFrag);
-    m_gridShader  = std::make_unique<Shader>(kGridVert,  kGridFrag);
-    m_skyShader   = std::make_unique<Shader>(kSkyVert,   kSkyFrag);
-    m_depthShader = std::make_unique<Shader>(kDepthVert, kDepthFrag);
-    m_shadow.init(2048);
-    buildGrid();
-    buildAxes();
-    buildSky();
+    resetCamera();
 }
 
-ViewportPanel::~ViewportPanel() {
-    if (m_gridVbo) glDeleteBuffers(1, &m_gridVbo);
-    if (m_gridVao) glDeleteVertexArrays(1, &m_gridVao);
-    if (m_axisVbo) glDeleteBuffers(1, &m_axisVbo);
-    if (m_axisVao) glDeleteVertexArrays(1, &m_axisVao);
-    if (m_skyVao)  glDeleteVertexArrays(1, &m_skyVao);
-}
-
-void ViewportPanel::buildGrid() {
-    std::vector<glm::vec3> lines;
-    const int   half = 10;
-    const float ext  = (float)half;
-    for (int i = -half; i <= half; ++i) {
-        // Skip the two centre lines; they are drawn separately as coloured axes.
-        if (i == 0) continue;
-        lines.push_back({(float)i, 0.0f, -ext});
-        lines.push_back({(float)i, 0.0f,  ext});
-        lines.push_back({-ext, 0.0f, (float)i});
-        lines.push_back({ ext, 0.0f, (float)i});
-    }
-    m_gridVertexCount = (int)lines.size();
-
-    glGenVertexArrays(1, &m_gridVao);
-    glGenBuffers(1, &m_gridVbo);
-    glBindVertexArray(m_gridVao);
-    glBindBuffer(GL_ARRAY_BUFFER, m_gridVbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(lines.size() * sizeof(glm::vec3)),
-                 lines.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-    glBindVertexArray(0);
-}
-
-void ViewportPanel::buildAxes() {
-    // Two coloured centre lines (X and Z) in their own VAO, drawn as two ranges.
-    const glm::vec3 verts[] = {
-        {-10, 0, 0}, {10, 0, 0},   // X axis  (range 0..2)
-        {0, 0, -10}, {0, 0, 10},   // Z axis  (range 2..4)
-    };
-    glGenVertexArrays(1, &m_axisVao);
-    glGenBuffers(1, &m_axisVbo);
-    glBindVertexArray(m_axisVao);
-    glBindBuffer(GL_ARRAY_BUFFER, m_axisVbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-    glBindVertexArray(0);
-}
-
-void ViewportPanel::buildSky() {
-    // The sky shader synthesises its own vertices, but core-profile draws still
-    // require a bound (empty) VAO.
-    glGenVertexArrays(1, &m_skyVao);
-}
+ViewportPanel::~ViewportPanel() = default;
 
 void ViewportPanel::resetCamera() {
     m_camera.yaw      = 45.0f;
     m_camera.pitch    = 25.0f;
-    m_camera.distance = 8.0f;
-    m_camera.pivot    = {0, 0, 0};
+    m_camera.distance = 12.0f;
+    m_camera.pivot    = {0, 1, 0};
 }
 
 float ViewportPanel::cameraYaw() const { return m_camera.yaw; }
 
 void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; }
+
+bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing(); }
 
 void ViewportPanel::focusSelected() {
     if (SceneNode* sel = m_scene->selected())
@@ -319,74 +42,41 @@ void ViewportPanel::handleInput() {
     if (!m_hovered) return;
     ImGuiIO& io = ImGui::GetIO();
 
-    bool mmb   = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-    bool shift = io.KeyShift;
+    bool playing = m_session != nullptr;
+    bool orbit = ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
+                 (playing && ImGui::IsMouseDown(ImGuiMouseButton_Right));
 
-    if (mmb) {
+    if (orbit) {
         ImVec2 d = io.MouseDelta;
-        if (shift) m_camera.pan(d.x, d.y);
-        else       m_camera.orbit(d.x, d.y);
+        if (io.KeyShift && !playing) m_camera.pan(d.x, d.y);
+        else                         m_camera.orbit(d.x, d.y);
     }
     if (io.MouseWheel != 0.0f)
         m_camera.zoom(io.MouseWheel);
 
-    if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+    if (!playing && !io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))
         focusSelected();
 }
 
-void ViewportPanel::pickAt(const glm::vec2& mouse, const glm::vec2& imgMin,
-                           const glm::vec2& imgSize, const glm::mat4& view,
-                           const glm::mat4& proj) {
-    if (imgSize.x <= 0 || imgSize.y <= 0) return;
-
-    // Mouse position in the image -> normalised device coords.
+void ViewportPanel::mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
+                             const glm::mat4& view, const glm::mat4& proj,
+                             glm::vec3& ro, glm::vec3& rd) const {
+    // Mouse position in the image -> normalised device coords -> world ray.
     float nx = (mouse.x - imgMin.x) / imgSize.x * 2.0f - 1.0f;
     float ny = 1.0f - (mouse.y - imgMin.y) / imgSize.y * 2.0f;
-
     glm::mat4 invVP = glm::inverse(proj * view);
     glm::vec4 pNear = invVP * glm::vec4(nx, ny, -1.0f, 1.0f);
     glm::vec4 pFar  = invVP * glm::vec4(nx, ny,  1.0f, 1.0f);
     pNear /= pNear.w;
     pFar  /= pFar.w;
-
-    glm::vec3 ro  = glm::vec3(pNear);
-    glm::vec3 rd  = glm::normalize(glm::vec3(pFar - pNear));
-
-    SceneNode* best     = nullptr;
-    float      bestDist = std::numeric_limits<float>::max();
-
-    m_scene->forEach([&](SceneNode* node) {
-        if (!node->mesh || !node->visible || node->internal) return;
-
-        glm::mat4 world = node->worldMatrix();
-        glm::mat4 inv   = glm::inverse(world);
-        glm::vec3 lro   = glm::vec3(inv * glm::vec4(ro, 1.0f));
-        glm::vec3 lrd   = glm::vec3(inv * glm::vec4(rd, 0.0f));
-
-        glm::vec3 bmin, bmax;
-        localBounds(node->primitiveType, bmin, bmax);
-
-        float tLocal;
-        if (rayAABB(lro, lrd, bmin, bmax, tLocal)) {
-            // Convert the local hit into a world-space distance so objects of
-            // different scales are compared fairly.
-            glm::vec3 worldHit = glm::vec3(world * glm::vec4(lro + lrd * tLocal, 1.0f));
-            float worldDist = glm::dot(worldHit - ro, rd);
-            if (worldDist > 0.0f && worldDist < bestDist) {
-                bestDist = worldDist;
-                best     = node;
-            }
-        }
-    });
-
-    if (best) m_scene->select(best);
-    else      m_scene->deselect();
+    ro = glm::vec3(pNear);
+    rd = glm::normalize(glm::vec3(pFar - pNear));
 }
 
 void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                               const glm::vec2& imgMin, const glm::vec2& imgSize) {
     SceneNode* sel = m_scene->selected();
-    if (!sel || sel == m_scene->root() || m_state->tool == GizmoTool::Select)
+    if (!sel || sel == m_scene->root() || sel->isScript() || m_state->tool == GizmoTool::Select)
         return;
 
     ImGuizmo::SetOrthographic(false);
@@ -427,129 +117,10 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     }
 }
 
-void ViewportPanel::renderShadowPass(const glm::mat4& lightSpace) {
-    m_shadow.bindForWrite();
-    glEnable(GL_DEPTH_TEST);
-    // Cull front faces while filling the shadow map to reduce surface acne.
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_FRONT);
-
-    m_depthShader->bind();
-    m_depthShader->setMat4("uLightSpace", lightSpace);
-    m_scene->forEach([&](SceneNode* node) {
-        if (!node->mesh || !node->visible || !node->castShadow) return;
-        if (node->transparency > 0.5f) return;   // mostly see-through: skip
-        m_depthShader->setMat4("uModel", node->worldMatrix());
-        node->mesh->draw();
-    });
-
-    glDisable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-}
-
-void ViewportPanel::drawScene() {
-    const Environment& env = m_scene->environment();
-    glm::vec3 sunDir = env.sunDirection();
-
-    // --- Shadow map (rendered from the sun's point of view) ---
-    glm::vec3 shadowCenter(0.0f, 0.5f, 0.0f);
-    float     shadowExtent = 14.0f, shadowDist = 25.0f;
-    glm::mat4 lightView = glm::lookAt(shadowCenter + sunDir * shadowDist,
-                                      shadowCenter, glm::vec3(0, 1, 0));
-    glm::mat4 lightProj = glm::ortho(-shadowExtent, shadowExtent,
-                                     -shadowExtent, shadowExtent,
-                                     0.1f, shadowDist * 2.0f);
-    glm::mat4 lightSpace = lightProj * lightView;
-    if (env.shadows) renderShadowPass(lightSpace);
-
-    m_fbo.bind();
-    glEnable(GL_DEPTH_TEST);
-    glClearColor(env.skyHorizon.r, env.skyHorizon.g, env.skyHorizon.b, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glm::mat4 view = m_camera.view();
-    glm::mat4 proj = m_camera.projection();
-
-    // --- Procedural sky (drawn first, behind everything) ---
-    if (env.showSky) {
-        glDisable(GL_DEPTH_TEST);
-        glDepthMask(GL_FALSE);
-        m_skyShader->bind();
-        m_skyShader->setMat4("uInvViewProj", glm::inverse(proj * view));
-        m_skyShader->setVec3("uZenith",  env.skyZenith);
-        m_skyShader->setVec3("uHorizon", env.skyHorizon);
-        m_skyShader->setVec3("uGround",  env.skyGround);
-        m_skyShader->setVec3("uSunDir",  sunDir);
-        m_skyShader->setVec3("uSunColor", env.sunColor);
-        m_skyShader->setFloat("uSunIntensity", env.sunIntensity);
-        glBindVertexArray(m_skyVao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        glBindVertexArray(0);
-        glDepthMask(GL_TRUE);
-        glEnable(GL_DEPTH_TEST);
-    }
-
-    // --- Grid + axes ---
-    m_gridShader->bind();
-    m_gridShader->setMat4("uView", view);
-    m_gridShader->setMat4("uProj", proj);
-    m_gridShader->setVec3("uColor", {0.35f, 0.36f, 0.40f});
-    glBindVertexArray(m_gridVao);
-    glDrawArrays(GL_LINES, 0, m_gridVertexCount);
-
-    // Coloured centre axes (X = red, Z = blue), from a persistent VAO.
-    glBindVertexArray(m_axisVao);
-    m_gridShader->setVec3("uColor", {0.75f, 0.25f, 0.25f});
-    glDrawArrays(GL_LINES, 0, 2);
-    m_gridShader->setVec3("uColor", {0.25f, 0.45f, 0.80f});
-    glDrawArrays(GL_LINES, 2, 2);
-
-    // --- Lit scene geometry ---
-    m_shader->bind();
-    m_shader->setMat4("uView", view);
-    m_shader->setMat4("uProj", proj);
-    m_shader->setVec3("uSunDir", sunDir);
-    m_shader->setVec3("uSunColor", env.sunColor);
-    m_shader->setFloat("uSunIntensity", env.sunIntensity);
-    m_shader->setVec3("uAmbient", env.ambientColor * env.ambientIntensity);
-    m_shader->setVec3("uViewPos", m_camera.position());
-    m_shader->setBool("uFogEnabled", env.fogEnabled);
-    m_shader->setVec3("uFogColor", env.fogColor);
-    m_shader->setFloat("uFogDensity", env.fogDensity);
-    m_shader->setBool("uShadowsEnabled", env.shadows);
-    m_shader->setMat4("uLightSpace", lightSpace);
-    m_shadow.bindForRead(0);
-    m_shader->setInt("uShadowMap", 0);
-
-    m_scene->forEach([&](SceneNode* node) {
-        if (!node->mesh || !node->visible) return;
-        float alpha = 1.0f - node->transparency;
-        if (alpha <= 0.001f) return;   // fully transparent — nothing to draw
-
-        glm::mat4 model = node->worldMatrix();
-        glm::mat3 nrm   = glm::transpose(glm::inverse(glm::mat3(model)));
-        m_shader->setMat4("uModel", model);
-        m_shader->setMat3("uNormalMat", nrm);
-        m_shader->setVec3("uColor", node->color);
-        m_shader->setBool("uSelected", node->selected);
-        m_shader->setInt("uMaterial", (int)node->material);
-        m_shader->setFloat("uAlpha", alpha);
-
-        // Don't let translucent parts occlude what's behind them via the depth
-        // buffer (blending is enabled globally).
-        bool translucent = alpha < 0.999f;
-        if (translucent) glDepthMask(GL_FALSE);
-        node->mesh->draw();
-        if (translucent) glDepthMask(GL_TRUE);
-    });
-
-    glBindVertexArray(0);
-    m_fbo.unbind();
-}
-
 void ViewportPanel::render(float dt) {
     (void)dt;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    if (m_wantFocus) { ImGui::SetNextWindowFocus(); m_wantFocus = false; }
     ImGui::Begin("Viewport");
 
     m_hovered = ImGui::IsWindowHovered();
@@ -563,7 +134,8 @@ void ViewportPanel::render(float dt) {
             m_fbo.resize(w, h);
             m_camera.resize(w, h);
         }
-        drawScene();
+        bool playing = m_session != nullptr;
+        m_renderer.render(*m_scene, m_camera, m_fbo, !playing);
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();
         // Flip V so the framebuffer texture is the right way up in ImGui.
@@ -574,15 +146,37 @@ void ViewportPanel::render(float dt) {
         glm::mat4 proj = m_camera.projection();
         glm::vec2 imgMin{imgPos.x, imgPos.y};
         glm::vec2 imgSize{avail.x, avail.y};
+        ImVec2 imgMax(imgPos.x + avail.x, imgPos.y + avail.y);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
 
-        drawGizmo(view, proj, imgMin, imgSize);
+        if (playing) {
+            // Clicks go to the game (part.Clicked / MouseButton1), not the editor.
+            if (m_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                ImVec2 m = ImGui::GetMousePos();
+                glm::vec3 ro, rd;
+                mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
+                const SceneNode* character = m_scene->player() ? m_scene->player()->root() : nullptr;
+                SceneNode* hit = Physics::raycast(*m_scene, ro, rd, nullptr, character);
+                m_session->click(hit ? hit->id : 0);
+            }
+            Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
+            // Green frame = the game is running.
+            dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);
+            const char* tip = "PLAYING  -  WASD move, Space jump, right-drag camera, F5/Esc stop";
+            dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10),
+                        IM_COL32(255, 255, 255, 170), tip);
+        } else {
+            drawGizmo(view, proj, imgMin, imgSize);
 
-        // Left-click to pick — but not while interacting with the gizmo.
-        bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
-        if (m_hovered && !overGizmo &&
-            ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            ImVec2 m = ImGui::GetMousePos();
-            pickAt({m.x, m.y}, imgMin, imgSize, view, proj);
+            // Left-click to pick — but not while interacting with the gizmo.
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                ImVec2 m = ImGui::GetMousePos();
+                glm::vec3 ro, rd;
+                mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
+                if (SceneNode* hit = Physics::raycast(*m_scene, ro, rd)) m_scene->select(hit);
+                else                                                      m_scene->deselect();
+            }
         }
     }
 

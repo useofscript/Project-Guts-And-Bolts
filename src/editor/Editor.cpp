@@ -5,45 +5,71 @@
 #include "panels/EnvironmentPanel.h"
 #include "panels/ToolboxPanel.h"
 #include "panels/PlayerPanel.h"
+#include "panels/OutputPanel.h"
+#include "panels/ScriptEditorPanel.h"
 #include "../scene/Scene.h"
 #include "../scene/Player.h"
-#include "../renderer/Primitives.h"
+#include "../scene/Serializer.h"
+#include "../game/GameSession.h"
+#include "../renderer/MeshLibrary.h"
+#include "../core/Log.h"
+#include "../core/Paths.h"
 
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <cmath>
-
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <misc/cpp/imgui_stdlib.h>
 #include <ImGuizmo.h>
 #include <string>
 #include <vector>
 
+namespace {
+const char* kNewScript =
+R"(-- A new script! It runs when you press Play (F5).
+-- 'script.Parent' is the object this script is inside of.
+
+print("Hello world!")
+)";
+} // namespace
+
 Editor::Editor(GLFWwindow* window, Scene* scene)
     : m_window(window), m_scene(scene) {
-    m_viewport    = std::make_unique<ViewportPanel>(window, scene, &m_state);
-    m_outliner    = std::make_unique<OutlinerPanel>(scene);
-    m_properties  = std::make_unique<PropertiesPanel>(scene);
-    m_environment = std::make_unique<EnvironmentPanel>(scene);
-    m_toolbox     = std::make_unique<ToolboxPanel>(
-        [this](PrimitiveType type) { spawnPrimitive(type); });
-    m_player      = std::make_unique<PlayerPanel>(scene);
+    m_session  = std::make_unique<GameSession>(scene);
+    m_viewport = std::make_unique<ViewportPanel>(window, scene, &m_state);
+    auto open  = [this](SceneNode* n) { openScript(n); };
+    m_outliner = std::make_unique<OutlinerPanel>(scene, open, [this](SceneNode* n) { addScript(n); });
+    m_properties   = std::make_unique<PropertiesPanel>(scene, open);
+    m_environment  = std::make_unique<EnvironmentPanel>(scene);
+    m_player       = std::make_unique<PlayerPanel>(scene);
+    m_output       = std::make_unique<OutputPanel>();
+    m_scriptEditor = std::make_unique<ScriptEditorPanel>(scene);
 
-    // Default scene objects
-    auto cube = scene->addNode("Cube", PrimitiveType::Cube, Primitives::createCube());
-    cube->transform.position = {0, 0.5f, 0};
-    scene->addNode("Ground", PrimitiveType::Plane, Primitives::createPlane())->transform.scale = {6,1,6};
+    ToolboxPanel::Actions actions;
+    actions.spawnPart    = [this](PrimitiveType t) { spawnPrimitive(t); };
+    actions.addScript    = [this] { addScript(m_scene->selected()); };
+    actions.addModel     = [this] { addModel(); };
+    actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
+    m_toolbox = std::make_unique<ToolboxPanel>(actions);
+
+    resetHistory();
+    Log::system("Welcome to Guts and Bolts! Press Play (F5) to test your game.");
 }
 
-// Out-of-line so the panel types are complete here (they are only forward
-// declared in Editor.h, which is what Application.cpp sees).
-Editor::~Editor() = default;
+// Out-of-line so the panel types are complete here.
+Editor::~Editor() {
+    if (m_session) m_session->stop();
+}
 
 void Editor::render(float dt) {
     ImGuizmo::BeginFrame();
+    // Docked tabs appear over a few frames; make sure the 3D view ends up on top.
+    if (++m_frame <= 3) m_viewport->focus();
     handleShortcuts();
-    if (m_playing) updatePlay(dt);
+    if (m_playing) {
+        m_session->update(dt, m_viewport->cameraYaw(), true);
+        if (Player* p = m_scene->player()) m_viewport->frameOn(p->focusPoint());
+    }
     buildDockspace();
     m_viewport->render(dt);
     m_outliner->render();
@@ -51,104 +77,261 @@ void Editor::render(float dt) {
     m_environment->render();
     m_toolbox->render();
     m_player->render();
+    m_output->render();
+    m_scriptEditor->render();
+    renderDialogs();
+
+    trackChanges();
+    updateTitle();
 }
+
+// ---------------------------------------------------------------------------
+// Play mode
+// ---------------------------------------------------------------------------
 
 void Editor::togglePlay() {
-    m_playing = !m_playing;
     if (!m_playing) {
-        if (Player* p = m_scene->player()) p->reset();
+        // Remember the world exactly as it is, so Stop can put it back.
+        m_playSnapshot = Serializer::saveScene(*m_scene);
+        m_playing = true;
+        m_viewport->setSession(m_session.get());
+        m_viewport->focus();
+        Log::system("Game started.");
+        m_session->start();
+    } else {
+        uint64_t sel = m_scene->selected() ? m_scene->selected()->id : 0;
+        m_session->stop();
+        m_viewport->setSession(nullptr);
+        m_playing = false;
+        Serializer::loadScene(*m_scene, m_playSnapshot);
+        m_scene->select(m_scene->findById(sel));
+        m_committed = m_playSnapshot;
+        Log::system("Game stopped - everything is back to how it was.");
     }
 }
 
-void Editor::updatePlay(float dt) {
-    Player* p = m_scene->player();
-    if (!p) return;
+// ---------------------------------------------------------------------------
+// Undo / redo
+// ---------------------------------------------------------------------------
 
-    ImGuiIO& io = ImGui::GetIO();
-    glm::vec3 move(0.0f);
-    bool jump = false;
-
-    if (!io.WantTextInput) {
-        // Movement is relative to where the camera is looking.
-        float yaw = glm::radians(m_viewport->cameraYaw());
-        glm::vec3 fwd   = glm::normalize(glm::vec3(-std::cos(yaw), 0.0f, -std::sin(yaw)));
-        glm::vec3 right = glm::vec3(-fwd.z, 0.0f, fwd.x);
-        if (ImGui::IsKeyDown(ImGuiKey_W)) move += fwd;
-        if (ImGui::IsKeyDown(ImGuiKey_S)) move -= fwd;
-        if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
-        if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
-        jump = ImGui::IsKeyDown(ImGuiKey_Space);
-    }
-
-    p->update(dt, move, jump);
-
-    // Follow camera: keep the character framed.
-    if (SceneNode* root = p->root())
-        m_viewport->frameOn(glm::vec3(root->worldMatrix()[3]) + glm::vec3(0, 1.0f, 0));
+void Editor::resetHistory() {
+    m_undo.clear();
+    m_redo.clear();
+    m_committed = Serializer::saveScene(*m_scene);
+    m_dirty = false;
 }
 
-SceneNode* Editor::addPrimitive(const char* label, PrimitiveType type,
-                                std::shared_ptr<Mesh> mesh) {
+void Editor::trackChanges() {
+    // Wait until a drag / text edit is finished so it becomes one undo step.
+    if (m_playing || ImGui::IsAnyItemActive() || m_viewport->gizmoInUse()) return;
+    std::string now = Serializer::saveScene(*m_scene);
+    if (now == m_committed) return;
+    m_undo.push_back(std::move(m_committed));
+    if (m_undo.size() > 100) m_undo.erase(m_undo.begin());
+    m_redo.clear();
+    m_committed = std::move(now);
+    m_dirty = true;
+}
+
+void Editor::restore(const std::string& snapshot) {
+    uint64_t sel = m_scene->selected() ? m_scene->selected()->id : 0;
+    Serializer::loadScene(*m_scene, snapshot);
+    m_scene->select(m_scene->findById(sel));
+    m_committed = snapshot;
+    m_dirty = true;
+}
+
+void Editor::undo() {
+    if (m_playing || m_undo.empty()) return;
+    m_redo.push_back(m_committed);
+    std::string s = std::move(m_undo.back());
+    m_undo.pop_back();
+    restore(s);
+}
+
+void Editor::redo() {
+    if (m_playing || m_redo.empty()) return;
+    m_undo.push_back(m_committed);
+    std::string s = std::move(m_redo.back());
+    m_redo.pop_back();
+    restore(s);
+}
+
+// ---------------------------------------------------------------------------
+// Creating things
+// ---------------------------------------------------------------------------
+
+glm::vec3 Editor::spawnPoint() const {
+    glm::vec3 p = m_viewport->cameraPivot();
+    return {std::round(p.x), 0.0f, std::round(p.z)};
+}
+
+bool Editor::canEdit(const SceneNode* n) const {
+    return n && !m_scene->isProtected(n) && !m_scene->isCharacterPart(n);
+}
+
+SceneNode* Editor::addPrimitive(const char* label, PrimitiveType type) {
     ++m_objCounter;
     std::string name = std::string(label) + " " + std::to_string(m_objCounter);
-    auto* node = m_scene->addNode(name, type, std::move(mesh));
-    node->transform.position = {0, 0.5f, 0};
+    auto* node = m_scene->addNode(name, type, MeshLibrary::get(type));
+    node->transform.position = spawnPoint() + glm::vec3(0, type == PrimitiveType::Plane ? 0.01f : 0.5f, 0);
     m_scene->select(node);
     return node;
 }
 
 void Editor::spawnPrimitive(PrimitiveType type) {
     switch (type) {
-        case PrimitiveType::Cube:     addPrimitive("Cube",     type, Primitives::createCube());     break;
-        case PrimitiveType::Sphere:   addPrimitive("Sphere",   type, Primitives::createSphere());   break;
-        case PrimitiveType::Plane:    addPrimitive("Plane",    type, Primitives::createPlane());     break;
-        case PrimitiveType::Cylinder: addPrimitive("Cylinder", type, Primitives::createCylinder()); break;
+        case PrimitiveType::Cube:     addPrimitive("Cube",     type); break;
+        case PrimitiveType::Sphere:   addPrimitive("Sphere",   type); break;
+        case PrimitiveType::Plane:    addPrimitive("Plane",    type); break;
+        case PrimitiveType::Cylinder: addPrimitive("Cylinder", type); break;
         default: break;
+    }
+}
+
+void Editor::spawnPremade(Premade kind) {
+    if (SceneNode* n = buildPremade(*m_scene, kind, spawnPoint())) m_scene->select(n);
+}
+
+void Editor::addScript(SceneNode* parent) {
+    // Scripts can't go inside other scripts or the character.
+    if (!parent || parent->isScript() || m_scene->isCharacterPart(parent)) parent = m_scene->root();
+    auto s = std::make_unique<SceneNode>("Script", NodeKind::Script);
+    s->source = kNewScript;
+    SceneNode* raw = m_scene->insert(std::move(s), parent);
+    m_scene->select(raw);
+    openScript(raw);
+}
+
+void Editor::addModel() {
+    SceneNode* m = m_scene->insert(std::make_unique<SceneNode>("Model", NodeKind::Model));
+    m_scene->select(m);
+}
+
+void Editor::openScript(SceneNode* script) {
+    if (script && script->isScript()) {
+        m_scene->select(script);
+        m_scriptEditor->open(script->id);
     }
 }
 
 void Editor::duplicateSelected() {
     SceneNode* sel = m_scene->selected();
-    if (!sel || sel == m_scene->root()) return;
-
-    // Share the mesh GPU buffers — they are immutable once uploaded.
-    auto* dup = m_scene->addNode(sel->name + " Copy", sel->primitiveType, sel->mesh);
-    dup->transform    = sel->transform;
-    dup->transform.position.x += 1.0f;   // nudge so the copy is visible
-    dup->color        = sel->color;
-    dup->visible      = sel->visible;
-    dup->transparency = sel->transparency;
-    dup->material     = sel->material;
-    dup->anchored     = sel->anchored;
-    dup->canCollide   = sel->canCollide;
-    dup->castShadow   = sel->castShadow;
+    if (!canEdit(sel)) return;
+    auto copy = Serializer::clone(*sel);
+    copy->name += " Copy";
+    if (copy->kind == NodeKind::Part) copy->transform.position.x += 1.0f;   // so it's visible
+    SceneNode* dup = m_scene->insert(std::move(copy), sel->parent);
     m_scene->select(dup);
 }
 
 void Editor::deleteSelected() {
-    if (SceneNode* sel = m_scene->selected())
-        m_scene->removeNode(sel);
+    SceneNode* sel = m_scene->selected();
+    if (sel && !m_scene->isProtected(sel)) m_scene->removeNode(sel);
 }
 
-void Editor::newScene() {
-    SceneNode* root = m_scene->root();
-    SceneNode* playerRoot = m_scene->player() ? m_scene->player()->root() : nullptr;
-    std::vector<SceneNode*> kids;
-    for (auto& c : root->children)
-        if (c.get() != playerRoot) kids.push_back(c.get());   // keep the player
-    for (auto* k : kids) m_scene->removeNode(k);
-    m_objCounter = 0;
+void Editor::copySelected() {
+    SceneNode* sel = m_scene->selected();
+    if (!canEdit(sel)) return;
+    m_clipboard = Serializer::nodeToString(*sel);
 }
+
+void Editor::paste() {
+    if (m_clipboard.empty()) return;
+    auto n = Serializer::nodeFromString(m_clipboard, true);
+    if (!n) return;
+    SceneNode* parent = m_scene->selected();
+    if (!parent || parent->kind != NodeKind::Model || m_scene->isCharacterPart(parent))
+        parent = m_scene->root();
+    if (n->kind == NodeKind::Part) n->transform.position.x += 1.0f;
+    m_scene->select(m_scene->insert(std::move(n), parent));
+}
+
+// ---------------------------------------------------------------------------
+// Files
+// ---------------------------------------------------------------------------
+
+void Editor::newScene() {
+    if (m_playing) togglePlay();
+    m_scene->buildDefault();
+    m_objCounter = 0;
+    m_path.clear();
+    resetHistory();
+    Log::system("Started a new game.");
+}
+
+void Editor::openFile(const std::string& path) {
+    if (m_playing) togglePlay();
+    std::string text, err;
+    if (!Serializer::readFile(path, text)) {
+        Log::error("Couldn't open " + path);
+        return;
+    }
+    if (!Serializer::loadScene(*m_scene, text, &err)) {
+        Log::error("Couldn't load " + path + ": " + err);
+        m_scene->buildDefault();
+    } else {
+        m_path = path;
+        Log::system("Opened " + path);
+    }
+    resetHistory();
+}
+
+void Editor::saveFile(const std::string& path) {
+    if (m_playing) togglePlay();
+    if (Serializer::writeFile(path, Serializer::saveScene(*m_scene, true))) {
+        m_path  = path;
+        m_dirty = false;
+        Log::system("Saved to " + path + "  (it now shows up in Guts&BoltsPlayer)");
+    } else {
+        Log::error("Couldn't save to " + path);
+    }
+}
+
+void Editor::save() {
+    if (m_path.empty()) {
+        m_nameInput = m_scene->info().title;
+        m_openSaveAs = true;
+    } else {
+        saveFile(m_path);
+    }
+}
+
+void Editor::updateTitle() {
+    std::string name = m_path.empty() ? "Untitled"
+                                      : std::filesystem::path(m_path).stem().string();
+    std::string title = name + (m_dirty ? "*" : "") + " - Guts and Bolts";
+    if (title != m_shownTitle) {
+        glfwSetWindowTitle(m_window, title.c_str());
+        m_shownTitle = title;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------------
 
 void Editor::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput) return;   // don't steal keys while editing a field
+    if (io.WantTextInput) return;   // don't steal keys while typing
 
     if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { togglePlay(); return; }
 
     if (m_playing) {
         // In playtest mode WASD drives the character, not the editor tools.
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) togglePlay();
+        return;
+    }
+
+    if (io.KeyCtrl) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) { io.KeyShift ? redo() : undo(); }
+        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) redo();
+        if (ImGui::IsKeyPressed(ImGuiKey_C, false)) copySelected();
+        if (ImGui::IsKeyPressed(ImGuiKey_V, false)) paste();
+        if (ImGui::IsKeyPressed(ImGuiKey_D, false)) duplicateSelected();
+        if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) { m_nameInput = m_scene->info().title; m_openSaveAs = true; } else save(); }
+        if (ImGui::IsKeyPressed(ImGuiKey_O, false)) { m_pending = Pending::Open; m_openDiscard = m_dirty; if (!m_dirty) m_openOpen = true; }
+        if (ImGui::IsKeyPressed(ImGuiKey_N, false)) { m_pending = Pending::New;  m_openDiscard = m_dirty; if (!m_dirty) { newScene(); m_pending = Pending::None; } }
         return;
     }
 
@@ -159,8 +342,11 @@ void Editor::handleShortcuts() {
 
     if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) deleteSelected();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_scene->deselect();
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false)) duplicateSelected();
 }
+
+// ---------------------------------------------------------------------------
+// Layout & chrome
+// ---------------------------------------------------------------------------
 
 void Editor::buildDockspace() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -196,17 +382,23 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderAddNode(dsId, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dsId, vp->WorkSize);
 
-        ImGuiID left, center, right;
-        ImGui::DockBuilderSplitNode(dsId,   ImGuiDir_Left,  0.20f, &left,   &center);
-        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28f, &right,  &center);
+        ImGuiID left, center, right, bottom;
+        ImGui::DockBuilderSplitNode(dsId,   ImGuiDir_Left,  0.18f, &left,   &center);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.27f, &right,  &center);
+        ImGui::DockBuilderSplitNode(center, ImGuiDir_Down,  0.24f, &bottom, &center);
+        ImGuiID leftTop, leftBottom;
+        ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.55f, &leftTop, &leftBottom);
 
-        ImGui::DockBuilderDockWindow("Outliner",    left);
-        ImGui::DockBuilderDockWindow("Toolbox",     left);
-        ImGui::DockBuilderDockWindow("Viewport",    center);
-        ImGui::DockBuilderDockWindow("Properties",  right);
-        ImGui::DockBuilderDockWindow("Environment", right);
-        ImGui::DockBuilderDockWindow("Player",      right);
+        ImGui::DockBuilderDockWindow("Explorer",      leftTop);
+        ImGui::DockBuilderDockWindow("Toolbox",       leftBottom);
+        ImGui::DockBuilderDockWindow("Script Editor", center);
+        ImGui::DockBuilderDockWindow("Viewport",      center);
+        ImGui::DockBuilderDockWindow("Output",        bottom);
+        ImGui::DockBuilderDockWindow("Properties",    right);
+        ImGui::DockBuilderDockWindow("Environment",   right);
+        ImGui::DockBuilderDockWindow("Player",        right);
         ImGui::DockBuilderFinish(dsId);
+        m_viewport->focus();
     }
 
     renderStatusBar();
@@ -219,12 +411,38 @@ void Editor::renderMenuBar() {
     if (!ImGui::BeginMenuBar()) return;
 
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New Scene"))  newScene();
-        if (ImGui::MenuItem("Open...", nullptr, false, false))  { /* TODO: serialization */ }
-        if (ImGui::MenuItem("Save",    nullptr, false, false))  { /* TODO: serialization */ }
+        if (ImGui::MenuItem("New Game", "Ctrl+N")) {
+            m_pending = Pending::New;
+            if (m_dirty) m_openDiscard = true; else { newScene(); m_pending = Pending::None; }
+        }
+        if (ImGui::MenuItem("Open...", "Ctrl+O")) {
+            m_pending = Pending::Open;
+            if (m_dirty) m_openDiscard = true; else m_openOpen = true;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save", "Ctrl+S")) save();
+        if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) {
+            m_nameInput = m_scene->info().title;
+            m_openSaveAs = true;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Exit"))
             glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Edit")) {
+        SceneNode* sel = m_scene->selected();
+        bool editable = canEdit(sel);
+        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !m_undo.empty() && !m_playing)) undo();
+        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, !m_redo.empty() && !m_playing)) redo();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Copy",      "Ctrl+C", false, editable)) copySelected();
+        if (ImGui::MenuItem("Paste",     "Ctrl+V", false, !m_clipboard.empty())) paste();
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editable)) duplicateSelected();
+        if (ImGui::MenuItem("Delete",    "Del",    false, sel && !m_scene->isProtected(sel))) deleteSelected();
         ImGui::EndMenu();
     }
 
@@ -233,13 +451,17 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Sphere"))   spawnPrimitive(PrimitiveType::Sphere);
         if (ImGui::MenuItem("Plane"))    spawnPrimitive(PrimitiveType::Plane);
         if (ImGui::MenuItem("Cylinder")) spawnPrimitive(PrimitiveType::Cylinder);
-        ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("Edit")) {
-        bool hasSel = m_scene->selected() && m_scene->selected() != m_scene->root();
-        if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSel)) duplicateSelected();
-        if (ImGui::MenuItem("Delete",    "Del",    false, hasSel)) deleteSelected();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Script")) addScript(m_scene->selected());
+        if (ImGui::MenuItem("Model"))  addModel();
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Ready-made")) {
+            for (const PremadeInfo& p : premadeList()) {
+                if (ImGui::MenuItem(p.name)) spawnPremade(p.kind);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", p.tip);
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndMenu();
     }
 
@@ -248,7 +470,106 @@ void Editor::renderMenuBar() {
         ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("Test")) {
+        if (ImGui::MenuItem(m_playing ? "Stop" : "Play", "F5")) togglePlay();
+        ImGui::EndMenu();
+    }
+
     ImGui::EndMenuBar();
+}
+
+void Editor::renderDialogs() {
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+
+    if (m_openDiscard) { ImGui::OpenPopup("Unsaved changes"); m_openDiscard = false; }
+    if (m_openSaveAs)  { ImGui::OpenPopup("Save Game");       m_openSaveAs = false; }
+    if (m_openOpen)    { ImGui::OpenPopup("Open Game");       m_openOpen = false; m_openPathInput.clear(); }
+    if (m_openInfo)    { ImGui::OpenPopup("Game Settings");   m_openInfo = false; }
+
+    // --- Discard changes? ---
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("You have changes that aren't saved yet.");
+        ImGui::Text("Throw them away?");
+        ImGui::Spacing();
+        if (ImGui::Button("Discard changes", ImVec2(150, 0))) {
+            ImGui::CloseCurrentPopup();
+            if (m_pending == Pending::New) { newScene(); m_pending = Pending::None; }
+            else if (m_pending == Pending::Open) m_openOpen = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+            m_pending = Pending::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // --- Save As: just ask for a name; it goes in the games folder ---
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Save Game", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Name your game:");
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        bool enter = ImGui::InputText("##name", &m_nameInput, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::TextDisabled("Saved in: %s", Paths::gamesFolder().string().c_str());
+        ImGui::Spacing();
+        bool valid = !m_nameInput.empty() && m_nameInput.find_first_of("/\\:*?\"<>|") == std::string::npos;
+        ImGui::BeginDisabled(!valid);
+        if (ImGui::Button("Save", ImVec2(100, 0)) || (enter && valid)) {
+            if (m_scene->info().title == "My Game") m_scene->info().title = m_nameInput;
+            saveFile((Paths::gamesFolder() / (m_nameInput + Paths::kExtension)).string());
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // --- Open: pick from the games folder or type a path ---
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Open Game", nullptr)) {
+        m_pending = Pending::None;
+        ImGui::TextDisabled("Games in %s", Paths::gamesFolder().string().c_str());
+        ImGui::BeginChild("##games", ImVec2(0, 220), ImGuiChildFlags_Borders);
+        auto games = Paths::listGames();
+        if (games.empty()) ImGui::TextDisabled("No saved games yet.");
+        for (auto& g : games) {
+            if (ImGui::Selectable(g.stem().string().c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                openFile(g.string());
+                ImGui::CloseCurrentPopup();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Double-click to open");
+        }
+        ImGui::EndChild();
+        ImGui::Text("...or type a file path:");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##path", &m_openPathInput);
+        ImGui::BeginDisabled(m_openPathInput.empty());
+        if (ImGui::Button("Open path", ImVec2(110, 0))) {
+            openFile(m_openPathInput);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // --- Game settings (shown in the Player app) ---
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Game Settings", nullptr)) {
+        GameInfo& info = m_scene->info();
+        ImGui::TextDisabled("How your game shows up in Guts&BoltsPlayer");
+        ImGui::InputText("Title",  &info.title);
+        ImGui::InputText("Author", &info.author);
+        ImGui::InputTextMultiline("Description", &info.description, ImVec2(-1, 90));
+        if (ImGui::Button("Done", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 }
 
 void Editor::renderToolbar() {
@@ -260,7 +581,7 @@ void Editor::renderToolbar() {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(6, 7));
 
     float barH = ImGui::GetFrameHeight() + 14.0f;
-    ImGui::BeginChild("##toolbar", ImVec2(0, barH), ImGuiChildFlags_None,
+    ImGui::BeginChild("##toolbar", ImVec2(0, barH), ImGuiChildFlags_AlwaysUseWindowPadding,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     auto toolBtn = [&](const char* label, GizmoTool t, const char* tip) {
@@ -296,6 +617,18 @@ void Editor::renderToolbar() {
     }
     sep();
 
+    ImGui::BeginDisabled(m_playing);
+    if (ImGui::Button("Undo")) undo();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Undo  (Ctrl+Z)");
+    ImGui::SameLine();
+    if (ImGui::Button("Redo")) redo();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Redo  (Ctrl+Y)");
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) save();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save  (Ctrl+S)");
+    ImGui::EndDisabled();
+    sep();
+
     toolBtn("Select", GizmoTool::Select,    "Select / pick objects  (Q)");
     toolBtn("Move",   GizmoTool::Translate, "Move tool  (W)");
     toolBtn("Rotate", GizmoTool::Rotate,    "Rotate tool  (E)");
@@ -309,17 +642,13 @@ void Editor::renderToolbar() {
     ImGui::Checkbox("Snap", &m_state.snapEnabled);
     sep();
 
-    if (ImGui::Button("+ Cube"))     spawnPrimitive(PrimitiveType::Cube);
+    if (ImGui::Button("+ Part"))   spawnPrimitive(PrimitiveType::Cube);
     ImGui::SameLine();
-    if (ImGui::Button("+ Sphere"))   spawnPrimitive(PrimitiveType::Sphere);
-    ImGui::SameLine();
-    if (ImGui::Button("+ Plane"))    spawnPrimitive(PrimitiveType::Plane);
-    ImGui::SameLine();
-    if (ImGui::Button("+ Cylinder")) spawnPrimitive(PrimitiveType::Cylinder);
+    if (ImGui::Button("+ Script")) addScript(m_scene->selected());
     sep();
 
-    bool hasSel = m_scene->selected() && m_scene->selected() != m_scene->root();
-    ImGui::BeginDisabled(!hasSel);
+    bool editable = canEdit(m_scene->selected());
+    ImGui::BeginDisabled(!editable);
     if (ImGui::Button("Duplicate")) duplicateSelected();
     ImGui::SameLine();
     if (ImGui::Button("Delete"))    deleteSelected();
@@ -336,17 +665,20 @@ void Editor::renderStatusBar() {
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kBarBg);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 5));
-    ImGui::BeginChild("##statusbar", ImVec2(0, 0), ImGuiChildFlags_None,
+    ImGui::BeginChild("##statusbar", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-    const char* toolName =
-        m_state.tool == GizmoTool::Select    ? "Select" :
-        m_state.tool == GizmoTool::Translate ? "Move"   :
-        m_state.tool == GizmoTool::Rotate    ? "Rotate" : "Scale";
-
-    ImGui::TextDisabled("Tool:");
-    ImGui::SameLine();
-    ImGui::TextColored(kAccent, "%s", toolName);
+    if (m_playing) {
+        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), "PLAYING");
+    } else {
+        const char* toolName =
+            m_state.tool == GizmoTool::Select    ? "Select" :
+            m_state.tool == GizmoTool::Translate ? "Move"   :
+            m_state.tool == GizmoTool::Rotate    ? "Rotate" : "Scale";
+        ImGui::TextDisabled("Tool:");
+        ImGui::SameLine();
+        ImGui::TextColored(kAccent, "%s", toolName);
+    }
     ImGui::SameLine(); ImGui::TextDisabled("   "); ImGui::SameLine();
 
     if (SceneNode* sel = m_scene->selected()) {
@@ -358,9 +690,10 @@ void Editor::renderStatusBar() {
     }
 
     ImGui::SameLine();
-    const char* hint = "[Q] Select   [W] Move   [E] Rotate   [R] Scale     "
-                       "MMB orbit   Shift+MMB pan   Wheel zoom     "
-                       "Click select   F focus   Del delete   Ctrl+D duplicate";
+    const char* hint = m_playing
+        ? "WASD move   Space jump   Right-drag camera   Wheel zoom   Click parts   F5/Esc stop"
+        : "[Q] Select  [W] Move  [E] Rotate  [R] Scale    MMB orbit  Shift+MMB pan  Wheel zoom    "
+          "F focus  Del delete  Ctrl+D duplicate  Ctrl+Z undo  F5 play";
     float avail = ImGui::GetContentRegionAvail().x;
     float tw    = ImGui::CalcTextSize(hint).x;
     if (tw < avail) ImGui::SameLine(ImGui::GetCursorPosX() + (avail - tw));

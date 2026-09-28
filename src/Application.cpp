@@ -2,6 +2,7 @@
 #include "scene/Scene.h"
 #include "editor/Editor.h"
 #include "editor/Theme.h"
+#include "renderer/MeshLibrary.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -9,6 +10,8 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
 #include <stdexcept>
+#include <cstdio>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -21,12 +24,13 @@
 #include <GLFW/glfw3native.h>
 #endif
 
-Application::Application() {
+Application::Application(LaunchOptions opts) : m_opts(std::move(opts)) {
     initWindow();
     initGL();
     initImGui();
     m_scene  = std::make_unique<Scene>();
     m_editor = std::make_unique<Editor>(m_window, m_scene.get());
+    if (!m_opts.openFile.empty()) m_editor->openFile(m_opts.openFile);
 }
 
 Application::~Application() {
@@ -84,14 +88,32 @@ void Application::initImGui() {
     ImGui_ImplOpenGL3_Init("#version 450");
 }
 
+void Application::saveScreenshot(const std::string& path) {
+    int w, h;
+    glfwGetFramebufferSize(m_window, &w, &h);
+    std::vector<unsigned char> px((size_t)w * h * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px.data());
+    if (FILE* f = std::fopen(path.c_str(), "wb")) {
+        std::fprintf(f, "P6\n%d %d\n255\n", w, h);
+        for (int y = h - 1; y >= 0; --y) std::fwrite(&px[(size_t)y * w * 3], 1, (size_t)w * 3, f);
+        std::fclose(f);
+    }
+}
+
 void Application::run() {
     float lastTime = (float)glfwGetTime();
+    int frame = 0;
     while (!glfwWindowShouldClose(m_window)) {
         float now = (float)glfwGetTime();
         float dt  = now - lastTime;
         lastTime  = now;
+        ++frame;
+        if (!m_opts.screenshot.empty()) dt = 1.0f / 60.0f;   // deterministic test runs
 
         glfwPollEvents();
+        if (m_opts.play && frame == 3) m_editor->togglePlay();
 
         int w, h;
         glfwGetFramebufferSize(m_window, &w, &h);
@@ -102,6 +124,11 @@ void Application::run() {
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
+        if (!m_opts.holdKey.empty() && frame > 3) {
+            ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
+                       : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
+            ImGui::GetIO().AddKeyEvent(k, true);
+        }
         ImGui::NewFrame();
 
         m_editor->render(dt);
@@ -109,11 +136,19 @@ void Application::run() {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        if (!m_opts.screenshot.empty() && frame == m_opts.frames) {
+            saveScreenshot(m_opts.screenshot);
+            glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+        }
         glfwSwapBuffers(m_window);
     }
 }
 
 void Application::cleanup() {
+    // GPU resources must be released while the GL context still exists.
+    m_editor.reset();
+    m_scene.reset();
+    MeshLibrary::clear();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

@@ -22,6 +22,8 @@ constexpr ImVec4 kFrameActive = {0.247f, 0.271f, 0.318f, 1.00f};
 constexpr ImVec4 kBorder      = {1.00f, 1.00f, 1.00f, 0.055f};
 
 ImVec4 withAlpha(ImVec4 c, float a) { c.w = a; return c; }
+
+ImFont* g_codeFont = nullptr;
 } // namespace
 
 void loadFonts() {
@@ -51,7 +53,29 @@ void loadFonts() {
     }
     if (!loaded)
         io.Fonts->AddFontDefault();
+
+    // Monospace font for code. ImGui's built-in font is monospace too, so it
+    // makes a fine fallback.
+    const char* monoCandidates[] = {
+        "C:/Windows/Fonts/consola.ttf",
+        "C:/Windows/Fonts/cour.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    };
+    g_codeFont = nullptr;
+    for (const char* path : monoCandidates) {
+        if (FILE* f = std::fopen(path, "rb")) {
+            std::fclose(f);
+            g_codeFont = io.Fonts->AddFontFromFileTTF(path, 16.0f, &cfg);
+            if (g_codeFont) break;
+        }
+    }
+    if (!g_codeFont) g_codeFont = io.Fonts->AddFontDefault();
 }
+
+ImFont* codeFont() { return g_codeFont; }
 
 void apply() {
     ImGuiStyle& s = ImGui::GetStyle();

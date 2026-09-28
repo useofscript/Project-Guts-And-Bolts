@@ -1,0 +1,74 @@
+#pragma once
+#include <cstdint>
+#include <set>
+#include <utility>
+#include <vector>
+#include <glm/glm.hpp>
+
+class Scene;
+class SceneNode;
+
+struct AABB {
+    glm::vec3 min{0.0f}, max{0.0f};
+    bool overlaps(const AABB& o, float eps = 1e-4f) const {
+        return min.x < o.max.x - eps && max.x > o.min.x + eps &&
+               min.y < o.max.y - eps && max.y > o.min.y + eps &&
+               min.z < o.max.z - eps && max.z > o.min.z + eps;
+    }
+    AABB inflated(float d) const { return {min - glm::vec3(d), max + glm::vec3(d)}; }
+};
+
+// "part was touched by other" — fed to the Touched event in scripts.
+struct TouchEvent {
+    uint64_t partId;
+    uint64_t otherId;
+};
+
+// Very small physics world used in Play mode:
+//  * the character is a box that walks, climbs small steps and lands on parts
+//  * unanchored parts fall with gravity and rest on whatever is below them
+//  * overlaps are reported as Touched events
+// Parts are treated as axis-aligned boxes (rotated parts use their bounding box).
+class Physics {
+public:
+    struct MoveResult {
+        glm::vec3 position;
+        bool      grounded   = false;
+        bool      hitCeiling = false;
+        uint64_t  groundId   = 0;    // the part we are standing on
+    };
+
+    static constexpr float kCharHalfWidth = 0.5f;
+    static constexpr float kCharHeight    = 2.6f;
+    static constexpr float kStepHeight    = 0.55f;
+
+    static AABB worldBounds(const SceneNode* node);
+    // First visible part hit by a ray (skipping `ignore` and everything inside it).
+    static SceneNode* raycast(Scene& scene, const glm::vec3& origin, const glm::vec3& dir,
+                              float* distance = nullptr, const SceneNode* ignore = nullptr);
+    static AABB characterBox(const glm::vec3& feet);
+
+    void reset();                       // forget touch state (on Play / Stop)
+    void gather(Scene& scene);          // collect this frame's parts
+
+    MoveResult moveCharacter(const glm::vec3& feet, const glm::vec3& delta, bool wasGrounded) const;
+    // Unanchored parts: gravity + collision. Ids of parts that fell out of the
+    // world are appended to `fallen`.
+    void stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen);
+    // How far `box` must move up to rest on top of a solid part (0 = free).
+    float pushUp(const AABB& box) const;
+    // New touches since the last call (parts vs character, unanchored vs others).
+    void collectTouches(Scene& scene, std::vector<TouchEvent>& out);
+
+private:
+    struct Collider {
+        SceneNode* node;
+        AABB       box;
+        bool       solid;     // CanCollide
+        bool       dynamic;   // unanchored
+    };
+    bool blocked(const AABB& box) const;
+
+    std::vector<Collider>                  m_colliders;
+    std::set<std::pair<uint64_t, uint64_t>> m_touching;
+};

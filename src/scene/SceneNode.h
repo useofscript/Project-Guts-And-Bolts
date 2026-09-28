@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>
@@ -6,6 +7,12 @@
 #include "../renderer/Mesh.h"
 
 enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder };
+
+// What an object *is*, à la Roblox classes:
+//   Part   — a visible, physical shape (Cube / Sphere / Plane / Cylinder)
+//   Model  — an empty container used to group other objects
+//   Script — Lua code that runs when you press Play (script.Parent = its parent)
+enum class NodeKind { Part, Model, Script };
 
 // Surface look, à la Roblox materials — affects shading in the lit shader.
 enum class Material { Plastic, Metal, Neon, Wood };
@@ -20,9 +27,11 @@ struct Transform {
 
 class SceneNode {
 public:
-    explicit SceneNode(std::string name);
+    explicit SceneNode(std::string name, NodeKind kind = NodeKind::Part);
 
+    uint64_t              id;               // unique, stable across undo / save
     std::string           name;
+    NodeKind              kind = NodeKind::Part;
     Transform             transform;
     PrimitiveType         primitiveType = PrimitiveType::None;
     std::shared_ptr<Mesh> mesh;
@@ -35,15 +44,33 @@ public:
     float    transparency = 0.0f;            // 0 = opaque, 1 = invisible
     Material material      = Material::Plastic;
 
-    // Behaviour (reserved for the future physics / shadow systems)
-    bool     anchored   = true;
-    bool     canCollide = true;
+    // Behaviour
+    bool     anchored   = true;              // false = falls with gravity in Play
+    bool     canCollide = true;              // false = things pass through it
     bool     castShadow = true;
+
+    // Script (kind == Script)
+    std::string source;
+    bool        scriptEnabled = true;
+
+    // Runtime-only physics state (not saved).
+    glm::vec3   velocity = {0.0f, 0.0f, 0.0f};
 
     SceneNode*                              parent = nullptr;
     std::vector<std::unique_ptr<SceneNode>> children;
 
-    SceneNode* addChild(std::unique_ptr<SceneNode> child);
-    void       removeChild(SceneNode* child);
-    glm::mat4  worldMatrix() const;
+    bool isPart()   const { return kind == NodeKind::Part && mesh != nullptr; }
+    bool isScript() const { return kind == NodeKind::Script; }
+
+    SceneNode*                 addChild(std::unique_ptr<SceneNode> child);
+    void                       removeChild(SceneNode* child);
+    std::unique_ptr<SceneNode> detachChild(SceneNode* child);  // keeps it alive
+    SceneNode*                 findChild(const std::string& name, bool recursive = false) const;
+    bool                       isAncestorOf(const SceneNode* other) const;
+    glm::mat4                  worldMatrix() const;
+    std::string                fullName() const;   // e.g. "Workspace.Door.Script"
+
+    // Make sure freshly created nodes never reuse an id loaded from a file.
+    static void     reserveId(uint64_t used);
+    static uint64_t newId();
 };

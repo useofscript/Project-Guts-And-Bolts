@@ -1,14 +1,16 @@
 #pragma once
+#include <functional>
 
 class Scene;
+class SceneNode;
 
-// Inspector for the currently selected node: edit its name, transform, base
-// colour and visibility. Shows a hint when nothing is selected.
+// Inspector for the selected object's properties.
 class PropertiesPanel {
 public:
-    explicit PropertiesPanel(Scene* scene);
+    PropertiesPanel(Scene* scene, std::function<void(SceneNode*)> openScript);
     void render();
 
 private:
-    Scene* m_scene;
+    Scene*                          m_scene;
+    std::function<void(SceneNode*)> m_openScript;
 };
