@@ -1,6 +1,7 @@
 #include "Badges.h"
 #include "Profile.h"
 #include "../core/Account.h"
+#include "../online/Protocol.h"
 
 #include <algorithm>
 #include <cctype>
@@ -20,7 +21,7 @@ const Info kInfo[] = {
 };
 
 std::string grantMessage(const std::string& key, const std::string& accountId) {
-    return "gb-badge:" + key + ":" + accountId;
+    return Online::grantMessage(key, accountId);
 }
 
 ImU32 rgb(int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); }
@@ -55,17 +56,8 @@ bool fromKey(const std::string& key, Id& out) {
     return false;
 }
 
-// A grant's signature is either plain (signed by the official account), or
-// "s:<staff id>:<their Staff badge signature>:<signature>" when a Staff member gave it.
 bool grantValid(const std::string& official, const std::string& key, const std::string& accountId, const std::string& sig) {
-    if (sig.rfind("s:", 0) != 0) return Account::verify(official, grantMessage(key, accountId), sig);
-    Id id;
-    if (!fromKey(key, id) || !info(id).staffCanGive) return false;
-    size_t a = sig.find(':', 2), b = a == std::string::npos ? a : sig.find(':', a + 1);
-    if (b == std::string::npos) return false;
-    std::string staffId = sig.substr(2, a - 2), staffSig = sig.substr(a + 1, b - a - 1), grantSig = sig.substr(b + 1);
-    return Account::verify(official, grantMessage("staff", staffId), staffSig) &&
-           Account::verify(staffId, grantMessage(key, accountId), grantSig);
+    return Online::grantValid(official, key, accountId, sig);
 }
 
 std::vector<Id> verified(const std::string& accountId, const std::vector<Grant>& grants) {

@@ -157,6 +157,7 @@ std::string& officialCache() {
 } // namespace
 
 std::string officialId() { return officialCache(); }
+void setOfficialId(const std::string& idHex) { officialCache() = lower(idHex); }
 
 bool isOfficial(const std::string& idHex) {
     std::string o = officialId();

@@ -239,6 +239,8 @@ add_library(gb_engine STATIC
     src/game/UpdateToast.cpp
     src/game/Badges.cpp
     src/game/Bolts.cpp
+    src/online/Protocol.cpp
+    src/online/OnlineClient.cpp
     src/game/Catalog.cpp
     src/game/TouchControls.cpp
     src/net/Socket.cpp
@@ -335,6 +337,25 @@ endif()
 add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
 target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
 
+# ---------------------------------------------------------------------------
+# GutsAndBoltsServer — keeps accounts, Bolts, badges and uploads (no graphics)
+# ---------------------------------------------------------------------------
+add_executable(GutsAndBoltsServer
+    src/server/ServerMain.cpp
+    src/server/Server.cpp
+    src/online/Protocol.cpp
+    src/core/Account.cpp
+    src/core/Paths.cpp
+    src/core/Log.cpp
+    src/net/Socket.cpp
+)
+target_include_directories(GutsAndBoltsServer PRIVATE src/ ${GB_GENERATED})
+add_dependencies(GutsAndBoltsServer gb_version)
+target_link_libraries(GutsAndBoltsServer PRIVATE nlohmann_json::nlohmann_json monocypher Threads::Threads)
+if(WIN32)
+    target_link_libraries(GutsAndBoltsServer PRIVATE ws2_32 bcrypt)
+endif()
+
 # Ship the sample games and official catalog items next to the programs.
 foreach(app GutsAndBolts GutsAndBoltsPlayer)
     add_custom_command(TARGET ${app} POST_BUILD
@@ -361,7 +382,7 @@ if(MINGW)
     )
     foreach(dll ${RUNTIME_DLLS})
         if(EXISTS "${MINGW_BIN}/${dll}")
-            foreach(app GutsAndBolts GutsAndBoltsPlayer)
+            foreach(app GutsAndBolts GutsAndBoltsPlayer GutsAndBoltsServer)
             add_custom_command(TARGET ${app} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${MINGW_BIN}/${dll}" "$<TARGET_FILE_DIR:${app}>"

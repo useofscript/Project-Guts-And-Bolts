@@ -36,6 +36,7 @@ void Profile::load() {
             for (auto& v : j[k]) if (v.is_string()) out.push_back(v.get<std::string>());
     };
     strings("inventory", inventory);
+    if (j.contains("server") && j["server"].is_string()) server = j["server"].get<std::string>();
     strings("wearing", wearing);
     // Nobody else gets to be called Guts, even by editing profile.json.
     if (Account::nameIsReserved(name) && !Account::iAmStaff()) name = "Player";
@@ -54,7 +55,7 @@ void Profile::save() const {
         {"head", vec(colors.head)}, {"torso", vec(colors.torso)},
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
-        {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing},
+        {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

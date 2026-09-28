@@ -34,6 +34,7 @@ struct PlayerOptions {
     std::string testBoltsFor;          // --test-bolts-code <account id> (tests, staff only: print a 500 Bolts code)
     std::string testRedeemBolts;       // --test-redeem-bolts <code> (tests)
     std::string testBuy;               // --test-buy "<item name>" (tests: buy and wear it)
+    std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,

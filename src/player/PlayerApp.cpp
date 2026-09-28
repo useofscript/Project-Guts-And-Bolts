@@ -16,6 +16,8 @@
 #include "../core/Account.h"
 #include "../game/Badges.h"
 #include "../game/Bolts.h"
+#include "../online/OnlineClient.h"
+#include "../online/Protocol.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -23,6 +25,8 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <ctime>
+#include <fstream>
+#include <sstream>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -188,6 +192,42 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
         Bolts::redeem(m_opts.testRedeemBolts, msg);
         std::printf("REDEEMBOLTS %s (balance %lld)\n", msg.c_str(), Bolts::balance());
         std::fflush(stdout);
+    }
+    if (!m_opts.onlineTest.empty()) {
+        // Each step: "op {json args}". $GRANT:<badge>:<account> in a string becomes a real signed grant.
+        std::stringstream ss(m_opts.onlineTest);
+        std::string step;
+        while (std::getline(ss, step, '|')) {
+            size_t sp = step.find(' ');
+            std::string op = step.substr(0, sp);
+            nlohmann::json args = sp == std::string::npos ? nlohmann::json::object()
+                                                          : nlohmann::json::parse(step.substr(sp + 1), nullptr, false);
+            if (!args.is_object()) args = nlohmann::json::object();
+            if (args.contains("grantFor")) {   // make the signed badge here, with our key
+                std::string err;
+                Badges::Id bid = Badges::Id::Verified;
+                Badges::fromKey(args.value("key", std::string("verified")), bid);
+                auto g = Badges::makeGrant(bid, args["grantFor"].get<std::string>(), err);
+                args["to"] = args["grantFor"]; args.erase("grantFor");
+                args["key"] = g.first; args["sig"] = g.second;
+            }
+            if (args.contains("fileB64")) {    // upload a file from disk
+                std::ifstream f(args["fileB64"].get<std::string>(), std::ios::binary);
+                std::stringstream buf; buf << f.rdbuf();
+                args["data"] = Online::base64Encode(buf.str());
+                args.erase("fileB64");
+            }
+            Online::request(op, args, [op](const nlohmann::json& r) {
+                nlohmann::json shown = r;
+                if (shown.contains("data")) shown["data"] = "(" + std::to_string(shown["data"].get<std::string>().size()) + " base64 chars)";
+                if (shown.contains("me")) shown["me"] = {{"name", r["me"].value("name", "")}, {"bolts", r["me"].value("bolts", 0)},
+                                                         {"verified", r["me"].value("verified", false)},
+                                                         {"staff", r["me"].value("staff", false)}};
+                std::printf("ONLINE %s -> %s\n", op.c_str(), shown.dump().substr(0, 600).c_str());
+                std::fflush(stdout);
+            });
+            Online::finishAll();
+        }
     }
     buildAvatarStage();
     refreshGames();

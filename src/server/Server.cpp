@@ -1,0 +1,586 @@
+#include "Server.h"
+#include "../online/Protocol.h"
+#include "../core/Account.h"
+#include "../net/Socket.h"
+
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <fstream>
+#include <sstream>
+#include <thread>
+
+using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+namespace {
+
+std::string lower(std::string s) {
+    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+bool isHex(const std::string& s, size_t minLen, size_t maxLen) {
+    if (s.size() < minLen || s.size() > maxLen) return false;
+    for (char c : s) if (!std::isxdigit((unsigned char)c)) return false;
+    return true;
+}
+json fail(const std::string& why) { return {{"ok", false}, {"error", why}}; }
+json okay() { return {{"ok", true}}; }
+
+// Write a file safely: to a temporary name first, then swap it in.
+bool writeFile(const fs::path& p, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    fs::path tmp = p;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f.write(text.data(), (std::streamsize)text.size());
+        if (!f) return false;
+    }
+    fs::rename(tmp, p, ec);
+    if (ec) {   // Windows can't rename over an existing file
+        fs::remove(p, ec);
+        fs::rename(tmp, p, ec);
+    }
+    return !ec;
+}
+bool readFile(const fs::path& p, std::string& out) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+void log(const std::string& what) {
+    std::time_t t = std::time(nullptr);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%H:%M:%S", std::localtime(&t));
+    std::printf("[%s] %s\n", buf, what.c_str());
+    std::fflush(stdout);
+}
+
+} // namespace
+
+struct GbServer::Client {
+    std::unique_ptr<Net::Connection> conn;
+    long long lastActive = 0;
+};
+
+GbServer::GbServer(Options opts) : m_opts(std::move(opts)) {
+    if (!m_opts.official.empty()) Account::setOfficialId(m_opts.official);
+}
+GbServer::~GbServer() = default;
+
+// ---------------------------------------------------------------------------
+// Starting and running
+// ---------------------------------------------------------------------------
+
+bool GbServer::start(std::string& error) {
+    std::error_code ec;
+    fs::create_directories(m_opts.data / "files", ec);
+    if (ec) { error = "Couldn't make the data folder " + m_opts.data.string() + ": " + ec.message(); return false; }
+    load();
+    m_listener = std::make_unique<Net::Listener>();
+    if (!m_listener->open(m_opts.port, error)) return false;
+    m_running = true;
+    return true;
+}
+
+void GbServer::runForever() {
+    while (m_running) step(5);
+}
+
+void GbServer::step(int waitMs) {
+    long long now = Online::unixNow();
+    while (auto c = m_listener->accept()) {
+        if (m_clients.size() >= 256) continue;   // too busy: drop it
+        auto cl = std::make_unique<Client>();
+        cl->conn = std::move(c);
+        cl->lastActive = now;
+        m_clients.push_back(std::move(cl));
+    }
+    for (auto& c : m_clients) {
+        if (!c->conn->poll()) continue;
+        std::string msg;
+        while (c->conn->pop(msg)) {
+            c->lastActive = now;
+            json req = json::parse(msg, nullptr, false);
+            json reply = req.is_object() ? handle(req) : fail("That wasn't a proper request.");
+            if (req.is_object() && req.contains("id")) reply["id"] = req["id"];   // lets clients match replies
+            c->conn->send(reply.dump());
+        }
+        c->conn->poll();   // start sending the reply straight away
+    }
+    // Drop closed and idle connections (but let big replies finish sending).
+    m_clients.erase(std::remove_if(m_clients.begin(), m_clients.end(), [&](const std::unique_ptr<Client>& c) {
+        return !c->conn->alive() || (now - c->lastActive > 120 && c->conn->pendingBytes() == 0);
+    }), m_clients.end());
+    // Forget old nonces.
+    for (auto it = m_seenNonces.begin(); it != m_seenNonces.end();)
+        it = now - it->second > 2 * Online::kMaxClockSkew ? m_seenNonces.erase(it) : std::next(it);
+    std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+}
+
+// ---------------------------------------------------------------------------
+// Checking requests
+// ---------------------------------------------------------------------------
+
+json GbServer::handle(const json& req) {
+    std::string opName = req.value("op", std::string());
+    std::string account = lower(req.value("account", std::string()));
+    std::string nonce = req.value("nonce", std::string());
+    long long   time = req.value("time", 0LL);
+    json        args = req.contains("args") && req["args"].is_object() ? req["args"] : json::object();
+
+    if (opName.empty() || opName.size() > 40) return fail("Unknown request.");
+    if (!isHex(account, 64, 64)) return fail("Missing account.");
+    if (!isHex(nonce, 8, 64)) return fail("Missing nonce.");
+    long long now = Online::unixNow();
+    if (std::llabs(now - time) > Online::kMaxClockSkew)
+        return fail("Your computer's clock is too far off from the server's. Fix the date and time and try again.");
+    if (!Account::verify(account, Online::requestText(opName, account, time, nonce, args), req.value("sig", std::string())))
+        return fail("That request wasn't signed by its account.");
+    std::string key = account + nonce;
+    if (m_seenNonces.count(key)) return fail("That request was already sent once.");
+    m_seenNonces[key] = now;
+
+    User& me = user(account);
+    me.lastSeen = now;
+    if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
+    try {
+        return op(opName, me, args);
+    } catch (const std::exception& e) {
+        return fail(std::string("The server hit a problem: ") + e.what());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+GbServer::User* GbServer::findUser(const std::string& id) {
+    auto it = m_users.find(lower(id));
+    return it == m_users.end() ? nullptr : &it->second;
+}
+
+GbServer::User& GbServer::user(const std::string& id) {
+    auto it = m_users.find(id);
+    if (it != m_users.end()) return it->second;
+    User& u = m_users[id];
+    u.id = id;
+    u.created = Online::unixNow();
+    add(u, 100, "Welcome to Guts&Bolts!", "welcome");
+    log("new account " + id.substr(0, 8));
+    return u;
+}
+
+long long GbServer::balance(const User& u) const {
+    long long b = 0;
+    for (const Entry& e : u.ledger) b += e.amount;
+    return b;
+}
+
+bool GbServer::hasRef(const User& u, const std::string& ref) const {
+    for (const Entry& e : u.ledger) if (e.ref == ref) return true;
+    return false;
+}
+
+void GbServer::add(User& u, long long amount, const std::string& reason, const std::string& ref) {
+    u.ledger.push_back({amount, reason, Online::unixNow(), ref});
+    if (u.ledger.size() > 2000) {   // keep the history short, but keep the balance
+        long long old = 0;
+        size_t cut = u.ledger.size() - 1500;
+        for (size_t i = 0; i < cut; ++i) old += u.ledger[i].amount;
+        u.ledger.erase(u.ledger.begin(), u.ledger.begin() + (long)cut);
+        u.ledger.insert(u.ledger.begin(), Entry{old, "Earlier history", 0, "carry"});
+    }
+    saveUsers();
+}
+
+bool GbServer::isOfficial(const User& u) const { return Account::isOfficial(u.id); }
+
+bool GbServer::isStaff(const User& u) const {
+    if (isOfficial(u)) return true;
+    auto it = u.grants.find("staff");
+    return it != u.grants.end() && Online::grantValid(Account::officialId(), "staff", u.id, it->second);
+}
+
+bool GbServer::isVerified(const User& u) const {
+    if (isOfficial(u)) return true;
+    auto it = u.grants.find("verified");
+    return it != u.grants.end() && Online::grantValid(Account::officialId(), "verified", u.id, it->second);
+}
+
+json GbServer::publicUser(const User& u) const {
+    return {{"id", u.id}, {"name", u.name}, {"verified", isVerified(u)}, {"staff", isStaff(u)},
+            {"official", isOfficial(u)}, {"created", u.created}, {"banned", u.banned}};
+}
+
+json GbServer::meJson(const User& u) const {
+    json j = publicUser(u);
+    j["bolts"] = balance(u);
+    json g = json::array();
+    for (const auto& [k, s] : u.grants) g.push_back({k, s});
+    j["grants"] = g;
+    std::string today = Online::utcDay(Online::unixNow());
+    j["canDaily"] = !hasRef(u, "daily:" + today);
+    j["playEarnedToday"] = u.playDay == today ? u.playEarned : 0;
+    j["uploadsLeft"] = isVerified(u) ? -1
+                     : Online::kDailyUploadsUnverified - (u.uploadDay == today ? u.uploadsToday : 0);
+    j["owned"] = json(u.owned);
+    return j;
+}
+
+json GbServer::publicAsset(const Asset& a) const {
+    json j = {{"id", a.id}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
+              {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
+              {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}};
+    auto it = m_users.find(a.creator);
+    j["creatorName"] = it != m_users.end() ? it->second.name : "?";
+    j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
+    return j;
+}
+
+// ---------------------------------------------------------------------------
+// The requests themselves
+// ---------------------------------------------------------------------------
+
+json GbServer::op(const std::string& name, User& me, const json& args) {
+    const long long now = Online::unixNow();
+    const std::string today = Online::utcDay(now);
+    auto str = [&](const char* k) { return args.contains(k) && args[k].is_string() ? args[k].get<std::string>() : std::string(); };
+    auto num = [&](const char* k) { return args.contains(k) && args[k].is_number() ? args[k].get<long long>() : 0LL; };
+
+    // --- Account -----------------------------------------------------------
+    if (name == "hello") {
+        std::string n = Online::cleanText(str("name"), 20);
+        if (!n.empty()) {
+            if (Account::nameIsReserved(n) && !isOfficial(me)) n = "Player";
+            me.name = n;
+        }
+        // Badges this player got offline (with a code) come along for the ride.
+        if (args.contains("grants") && args["grants"].is_array())
+            for (const auto& g : args["grants"])
+                if (g.is_array() && g.size() == 2 && g[0].is_string() && g[1].is_string() &&
+                    Online::grantValid(Account::officialId(), g[0], me.id, g[1]))
+                    me.grants[g[0].get<std::string>()] = g[1].get<std::string>();
+        saveUsers();
+        json r = okay();
+        r["me"] = meJson(me);
+        r["server"] = {{"name", m_opts.name}, {"protocol", Online::kProtocol}, {"official", Account::officialId()}};
+        return r;
+    }
+    if (name == "profile") {
+        User* u = findUser(str("id"));
+        if (!u) return fail("There's no account with that ID on this server.");
+        json r = okay();
+        r["user"] = publicUser(*u);
+        json made = json::array();
+        for (const auto& [id, a] : m_assets) if (a.creator == u->id) made.push_back(publicAsset(a));
+        r["creations"] = made;
+        return r;
+    }
+
+    // --- Bolts --------------------------------------------------------------
+    if (name == "bolts.history") {
+        json h = json::array();
+        size_t from = me.ledger.size() > 100 ? me.ledger.size() - 100 : 0;
+        for (size_t i = from; i < me.ledger.size(); ++i)
+            h.push_back({{"amount", me.ledger[i].amount}, {"reason", me.ledger[i].reason}, {"time", me.ledger[i].time}});
+        json r = okay();
+        r["history"] = h;
+        r["me"] = meJson(me);
+        return r;
+    }
+    if (name == "bolts.daily") {
+        if (hasRef(me, "daily:" + today)) return fail("You already got today's Bolts. Come back tomorrow!");
+        add(me, 25, "Daily reward", "daily:" + today);
+        json r = okay(); r["me"] = meJson(me); r["got"] = 25; return r;
+    }
+    if (name == "bolts.play") {
+        // The app asks every 5 minutes of play; the server checks the timing and the daily cap.
+        if (now - me.lastPlay < 280) return fail("Keep playing!");
+        if (me.playDay != today) { me.playDay = today; me.playEarned = 0; }
+        me.lastPlay = now;
+        if (me.playEarned >= 50) { saveUsers(); return fail("That's all the Bolts from playing for today."); }
+        me.playEarned += 5;
+        add(me, 5, "Playing games", "play:" + today);
+        json r = okay(); r["me"] = meJson(me); r["got"] = 5; return r;
+    }
+    if (name == "bolts.redeem") {
+        // BOLTS-<amount>-<nonce>-<signature>, made by the official account for this account.
+        std::string code;
+        for (char c : str("code")) if (!std::isspace((unsigned char)c)) code += c;
+        size_t a = code.find('-'), b = a == std::string::npos ? a : code.find('-', a + 1),
+               c = b == std::string::npos ? b : code.find('-', b + 1);
+        if (code.rfind("BOLTS-", 0) != 0 || c == std::string::npos) return fail("That doesn't look like a Bolts code.");
+        long long amount = 0;
+        try { amount = std::stoll(code.substr(a + 1, b - a - 1)); } catch (...) {}
+        std::string cn = code.substr(b + 1, c - b - 1);
+        if (amount <= 0 || !Account::verify(Account::officialId(), "gb-bolts:" + std::to_string(amount) + ":" + me.id + ":" + cn,
+                                            code.substr(c + 1)))
+            return fail("That code isn't valid for your account.");
+        if (hasRef(me, "code:" + cn)) return fail("You already used that code.");
+        add(me, amount, "Bolts from Guts&Bolts staff", "code:" + cn);
+        json r = okay(); r["me"] = meJson(me); r["got"] = amount; return r;
+    }
+
+    // --- Staff ---------------------------------------------------------------
+    if (name.rfind("admin.", 0) == 0) {
+        if (!isStaff(me)) return fail("Only staff can do that.");
+        User* to = findUser(str("to"));
+        // Staff can verify (or give Bolts to) someone who hasn't visited this server yet.
+        if (!to && name != "admin.find" && isHex(lower(str("to")), 64, 64)) to = &user(lower(str("to")));
+        if (name == "admin.find") {
+            std::string q = lower(Online::cleanText(str("query"), 64));
+            json list = json::array();
+            for (const auto& [id, u] : m_users) {
+                if (list.size() >= 40) break;
+                if (q.empty() || lower(u.name).find(q) != std::string::npos || id.rfind(q, 0) == 0)
+                    list.push_back(publicUser(u));
+            }
+            json r = okay(); r["users"] = list; return r;
+        }
+        if (!to) return fail("There's no account with that ID on this server.");
+        if (name == "admin.grant") {
+            // The signed badge comes from the app (made with the staff member's own key).
+            std::string key = str("key"), sig = str("sig");
+            if (!Online::grantValid(Account::officialId(), key, to->id, sig)) return fail("That badge signature isn't valid.");
+            to->grants[key] = sig;
+            saveUsers();
+            log(me.name + " gave " + to->name + " the " + key + " badge");
+            json r = okay(); r["user"] = publicUser(*to); return r;
+        }
+        if (name == "admin.revoke") {
+            std::string key = str("key");
+            if (key != "verified" && !isOfficial(me)) return fail("Only the official account can take that badge away.");
+            to->grants.erase(key);
+            saveUsers();
+            log(me.name + " took the " + key + " badge from " + to->name);
+            json r = okay(); r["user"] = publicUser(*to); return r;
+        }
+        if (!isOfficial(me)) return fail("Only the official Guts account can do that.");
+        if (name == "admin.giveBolts") {
+            long long amount = num("amount");
+            if (amount == 0 || std::llabs(amount) > 10000000) return fail("Pick an amount between 1 and 10,000,000.");
+            std::string why = Online::cleanText(str("reason"), 80);
+            add(*to, amount, why.empty() ? (amount > 0 ? "Bolts from Guts&Bolts staff" : "Taken by staff") : why,
+                "gift:" + Account::randomHex(6));
+            log(me.name + " gave " + std::to_string(amount) + " Bolts to " + to->name);
+            json r = okay(); r["user"] = publicUser(*to); r["bolts"] = balance(*to); return r;
+        }
+        if (name == "admin.ban") {
+            if (isOfficial(*to)) return fail("You can't ban yourself.");
+            to->banned = args.value("on", true);
+            saveUsers();
+            json r = okay(); r["user"] = publicUser(*to); return r;
+        }
+        return fail("Unknown staff request.");
+    }
+
+    // --- Uploads, the catalog and games -------------------------------------------------
+    if (name == "upload") {
+        std::string kind = str("kind");
+        if (!Online::validKind(kind)) return fail("You can't upload that kind of thing.");
+        std::string title = Online::cleanText(str("name"), 50);
+        if (title.empty()) return fail("Give it a name.");
+        std::string desc = Online::cleanText(str("description"), 1000, true);
+        const bool verified = isVerified(me);
+        long long price = std::clamp(num("price"), 0LL, 1000000LL);
+        if (kind == "game") price = 0;   // games are free to play
+        if (price > 0 && !verified) return fail("Only Verified creators can sell things. Upload it for free, or get Verified!");
+        if (!verified) {
+            if (me.uploadDay != today) { me.uploadDay = today; me.uploadsToday = 0; }
+            if (me.uploadsToday >= Online::kDailyUploadsUnverified)
+                return fail("You've uploaded " + std::to_string(Online::kDailyUploadsUnverified) +
+                            " things today. Come back tomorrow (Verified creators have no limit).");
+        }
+        std::string data;
+        if (!Online::base64Decode(str("data"), data)) return fail("The upload got scrambled. Try again.");
+        if (data.size() > Online::maxSize(kind))
+            return fail("That's too big (the most is " + std::to_string(Online::maxSize(kind) / 1024) + " KB).");
+        json meta = args.contains("meta") && args["meta"].is_object() ? args["meta"] : json::object();
+        if (meta.dump().size() > 4096) return fail("Too much extra information.");
+        if (kind == "audio") {
+            std::string ext = lower(meta.value("ext", std::string()));
+            if (ext != "mp3" && ext != "wav" && ext != "ogg" && ext != "flac") return fail("Audio must be .mp3, .wav, .ogg or .flac.");
+            if (data.empty()) return fail("That audio file is empty.");
+        }
+        if (kind == "game" && !json::accept(data)) return fail("That isn't a Guts&Bolts game file.");
+        if (kind == "plugin" && data.empty()) return fail("That plugin is empty.");
+        const long long fee = verified ? 0 : Online::uploadFee(kind);
+        if (fee > 0 && balance(me) < fee)
+            return fail("Uploading costs " + std::to_string(fee) + " Bolts, and you have " + std::to_string(balance(me)) +
+                        ". (It's free for Verified creators.)");
+
+        Asset a;
+        a.id = kind + "-" + Account::randomHex(5);
+        a.kind = kind; a.name = title; a.description = desc; a.creator = me.id;
+        a.price = price; a.created = now; a.size = data.size(); a.meta = meta;
+        if (!writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
+        m_assets[a.id] = a;
+        saveAssets();
+        me.owned.insert(a.id);
+        if (!verified) me.uploadsToday++;
+        if (fee > 0) add(me, -fee, "Upload fee: " + title, "upload:" + a.id);
+        else saveUsers();
+        log(me.name + " uploaded " + kind + " \"" + title + "\" (" + std::to_string(data.size()) + " bytes)");
+        json r = okay(); r["asset"] = publicAsset(a); r["me"] = meJson(me); r["fee"] = fee; return r;
+    }
+    if (name == "list") {
+        std::string kind = str("kind"), q = lower(Online::cleanText(str("query"), 64)), creator = lower(str("creator"));
+        std::string sort = str("sort");
+        std::vector<const Asset*> found;
+        for (const auto& [id, a] : m_assets) {
+            if (!kind.empty() && a.kind != kind && !(kind == "clothing" && Online::isClothing(a.kind))) continue;
+            if (!creator.empty() && a.creator != creator) continue;
+            if (!q.empty() && lower(a.name).find(q) == std::string::npos) continue;
+            found.push_back(&a);
+        }
+        std::sort(found.begin(), found.end(), [&](const Asset* x, const Asset* y) {
+            if (sort == "popular") return x->plays + x->sales > y->plays + y->sales;
+            return x->created > y->created;   // newest first
+        });
+        long long offset = std::max(0LL, num("offset")), limit = std::clamp(num("limit"), 1LL, 100LL);
+        if (!args.contains("limit")) limit = 60;
+        json list = json::array();
+        for (size_t i = (size_t)offset; i < found.size() && (long long)list.size() < limit; ++i)
+            list.push_back(publicAsset(*found[i]));
+        json r = okay(); r["assets"] = list; r["total"] = found.size(); return r;
+    }
+    if (name == "get") {
+        auto it = m_assets.find(str("id"));
+        if (it == m_assets.end()) return fail("That doesn't exist (any more).");
+        Asset& a = it->second;
+        const bool mine = me.owned.count(a.id) || a.creator == me.id;
+        if (a.price > 0 && !mine && !isStaff(me) && (a.kind == "plugin" || a.kind == "audio"))
+            return fail("Buy it first.");
+        std::string data;
+        if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
+        if (a.kind == "game") { a.plays++; saveAssets(); }
+        json r = okay(); r["asset"] = publicAsset(a); r["data"] = Online::base64Encode(data); return r;
+    }
+    if (name == "buy") {
+        auto it = m_assets.find(str("id"));
+        if (it == m_assets.end()) return fail("That doesn't exist (any more).");
+        Asset& a = it->second;
+        if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
+        if (a.price > 0) {
+            if (balance(me) < a.price)
+                return fail("You need " + std::to_string(a.price - balance(me)) + " more Bolts for that.");
+            add(me, -a.price, "Bought " + a.name, "buy:" + a.id);
+            if (User* seller = findUser(a.creator); seller && seller != &me) {
+                long long share = a.price * Online::kCreatorSharePercent / 100;
+                if (share > 0) add(*seller, share, "Sold " + a.name, "sale:" + a.id + ":" + Account::randomHex(4));
+            }
+        }
+        a.sales++;
+        me.owned.insert(a.id);
+        saveAssets();
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    if (name == "delete") {
+        auto it = m_assets.find(str("id"));
+        if (it == m_assets.end()) return fail("That doesn't exist (any more).");
+        if (it->second.creator != me.id && !isStaff(me)) return fail("You can only delete your own things.");
+        std::error_code ec;
+        fs::remove(blobPath(it->first), ec);
+        log(me.name + " deleted " + it->second.kind + " \"" + it->second.name + "\"");
+        m_assets.erase(it);
+        saveAssets();
+        return okay();
+    }
+    if (name == "stats") {
+        json r = okay();
+        r["users"] = m_users.size();
+        r["assets"] = m_assets.size();
+        r["name"] = m_opts.name;
+        return r;
+    }
+    return fail("The server doesn't know how to do \"" + name + "\". It might need updating.");
+}
+
+// ---------------------------------------------------------------------------
+// Saving and loading
+// ---------------------------------------------------------------------------
+
+fs::path GbServer::blobPath(const std::string& assetId) const { return m_opts.data / "files" / assetId; }
+
+void GbServer::saveUsers() {
+    json all = json::object();
+    for (const auto& [id, u] : m_users) {
+        json ledger = json::array();
+        for (const Entry& e : u.ledger) ledger.push_back({e.amount, e.reason, e.time, e.ref});
+        all[id] = {{"name", u.name}, {"created", u.created}, {"lastSeen", u.lastSeen}, {"ledger", ledger},
+                   {"grants", u.grants}, {"owned", u.owned}, {"uploadDay", u.uploadDay}, {"uploadsToday", u.uploadsToday},
+                   {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned}};
+    }
+    writeFile(m_opts.data / "accounts.json", all.dump(1));
+}
+
+void GbServer::saveAssets() {
+    json all = json::object();
+    for (const auto& [id, a] : m_assets)
+        all[id] = {{"kind", a.kind}, {"name", a.name}, {"description", a.description}, {"creator", a.creator},
+                   {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
+                   {"size", a.size}, {"meta", a.meta}};
+    writeFile(m_opts.data / "assets.json", all.dump(1));
+}
+
+void GbServer::load() {
+    std::string text;
+    if (readFile(m_opts.data / "accounts.json", text)) {
+        json all = json::parse(text, nullptr, false);
+        if (all.is_object())
+            for (auto& [id, j] : all.items()) {
+                User u;
+                u.id = id;
+                u.name = j.value("name", std::string("Player"));
+                u.created = j.value("created", 0LL);
+                u.lastSeen = j.value("lastSeen", 0LL);
+                if (j.contains("ledger"))
+                    for (const auto& e : j["ledger"])
+                        if (e.is_array() && e.size() == 4)
+                            u.ledger.push_back({e[0].get<long long>(), e[1].get<std::string>(), e[2].get<long long>(),
+                                                e[3].get<std::string>()});
+                if (j.contains("grants") && j["grants"].is_object())
+                    for (auto& [k, v] : j["grants"].items()) if (v.is_string()) u.grants[k] = v.get<std::string>();
+                if (j.contains("owned")) for (const auto& o : j["owned"]) if (o.is_string()) u.owned.insert(o.get<std::string>());
+                u.uploadDay = j.value("uploadDay", std::string());
+                u.uploadsToday = j.value("uploadsToday", 0);
+                u.playDay = j.value("playDay", std::string());
+                u.playEarned = j.value("playEarned", 0LL);
+                u.lastPlay = j.value("lastPlay", 0LL);
+                u.banned = j.value("banned", false);
+                m_users[id] = std::move(u);
+            }
+    }
+    if (readFile(m_opts.data / "assets.json", text)) {
+        json all = json::parse(text, nullptr, false);
+        if (all.is_object())
+            for (auto& [id, j] : all.items()) {
+                Asset a;
+                a.id = id;
+                a.kind = j.value("kind", std::string());
+                a.name = j.value("name", std::string());
+                a.description = j.value("description", std::string());
+                a.creator = j.value("creator", std::string());
+                a.price = j.value("price", 0LL);
+                a.created = j.value("created", 0LL);
+                a.sales = j.value("sales", 0LL);
+                a.plays = j.value("plays", 0LL);
+                a.size = j.value("size", (size_t)0);
+                if (j.contains("meta")) a.meta = j["meta"];
+                if (Online::validKind(a.kind)) m_assets[id] = a;
+            }
+    }
+    log("loaded " + std::to_string(m_users.size()) + " accounts and " + std::to_string(m_assets.size()) + " uploads from " +
+        m_opts.data.string());
+}

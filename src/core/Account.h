@@ -20,6 +20,7 @@ bool               verify(const std::string& idHex, const std::string& message, 
 
 // The official (staff) account's ID, or "" if none is set up yet.
 std::string officialId();
+void        setOfficialId(const std::string& idHex);   // the server: whose account is staff
 bool        isOfficial(const std::string& idHex);
 bool        iAmStaff();
 // "Guts" (any capitalisation) belongs to the staff account only.
