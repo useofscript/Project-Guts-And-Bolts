@@ -1,0 +1,1649 @@
+{
+  "format": "GutsAndBolts",
+  "version": 2,
+  "info": {
+    "title": "Demolition Yard",
+    "author": "Guts and Bolts",
+    "description": "Exploding barrels, landmines and a very big red button. Ragdoll physics and gore turned all the way up."
+  },
+  "world": {
+    "deathStyle": 1,
+    "gore": 2,
+    "dismemberment": true,
+    "fallDamage": true,
+    "fallDamageSpeed": 20
+  },
+  "environment": {
+    "clockTime": 13,
+    "sunAzimuth": 150,
+    "sunElevation": 50,
+    "cloudCover": 0.6
+  },
+  "workspace": {
+    "id": 1,
+    "name": "Workspace",
+    "kind": "Model",
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "rot": [
+      0,
+      0,
+      0
+    ],
+    "size": [
+      1,
+      1,
+      1
+    ],
+    "children": [
+      {
+        "id": 101,
+        "name": "Baseplate",
+        "kind": "Part",
+        "pos": [
+          0,
+          -0.5,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          80,
+          1,
+          80
+        ],
+        "shape": "Cube",
+        "color": [
+          0.45,
+          0.43,
+          0.4
+        ],
+        "material": "Concrete",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 102,
+        "name": "SpawnLocation",
+        "kind": "Part",
+        "pos": [
+          0,
+          0.1,
+          12
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3,
+          0.2,
+          3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.55,
+          0.57,
+          0.6
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 103,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -8,
+          0.5,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 104,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -6.95,
+          0.5,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 105,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -8,
+          1.52,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 106,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -6.95,
+          1.52,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 107,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -8,
+          2.54,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 108,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -6.95,
+          2.54,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 109,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -8,
+          3.56,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 110,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -6.95,
+          3.56,
+          -6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 111,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          6,
+          0.5,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 112,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          7.05,
+          0.5,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 113,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          6,
+          1.52,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 114,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          7.05,
+          1.52,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 115,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          6,
+          2.54,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 116,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          7.05,
+          2.54,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 117,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          6,
+          3.56,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 118,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          7.05,
+          3.56,
+          -10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 119,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -3,
+          0.5,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 120,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -1.95,
+          0.5,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 121,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -3,
+          1.52,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 122,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -1.95,
+          1.52,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 123,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -3,
+          2.54,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 124,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -1.95,
+          2.54,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 125,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -3,
+          3.56,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 126,
+        "name": "Crate",
+        "kind": "Part",
+        "pos": [
+          -1.95,
+          3.56,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "shape": "Cube",
+        "color": [
+          0.62,
+          0.42,
+          0.22
+        ],
+        "material": "Wood",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 128,
+        "name": "ExplodingBarrel",
+        "kind": "Part",
+        "pos": [
+          -4,
+          0.75,
+          -4
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1.5,
+          1
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.12,
+          0.08
+        ],
+        "material": "Metal",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 127,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Exploding Barrel: click it, or knock it over, and BOOM.\nlocal barrel = script.Parent\nlocal done = false\n\nlocal function boom()\n    if done then return end\n    done = true\n    Explode(barrel.Position, 10, 1.5)\n    barrel:Destroy()\nend\n\nbarrel.Clicked:Connect(boom)\nbarrel.Touched:Connect(function(hit)\n    -- Blow up if something slams into it fast.\n    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 130,
+        "name": "ExplodingBarrel",
+        "kind": "Part",
+        "pos": [
+          3,
+          0.75,
+          -4
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1.5,
+          1
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.12,
+          0.08
+        ],
+        "material": "Metal",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 129,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Exploding Barrel: click it, or knock it over, and BOOM.\nlocal barrel = script.Parent\nlocal done = false\n\nlocal function boom()\n    if done then return end\n    done = true\n    Explode(barrel.Position, 10, 1.5)\n    barrel:Destroy()\nend\n\nbarrel.Clicked:Connect(boom)\nbarrel.Touched:Connect(function(hit)\n    -- Blow up if something slams into it fast.\n    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 132,
+        "name": "ExplodingBarrel",
+        "kind": "Part",
+        "pos": [
+          8,
+          0.75,
+          -2
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1.5,
+          1
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.12,
+          0.08
+        ],
+        "material": "Metal",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 131,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Exploding Barrel: click it, or knock it over, and BOOM.\nlocal barrel = script.Parent\nlocal done = false\n\nlocal function boom()\n    if done then return end\n    done = true\n    Explode(barrel.Position, 10, 1.5)\n    barrel:Destroy()\nend\n\nbarrel.Clicked:Connect(boom)\nbarrel.Touched:Connect(function(hit)\n    -- Blow up if something slams into it fast.\n    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 134,
+        "name": "ExplodingBarrel",
+        "kind": "Part",
+        "pos": [
+          -10,
+          0.75,
+          -12
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1.5,
+          1
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.12,
+          0.08
+        ],
+        "material": "Metal",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 133,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Exploding Barrel: click it, or knock it over, and BOOM.\nlocal barrel = script.Parent\nlocal done = false\n\nlocal function boom()\n    if done then return end\n    done = true\n    Explode(barrel.Position, 10, 1.5)\n    barrel:Destroy()\nend\n\nbarrel.Clicked:Connect(boom)\nbarrel.Touched:Connect(function(hit)\n    -- Blow up if something slams into it fast.\n    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 136,
+        "name": "ExplodingBarrel",
+        "kind": "Part",
+        "pos": [
+          1,
+          0.75,
+          -12
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1.5,
+          1
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.12,
+          0.08
+        ],
+        "material": "Metal",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 135,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Exploding Barrel: click it, or knock it over, and BOOM.\nlocal barrel = script.Parent\nlocal done = false\n\nlocal function boom()\n    if done then return end\n    done = true\n    Explode(barrel.Position, 10, 1.5)\n    barrel:Destroy()\nend\n\nbarrel.Clicked:Connect(boom)\nbarrel.Touched:Connect(function(hit)\n    -- Blow up if something slams into it fast.\n    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 138,
+        "name": "ExplodingBarrel",
+        "kind": "Part",
+        "pos": [
+          10,
+          0.75,
+          -14
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1.5,
+          1
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.12,
+          0.08
+        ],
+        "material": "Metal",
+        "anchored": false,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 137,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Exploding Barrel: click it, or knock it over, and BOOM.\nlocal barrel = script.Parent\nlocal done = false\n\nlocal function boom()\n    if done then return end\n    done = true\n    Explode(barrel.Position, 10, 1.5)\n    barrel:Destroy()\nend\n\nbarrel.Clicked:Connect(boom)\nbarrel.Touched:Connect(function(hit)\n    -- Blow up if something slams into it fast.\n    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 140,
+        "name": "Landmine",
+        "kind": "Part",
+        "pos": [
+          0,
+          0.05,
+          4
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.1,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.3,
+          0.05,
+          0.05
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 139,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Landmine: explodes when the player steps on it.\nlocal mine = script.Parent\nlocal armed = true\n\nmine.Touched:Connect(function(hit)\n    if armed and hit.Parent:FindFirstChild(\"Humanoid\") then\n        armed = false\n        Explode(mine.Position, 8)    -- position, radius\n        mine:Destroy()\n    end\nend)\n\n-- Blink the light so you can (just about) see it.\nwhile mine.Parent do\n    mine.Color = Color3.fromRGB(255, 40, 40)\n    wait(0.5)\n    mine.Color = Color3.fromRGB(60, 10, 10)\n    wait(0.5)\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 142,
+        "name": "Landmine",
+        "kind": "Part",
+        "pos": [
+          -6,
+          0.05,
+          2
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.1,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.3,
+          0.05,
+          0.05
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 141,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Landmine: explodes when the player steps on it.\nlocal mine = script.Parent\nlocal armed = true\n\nmine.Touched:Connect(function(hit)\n    if armed and hit.Parent:FindFirstChild(\"Humanoid\") then\n        armed = false\n        Explode(mine.Position, 8)    -- position, radius\n        mine:Destroy()\n    end\nend)\n\n-- Blink the light so you can (just about) see it.\nwhile mine.Parent do\n    mine.Color = Color3.fromRGB(255, 40, 40)\n    wait(0.5)\n    mine.Color = Color3.fromRGB(60, 10, 10)\n    wait(0.5)\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 144,
+        "name": "Landmine",
+        "kind": "Part",
+        "pos": [
+          5,
+          0.05,
+          2
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.1,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.3,
+          0.05,
+          0.05
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 143,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Landmine: explodes when the player steps on it.\nlocal mine = script.Parent\nlocal armed = true\n\nmine.Touched:Connect(function(hit)\n    if armed and hit.Parent:FindFirstChild(\"Humanoid\") then\n        armed = false\n        Explode(mine.Position, 8)    -- position, radius\n        mine:Destroy()\n    end\nend)\n\n-- Blink the light so you can (just about) see it.\nwhile mine.Parent do\n    mine.Color = Color3.fromRGB(255, 40, 40)\n    wait(0.5)\n    mine.Color = Color3.fromRGB(60, 10, 10)\n    wait(0.5)\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 146,
+        "name": "Landmine",
+        "kind": "Part",
+        "pos": [
+          -2,
+          0.05,
+          -8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.1,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.3,
+          0.05,
+          0.05
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 145,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Landmine: explodes when the player steps on it.\nlocal mine = script.Parent\nlocal armed = true\n\nmine.Touched:Connect(function(hit)\n    if armed and hit.Parent:FindFirstChild(\"Humanoid\") then\n        armed = false\n        Explode(mine.Position, 8)    -- position, radius\n        mine:Destroy()\n    end\nend)\n\n-- Blink the light so you can (just about) see it.\nwhile mine.Parent do\n    mine.Color = Color3.fromRGB(255, 40, 40)\n    wait(0.5)\n    mine.Color = Color3.fromRGB(60, 10, 10)\n    wait(0.5)\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 148,
+        "name": "Landmine",
+        "kind": "Part",
+        "pos": [
+          4,
+          0.05,
+          -7
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.1,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.3,
+          0.05,
+          0.05
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 147,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Landmine: explodes when the player steps on it.\nlocal mine = script.Parent\nlocal armed = true\n\nmine.Touched:Connect(function(hit)\n    if armed and hit.Parent:FindFirstChild(\"Humanoid\") then\n        armed = false\n        Explode(mine.Position, 8)    -- position, radius\n        mine:Destroy()\n    end\nend)\n\n-- Blink the light so you can (just about) see it.\nwhile mine.Parent do\n    mine.Color = Color3.fromRGB(255, 40, 40)\n    wait(0.5)\n    mine.Color = Color3.fromRGB(60, 10, 10)\n    wait(0.5)\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 150,
+        "name": "JumpPad",
+        "kind": "Part",
+        "pos": [
+          8,
+          0.1,
+          8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          2.5,
+          0.2,
+          2.5
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.2,
+          0.9,
+          0.3
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 149,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Jump Pad: launches the player high into the air.\nlocal pad = script.Parent\nlocal launchSpeed = 34   -- bigger number = higher jump\n\npad.Touched:Connect(function(hit)\n    local character = hit.Parent\n    local root = character:FindFirstChild(\"HumanoidRootPart\")\n    if root and character:FindFirstChild(\"Humanoid\") then\n        root.AssemblyLinearVelocity = Vector3.new(0, launchSpeed, 0)\n        Sounds.Play(\"boing\", pad.Position)\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 151,
+        "name": "Tower",
+        "kind": "Part",
+        "pos": [
+          -14,
+          6,
+          6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          4,
+          12,
+          4
+        ],
+        "shape": "Cube",
+        "color": [
+          0.4,
+          0.4,
+          0.45
+        ],
+        "material": "Concrete",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 152,
+        "name": "TowerStairs1",
+        "kind": "Part",
+        "pos": [
+          -11.5,
+          0.5,
+          6
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          2
+        ],
+        "shape": "Cube",
+        "color": [
+          0.4,
+          0.4,
+          0.45
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 154,
+        "name": "NukeButton",
+        "kind": "Part",
+        "pos": [
+          0,
+          0.5,
+          18
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1.5,
+          1,
+          1.5
+        ],
+        "shape": "Cube",
+        "color": [
+          0.9,
+          0.1,
+          0.1
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 153,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- The big red button. Click it...\nlocal button = script.Parent\nlocal used = false\n\nbutton.Clicked:Connect(function()\n    if used then return end\n    used = true\n    Gui.Message(\"NUKE INCOMING!\", 3)\n    for i = 3, 1, -1 do\n        Gui.Label(\"Countdown\", \"Boom in \" .. i .. \"...\")\n        wait(1)\n    end\n    Gui.Label(\"Countdown\", nil)\n    for i = 1, 12 do\n        Explode(Vector3.new(math.random(-15, 15), 1, math.random(-18, 8)), 7)\n        wait(0.15)\n    end\n    wait(5)\n    used = false\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 155,
+        "name": "Welcome",
+        "kind": "Script",
+        "pos": [
+          0,
+          0,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "source": "Gui.Message(\"Welcome to the Demolition Yard. Click the red button if you dare.\", 5)",
+        "enabled": true
+      }
+    ]
+  }
+}

@@ -1,16 +1,25 @@
 #pragma once
 #include <functional>
 #include "../../scene/SceneNode.h"   // PrimitiveType
+#include "../Premades.h"
 
-// A palette of insertable parts (like Roblox's Toolbox). It doesn't own the
-// spawn logic — it calls back into the editor to create the object.
+// A palette of insertable things (like Roblox's Toolbox): basic parts, a
+// Script / Model, and ready-made game objects that already contain scripts.
 class ToolboxPanel {
 public:
-    using SpawnFn = std::function<void(PrimitiveType)>;
+    struct Actions {
+        std::function<void(PrimitiveType)> spawnPart;
+        std::function<void()>              addScript;
+        std::function<void()>              addModel;
+        std::function<void(LightType)>     addLight;
+        std::function<void()>              addSound;
+        std::function<void(int)>           startConnect;   // ConstraintType (5 = motor)
+        std::function<void(Premade)>       spawnPremade;
+    };
 
-    explicit ToolboxPanel(SpawnFn spawn);
+    explicit ToolboxPanel(Actions actions);
     void render();
 
 private:
-    SpawnFn m_spawn;
+    Actions m_do;
 };

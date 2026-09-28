@@ -1,27 +1,78 @@
 #include "Player.h"
 #include "Scene.h"
 #include "SceneNode.h"
-#include "../renderer/Primitives.h"
+#include "Physics.h"
+#include "PlayerModel.h"
+#include "../renderer/MeshLibrary.h"
+#include "../core/Audio.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 #include <cmath>
 #include <memory>
+#include <random>
 
-void Player::build(Scene* scene) {
-    m_root_scene = scene;
+namespace {
 
+const glm::vec3 kYellow = {1.00f, 0.84f, 0.30f};
+const glm::vec3 kBlue   = {0.20f, 0.45f, 0.85f};
+const glm::vec3 kGreen  = {0.32f, 0.60f, 0.26f};
+const glm::vec3 kBlack  = {0.05f, 0.05f, 0.05f};
+
+const char* kLimbs[] = {"Left Arm", "Right Arm", "Left Leg", "Right Leg"};
+
+bool startsWith(const std::string& s, const char* prefix) {
+    return s.rfind(prefix, 0) == 0;
+}
+
+float approach(float cur, float target, float rate, float dt) {
+    return cur + (target - cur) * std::min(1.0f, rate * dt);
+}
+
+std::mt19937& rng() { static std::mt19937 r{1234u}; return r; }
+float rand01() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(rng()); }
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Building the rig
+// ---------------------------------------------------------------------------
+
+void Player::resetSettings() {
+    m_humanoid = Humanoid{};
+    m_hat = HatStyle::None;
+}
+
+SceneNode* Player::root() const {
+    return m_rootId ? m_scene->findById(m_rootId) : nullptr;
+}
+
+SceneNode* Player::part(const char* name) const {
+    SceneNode* r = root();
+    return r ? r->findChild(name) : nullptr;
+}
+
+void Player::build() {
+    if (SceneNode* old = root()) m_scene->removeNode(old);
+    SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
+    m_rootId = r->id;
+    setHat(m_hat, m_hatTint);
+    m_scene->markDirty();
+}
+
+SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::vec3& feet) {
     // Container node for the whole character (origin at the feet).
-    m_root = scene->addNode("Player", PrimitiveType::None, nullptr);
-    m_root->transform.position = m_spawn;
+    auto model = std::make_unique<SceneNode>(name, NodeKind::Model);
+    model->transform.position = feet;
+    SceneNode* r = scene.insert(std::move(model));
 
-    auto box = Primitives::createCube();   // one cube mesh shared by every part
-
-    auto addPart = [&](SceneNode* parent, const std::string& name,
+    auto addPart = [&](SceneNode* parent, const std::string& partName, PrimitiveType shape,
                        glm::vec3 pos, glm::vec3 scale, glm::vec3 col,
                        bool internal = false, bool visible = true) -> SceneNode* {
-        auto node = std::make_unique<SceneNode>(name);
-        node->primitiveType = PrimitiveType::Cube;
-        node->mesh          = box;
+        auto node = std::make_unique<SceneNode>(partName);
+        node->primitiveType      = shape;
+        node->mesh               = MeshLibrary::get(shape);
         node->transform.position = pos;
         node->transform.scale    = scale;
         node->color    = col;
@@ -29,72 +80,512 @@ void Player::build(Scene* scene) {
         node->visible  = visible;
         return parent->addChild(std::move(node));
     };
-
-    const glm::vec3 kYellow = {1.00f, 0.84f, 0.30f};   // head + arms
-    const glm::vec3 kBlue   = {0.20f, 0.45f, 0.85f};   // torso
-    const glm::vec3 kGreen  = {0.32f, 0.60f, 0.26f};   // legs
-    const glm::vec3 kBlack  = {0.05f, 0.05f, 0.05f};   // face
+    const auto Cube = PrimitiveType::Cube;
 
     // Roblox part order. HumanoidRootPart is an invisible reference part.
-    addPart(m_root, "HumanoidRootPart", {0.0f, 1.5f, 0.0f}, {1.0f, 1.0f, 0.5f}, kBlue, false, false);
-    addPart(m_root, "Torso",            {0.0f, 1.5f, 0.0f}, {1.0f, 1.0f, 0.5f}, kBlue);
+    addPart(r, "HumanoidRootPart", Cube, {0.0f, 1.5f, 0.0f}, {1.0f, 1.0f, 0.5f}, kBlue, false, false);
+    addPart(r, "Torso",            Cube, {0.0f, 1.5f, 0.0f}, {1.0f, 1.0f, 0.5f}, kBlue);
+    // The classic Roblox head is a rounded cylinder.
     SceneNode* head =
-    addPart(m_root, "Head",             {0.0f, 2.325f, 0.0f}, {0.65f, 0.65f, 0.65f}, kYellow);
-    addPart(m_root, "Left Arm",         {-0.75f, 1.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kYellow);
-    addPart(m_root, "Right Arm",        { 0.75f, 1.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kYellow);
-    addPart(m_root, "Left Leg",         {-0.25f, 0.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kGreen);
-    addPart(m_root, "Right Leg",        { 0.25f, 0.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kGreen);
+    addPart(r, "Head", PrimitiveType::Cylinder, {0.0f, 2.325f, 0.0f}, {0.72f, 0.65f, 0.72f}, kYellow);
+    addPart(r, "Left Arm",         Cube, {-0.75f, 1.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kYellow);
+    addPart(r, "Right Arm",        Cube, { 0.75f, 1.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kYellow);
+    addPart(r, "Left Leg",         Cube, {-0.25f, 0.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kGreen);
+    addPart(r, "Right Leg",        Cube, { 0.25f, 0.5f, 0.0f}, {0.5f, 1.0f, 0.5f}, kGreen);
+    // Then give them the default character model's shapes (assets/models/player.obj).
+    for (auto& c : r->children) usePlayerModel(*c);
 
     // --- Smiley face on the front (+Z) of the head, in head-local space ---
-    addPart(head, "Eye.L",  {-0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
-    addPart(head, "Eye.R",  { 0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
+    addPart(head, "Eye.L", Cube, {-0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
+    addPart(head, "Eye.R", Cube, { 0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
 
     // Smile: small cubes along an upward-opening curve.
     const float sx[5] = {-0.24f, -0.12f, 0.0f, 0.12f, 0.24f};
     for (int i = 0; i < 5; ++i) {
         float x = sx[i];
         float y = -0.20f + 0.10f * (x / 0.24f) * (x / 0.24f);   // middle lowest
-        addPart(head, "Smile", {x, y, 0.5f}, {0.08f, 0.09f, 0.06f}, kBlack, true);
+        // Follow the curve of the cylinder so the smile sits on the surface.
+        float z = std::sqrt(std::max(0.0f, 0.25f - x * x)) + 0.01f;
+        addPart(head, "Smile", Cube, {x, y, z}, {0.08f, 0.09f, 0.06f}, kBlack, true);
     }
+    scene.markDirty();
+    return r;
+}
+
+bool Player::usePlayerModel(SceneNode& part) {
+    glm::vec3 pos, size;
+    if (part.primitiveType == PrimitiveType::Mesh && PlayerModel::nameOf(part.editMesh.get())) return false;   // already
+    if (!PlayerModel::placement(part.name, pos, size) || !PlayerModel::apply(part)) return false;
+    part.transform.position = pos;
+    part.transform.scale = size;
+    return true;
+}
+
+void Player::upgradeRig(SceneNode* rig) {
+    // Characters saved before the new model: swap the blocky parts for the model's.
+    // (The face still fits: both heads are round with the same radius.)
+    if (!rig) return;
+    for (auto& c : rig->children)
+        if (c->primitiveType == PrimitiveType::Cube || c->primitiveType == PrimitiveType::Cylinder) usePlayerModel(*c);
 }
 
 glm::vec3 Player::position() const {
-    return m_root ? m_root->transform.position : glm::vec3(0.0f);
+    SceneNode* r = root();
+    return r ? r->transform.position : glm::vec3(0.0f);
 }
 
-void Player::update(float dt, const glm::vec3& moveDir, bool jump) {
-    if (!m_root) return;
-    glm::vec3 pos = m_root->transform.position;
+glm::vec3 Player::focusPoint() const {
+    if (m_dead && m_ragdoll.active()) return m_ragdoll.center();
+    if (m_dead)
+        if (SceneNode* t = part("Torso")) return glm::vec3(t->worldMatrix()[3]);
+    return position() + glm::vec3(0.0f, 1.6f, 0.0f);
+}
+
+// ---------------------------------------------------------------------------
+// Appearance
+// ---------------------------------------------------------------------------
+
+BodyColors Player::bodyColors() const {
+    auto col = [&](const char* n, glm::vec3 fallback) {
+        SceneNode* p = part(n);
+        return p ? p->color : fallback;
+    };
+    return {col("Head", kYellow), col("Torso", kBlue), col("Left Arm", kYellow),
+            col("Right Arm", kYellow), col("Left Leg", kGreen), col("Right Leg", kGreen)};
+}
+
+void Player::setBodyColors(const BodyColors& c) {
+    if (SceneNode* r = root()) applyColors(r, c);
+}
+
+void Player::applyColors(SceneNode* r, const BodyColors& c) {
+    auto set = [&](const char* n, glm::vec3 v) { if (SceneNode* p = r->findChild(n)) p->color = v; };
+    set("Head", c.head);      set("Torso", c.torso);
+    set("Left Arm", c.leftArm); set("Right Arm", c.rightArm);
+    set("Left Leg", c.leftLeg); set("Right Leg", c.rightLeg);
+    set("HumanoidRootPart", c.torso);
+}
+
+std::vector<std::pair<const char*, BodyColors>> Player::colorPresets() {
+    const glm::vec3 skin  = {0.96f, 0.80f, 0.65f};
+    const glm::vec3 grey  = {0.64f, 0.64f, 0.66f};
+    const glm::vec3 dark  = {0.12f, 0.12f, 0.14f};
+    return {
+        {"Classic Noob", {kYellow, kBlue, kYellow, kYellow, kGreen, kGreen}},
+        {"Guest",        {grey, dark, grey, grey, {0.85f,0.85f,0.87f}, {0.85f,0.85f,0.87f}}},
+        {"Builder",      {skin, {0.93f,0.55f,0.16f}, skin, skin, {0.35f,0.27f,0.20f}, {0.35f,0.27f,0.20f}}},
+        {"Ninja",        {dark, dark, dark, dark, dark, dark}},
+        {"Red Team",     {skin, {0.80f,0.18f,0.16f}, skin, skin, dark, dark}},
+        {"Blue Team",    {skin, {0.16f,0.36f,0.85f}, skin, skin, dark, dark}},
+        {"Robot",        {{0.72f,0.74f,0.78f}, {0.45f,0.48f,0.53f}, {0.72f,0.74f,0.78f},
+                          {0.72f,0.74f,0.78f}, {0.45f,0.48f,0.53f}, {0.45f,0.48f,0.53f}}},
+    };
+}
+
+const char* Player::hatName(HatStyle s) {
+    switch (s) {
+        case HatStyle::TopHat: return "Top Hat";
+        case HatStyle::Cap:    return "Cap";
+        case HatStyle::Crown:  return "Crown";
+        default:               return "None";
+    }
+}
+
+void Player::setHat(HatStyle style, glm::vec3 tint) {
+    m_hat = style;
+    m_hatTint = tint;
+    if (SceneNode* r = root()) applyHat(*m_scene, r, style, tint);
+}
+
+void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style, glm::vec3 tint) {
+    const bool tinted = tint.x >= 0.0f;
+    auto main = [&](glm::vec3 normal) { return tinted ? tint : normal; };
+    // Remove the old hat pieces.
+    std::vector<SceneNode*> old;
+    for (auto& c : r->children)
+        if (startsWith(c->name, "Hat")) old.push_back(c.get());
+    for (auto* o : old) scene.removeNode(o);
+
+    auto add = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale,
+                   glm::vec3 col, Material mat = Material::Plastic) {
+        auto n = std::make_unique<SceneNode>(name);
+        n->primitiveType      = shape;
+        n->mesh               = MeshLibrary::get(shape);
+        n->transform.position = pos;
+        n->transform.scale    = scale;
+        n->color              = col;
+        n->material           = mat;
+        r->addChild(std::move(n));
+    };
+    // Top of the head, and how much narrower it is than the hats were made for (0.72 wide).
+    glm::vec3 headPos{0.0f, 2.325f, 0.0f}, headSize{0.72f, 0.65f, 0.72f};
+    PlayerModel::placement("Head", headPos, headSize);
+    const float top = headPos.y + headSize.y * 0.5f;
+    const float w = headSize.x / 0.72f;
+    auto addW = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale, glm::vec3 col,
+                    Material mat = Material::Plastic) {
+        add(name, shape, {pos.x * w, pos.y, pos.z * w}, {scale.x * w, scale.y, scale.z * w}, col, mat);
+    };
+    switch (style) {
+        case HatStyle::TopHat:
+            addW("Hat Brim", PrimitiveType::Cylinder, {0, top + 0.025f, 0}, {1.0f, 0.05f, 1.0f}, main(kBlack));
+            addW("Hat",      PrimitiveType::Cylinder, {0, top + 0.325f, 0}, {0.62f, 0.55f, 0.62f}, main(kBlack));
+            addW("Hat Band", PrimitiveType::Cylinder, {0, top + 0.11f, 0}, {0.64f, 0.1f, 0.64f}, {0.75f, 0.12f, 0.12f});
+            break;
+        case HatStyle::Cap:
+            addW("Hat",       PrimitiveType::Sphere, {0, top - 0.05f, 0}, {0.78f, 0.5f, 0.78f}, main({0.85f, 0.15f, 0.15f}));
+            addW("Hat Visor", PrimitiveType::Cube,   {0, top - 0.03f, 0.46f}, {0.52f, 0.04f, 0.36f}, main({0.85f, 0.15f, 0.15f}));
+            break;
+        case HatStyle::Crown:
+            addW("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, main({1.0f, 0.78f, 0.2f}), Material::Metal);
+            addW("Hat Jewel", PrimitiveType::Cube, {0, top + 0.14f, 0.37f}, {0.12f, 0.12f, 0.05f}, {0.9f, 0.1f, 0.2f}, Material::Neon);
+            break;
+        default: break;
+    }
+    scene.markDirty();
+}
+
+CharacterPose Player::capturePose(const SceneNode* r) {
+    CharacterPose pose;
+    pose.root = r->transform;
+    pose.forceField = r->hasForceField();
+    for (auto& c : r->children)
+        if (c->isPart()) pose.parts.push_back({c->name, c->transform});
+    return pose;
+}
+
+void Player::applyPose(SceneNode* r, const CharacterPose& pose) {
+    r->transform = pose.root;
+    // Show / hide the ForceField to match.
+    if (pose.forceField && !r->hasForceField()) {
+        r->addChild(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
+    } else if (!pose.forceField && r->hasForceField()) {
+        for (auto& c : r->children)
+            if (c->kind == NodeKind::ForceField) { r->removeChild(c.get()); break; }
+    }
+    for (const auto& [name, t] : pose.parts)
+        if (SceneNode* c = r->findChild(name)) c->transform = t;
+}
+
+// ---------------------------------------------------------------------------
+// Play mode
+// ---------------------------------------------------------------------------
+
+namespace {
+// A random spot on top of the first visible "SpawnLocation" part (random so
+// players in multiplayer don't all appear inside each other).
+bool findSpawnLocation(SceneNode* node, glm::vec3& out) {
+    if (node->name == "SpawnLocation" && node->isPart() && node->visible) {
+        AABB b = Physics::worldBounds(node);
+        glm::vec3 c = (b.min + b.max) * 0.5f;
+        glm::vec3 half = glm::max((b.max - b.min) * 0.5f - glm::vec3(0.6f), glm::vec3(0.0f));
+        out = {c.x + (rand01() * 2 - 1) * half.x, b.max.y + 0.001f, c.z + (rand01() * 2 - 1) * half.z};
+        return true;
+    }
+    for (auto& c : node->children)
+        if (findSpawnLocation(c.get(), out)) return true;
+    return false;
+}
+} // namespace
+
+void Player::beginPlay() {
+    m_rest.clear();
+    m_debris.clear();
+    SceneNode* r = root();
+    if (r) {
+        m_rootRest = r->transform;
+        for (auto& c : r->children) m_rest[c->id] = c->transform;
+    }
+    m_dead = m_diedFlag = false;
+    respawn();
+}
+
+void Player::endPlay() {
+    m_dead = false;
+    m_debris.clear();
+    m_rest.clear();
+}
+
+void Player::respawn() {
+    SceneNode* r = root();
+    if (!r) return;
+    for (auto& c : r->children) {
+        auto it = m_rest.find(c->id);
+        if (it != m_rest.end()) c->transform = it->second;
+    }
+    glm::vec3 spawnAt = m_spawn;
+    findSpawnLocation(m_scene->root(), spawnAt);
+    r->transform = m_rootRest;
+    r->transform.position = spawnAt;
+
+    m_humanoid.health = m_humanoid.maxHealth;
+    m_velocity  = glm::vec3(0.0f);
+    m_grounded  = false;
+    m_groundId  = 0;
+    m_walkPhase = m_swing = m_airBlend = 0.0f;
+    m_dead      = false;
+    m_debris.clear();
+    m_ragdoll.stop();
+    m_pendingForce = 0.0f;
+    m_pendingImpulse = glm::vec3(0.0f);
+    m_lastHealth = m_humanoid.health;
+
+    // A few seconds of ForceField after spawning.
+    if (SceneNode* old = m_scene->findById(m_spawnFF)) m_scene->removeNode(old);
+    m_spawnFF = 0;
+    m_spawnFFTime = m_scene->world().spawnForceField;
+    if (m_spawnFFTime > 0.0f) {
+        auto ff = std::make_unique<SceneNode>("ForceField", NodeKind::ForceField);
+        m_spawnFF = m_scene->insert(std::move(ff), r)->id;
+    }
+}
+
+bool Player::hasForceField() const {
+    SceneNode* r = root();
+    return r && r->hasForceField();
+}
+
+void Player::kill(float force, const glm::vec3& impulse) {
+    if (m_dead) return;
+    m_pendingForce   = std::max(m_pendingForce, glm::clamp(force, 0.0f, 1.0f));
+    m_pendingImpulse += impulse;
+    m_humanoid.health = 0.0f;
+}
+
+void Player::hurt(float damage, float force, const glm::vec3& impulse) {
+    if (m_dead || damage <= 0.0f) return;
+    if (hasForceField()) { launch(m_velocity + impulse * 0.5f); return; }   // shielded: just a shove
+    m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
+    if (m_humanoid.health <= 0.0f) kill(force, impulse);
+    else launch(m_velocity + impulse);
+}
+
+// Little squirts of blood / oil when the character gets hurt.
+void Player::bleed(float damage) {
+    if (!m_scene->goreEnabled()) return;
+    SceneNode* t = part("Torso");
+    if (!t) return;
+    glm::vec3 at = glm::vec3(t->worldMatrix()[3]);
+    int n = std::clamp((int)(damage * 0.5f), 3, 30);
+    m_scene->particles().spray(m_scene->goreKind(), at, glm::vec3(0, 0.5f, 0), n, 2.5f);
+    if (m_scene->goreKind() == GoreKind::Oil) m_scene->particles().sparks(at, n / 2);
+}
+
+bool Player::consumeDied() {
+    bool d = m_diedFlag;
+    m_diedFlag = false;
+    return d;
+}
+
+void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics) {
+    SceneNode* r = root();
+    if (!r) return;
+
+    if (m_dead) { updateDeath(dt, physics); return; }
+
+    if (m_spawnFF && (m_spawnFFTime -= dt) <= 0.0f) {
+        if (SceneNode* ff = m_scene->findById(m_spawnFF)) m_scene->removeNode(ff);
+        m_spawnFF = 0;
+    }
+
+    // Took damage since last frame (scripts, traps, explosions)?
+    if (m_humanoid.health < m_lastHealth - 0.5f) {
+        bleed(m_lastHealth - m_humanoid.health);
+        if (m_humanoid.health > 0.0f) {
+            glm::vec3 at = r->transform.position + glm::vec3(0, 1.5f, 0);
+            Audio::play("hit", 0.6f, 1.0f, false, &at);
+        }
+    }
+    m_lastHealth = m_humanoid.health;
+    if (m_humanoid.health <= 0.0f) { startDeath(); return; }
+
+    glm::vec3 pos = r->transform.position;
+
+    // Ride moving platforms: follow whatever we stood on last frame.
+    if (m_groundId) {
+        if (SceneNode* g = m_scene->findById(m_groundId)) {
+            glm::vec3 now = glm::vec3(g->worldMatrix()[3]);
+            pos += now - m_groundPrev;
+        }
+    }
 
     // Horizontal movement.
     glm::vec3 horiz = {moveDir.x, 0.0f, moveDir.z};
     float len = glm::length(horiz);
-    if (len > 1e-4f) {
+    bool moving = len > 1e-4f;
+    if (moving) {
         horiz /= len;
-        pos.x += horiz.x * m_humanoid.walkSpeed * dt;
-        pos.z += horiz.z * m_humanoid.walkSpeed * dt;
-        if (m_humanoid.autoRotate)
-            m_root->transform.rotation.y = glm::degrees(std::atan2(horiz.x, horiz.z));
+        float amount = std::min(1.0f, len);   // a half-pushed thumbstick walks slower
+        if (m_humanoid.autoRotate) {
+            // Turn smoothly towards the direction of travel (shortest way round).
+            float target = glm::degrees(std::atan2(horiz.x, horiz.z));
+            float cur    = r->transform.rotation.y;
+            float diff   = std::fmod(target - cur + 540.0f, 360.0f) - 180.0f;
+            r->transform.rotation.y = cur + diff * std::min(1.0f, dt * 14.0f);
+        }
+        horiz *= amount;
     }
 
     // Gravity + jumping.
-    const float gravity = -15.0f;
-    if (m_grounded && jump) { m_velocity.y = m_humanoid.jumpPower; m_grounded = false; }
-    m_velocity.y += gravity * dt;
-    pos.y += m_velocity.y * dt;
+    if (m_grounded && jump) {
+        m_velocity.y = m_humanoid.jumpPower;
+        m_grounded = false;
+        glm::vec3 at = pos + glm::vec3(0, 1, 0);
+        Audio::play("jump", 0.35f, 1.0f, false, &at);
+    }
+    m_velocity.y -= m_scene->world().gravity * dt;
 
-    // Ground collision (the feet rest on the y = 0 plane).
-    if (pos.y <= 0.0f) { pos.y = 0.0f; m_velocity.y = 0.0f; m_grounded = true; }
+    // Walking plus any leftover push (from jump pads, etc.), which fades out.
+    glm::vec3 delta = horiz * m_humanoid.walkSpeed * dt;
+    delta.x += m_velocity.x * dt;
+    delta.z += m_velocity.z * dt;
+    delta.y = m_velocity.y * dt;
+    float drag = std::max(0.0f, 1.0f - (m_grounded ? 8.0f : 0.8f) * dt);
+    m_velocity.x *= drag;
+    m_velocity.z *= drag;
 
-    m_root->transform.position = pos;
+    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded);
+    // Walking into loose parts pushes them (heavier = harder, handled by the solver).
+    for (auto& [node, dir] : res.pushed) {
+        glm::vec3 want = dir * m_humanoid.walkSpeed * 0.9f;
+        if (glm::dot(node->velocity, dir) < glm::dot(want, dir)) node->velocity += dir * (m_humanoid.walkSpeed * 0.15f);
+        Physics::wake(node);
+    }
+
+    // Fall damage: landing hard hurts, landing very hard is fatal (and messy).
+    const WorldSettings& world = m_scene->world();
+    float impact = -m_velocity.y;
+    if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed &&
+        !hasForceField()) {
+        float over = impact - world.fallDamageSpeed;
+        float damage = over * 7.0f;
+        m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
+        if (m_humanoid.health <= 0.0f)
+            kill(std::clamp(over / 15.0f, 0.0f, 1.0f), glm::vec3(m_velocity.x, 2.0f, m_velocity.z));
+    }
+    m_grounded = res.grounded;
+    if (res.grounded && m_velocity.y < 0.0f) m_velocity.y = 0.0f;
+    if (res.hitCeiling && m_velocity.y > 0.0f) m_velocity.y = 0.0f;
+    m_groundId = res.groundId;
+    if (m_groundId)
+        if (SceneNode* g = m_scene->findById(m_groundId))
+            m_groundPrev = glm::vec3(g->worldMatrix()[3]);
+
+    r->transform.position = res.position;
+
+    // Fell off the world.
+    if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
+
+    animate(dt, moving, m_grounded);
 }
 
-void Player::reset() {
-    if (m_root) {
-        m_root->transform.position = m_spawn;
-        m_root->transform.rotation = {0.0f, 0.0f, 0.0f};
+void Player::animate(float dt, bool moving, bool grounded) {
+    m_swing    = approach(m_swing, (moving && grounded) ? 45.0f : 0.0f, 10.0f, dt);
+    m_airBlend = approach(m_airBlend, grounded ? 0.0f : 1.0f, 10.0f, dt);
+    if (moving) m_walkPhase += dt * (2.0f + m_humanoid.walkSpeed * 0.9f);
+
+    float s = std::sin(m_walkPhase) * m_swing;
+    // Positive angle swings the bottom of a limb backwards.
+    float angles[4] = {
+        s  * (1 - m_airBlend) + (-165.0f) * m_airBlend,   // Left Arm  (arms up when jumping)
+        -s * (1 - m_airBlend) + (-165.0f) * m_airBlend,   // Right Arm
+        -s * (1 - m_airBlend) + (  12.0f) * m_airBlend,   // Left Leg
+        s  * (1 - m_airBlend) + ( -12.0f) * m_airBlend,   // Right Leg
+    };
+
+    for (int i = 0; i < 4; ++i) {
+        SceneNode* limb = part(kLimbs[i]);
+        if (!limb) continue;
+        auto it = m_rest.find(limb->id);
+        if (it == m_rest.end()) continue;
+        const Transform& rest = it->second;
+
+        // Rotate around the shoulder / hip (the top of the limb).
+        float a = glm::radians(angles[i]);
+        float h = rest.scale.y * 0.5f;
+        glm::vec3 pivot = rest.position + glm::vec3(0.0f, h, 0.0f);
+        limb->transform.position = pivot + glm::vec3(0.0f, -h * std::cos(a), -h * std::sin(a));
+        limb->transform.rotation = rest.rotation + glm::vec3(angles[i], 0.0f, 0.0f);
     }
-    m_velocity = {0.0f, 0.0f, 0.0f};
-    m_grounded = false;
-    m_humanoid.health = m_humanoid.maxHealth;
+}
+
+void Player::startDeath() {
+    SceneNode* r = root();
+    if (!r) return;
+    if (SceneNode* ff = m_scene->findById(m_spawnFF)) m_scene->removeNode(ff);
+    m_spawnFF = 0;
+    m_dead = true;
+    m_diedFlag = true;
+    {
+        glm::vec3 at = r->transform.position + glm::vec3(0, 2, 0);
+        Audio::play("oof", 0.8f, 1.0f, false, &at);
+    }
+    m_deadTime = 0.0f;
+    m_debris.clear();
+
+    if (m_scene->world().deathStyle == DeathStyle::Ragdoll) {
+        glm::vec3 vel(m_velocity.x, std::max(m_velocity.y, -30.0f), m_velocity.z);
+        m_ragdoll.start(*m_scene, r, vel, m_pendingImpulse, m_pendingForce);
+        m_pendingForce = 0.0f;
+        m_pendingImpulse = glm::vec3(0.0f);
+        return;
+    }
+
+    // Move every body part into world space so they can tumble independently.
+    glm::mat4 rootM = r->transform.matrix();
+    float yaw = r->transform.rotation.y;
+    glm::vec3 center = r->transform.position + glm::vec3(0, 1.3f, 0);
+    for (auto& c : r->children) {
+        if (!c->isPart()) continue;
+        c->transform.position = glm::vec3(rootM * glm::vec4(c->transform.position, 1.0f));
+        c->transform.rotation.y += yaw;
+        glm::vec3 out = c->transform.position - center;
+        out.y = 0.0f;
+        if (glm::length(out) > 1e-3f) out = glm::normalize(out);
+        glm::vec3 vel = out * (1.5f + rand01() * 2.0f) +
+                        glm::vec3(rand01() - 0.5f, 3.0f + rand01() * 2.5f, rand01() - 0.5f);
+        glm::vec3 spin = (glm::vec3(rand01(), rand01(), rand01()) - 0.5f) * 500.0f;
+        m_debris.push_back({c->id, vel, spin});
+    }
+    r->transform.position = glm::vec3(0.0f);
+    r->transform.rotation = glm::vec3(0.0f);
+    r->transform.scale    = glm::vec3(1.0f);
+
+    // Classic death with gore on: every piece sprays as it flies.
+    if (m_scene->goreEnabled()) {
+        GoreKind k = m_scene->goreKind();
+        for (auto& d : m_debris)
+            if (SceneNode* n = m_scene->findById(d.id))
+                m_scene->particles().spray(k, n->transform.position, glm::normalize(d.vel), 8, 3.0f);
+        if (m_pendingForce > 0.5f) m_scene->particles().gibs(k, center, glm::vec3(0, 2, 0), 8);
+    }
+    for (auto& d : m_debris) d.vel += m_pendingImpulse;
+    m_pendingForce = 0.0f;
+    m_pendingImpulse = glm::vec3(0.0f);
+}
+
+void Player::updateDeath(float dt, Physics& physics) {
+    m_deadTime += dt;
+    if (m_ragdoll.active()) {
+        m_ragdoll.update(dt, *m_scene, physics);
+        if (m_deadTime >= m_respawnDelay) respawn();
+        return;
+    }
+    const float g = m_scene->world().gravity;
+    for (auto& d : m_debris) {
+        SceneNode* n = m_scene->findById(d.id);
+        if (!n) continue;
+        d.vel.y -= g * dt;
+        n->transform.position += d.vel * dt;
+        n->transform.rotation += d.spin * dt;
+
+        float push = physics.pushUp(Physics::worldBounds(n));
+        if (push > 0.0f) {
+            n->transform.position.y += push;
+            if (d.vel.y < 0.0f) d.vel.y = -d.vel.y * 0.25f;   // small bounce
+            d.vel.x *= 0.8f;  d.vel.z *= 0.8f;
+            d.spin *= 0.8f;
+        }
+    }
+    if (m_deadTime >= m_respawnDelay) respawn();
 }

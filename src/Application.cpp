@@ -1,122 +1,144 @@
 #include "Application.h"
+#include "core/AppWindow.h"
 #include "scene/Scene.h"
 #include "editor/Editor.h"
-#include "editor/Theme.h"
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
 #include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_opengl3.h>
-#include <stdexcept>
+#include <algorithm>
+#include <sstream>
+#include <vector>
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
-#endif
+namespace {
+// "ctrl+shift+left" -> modifiers + key (test helper).
+struct Chord { bool ctrl = false, shift = false, alt = false; ImGuiKey key = ImGuiKey_None; std::string text; };
+Chord parseChord(const std::string& text) {
+    Chord c;
+    std::stringstream ss(text);
+    std::string part;
+    while (std::getline(ss, part, '+')) {
+        if (part == "ctrl") c.ctrl = true;
+        else if (part == "shift") c.shift = true;
+        else if (part == "alt") c.alt = true;
+        else if (part == "left") c.key = ImGuiKey_LeftArrow;
+        else if (part == "right") c.key = ImGuiKey_RightArrow;
+        else if (part == "up") c.key = ImGuiKey_UpArrow;
+        else if (part == "down") c.key = ImGuiKey_DownArrow;
+        else if (part == "del") c.key = ImGuiKey_Delete;
+        else if (part == "esc") c.key = ImGuiKey_Escape;
+        else if (part == "enter") c.key = ImGuiKey_Enter;
+        else if (part == "tab") c.key = ImGuiKey_Tab;
+        else if (part == "home") c.key = ImGuiKey_Home;
+        else if (part.size() >= 2 && part[0] == 'f') c.key = (ImGuiKey)(ImGuiKey_F1 + std::stoi(part.substr(1)) - 1);
+        else if (part.size() == 1 && part[0] >= '0' && part[0] <= '9') c.key = (ImGuiKey)(ImGuiKey_0 + (part[0] - '0'));
+        else if (part.size() == 1 && part[0] >= 'a' && part[0] <= 'z') c.key = (ImGuiKey)(ImGuiKey_A + (part[0] - 'a'));
+    }
+    return c;
+}
+} // namespace
 
-Application::Application() {
-    initWindow();
-    initGL();
-    initImGui();
+Application::Application(LaunchOptions opts) : m_opts(std::move(opts)) {
+    m_window = std::make_unique<AppWindow>("Guts and Bolts", 1280, 720, "editor_layout.ini");
+    m_window->setFixedTimestep(!m_opts.screenshot.empty());
     m_scene  = std::make_unique<Scene>();
-    m_editor = std::make_unique<Editor>(m_window, m_scene.get());
+    m_editor = std::make_unique<Editor>(m_window->handle(), m_scene.get());
+    if (!m_opts.openFile.empty()) m_editor->openFile(m_opts.openFile);
 }
 
 Application::~Application() {
-    cleanup();
-}
-
-void Application::initWindow() {
-    if (!glfwInit())
-        throw std::runtime_error("Failed to initialise GLFW");
-
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-    m_window = glfwCreateWindow(m_width, m_height, "Guts and Bolts", nullptr, nullptr);
-    if (!m_window)
-        throw std::runtime_error("Failed to create window");
-
-    glfwMakeContextCurrent(m_window);
-    glfwSwapInterval(1);
-
-#ifdef _WIN32
-    // Use the embedded application icon (resource id 1) for the title bar and
-    // taskbar, so it matches the .exe icon shown in Explorer.
-    if (HICON hIcon = (HICON)LoadImageW(GetModuleHandleW(nullptr),
-                                        MAKEINTRESOURCEW(1), IMAGE_ICON,
-                                        0, 0, LR_DEFAULTSIZE | LR_SHARED)) {
-        HWND hwnd = glfwGetWin32Window(m_window);
-        SendMessageW(hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIcon);
-        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
-    }
-#endif
-}
-
-void Application::initGL() {
-    if (glewInit() != GLEW_OK)
-        throw std::runtime_error("Failed to initialise GLEW");
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-}
-
-void Application::initImGui() {
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.IniFilename = "editor_layout.ini";
-
-    EditorTheme::loadFonts();
-    EditorTheme::apply();
-
-    ImGui_ImplGlfw_InitForOpenGL(m_window, true);
-    ImGui_ImplOpenGL3_Init("#version 450");
+    m_editor.reset();
+    m_scene.reset();
+    m_window.reset();
 }
 
 void Application::run() {
-    float lastTime = (float)glfwGetTime();
-    while (!glfwWindowShouldClose(m_window)) {
-        float now = (float)glfwGetTime();
-        float dt  = now - lastTime;
-        lastTime  = now;
-
-        glfwPollEvents();
-
-        int w, h;
-        glfwGetFramebufferSize(m_window, &w, &h);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, w, h);
-        glClearColor(0.08f, 0.08f, 0.08f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+    int frame = 0;
+    std::vector<Chord> chords;
+    {
+        // "type:hello_world" types text ('_' = space); anything else is a key chord.
+        std::stringstream ss(m_opts.testKeys);
+        std::string w;
+        while (ss >> w) {
+            if (w.rfind("type:", 0) == 0) {
+                Chord c;
+                c.text = w.substr(5);
+                std::replace(c.text.begin(), c.text.end(), '_', ' ');
+                chords.push_back(c);
+            } else {
+                chords.push_back(parseChord(w));
+            }
+        }
+    }
+    // Test helper: mouse actions, one every 8 frames from frame 60.
+    struct MouseAct { bool shift = false; float x0, y0, x1, y1; };
+    std::vector<MouseAct> mouse;
+    {
+        std::stringstream ss(m_opts.testMouse);
+        std::string w;
+        while (ss >> w) {
+            MouseAct a{};
+            float v[4] = {0, 0, 0, 0};
+            std::string kind = w.substr(0, w.find(':'));
+            std::replace(w.begin(), w.end(), ':', ' ');
+            std::stringstream ps(w.substr(kind.size()));
+            for (float& f : v) ps >> f;
+            a.shift = kind == "shift";
+            a.x0 = v[0]; a.y0 = v[1];
+            a.x1 = kind == "drag" ? v[2] : v[0];
+            a.y1 = kind == "drag" ? v[3] : v[1];
+            mouse.push_back(a);
+        }
+    }
+    while (!m_window->shouldClose()) {
+        ++frame;
+        float dt = m_window->beginFrame([&] {
+            // Test helper: hold a key down while playing.
+            if (!m_opts.holdKey.empty() && frame > 3) {
+                ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
+                           : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
+                ImGui::GetIO().AddKeyEvent(k, true);
+            }
+            int mstep = frame - 60;
+            if (mstep >= 0 && mstep / 8 < (int)mouse.size()) {
+                const MouseAct& a = mouse[mstep / 8];
+                ImGuiIO& io = ImGui::GetIO();
+                int k = mstep % 8;
+                io.AddKeyEvent(ImGuiMod_Shift, a.shift && k < 7);
+                io.AddKeyEvent(ImGuiKey_LeftShift, a.shift && k < 7);
+                if (k == 0) io.AddMousePosEvent(a.x0, a.y0);
+                if (k == 1) io.AddMouseButtonEvent(0, true);
+                if (k >= 2 && k <= 4) io.AddMousePosEvent(a.x0 + (a.x1 - a.x0) * (k - 1) / 3.0f, a.y0 + (a.y1 - a.y0) * (k - 1) / 3.0f);
+                if (k == 5) io.AddMouseButtonEvent(0, false);
+            }
+            // Test helper: press one chord every 6 frames, starting at frame 20.
+            int step = frame - 20;
+            if (step >= 0 && step % 6 < 2 && step / 6 < (int)chords.size()) {
+                const Chord& c = chords[step / 6];
+                bool down = step % 6 == 0;
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddKeyEvent(ImGuiMod_Ctrl, down && c.ctrl);
+                io.AddKeyEvent(ImGuiKey_LeftCtrl, down && c.ctrl);
+                io.AddKeyEvent(ImGuiMod_Shift, down && c.shift);
+                io.AddKeyEvent(ImGuiKey_LeftShift, down && c.shift);
+                io.AddKeyEvent(ImGuiMod_Alt, down && c.alt);
+                io.AddKeyEvent(ImGuiKey_LeftAlt, down && c.alt);
+                if (!c.text.empty()) { if (down) io.AddInputCharactersUTF8(c.text.c_str()); }
+                else io.AddKeyEvent(c.key, down);
+            }
+        });
+        if (m_opts.play && frame == 3) m_editor->togglePlay();
+        if (m_opts.teamHost && frame == 2) m_editor->startTeamCreate(true, "");
+        if (!m_opts.teamJoin.empty() && frame == 2) m_editor->startTeamCreate(false, m_opts.teamJoin);
+        if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
+        if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
+        if (!m_opts.testSelect.empty() && frame == 10) m_editor->testSelect(m_opts.testSelect);
+        if (!m_opts.testMesh.empty() && frame == 14) m_editor->testMesh(m_opts.testMesh);
+        if (!m_opts.testCommand.empty() && frame == 12) m_editor->runCommand(m_opts.testCommand);
+        if (!m_opts.exportRoblox.empty() && frame == 2) m_editor->testExportRoblox(m_opts.exportRoblox);
 
         m_editor->render(dt);
 
-        ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        glfwSwapBuffers(m_window);
+        bool shoot = !m_opts.screenshot.empty() && frame == m_opts.frames;
+        m_window->endFrame(shoot ? m_opts.screenshot : std::string());
+        if (shoot) m_window->close();
     }
-}
-
-void Application::cleanup() {
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    if (m_window) glfwDestroyWindow(m_window);
-    glfwTerminate();
 }

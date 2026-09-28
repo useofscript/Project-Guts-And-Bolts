@@ -23,6 +23,22 @@ void Camera::zoom(float delta) {
     distance = std::max(0.3f, distance - delta * (distance * 0.15f));
 }
 
+void Camera::look(float dx, float dy) {
+    glm::vec3 eye = position();
+    yaw   += dx * 0.3f;
+    pitch  = std::clamp(pitch + dy * 0.3f, -89.0f, 89.0f);
+    // Keep the eye where it is: move the point we orbit around instead.
+    glm::vec3 back = position() - pivot;
+    pivot = eye - back;
+}
+
+void Camera::fly(float forward, float right, float up) {
+    glm::vec3 eye = position();
+    glm::vec3 fwd = glm::normalize(pivot - eye);
+    glm::vec3 side = glm::normalize(glm::cross(fwd, glm::vec3(0, 1, 0)));
+    pivot += fwd * forward + side * right + glm::vec3(0, 1, 0) * up;
+}
+
 void Camera::resize(int w, int h) { m_w = w; m_h = h; }
 
 glm::vec3 Camera::position() const {
@@ -41,5 +57,5 @@ glm::mat4 Camera::view() const {
 
 glm::mat4 Camera::projection() const {
     float aspect = (m_h > 0) ? (float)m_w / (float)m_h : 1.0f;
-    return glm::perspective(glm::radians(fov), aspect, 0.01f, 1000.0f);
+    return glm::perspective(glm::radians(fov), aspect, 0.1f, 1000.0f);
 }

@@ -1,0 +1,1487 @@
+{
+  "format": "GutsAndBolts",
+  "version": 2,
+  "info": {
+    "title": "Night Plaza",
+    "author": "Guts and Bolts",
+    "description": "A chill night out: street lamps, a disco floor and a few hidden coins."
+  },
+  "world": {
+    "deathStyle": 0,
+    "gore": 0,
+    "dismemberment": false,
+    "fallDamage": false
+  },
+  "environment": {
+    "clockTime": 22,
+    "sunAzimuth": 205,
+    "sunElevation": 35,
+    "sunColor": [
+      0.55,
+      0.65,
+      0.95
+    ],
+    "sunIntensity": 0.45,
+    "sunSize": 0.7,
+    "ambientColor": [
+      0.16,
+      0.21,
+      0.38
+    ],
+    "groundAmbient": [
+      0.05,
+      0.05,
+      0.08
+    ],
+    "ambientIntensity": 0.35,
+    "reflections": 0.6,
+    "skyZenith": [
+      0.01,
+      0.015,
+      0.05
+    ],
+    "skyHorizon": [
+      0.05,
+      0.08,
+      0.17
+    ],
+    "skyGround": [
+      0.02,
+      0.02,
+      0.04
+    ],
+    "cloudCover": 0.3,
+    "cloudColor": [
+      0.35,
+      0.4,
+      0.55
+    ],
+    "fogColor": [
+      0.05,
+      0.08,
+      0.16
+    ],
+    "fogDensity": 0.02,
+    "exposure": 1.25,
+    "bloomIntensity": 0.9,
+    "vignette": 0.4
+  },
+  "workspace": {
+    "id": 1,
+    "name": "Workspace",
+    "kind": "Model",
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "rot": [
+      0,
+      0,
+      0
+    ],
+    "size": [
+      1,
+      1,
+      1
+    ],
+    "children": [
+      {
+        "id": 101,
+        "name": "Baseplate",
+        "kind": "Part",
+        "pos": [
+          0,
+          -0.5,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          80,
+          1,
+          80
+        ],
+        "shape": "Cube",
+        "color": [
+          0.28,
+          0.3,
+          0.33
+        ],
+        "material": "Concrete",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 102,
+        "name": "SpawnLocation",
+        "kind": "Part",
+        "pos": [
+          0,
+          0.1,
+          10
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3,
+          0.2,
+          3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.55,
+          0.57,
+          0.6
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 105,
+        "name": "LampPost",
+        "kind": "Part",
+        "pos": [
+          -8,
+          2,
+          -8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.25,
+          4,
+          0.25
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.15,
+          0.15,
+          0.17
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 104,
+            "name": "Bulb",
+            "kind": "Part",
+            "pos": [
+              0,
+              0.56,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              2.4,
+              0.15,
+              2.4
+            ],
+            "shape": "Sphere",
+            "color": [
+              1,
+              0.85,
+              0.55
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": false,
+            "children": [
+              {
+                "id": 103,
+                "name": "PointLight",
+                "kind": "Light",
+                "pos": [
+                  0,
+                  -1,
+                  0
+                ],
+                "rot": [
+                  0,
+                  0,
+                  0
+                ],
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "lightType": "Point",
+                "brightness": 3,
+                "range": 16,
+                "spotAngle": 60,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 108,
+        "name": "LampPost",
+        "kind": "Part",
+        "pos": [
+          8,
+          2,
+          -8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.25,
+          4,
+          0.25
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.15,
+          0.15,
+          0.17
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 107,
+            "name": "Bulb",
+            "kind": "Part",
+            "pos": [
+              0,
+              0.56,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              2.4,
+              0.15,
+              2.4
+            ],
+            "shape": "Sphere",
+            "color": [
+              1,
+              0.85,
+              0.55
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": false,
+            "children": [
+              {
+                "id": 106,
+                "name": "PointLight",
+                "kind": "Light",
+                "pos": [
+                  0,
+                  -1,
+                  0
+                ],
+                "rot": [
+                  0,
+                  0,
+                  0
+                ],
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "lightType": "Point",
+                "brightness": 3,
+                "range": 16,
+                "spotAngle": 60,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 111,
+        "name": "LampPost",
+        "kind": "Part",
+        "pos": [
+          -8,
+          2,
+          8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.25,
+          4,
+          0.25
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.15,
+          0.15,
+          0.17
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 110,
+            "name": "Bulb",
+            "kind": "Part",
+            "pos": [
+              0,
+              0.56,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              2.4,
+              0.15,
+              2.4
+            ],
+            "shape": "Sphere",
+            "color": [
+              1,
+              0.85,
+              0.55
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": false,
+            "children": [
+              {
+                "id": 109,
+                "name": "PointLight",
+                "kind": "Light",
+                "pos": [
+                  0,
+                  -1,
+                  0
+                ],
+                "rot": [
+                  0,
+                  0,
+                  0
+                ],
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "lightType": "Point",
+                "brightness": 3,
+                "range": 16,
+                "spotAngle": 60,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 114,
+        "name": "LampPost",
+        "kind": "Part",
+        "pos": [
+          8,
+          2,
+          8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.25,
+          4,
+          0.25
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.15,
+          0.15,
+          0.17
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 113,
+            "name": "Bulb",
+            "kind": "Part",
+            "pos": [
+              0,
+              0.56,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              2.4,
+              0.15,
+              2.4
+            ],
+            "shape": "Sphere",
+            "color": [
+              1,
+              0.85,
+              0.55
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": false,
+            "children": [
+              {
+                "id": 112,
+                "name": "PointLight",
+                "kind": "Light",
+                "pos": [
+                  0,
+                  -1,
+                  0
+                ],
+                "rot": [
+                  0,
+                  0,
+                  0
+                ],
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "lightType": "Point",
+                "brightness": 3,
+                "range": 16,
+                "spotAngle": 60,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 117,
+        "name": "LampPost",
+        "kind": "Part",
+        "pos": [
+          0,
+          2,
+          -14
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          0.25,
+          4,
+          0.25
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.15,
+          0.15,
+          0.17
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 116,
+            "name": "Bulb",
+            "kind": "Part",
+            "pos": [
+              0,
+              0.56,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              2.4,
+              0.15,
+              2.4
+            ],
+            "shape": "Sphere",
+            "color": [
+              1,
+              0.85,
+              0.55
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": false,
+            "children": [
+              {
+                "id": 115,
+                "name": "PointLight",
+                "kind": "Light",
+                "pos": [
+                  0,
+                  -1,
+                  0
+                ],
+                "rot": [
+                  0,
+                  0,
+                  0
+                ],
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "lightType": "Point",
+                "brightness": 3,
+                "range": 16,
+                "spotAngle": 60,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 136,
+        "name": "DiscoFloor",
+        "kind": "Model",
+        "pos": [
+          0,
+          0,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "children": [
+          {
+            "id": 118,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -3,
+              0.05,
+              -3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 119,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -3,
+              0.05,
+              -1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 120,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -3,
+              0.05,
+              1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 121,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -3,
+              0.05,
+              3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 122,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -1,
+              0.05,
+              -3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 123,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -1,
+              0.05,
+              -1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 124,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -1,
+              0.05,
+              1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 125,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              -1,
+              0.05,
+              3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 126,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              1,
+              0.05,
+              -3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 127,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              1,
+              0.05,
+              -1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 128,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              1,
+              0.05,
+              1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 129,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              1,
+              0.05,
+              3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 130,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              3,
+              0.05,
+              -3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 131,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              3,
+              0.05,
+              -1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 132,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              3,
+              0.05,
+              1
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 133,
+            "name": "Tile",
+            "kind": "Part",
+            "pos": [
+              3,
+              0.05,
+              3
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1.9,
+              0.1,
+              1.9
+            ],
+            "shape": "Cube",
+            "color": [
+              0.5,
+              0.2,
+              0.9
+            ],
+            "material": "Neon",
+            "anchored": true,
+            "canCollide": true,
+            "transparency": 0.0,
+            "castShadow": true
+          },
+          {
+            "id": 134,
+            "name": "PartyLight",
+            "kind": "Light",
+            "pos": [
+              0,
+              5,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "lightType": "Point",
+            "brightness": 4,
+            "range": 20,
+            "spotAngle": 60,
+            "enabled": true
+          },
+          {
+            "id": 135,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Disco Floor: every tile (and the light) changes colour to the beat.\nlocal floor = script.Parent\n\nwhile true do\n    for _, tile in ipairs(floor:GetChildren()) do\n        if tile:IsA(\"BasePart\") then\n            tile.Color = Color3.fromHSV(math.random(), 0.9, 1)\n        end\n    end\n    floor.PartyLight.Color = Color3.fromHSV(math.random(), 0.8, 1)\n    wait(0.4)\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 137,
+        "name": "ShopBack",
+        "kind": "Part",
+        "pos": [
+          0,
+          2,
+          -20
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          10,
+          4,
+          0.5
+        ],
+        "shape": "Cube",
+        "color": [
+          0.7,
+          0.3,
+          0.3
+        ],
+        "material": "Wood",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 138,
+        "name": "ShopWindow",
+        "kind": "Part",
+        "pos": [
+          0,
+          2,
+          -16
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          10,
+          4,
+          0.2
+        ],
+        "shape": "Cube",
+        "color": [
+          0.6,
+          0.8,
+          1.0
+        ],
+        "material": "Glass",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.7,
+        "castShadow": true
+      },
+      {
+        "id": 139,
+        "name": "ShopRoof",
+        "kind": "Part",
+        "pos": [
+          0,
+          4.25,
+          -18
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          10.5,
+          0.5,
+          4.5
+        ],
+        "shape": "Cube",
+        "color": [
+          0.2,
+          0.2,
+          0.22
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 140,
+        "name": "SpotLight",
+        "kind": "Light",
+        "pos": [
+          0,
+          3.8,
+          -18
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "lightType": "Spot",
+        "brightness": 6,
+        "range": 14,
+        "spotAngle": 70,
+        "enabled": true
+      },
+      {
+        "id": 141,
+        "name": "Sign",
+        "kind": "Part",
+        "pos": [
+          0,
+          5,
+          -18
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          6,
+          1,
+          0.3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.2,
+          1.0,
+          0.8
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 143,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          -5,
+          1.2,
+          0
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 142,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 145,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          5,
+          1.2,
+          0
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 144,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 147,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          0,
+          1.2,
+          -9
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 146,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      }
+    ]
+  }
+}

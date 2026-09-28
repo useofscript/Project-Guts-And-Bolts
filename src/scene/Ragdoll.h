@@ -1,0 +1,54 @@
+#pragma once
+#include <cstdint>
+#include <vector>
+#include <glm/glm.hpp>
+#include "Particles.h"
+
+class Scene;
+class SceneNode;
+class Physics;
+
+// A floppy R6 ragdoll. The body is a skeleton of points joined by fixed-length
+// sticks ("Verlet" physics): gravity pulls the points, the sticks keep the body
+// together, and the points bounce off parts. Each body part is then placed
+// between its points. Sticks can be cut to knock limbs off (dismemberment).
+class Ragdoll {
+public:
+    // `force` 0..1 = how violent the death was (decides dismemberment).
+    void start(Scene& scene, SceneNode* root, const glm::vec3& velocity,
+               const glm::vec3& impulse, float force);
+    void update(float dt, Scene& scene, const Physics& physics);
+    void stop() { m_active = false; m_points.clear(); m_sticks.clear(); m_bones.clear(); m_stumps.clear(); }
+    bool active() const { return m_active; }
+    glm::vec3 center() const;
+
+    // Cut a limb loose: 0 L arm, 1 R arm, 2 L leg, 3 R leg, 4 head.
+    void dismember(Scene& scene, int limb);
+
+private:
+    struct Point { glm::vec3 pos, prev; float radius; };
+    struct Stick { int a, b; float length; int limb; bool alive; };   // limb -1 = body
+    struct Bone  {
+        uint64_t  id;
+        int       kind;            // 0 torso, 1 head, 2 limb, 3 attached-to-head
+        int       a, b;            // points (limb: top, bottom)
+        glm::vec3 right;           // remembered sideways axis (for detached parts)
+        glm::mat4 offset{1.0f};    // attached-to-head: transform relative to head
+    };
+    struct Stump { int point; float time; glm::vec3 dir; };
+
+    void solve(const Physics& physics);
+    glm::mat3 torsoFrame() const;
+    void place(Scene& scene);
+
+    bool m_active = false;
+    std::vector<Point> m_points;
+    std::vector<Stick> m_sticks;
+    std::vector<Bone>  m_bones;
+    std::vector<Stump> m_stumps;
+    bool      m_cut[5] = {};
+    float     m_stumpTimer = 0.0f;
+    bool      m_gore = false;
+    GoreKind  m_goreKind = GoreKind::Blood;
+    float     m_gravity = 22.0f;
+};

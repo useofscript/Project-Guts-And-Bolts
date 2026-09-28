@@ -19,8 +19,8 @@ void PlayerPanel::render() {
     Humanoid& h = player->humanoid();
 
     if (ImGui::CollapsingHeader("Humanoid", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SliderFloat("Walk Speed", &h.walkSpeed, 0.0f, 16.0f);
-        ImGui::SliderFloat("Jump Power", &h.jumpPower, 0.0f, 16.0f);
+        ImGui::SliderFloat("Walk Speed", &h.walkSpeed, 0.0f, 30.0f);
+        ImGui::SliderFloat("Jump Power", &h.jumpPower, 0.0f, 30.0f);
         ImGui::Checkbox   ("Auto Rotate", &h.autoRotate);
     }
 
@@ -36,6 +36,76 @@ void PlayerPanel::render() {
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, bar);
         ImGui::ProgressBar(frac, ImVec2(-1, 0));
         ImGui::PopStyleColor();
+    }
+
+    if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextDisabled("Outfit presets");
+        int i = 0;
+        for (const auto& [name, colors] : Player::colorPresets()) {
+            if (ImGui::Button(name)) player->setBodyColors(colors);
+            if (++i % 3 != 0) ImGui::SameLine();
+        }
+        ImGui::NewLine();
+
+        BodyColors c = player->bodyColors();
+        bool changed = false;
+        changed |= ImGui::ColorEdit3("Head",      &c.head.x,     ImGuiColorEditFlags_NoInputs);
+        ImGui::SameLine(150);
+        changed |= ImGui::ColorEdit3("Torso",     &c.torso.x,    ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::ColorEdit3("Left Arm",  &c.leftArm.x,  ImGuiColorEditFlags_NoInputs);
+        ImGui::SameLine(150);
+        changed |= ImGui::ColorEdit3("Right Arm", &c.rightArm.x, ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::ColorEdit3("Left Leg",  &c.leftLeg.x,  ImGuiColorEditFlags_NoInputs);
+        ImGui::SameLine(150);
+        changed |= ImGui::ColorEdit3("Right Leg", &c.rightLeg.x, ImGuiColorEditFlags_NoInputs);
+        if (changed) player->setBodyColors(c);
+
+        ImGui::Spacing();
+        const char* hats[] = {"None", "Top Hat", "Cap", "Crown"};
+        int hat = (int)player->hat();
+        if (ImGui::Combo("Hat", &hat, hats, IM_ARRAYSIZE(hats)))
+            player->setHat((HatStyle)hat);
+    }
+
+    if (ImGui::CollapsingHeader("Death & Gore", ImGuiTreeNodeFlags_DefaultOpen)) {
+        WorldSettings& w = m_scene->world();
+        const char* styles[] = {"Classic (fall apart)", "Ragdoll"};
+        int ds = (int)w.deathStyle;
+        if (ImGui::Combo("Death Style", &ds, styles, 2)) w.deathStyle = (DeathStyle)ds;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Classic: the character falls to pieces like in Roblox.\n"
+                              "Ragdoll: the body goes limp and tumbles with real joints.");
+        const char* gore[] = {"Off", "Oil & Bolts", "Blood"};
+        int g = (int)w.gore;
+        if (ImGui::Combo("Gore", &g, gore, 3)) w.gore = (GoreLevel)g;
+        ImGui::BeginDisabled(w.gore == GoreLevel::Off);
+        ImGui::Checkbox("Dismemberment", &w.dismemberment);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Big hits (explosions, long falls, saws) knock limbs off");
+        ImGui::EndDisabled();
+        ImGui::Checkbox("Fall Damage", &w.fallDamage);
+        ImGui::BeginDisabled(!w.fallDamage);
+        ImGui::SliderFloat("Safe Fall Speed", &w.fallDamageSpeed, 5.0f, 60.0f, "%.0f");
+        ImGui::EndDisabled();
+        ImGui::SliderFloat("Spawn ForceField", &w.spawnForceField, 0.0f, 20.0f, "%.0f s");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A glowing shield for a few seconds after spawning.\n"
+                              "Blocks damage from TakeDamage, explosions and falls.");
+        if (ImGui::Button("Classic Roblox rules")) {
+            w.deathStyle = DeathStyle::Classic; w.gore = GoreLevel::Off; w.fallDamage = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Full carnage")) {
+            w.deathStyle = DeathStyle::Ragdoll; w.gore = GoreLevel::Blood;
+            w.dismemberment = true; w.fallDamage = true;
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Character")) {
+        if (ImGui::Button("Rebuild Character")) player->build();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Put back a fresh character (if you deleted or broke parts of it)");
+        ImGui::TextDisabled("The character appears on the part named");
+        ImGui::TextDisabled("\"SpawnLocation\" when you press Play.");
     }
 
     ImGui::Spacing();

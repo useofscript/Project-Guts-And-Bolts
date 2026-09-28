@@ -1,0 +1,154 @@
+#include "Paths.h"
+#include <algorithm>
+#include <cstdlib>
+#include <system_error>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <climits>
+#endif
+#ifdef __ANDROID__
+#include <SDL.h>
+#include <fstream>
+#include <sstream>
+#endif
+
+namespace Paths {
+
+std::filesystem::path appFolder() {
+    static std::filesystem::path cached = [] {
+        std::error_code ec;
+#if defined(__ANDROID__)
+        // The app's private storage (the APK itself is read-only).
+        if (const char* p = SDL_AndroidGetInternalStoragePath()) return std::filesystem::path(p);
+#elif defined(_WIN32)
+        wchar_t buf[MAX_PATH];
+        DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+        if (n > 0) return std::filesystem::path(std::wstring(buf, n)).parent_path();
+#elif defined(__APPLE__)
+        char buf[PATH_MAX];
+        uint32_t size = sizeof(buf);
+        if (_NSGetExecutablePath(buf, &size) == 0)
+            return std::filesystem::canonical(buf, ec).parent_path();
+#else
+        auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (!ec) return exe.parent_path();
+#endif
+        return std::filesystem::current_path(ec);
+    }();
+    return cached;
+}
+
+std::filesystem::path file(const char* name) { return appFolder() / name; }
+
+std::filesystem::path downloadsFolder() {
+    std::error_code ec;
+    auto p = appFolder() / "downloads";
+    std::filesystem::create_directories(p, ec);
+    return p;
+}
+
+std::filesystem::path downloaded(const std::string& assetId) {
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(downloadsFolder(), ec))
+        if (e.is_regular_file() && e.path().stem().string() == assetId) return e.path();
+    return {};
+}
+
+#ifdef __ANDROID__
+namespace {
+bool readAsset(const std::string& name, std::string& out) {
+    SDL_RWops* rw = SDL_RWFromFile(name.c_str(), "rb");   // SDL reads files inside the APK
+    if (!rw) return false;
+    Sint64 size = SDL_RWsize(rw);
+    out.resize(size > 0 ? (size_t)size : 0);
+    size_t got = size > 0 ? SDL_RWread(rw, out.data(), 1, (size_t)size) : 0;
+    SDL_RWclose(rw);
+    out.resize(got);
+    return true;
+}
+} // namespace
+#endif
+
+void installBundledFiles() {
+#ifdef __ANDROID__
+    // gb_manifest.txt (made when the APK is built): a version line, then one file per line.
+    std::string manifest;
+    if (!readAsset("gb_manifest.txt", manifest)) return;
+    std::istringstream lines(manifest);
+    std::string version;
+    std::getline(lines, version);
+    std::filesystem::path stamp = appFolder() / "bundle_version.txt";
+    std::string have;
+    { std::ifstream f(stamp); std::getline(f, have); }
+    if (have == version) return;                      // already unpacked this version
+    std::string name;
+    std::error_code ec;
+    while (std::getline(lines, name)) {
+        if (name.empty() || name.find("..") != std::string::npos) continue;
+        std::string data;
+        if (!readAsset(name, data)) continue;
+        std::filesystem::path dest = appFolder() / name;
+        std::filesystem::create_directories(dest.parent_path(), ec);
+        std::ofstream out(dest, std::ios::binary | std::ios::trunc);
+        out.write(data.data(), (std::streamsize)data.size());
+    }
+    std::ofstream(stamp) << version << "\n";
+#endif
+}
+
+std::filesystem::path gamesFolder() {
+    std::filesystem::path p = appFolder() / "games";
+    std::error_code ec;
+    std::filesystem::create_directories(p, ec);
+    return p;
+}
+
+std::vector<std::filesystem::path> listGames() {
+    std::vector<std::filesystem::path> out;
+    std::error_code ec;
+    for (auto& e : std::filesystem::directory_iterator(gamesFolder(), ec))
+        if (e.is_regular_file() && (e.path().extension() == kExtension ||
+                                    e.path().extension() == ".rbxl" || e.path().extension() == ".rbxlx"))
+            out.push_back(e.path());   // Roblox places can be played straight away
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+std::filesystem::path sibling(const char* programName) {
+#ifdef _WIN32
+    return appFolder() / (std::string(programName) + ".exe");
+#else
+    return appFolder() / programName;
+#endif
+}
+
+bool launch(const std::filesystem::path& program, const std::string& argument) {
+    std::error_code ec;
+    if (!std::filesystem::exists(program, ec)) return false;
+#ifdef _WIN32
+    std::wstring args = L"\"" + program.wstring() + L"\"";
+    if (!argument.empty()) args += L" \"" + std::filesystem::path(argument).wstring() + L"\"";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::wstring dir = program.parent_path().wstring();
+    if (!CreateProcessW(nullptr, args.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi))
+        return false;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+#else
+    std::string cmd = "\"" + program.string() + "\"";
+    if (!argument.empty()) cmd += " \"" + argument + "\"";
+    cmd += " >/dev/null 2>&1 &";
+    return std::system(cmd.c_str()) == 0;
+#endif
+}
+
+} // namespace Paths

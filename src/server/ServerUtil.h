@@ -1,0 +1,67 @@
+#pragma once
+// Small helpers shared by the server's files.
+#include <cctype>
+#include <cstdio>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <nlohmann/json.hpp>
+#include "../online/Protocol.h"
+
+namespace ServerUtil {
+
+using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+inline std::string lower(std::string s) {
+    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+inline bool isHex(const std::string& s, size_t minLen, size_t maxLen) {
+    if (s.size() < minLen || s.size() > maxLen) return false;
+    for (char c : s) if (!std::isxdigit((unsigned char)c)) return false;
+    return true;
+}
+inline json fail(const std::string& why) { return {{"ok", false}, {"error", why}}; }
+inline json okay() { return {{"ok", true}}; }
+
+// Write a file safely: to a temporary name first, then swap it in.
+inline bool writeFile(const fs::path& p, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    fs::path tmp = p;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f.write(text.data(), (std::streamsize)text.size());
+        if (!f) return false;
+    }
+    fs::rename(tmp, p, ec);
+    if (ec) {   // Windows can't rename over an existing file
+        fs::remove(p, ec);
+        fs::rename(tmp, p, ec);
+    }
+    return !ec;
+}
+inline bool readFile(const fs::path& p, std::string& out) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+inline void log(const std::string& what) {
+    std::time_t t = std::time(nullptr);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%H:%M:%S", std::localtime(&t));
+    std::printf("[%s] %s\n", buf, what.c_str());
+    std::fflush(stdout);
+}
+
+
+} // namespace ServerUtil

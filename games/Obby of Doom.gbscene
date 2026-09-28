@@ -1,0 +1,1045 @@
+{
+  "format": "GutsAndBolts",
+  "version": 2,
+  "info": {
+    "title": "Obby of Doom",
+    "author": "Guts and Bolts",
+    "description": "Jump, dodge the saw blades and don't touch the lava. How fast can you reach the golden platform?"
+  },
+  "world": {
+    "deathStyle": 1,
+    "gore": 2,
+    "dismemberment": true,
+    "fallDamage": true,
+    "fallDamageSpeed": 20
+  },
+  "environment": {
+    "clockTime": 17.5,
+    "sunAzimuth": 150,
+    "sunElevation": 18,
+    "sunColor": [
+      1,
+      0.72,
+      0.45
+    ],
+    "sunIntensity": 1.8,
+    "skyZenith": [
+      0.2,
+      0.28,
+      0.55
+    ],
+    "skyHorizon": [
+      0.95,
+      0.62,
+      0.4
+    ],
+    "fogColor": [
+      0.9,
+      0.6,
+      0.45
+    ],
+    "fogDensity": 0.008,
+    "bloomIntensity": 0.8,
+    "cloudCover": 0.5
+  },
+  "workspace": {
+    "id": 1,
+    "name": "Workspace",
+    "kind": "Model",
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "rot": [
+      0,
+      0,
+      0
+    ],
+    "size": [
+      1,
+      1,
+      1
+    ],
+    "children": [
+      {
+        "id": 102,
+        "name": "Lava",
+        "kind": "Part",
+        "pos": [
+          0,
+          -0.5,
+          -40
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          160,
+          1,
+          160
+        ],
+        "shape": "Cube",
+        "color": [
+          1.0,
+          0.3,
+          0.05
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 101,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Kill Brick: touching this part knocks out the player.\nlocal part = script.Parent\n\npart.Touched:Connect(function(hit)\n    -- 'hit' is the body part that touched us (like \"Left Leg\").\n    -- Its Parent is the character, which has a Humanoid.\n    local humanoid = hit.Parent:FindFirstChild(\"Humanoid\")\n    if humanoid then\n        humanoid.Health = 0\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 103,
+        "name": "StartPlatform",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          10,
+          1,
+          10
+        ],
+        "shape": "Cube",
+        "color": [
+          0.5,
+          0.52,
+          0.56
+        ],
+        "material": "Concrete",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 104,
+        "name": "SpawnLocation",
+        "kind": "Part",
+        "pos": [
+          0,
+          4.1,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3,
+          0.2,
+          3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.3,
+          0.8,
+          0.4
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 105,
+        "name": "Step1",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -8
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3,
+          1,
+          3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.75,
+          0.77,
+          0.8
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 107,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          0,
+          5.2,
+          -8
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 106,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 108,
+        "name": "Step2",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -13
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3,
+          1,
+          3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.75,
+          0.77,
+          0.8
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 110,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          0,
+          5.2,
+          -13
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 109,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 111,
+        "name": "Step3",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -18
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3,
+          1,
+          3
+        ],
+        "shape": "Cube",
+        "color": [
+          0.75,
+          0.77,
+          0.8
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 113,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          0,
+          5.2,
+          -18
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 112,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 115,
+        "name": "MovingPlatform",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -25
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          4,
+          0.6,
+          4
+        ],
+        "shape": "Cube",
+        "color": [
+          0.6,
+          0.45,
+          0.95
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 114,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Moving Platform: slides back and forth. Stand on it to ride along!\nlocal part = script.Parent\nlocal start = part.Position\nlocal distance = 8     -- how far it travels\nlocal speed = 0.4      -- how fast\n\ngame:GetService(\"RunService\").Heartbeat:Connect(function()\n    local offset = math.sin(time() * speed * math.pi) * distance / 2\n    part.Position = start + Vector3.new(offset, 0, 0)\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 117,
+        "name": "FadingPlatform1",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -31
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3.5,
+          0.6,
+          3.5
+        ],
+        "shape": "Cube",
+        "color": [
+          0.3,
+          0.75,
+          0.95
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 116,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Disappearing Platform: fades away when stepped on, then comes back.\nlocal part = script.Parent\nlocal busy = false   -- a \"debounce\" so it only runs once at a time\n\npart.Touched:Connect(function(hit)\n    if busy or not hit.Parent:FindFirstChild(\"Humanoid\") then return end\n    busy = true\n\n    for i = 1, 10 do\n        part.Transparency = i / 10\n        wait(0.08)\n    end\n    part.CanCollide = false   -- now you fall through!\n\n    wait(3)\n    part.CanCollide = true\n    part.Transparency = 0\n    busy = false\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 119,
+        "name": "FadingPlatform2",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -36
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          3.5,
+          0.6,
+          3.5
+        ],
+        "shape": "Cube",
+        "color": [
+          0.3,
+          0.75,
+          0.95
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 118,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Disappearing Platform: fades away when stepped on, then comes back.\nlocal part = script.Parent\nlocal busy = false   -- a \"debounce\" so it only runs once at a time\n\npart.Touched:Connect(function(hit)\n    if busy or not hit.Parent:FindFirstChild(\"Humanoid\") then return end\n    busy = true\n\n    for i = 1, 10 do\n        part.Transparency = i / 10\n        wait(0.08)\n    end\n    part.CanCollide = false   -- now you fall through!\n\n    wait(3)\n    part.CanCollide = true\n    part.Transparency = 0\n    busy = false\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 120,
+        "name": "PadPlatform",
+        "kind": "Part",
+        "pos": [
+          0,
+          3.5,
+          -42
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          5,
+          1,
+          5
+        ],
+        "shape": "Cube",
+        "color": [
+          0.75,
+          0.77,
+          0.8
+        ],
+        "material": "Plastic",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 122,
+        "name": "JumpPad",
+        "kind": "Part",
+        "pos": [
+          0,
+          4.1,
+          -42
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          2.5,
+          0.2,
+          2.5
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.2,
+          0.9,
+          0.3
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 121,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Jump Pad: launches the player high into the air.\nlocal pad = script.Parent\nlocal launchSpeed = 20   -- bigger number = higher jump\n\npad.Touched:Connect(function(hit)\n    local character = hit.Parent\n    local root = character:FindFirstChild(\"HumanoidRootPart\")\n    if root and character:FindFirstChild(\"Humanoid\") then\n        root.AssemblyLinearVelocity = Vector3.new(0, launchSpeed, 0)\n        Sounds.Play(\"boing\", pad.Position)\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 123,
+        "name": "SawWalk",
+        "kind": "Part",
+        "pos": [
+          0,
+          9.5,
+          -60
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          5,
+          1,
+          22
+        ],
+        "shape": "Cube",
+        "color": [
+          0.35,
+          0.36,
+          0.4
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true
+      },
+      {
+        "id": 125,
+        "name": "SawBlade1",
+        "kind": "Part",
+        "pos": [
+          -1.2,
+          11.4,
+          -54
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          2.6,
+          0.12,
+          2.6
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.82,
+          0.85
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 124,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Saw Blade: spins fast and slices whoever touches it.\nlocal saw = script.Parent\n\ngame:GetService(\"RunService\").Heartbeat:Connect(function(dt)\n    saw.Orientation = saw.Orientation + Vector3.new(0, 0, 720 * dt)\nend)\n\nsaw.Touched:Connect(function(hit)\n    local character = hit.Parent\n    if character:FindFirstChild(\"Humanoid\") then\n        Effects.Sparks(saw.Position, 30)\n        character:BreakJoints()      -- a very messy death\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 127,
+        "name": "SawBlade2",
+        "kind": "Part",
+        "pos": [
+          1.2,
+          11.4,
+          -60
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          2.6,
+          0.12,
+          2.6
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.82,
+          0.85
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 126,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Saw Blade: spins fast and slices whoever touches it.\nlocal saw = script.Parent\n\ngame:GetService(\"RunService\").Heartbeat:Connect(function(dt)\n    saw.Orientation = saw.Orientation + Vector3.new(0, 0, 720 * dt)\nend)\n\nsaw.Touched:Connect(function(hit)\n    local character = hit.Parent\n    if character:FindFirstChild(\"Humanoid\") then\n        Effects.Sparks(saw.Position, 30)\n        character:BreakJoints()      -- a very messy death\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 129,
+        "name": "SawBlade3",
+        "kind": "Part",
+        "pos": [
+          -1.2,
+          11.4,
+          -66
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          2.6,
+          0.12,
+          2.6
+        ],
+        "shape": "Cylinder",
+        "color": [
+          0.8,
+          0.82,
+          0.85
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 128,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Saw Blade: spins fast and slices whoever touches it.\nlocal saw = script.Parent\n\ngame:GetService(\"RunService\").Heartbeat:Connect(function(dt)\n    saw.Orientation = saw.Orientation + Vector3.new(0, 0, 720 * dt)\nend)\n\nsaw.Touched:Connect(function(hit)\n    local character = hit.Parent\n    if character:FindFirstChild(\"Humanoid\") then\n        Effects.Sparks(saw.Position, 30)\n        character:BreakJoints()      -- a very messy death\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 131,
+        "name": "Coin",
+        "kind": "Part",
+        "pos": [
+          1.5,
+          11.2,
+          -57
+        ],
+        "rot": [
+          90,
+          0,
+          0
+        ],
+        "size": [
+          0.9,
+          0.12,
+          0.9
+        ],
+        "shape": "Cylinder",
+        "color": [
+          1,
+          0.8,
+          0.15
+        ],
+        "material": "Metal",
+        "anchored": true,
+        "canCollide": false,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 130,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Coin: spins, and disappears when you collect it.\n-- _G is shared by every script, so all the coins add to the same counter.\nlocal coin = script.Parent\n_G.coins = _G.coins or 0\nGui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n\nlocal collected = false\n\ncoin.Touched:Connect(function(hit)\n    if collected then return end\n    if hit.Parent:FindFirstChild(\"Humanoid\") then\n        collected = true\n        _G.coins = _G.coins + 1\n        Gui.Label(\"Coins\", \"Coins: \" .. _G.coins)\n        Sounds.Play(\"coin\", coin.Position)\n        coin:Destroy()\n    end\nend)\n\n-- Spin until we get collected (a destroyed coin has no Parent).\nwhile coin.Parent do\n    coin.Orientation = coin.Orientation + Vector3.new(0, 3, 0)\n    wait()\nend\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 133,
+        "name": "Finish",
+        "kind": "Part",
+        "pos": [
+          0,
+          9.5,
+          -76
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          8,
+          1,
+          8
+        ],
+        "shape": "Cube",
+        "color": [
+          1.0,
+          0.8,
+          0.1
+        ],
+        "material": "Neon",
+        "anchored": true,
+        "canCollide": true,
+        "transparency": 0.0,
+        "castShadow": true,
+        "children": [
+          {
+            "id": 132,
+            "name": "Script",
+            "kind": "Script",
+            "pos": [
+              0,
+              0,
+              0
+            ],
+            "rot": [
+              0,
+              0,
+              0
+            ],
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "source": "-- Finish line: touch it to win!\nlocal finish = script.Parent\nlocal won = false\n\nfinish.Touched:Connect(function(hit)\n    if won or not hit.Parent:FindFirstChild(\"Humanoid\") then return end\n    won = true\n    Gui.Message(\"YOU WIN! Time: \" .. string.format(\"%.1f\", time()) .. \"s\", 6)\n    Sounds.Play(\"win\")\n    for i = 1, 6 do\n        Effects.Sparks(finish.Position + Vector3.new(math.random(-3, 3), 1, math.random(-3, 3)), 40)\n        wait(0.2)\n    end\nend)\n",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "id": 134,
+        "name": "FinishLight",
+        "kind": "Light",
+        "pos": [
+          0,
+          13,
+          -76
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "lightType": "Point",
+        "brightness": 5,
+        "range": 18,
+        "enabled": true
+      },
+      {
+        "id": 135,
+        "name": "GameScript",
+        "kind": "Script",
+        "pos": [
+          0,
+          0,
+          0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          1,
+          1,
+          1
+        ],
+        "source": "-- Shows a timer while you play.\nGui.Message(\"Reach the golden platform! Don't touch the lava.\", 4)\ngame:GetService(\"RunService\").Heartbeat:Connect(function()\n    Gui.Label(\"Timer\", \"Time: \" .. string.format(\"%.1f\", time()))\nend)\n",
+        "enabled": true
+      }
+    ]
+  }
+}
