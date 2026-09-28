@@ -35,18 +35,24 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Avatar, Game };
+    enum class Page { Home, Games, Avatar, GameInfo, Game };
 
     struct GameCard {
         std::filesystem::path        path;
         GameInfo                     info;
         std::unique_ptr<Framebuffer> thumb;
         bool                         broken = false;
+        bool                         gore = false;       // blood / oil on
+        bool                         ragdoll = false;
     };
 
     void frame(float dt);
-    void drawTopBar();
+    void drawTopBar(ImVec2 pos, float width);
     void drawHome();
+    void drawGames();
+    void drawGameInfo();
+    void drawRow(const char* title, const std::vector<int>& games, const char* seeAll);
+    bool drawTile(int index);
     void drawAvatar(float dt);
     void drawGame(float dt);
     void drawPauseMenu();
@@ -78,6 +84,9 @@ private:
     Framebuffer m_view;
     Camera      m_avatarCam;
     Framebuffer m_avatarView;
+    Framebuffer m_bannerView;
+    int         m_selected = -1;                   // game shown on the GameInfo page
+    std::string m_category = "all";                // filter on the Games page
 
     std::unique_ptr<NetServer>     m_server;       // we are hosting
     std::unique_ptr<NetClient>     m_client;       // we joined someone

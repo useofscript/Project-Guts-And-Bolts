@@ -24,6 +24,8 @@ void Profile::load() {
     if (!j.is_object()) return;
     if (j.contains("name") && j["name"].is_string()) name = j["name"].get<std::string>();
     if (j.contains("hat") && j["hat"].is_number_integer()) hat = (HatStyle)j["hat"].get<int>();
+    if (j.contains("recent") && j["recent"].is_array())
+        for (auto& r : j["recent"]) if (r.is_string()) recent.push_back(r.get<std::string>());
     colors.head     = vec(j, "head", colors.head);
     colors.torso    = vec(j, "torso", colors.torso);
     colors.leftArm  = vec(j, "leftArm", colors.leftArm);
@@ -38,6 +40,7 @@ void Profile::save() const {
         {"head", vec(colors.head)}, {"torso", vec(colors.torso)},
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
+        {"recent", recent},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

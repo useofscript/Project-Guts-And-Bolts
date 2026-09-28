@@ -50,6 +50,76 @@ void frameSpawn(Scene& scene, Camera& cam) {
     cam.distance = 22.0f;
 }
 
+// --- 2011-style look -----------------------------------------------------------
+namespace Classic {
+const ImU32  kSkyTop    = IM_COL32(22, 70, 148, 255);
+const ImU32  kSkyBottom = IM_COL32(110, 170, 232, 255);
+const ImU32  kNavTop    = IM_COL32(64, 146, 232, 255);
+const ImU32  kNavBottom = IM_COL32(16, 96, 186, 255);
+const ImU32  kStripeA   = IM_COL32(255, 255, 255, 255);
+const ImU32  kStripeB   = IM_COL32(236, 239, 244, 255);
+const ImVec4 kInk       = {0.16f, 0.17f, 0.20f, 1.0f};
+const ImVec4 kInkDim    = {0.42f, 0.44f, 0.50f, 1.0f};
+const ImVec4 kLink      = {0.02f, 0.33f, 0.74f, 1.0f};
+const ImVec4 kPlay      = {0.02f, 0.66f, 0.30f, 1.0f};
+const ImVec4 kBlue      = {0.10f, 0.45f, 0.82f, 1.0f};
+
+// Dark text and light widgets for the white striped panel.
+void pushLight() {
+    ImGui::PushStyleColor(ImGuiCol_Text, kInk);
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, kInkDim);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1, 1, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.93f, 0.96f, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.88f, 0.93f, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.93f, 0.93f, 0.94f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.86f, 0.91f, 0.98f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.78f, 0.86f, 0.97f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.72f, 0.74f, 0.78f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.78f, 0.8f, 0.84f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, kBlue);
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.9f, 0.91f, 0.93f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.7f, 0.72f, 0.76f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+}
+void popLight() {
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(14);
+}
+
+bool button(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(col.x * 0.7f, col.y * 0.7f, col.z * 0.7f, 1));
+    bool r = bigButton(label, col, size);
+    ImGui::PopStyleColor(2);
+    return r;
+}
+
+void stripes(ImDrawList* dl, ImVec2 a, ImVec2 b) {
+    dl->AddRectFilled(a, b, kStripeB);
+    dl->PushClipRect(a, b, true);
+    float h = b.y - a.y;
+    for (float x = a.x - h; x < b.x; x += 18.0f)
+        dl->AddLine(ImVec2(x, b.y), ImVec2(x + h, a.y), kStripeA, 9.0f);
+    dl->PopClipRect();
+    dl->AddRect(a, b, IM_COL32(150, 160, 180, 255));
+}
+
+// Big chunky logo text with an outline, like the old logo.
+void logo(ImDrawList* dl, ImVec2 p, float size, const char* text) {
+    ImFont* f = ImGui::GetFont();
+    for (int dx = -3; dx <= 3; ++dx)
+        for (int dy = -3; dy <= 3; ++dy)
+            if (dx * dx + dy * dy >= 4)
+                dl->AddText(f, size, ImVec2(p.x + dx, p.y + dy + 2), IM_COL32(40, 10, 10, 255), text);
+    for (int dx = -2; dx <= 2; ++dx)
+        for (int dy = -2; dy <= 2; ++dy)
+            dl->AddText(f, size, ImVec2(p.x + dx, p.y + dy), IM_COL32(255, 255, 255, 255), text);
+    dl->AddText(f, size, p, IM_COL32(222, 34, 28, 255), text);
+}
+} // namespace Classic
+
 } // namespace
 
 PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
@@ -63,6 +133,8 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     refreshGames();
 
     if (m_opts.page == "avatar") m_page = Page::Avatar;
+    if (m_opts.page == "games") m_page = Page::Games;
+    if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
     if (m_opts.page == "settings") m_showSettings = true;
     if (!m_opts.game.empty()) joinGame(m_opts.game, m_opts.host);
     if (!m_opts.join.empty()) joinServer(m_opts.join);
@@ -117,6 +189,8 @@ void PlayerApp::refreshGames() {
             card.info.description = "This game file couldn't be read.";
         } else {
             card.info = preview.info();
+            card.gore = preview.world().gore != GoreLevel::Off;
+            card.ragdoll = preview.world().deathStyle == DeathStyle::Ragdoll;
             if (card.info.title.empty() || card.info.title == "My Game") card.info.title = path.stem().string();
             // Render a little picture of the game for its card.
             card.thumb = std::make_unique<Framebuffer>();
@@ -233,9 +307,36 @@ void PlayerApp::frame(float dt) {
     if (m_page == Page::Game) {
         drawGame(dt);
     } else {
-        drawTopBar();
-        if (m_page == Page::Home) drawHome();
-        else                      drawAvatar(dt);
+        // Sky background with the site in a column down the middle.
+        ImVec2 pos = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilledMultiColor(pos, ImVec2(pos.x + size.x, pos.y + size.y),
+                                    Classic::kSkyTop, Classic::kSkyTop, Classic::kSkyBottom, Classic::kSkyBottom);
+        float width = std::min(1000.0f, size.x - 32.0f);
+        ImVec2 col(pos.x + (size.x - width) * 0.5f, pos.y + 10.0f);
+        drawTopBar(col, width);
+
+        float top = ImGui::GetCursorScreenPos().y;
+        ImGui::SetCursorScreenPos(ImVec2(col.x, top));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18, 14));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.88f, 0.9f, 0.93f, 1));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.62f, 0.66f, 0.72f, 1));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.5f, 0.56f, 0.66f, 1));
+        ImGui::BeginChild("##content", ImVec2(width, pos.y + size.y - top - 10), ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImVec2 cpos = ImGui::GetWindowPos(), csize = ImGui::GetWindowSize();
+        Classic::stripes(ImGui::GetWindowDrawList(), cpos, ImVec2(cpos.x + csize.x, cpos.y + csize.y));
+        Classic::pushLight();
+        switch (m_page) {
+            case Page::Home:     drawHome(); break;
+            case Page::Games:    drawGames(); break;
+            case Page::Avatar:   drawAvatar(dt); break;
+            case Page::GameInfo: drawGameInfo(); break;
+            default: break;
+        }
+        Classic::popLight();
+        ImGui::EndChild();
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
     }
 
     ImGui::End();
@@ -266,132 +367,249 @@ void PlayerApp::drawJoinDialog() {
     }
 }
 
-void PlayerApp::drawTopBar() {
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, kTopBarBg);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 10));
-    ImGui::BeginChild("##top", ImVec2(0, 56), ImGuiChildFlags_AlwaysUseWindowPadding,
-                      ImGuiWindowFlags_NoScrollbar);
+void PlayerApp::drawTopBar(ImVec2 pos, float width) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    Profile& me = Profile::get();
 
-    ImGui::SetWindowFontScale(1.35f);
-    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.2f, 1.0f), "Guts&Bolts");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::SameLine(0, 30);
+    // --- Banner: your avatar standing in the sky, with the logo ---
+    const float bannerH = 118.0f;
+    m_bannerView.resize((int)width, (int)bannerH);
+    Camera cam;
+    cam.resize((int)width, (int)bannerH);
+    cam.fov = 30.0f;
+    cam.pivot = {-5.2f, 1.45f, 0.0f};      // look left of the avatar so it stands on the right
+    cam.yaw = 90.0f;
+    cam.pitch = 3.0f;
+    cam.distance = 10.5f;
+    m_renderer->render(*m_avatarScene, cam, m_bannerView, false);
+    ImVec2 b0 = pos, b1(pos.x + width, pos.y + bannerH);
+    dl->AddImageRounded((ImTextureID)(intptr_t)m_bannerView.colorTexture(), b0, b1, ImVec2(0, 1), ImVec2(1, 0),
+                        IM_COL32_WHITE, 8.0f, ImDrawFlags_RoundCornersTop);
+    Classic::logo(dl, ImVec2(pos.x + 26, pos.y + 24), 64.0f, "GUTS&BOLTS");
 
-    auto tab = [&](const char* label, Page page) {
-        bool active = m_page == page;
-        if (bigButton(label, active ? kAccent : ImVec4(0.17f, 0.18f, 0.22f, 1))) m_page = page;
-        ImGui::SameLine();
-    };
-    tab("Home", Page::Home);
-    tab("Avatar", Page::Avatar);
-    if (bigButton("Join a Friend", ImVec4(0.25f, 0.4f, 0.75f, 1))) m_showJoin = true;
-    ImGui::SameLine();
-    if (bigButton("Settings", ImVec4(0.17f, 0.18f, 0.22f, 1))) m_showSettings = true;
-
-    // Right side: who you are, and a shortcut to the editor.
-    const char* studio = "Open Studio";
-    std::string me = "Signed in as " + Profile::get().name;
-    float right = ImGui::CalcTextSize(me.c_str()).x + ImGui::CalcTextSize(studio).x + 60;
-    ImGui::SameLine(ImGui::GetWindowWidth() - right);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("%s", me.c_str());
-    ImGui::SameLine();
-    if (bigButton(studio, ImVec4(0.45f, 0.30f, 0.12f, 1))) {
-        if (!Paths::launch(Paths::sibling("GutsAndBolts")))
-            m_status = "Couldn't find the Guts and Bolts editor next to this app.";
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Make your own games in the Guts and Bolts editor");
-
-    ImGui::EndChild();
+    // Account box, top-right of the banner.
+    std::string hi = "Hi, " + me.name;
+    ImVec2 ts = ImGui::CalcTextSize(hi.c_str());
+    ImVec2 a(b1.x - ts.x - 34, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
+    dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
+    dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
+    dl->AddText(ImVec2(a.x + 12, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());
+    ImGui::SetCursorScreenPos(ImVec2(a.x + 12, a.y + 27));
+    ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.08f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    if (ImGui::SmallButton("Edit avatar")) m_page = Page::Avatar;
     ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(3);
+
+    // --- The blue nav bar ---
+    const float navH = 34.0f;
+    ImVec2 n0(pos.x, b1.y), n1(pos.x + width, b1.y + navH);
+    dl->AddRectFilledMultiColor(n0, n1, Classic::kNavTop, Classic::kNavTop, Classic::kNavBottom, Classic::kNavBottom);
+    dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), IM_COL32(10, 60, 130, 255));
+
+    struct Item { const char* label; int action; };
+    const Item items[] = {{"Home", 0}, {"Games", 1}, {"Avatar", 2}, {"Join a Friend", 3},
+                          {"Develop", 4}, {"Settings", 5}};
+    float x = n0.x + 14;
+    for (const Item& it : items) {
+        ImVec2 sz = ImGui::CalcTextSize(it.label);
+        ImVec2 p0(x - 8, n0.y), p1(x + sz.x + 8, n1.y);
+        ImGui::SetCursorScreenPos(p0);
+        ImGui::PushID(it.label);
+        bool clicked = ImGui::InvisibleButton("##nav", ImVec2(p1.x - p0.x, navH));
+        ImGui::PopID();
+        bool active = (it.action == 0 && m_page == Page::Home) || (it.action == 1 && m_page == Page::Games) ||
+                      (it.action == 2 && m_page == Page::Avatar);
+        if (ImGui::IsItemHovered() || active)
+            dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
+        dl->AddText(ImVec2(x + 1, n0.y + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
+        dl->AddText(ImVec2(x, n0.y + (navH - sz.y) * 0.5f), IM_COL32(255, 255, 255, 255), it.label);
+        if (clicked) {
+            switch (it.action) {
+                case 0: m_page = Page::Home; break;
+                case 1: m_page = Page::Games; m_category = "all"; break;
+                case 2: m_page = Page::Avatar; break;
+                case 3: m_showJoin = true; break;
+                case 4:
+                    if (!Paths::launch(Paths::sibling("GutsAndBolts")))
+                        m_status = "Couldn't find the Guts and Bolts editor next to this app.";
+                    break;
+                case 5: m_showSettings = true; break;
+            }
+        }
+        x += sz.x + 26;
+    }
+    ImGui::SetCursorScreenPos(ImVec2(pos.x, n1.y));
+}
+
+bool PlayerApp::drawTile(int index) {
+    GameCard& g = m_games[index];
+    const float w = 150.0f, h = 112.0f;
+    ImGui::PushID(index);
+    ImGui::BeginGroup();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    bool clicked = ImGui::InvisibleButton("##tile", ImVec2(w, h));
+    bool hover = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (g.thumb)   // crop the 16:9 picture to a 4:3 tile
+        dl->AddImage((ImTextureID)(intptr_t)g.thumb->colorTexture(), p, ImVec2(p.x + w, p.y + h),
+                     ImVec2(0.125f, 1), ImVec2(0.875f, 0));
+    else
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(120, 40, 40, 255));
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(160, 165, 175, 255),
+                0.0f, 0, hover ? 2.0f : 1.0f);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+    std::string title = g.info.title.size() > 34 ? g.info.title.substr(0, 32) + "..." : g.info.title;
+    ImGui::TextColored(Classic::kLink, "%s", title.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::TextDisabled("by %s", g.info.author.c_str());
+    ImGui::Dummy(ImVec2(w, 0));
+    ImGui::EndGroup();
+    if (hover && !g.info.description.empty()) ImGui::SetTooltip("%s", g.info.description.c_str());
+    ImGui::PopID();
+    if (clicked) { m_selected = index; m_page = Page::GameInfo; }
+    return clicked;
+}
+
+void PlayerApp::drawRow(const char* title, const std::vector<int>& games, const char* seeAll) {
+    if (games.empty()) return;
+    ImGui::SetWindowFontScale(1.25f);
+    ImGui::TextUnformatted(title);
+    ImGui::SetWindowFontScale(1.0f);
+    if (seeAll) {
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 70);
+        ImGui::PushID(title);
+        if (Classic::button("See All", Classic::kBlue, ImVec2(70, 0))) { m_page = Page::Games; m_category = seeAll; }
+        ImGui::PopID();
+    }
+    float avail = ImGui::GetContentRegionAvail().x;
+    int fit = std::max(1, (int)((avail + 14) / (150 + 14)));
+    for (int i = 0; i < (int)games.size() && i < fit; ++i) {
+        if (i > 0) ImGui::SameLine(0, 14);
+        drawTile(games[i]);
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
 }
 
 void PlayerApp::drawHome() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 18));
-    ImGui::BeginChild("##home", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
+    Profile& me = Profile::get();
+    if (!m_status.empty()) {
+        ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_status.c_str());
+        ImGui::Spacing();
+    }
+    if (m_games.empty()) {
+        ImGui::TextWrapped("No games yet! Click Develop to open Guts and Bolts Studio, build something and "
+                           "save it - it will show up here.");
+        ImGui::TextDisabled("Games folder: %s", Paths::gamesFolder().string().c_str());
+        return;
+    }
 
-    ImGui::SetWindowFontScale(1.5f);
-    ImGui::Text("Hi, %s!", Profile::get().name.c_str());
+    std::vector<int> all, recent, carnage, classic;
+    for (int i = 0; i < (int)m_games.size(); ++i) {
+        all.push_back(i);
+        (m_games[i].gore ? carnage : classic).push_back(i);
+    }
+    for (const auto& name : me.recent)
+        for (int i = 0; i < (int)m_games.size(); ++i)
+            if (m_games[i].path.filename().string() == name) recent.push_back(i);
+
+    drawRow("Popular", all, "all");
+    drawRow("Recently Played", recent, "recent");
+    drawRow("Carnage (ragdolls & gore)", carnage, "carnage");
+    drawRow("Classic", classic, "classic");
+
+    ImGui::TextDisabled("Tip: click Host on a game's page to play with friends, then they click Join a Friend.");
+}
+
+void PlayerApp::drawGames() {
+    const char* names[] = {"all", "recent", "carnage", "classic"};
+    const char* titles[] = {"All Games", "Recently Played", "Carnage", "Classic"};
+    int cur = 0;
+    for (int i = 0; i < 4; ++i) if (m_category == names[i]) cur = i;
+
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextUnformatted(titles[cur]);
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("Pick a game to play.");
-    ImGui::Spacing();
-
-    ImGui::SetNextItemWidth(320);
-    ImGui::InputTextWithHint("##search", "Search games...", &m_search);
+    ImGui::SetNextItemWidth(170);
+    if (ImGui::Combo("##cat", &cur, titles, 4)) m_category = names[cur];
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(260);
+    ImGui::InputTextWithHint("##search", "Search", &m_search);
     ImGui::SameLine();
     if (ImGui::Button("Refresh")) refreshGames();
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d game%s", (int)m_games.size(), m_games.size() == 1 ? "" : "s");
-    if (!m_status.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", m_status.c_str());
     ImGui::Spacing();
 
-    if (m_games.empty()) {
-        ImGui::Spacing();
-        ImGui::TextWrapped("No games yet! Open Studio, build something, and save it - "
-                           "it will show up here.");
-        ImGui::TextDisabled("Games folder: %s", Paths::gamesFolder().string().c_str());
-    }
-
-    // Card grid.
-    const float cardW = 280.0f, thumbH = cardW * 9.0f / 16.0f, cardH = thumbH + 118.0f;
-    float avail = ImGui::GetContentRegionAvail().x;
-    int perRow = std::max(1, (int)((avail + 16) / (cardW + 16)));
-    int shown = 0;
+    std::vector<int> list;
     std::string q = lower(m_search);
-    for (size_t i = 0; i < m_games.size(); ++i) {
-        GameCard& g = m_games[i];
+    auto matches = [&](int i) {
+        const GameCard& g = m_games[i];
         if (!q.empty() && lower(g.info.title).find(q) == std::string::npos &&
-            lower(g.info.author).find(q) == std::string::npos)
-            continue;
-        if (shown % perRow != 0) ImGui::SameLine(0, 16);
-        ++shown;
-
-        ImGui::PushID((int)i);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, kCardBg);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::BeginChild("##card", ImVec2(cardW, cardH), ImGuiChildFlags_None,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImVec2 p0 = ImGui::GetCursorScreenPos();
-        if (g.thumb) {
-            ImGui::GetWindowDrawList()->AddImageRounded(
-                (ImTextureID)(intptr_t)g.thumb->colorTexture(), p0, ImVec2(p0.x + cardW, p0.y + thumbH),
-                ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 10.0f, ImDrawFlags_RoundCornersTop);
-        } else {
-            ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + cardW, p0.y + thumbH),
-                                                      IM_COL32(60, 30, 30, 255), 10.0f, ImDrawFlags_RoundCornersTop);
-        }
-        ImGui::Dummy(ImVec2(cardW, thumbH));
-        ImGui::SetCursorPos(ImVec2(12, thumbH + 8));
-        ImGui::TextUnformatted(g.info.title.c_str());
-        ImGui::SetCursorPosX(12);
-        ImGui::TextDisabled("by %s", g.info.author.c_str());
-        ImGui::SetCursorPosX(12);
-        ImGui::PushTextWrapPos(cardW - 12);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.72f, 0.76f, 1));
-        std::string desc = g.info.description.size() > 70 ? g.info.description.substr(0, 67) + "..."
-                                                           : g.info.description;
-        ImGui::TextUnformatted(desc.c_str());
-        ImGui::PopStyleColor();
-        ImGui::PopTextWrapPos();
-        ImGui::SetCursorPos(ImVec2(12, cardH - 40));
-        ImGui::BeginDisabled(g.broken);
-        if (bigButton("Play", kGreen, ImVec2(cardW - 110, 30))) joinGame(g.path);
-        ImGui::SameLine();
-        if (bigButton("Host", ImVec4(0.25f, 0.4f, 0.75f, 1), ImVec2(78, 30))) joinGame(g.path, true);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play with friends: they click Join and type your address");
-        ImGui::EndDisabled();
-        ImGui::EndChild();
-        if (ImGui::IsItemHovered() && !g.info.description.empty())
-            ImGui::SetTooltip("%s", g.info.description.c_str());
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor();
-        ImGui::PopID();
+            lower(g.info.author).find(q) == std::string::npos) return false;
+        if (cur == 2) return g.gore;
+        if (cur == 3) return !g.gore;
+        return true;
+    };
+    if (cur == 1) {
+        for (const auto& name : Profile::get().recent)
+            for (int i = 0; i < (int)m_games.size(); ++i)
+                if (m_games[i].path.filename().string() == name && matches(i)) list.push_back(i);
+    } else {
+        for (int i = 0; i < (int)m_games.size(); ++i) if (matches(i)) list.push_back(i);
     }
+    if (list.empty()) ImGui::TextDisabled("Nothing here yet.");
 
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
+    float avail = ImGui::GetContentRegionAvail().x;
+    int perRow = std::max(1, (int)((avail + 14) / (150 + 14)));
+    for (size_t k = 0; k < list.size(); ++k) {
+        if (k % perRow != 0) ImGui::SameLine(0, 14);
+        else if (k > 0) ImGui::Spacing();
+        drawTile(list[k]);
+    }
+}
+
+void PlayerApp::drawGameInfo() {
+    if (m_selected < 0 || m_selected >= (int)m_games.size()) { m_page = Page::Home; return; }
+    GameCard& g = m_games[m_selected];
+
+    if (ImGui::SmallButton("< Back")) m_page = Page::Home;
+    ImGui::SetWindowFontScale(1.6f);
+    ImGui::TextUnformatted(g.info.title.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::TextDisabled("by %s", g.info.author.c_str());
+    ImGui::Spacing();
+
+    float picW = std::min(560.0f, ImGui::GetContentRegionAvail().x * 0.6f);
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(picW, picW * 9.0f / 16.0f));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (g.thumb)
+        dl->AddImage((ImTextureID)(intptr_t)g.thumb->colorTexture(), p,
+                     ImVec2(p.x + picW, p.y + picW * 9.0f / 16.0f), ImVec2(0, 1), ImVec2(1, 0));
+    dl->AddRect(p, ImVec2(p.x + picW, p.y + picW * 9.0f / 16.0f), IM_COL32(140, 150, 165, 255));
+
+    ImGui::SameLine(0, 20);
+    ImGui::BeginGroup();
+    ImGui::BeginDisabled(g.broken);
+    if (Classic::button("Play", Classic::kPlay, ImVec2(220, 56))) joinGame(g.path);
+    ImGui::Spacing();
+    if (Classic::button("Host (play with friends)", Classic::kBlue, ImVec2(220, 34))) joinGame(g.path, true);
+    ImGui::EndDisabled();
+    ImGui::Spacing();
+    ImGui::TextDisabled("Death: %s", g.ragdoll ? "Ragdoll" : "Classic");
+    ImGui::TextDisabled("Gore: %s", g.gore ? "Yes" : "No");
+    if (g.gore && !GraphicsSettings::get().allowGore)
+        ImGui::TextDisabled("(hidden - you turned gore off)");
+    ImGui::EndGroup();
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Description");
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextUnformatted(g.info.description.c_str());
+    ImGui::PopTextWrapPos();
 }
 
 // ---------------------------------------------------------------------------
@@ -426,8 +644,7 @@ void PlayerApp::drawAvatar(float dt) {
     Player* p = m_avatarScene->player();
     bool changed = false;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 18));
-    ImGui::BeginChild("##avatar", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::BeginChild("##avatar", ImVec2(0, 0));
 
     // Left: 3D preview (drag to spin).
     ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -464,7 +681,7 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::SeparatorText("Outfits");
     int i = 0;
     for (const auto& [name, colors] : Player::colorPresets()) {
-        if (bigButton(name, ImVec4(0.2f, 0.22f, 0.27f, 1), ImVec2(130, 34))) { me.colors = colors; changed = true; }
+        if (ImGui::Button(name, ImVec2(130, 30))) { me.colors = colors; changed = true; }
         if (++i % 3 != 0) ImGui::SameLine();
     }
     if (i % 3 != 0) ImGui::NewLine();
@@ -481,7 +698,9 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::SeparatorText("Hat");
     for (int h = 0; h < 4; ++h) {
         bool on = (int)me.hat == h;
-        if (bigButton(Player::hatName((HatStyle)h), on ? kAccent : ImVec4(0.2f, 0.22f, 0.27f, 1), ImVec2(95, 34))) {
+        bool pressed = on ? Classic::button(Player::hatName((HatStyle)h), Classic::kBlue, ImVec2(95, 30))
+                          : ImGui::Button(Player::hatName((HatStyle)h), ImVec2(95, 30));
+        if (pressed) {
             me.hat = (HatStyle)h;
             changed = true;
         }
@@ -491,7 +710,6 @@ void PlayerApp::drawAvatar(float dt) {
 
     ImGui::EndChild();
     ImGui::EndChild();
-    ImGui::PopStyleVar();
 
     if (changed && p) {
         me.applyTo(*p);
