@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "../scene/EditMesh.h"
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
 #include "Theme.h"
@@ -53,6 +54,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_outliner = std::make_unique<OutlinerPanel>(scene, open, [this](SceneNode* n) { addScript(n); });
     EditorTheme::applyStudio();
     m_outliner->onInsert = [this](SceneNode* parent) { m_insertParent = parent; m_openInsert = true; };
+    m_viewport->onMode = [this](StudioMode mode) { setMode(mode); };
     m_outliner->contextMenuExtras = [this] {
         ImGui::Separator();
         if (ImGui::MenuItem("Expand Selected", "Ctrl+Right")) m_outliner->expand(m_scene->selection());
@@ -64,6 +66,9 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_deferred = [this] { duplicateSelected(); };
     };
     m_properties   = std::make_unique<PropertiesPanel>(scene, open);
+    m_properties->m_editMesh = [this](SceneNode* n) {
+        m_deferred = [this, n] { m_scene->select(n); setMode(StudioMode::Modeling); };   // not while Properties is drawing
+    };
     m_environment  = std::make_unique<EnvironmentPanel>(scene);
     m_player       = std::make_unique<PlayerPanel>(scene);
     m_output       = std::make_unique<OutputPanel>();
@@ -109,8 +114,11 @@ void Editor::render(float dt) {
     }
     m_team->setSelection(m_scene->selected() ? m_scene->selected()->id : 0);
     handleShortcuts();
-    if (m_playing) {
-        m_session->update(dt, m_viewport->cameraYaw(), true);
+    checkModeling();
+    if (m_playing && (!m_state.simPaused || m_state.simStep)) {
+        // F6 pauses the world; F7 moves it on by one frame.
+        m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true);
+        m_state.simStep = false;
         Player* p = m_scene->player();
         if (p && !m_session->runOnly()) m_viewport->frameOn(p->focusPoint());   // Run: the camera stays free
     }
@@ -147,7 +155,10 @@ void Editor::togglePlay() {
         m_playing = true;
         m_viewport->setSession(m_session.get());
         m_viewport->focus();
-        Log::system("Game started.");
+        if (m_state.mode == StudioMode::Modeling) exitModeling();
+        m_state.mode = m_session->runOnly() ? StudioMode::Simulate : StudioMode::Play;
+        m_state.simPaused = false;
+        Log::system(m_session->runOnly() ? "Simulation started (no character) - Shift+F5 to stop." : "Game started.");
         m_session->start();
     } else {
         uint64_t sel = m_scene->selected() ? m_scene->selected()->id : 0;
@@ -158,6 +169,8 @@ void Editor::togglePlay() {
         Serializer::loadScene(*m_scene, m_playSnapshot);
         m_scene->select(m_scene->findById(sel));
         m_committed = m_playSnapshot;
+        m_state.mode = StudioMode::Build;
+        m_state.simPaused = false;
         Log::system("Game stopped - everything is back to how it was.");
     }
 }
@@ -242,6 +255,15 @@ void Editor::spawnPrimitive(PrimitiveType type) {
         case PrimitiveType::Cylinder: addPrimitive("Cylinder", type); break;
         default: break;
     }
+}
+
+// A new MeshPart (a cube to start from), straight into Modeling mode.
+void Editor::addMeshPart() {
+    SceneNode* n = addPrimitive("MeshPart", PrimitiveType::Cube);
+    MeshEdit::attach(*n, MeshEdit::fromPrimitive(PrimitiveType::Cube));
+    n->transform.scale = glm::vec3(2.0f);
+    n->transform.position.y += 0.5f;
+    setMode(StudioMode::Modeling);
 }
 
 void Editor::spawnPremade(Premade kind) {
@@ -557,20 +579,25 @@ void Editor::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;   // don't steal keys while typing
 
-    // Testing (like Roblox Studio): F5 Play, F8 Run, Shift+F5 Stop.
+    // Testing (like Roblox Studio): F5 Play, F8 Simulate, Shift+F5 Stop.
     if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
-        if (io.KeyShift || m_playing) { if (m_playing) togglePlay(); }
-        else startPlay(0);
+        if (io.KeyShift || m_playing) setMode(StudioMode::Build);
+        else setMode(StudioMode::Play);
         return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_F8, false) && !m_playing) { startPlay(2); return; }
+    if (ImGui::IsKeyPressed(ImGuiKey_F8, false) && !m_playing) { setMode(StudioMode::Simulate); return; }
     if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) m_showShortcuts = !m_showShortcuts;
 
     if (m_playing) {
         // While testing, WASD drives the character, not the editor.
+        if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) m_state.simPaused = !m_state.simPaused;
+        if (ImGui::IsKeyPressed(ImGuiKey_F7, false)) { m_state.simPaused = true; m_state.simStep = true; }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) togglePlay();
         return;
     }
+    if (m_state.mode == StudioMode::Modeling) { handleModelingKeys(); return; }
+    // Tab: reshape the selected part (Blender's Edit Mode).
+    if (ImGui::IsKeyPressed(ImGuiKey_Tab, false) && !io.KeyCtrl && !io.KeyAlt) { setMode(StudioMode::Modeling); return; }
 
     if (io.KeyAlt) {
         if (ImGui::IsKeyPressed(ImGuiKey_L, false)) toggleLocked();
@@ -711,6 +738,12 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     if (what == "Part") part("Part", PrimitiveType::Cube);
     else if (what == "Sphere") part("Sphere", PrimitiveType::Sphere);
     else if (what == "Cylinder") part("Cylinder", PrimitiveType::Cylinder);
+    else if (what == "MeshPart") {
+        SceneNode* mp = part("MeshPart", PrimitiveType::Cube);
+        MeshEdit::attach(*mp, MeshEdit::fromPrimitive(PrimitiveType::Cube));
+        mp->transform.scale = glm::vec3(2.0f);
+        setMode(StudioMode::Modeling);
+    }
     else if (what == "SpawnLocation") {
         SceneNode* sp = part("SpawnLocation", PrimitiveType::Cube);
         sp->transform.scale = {3, 0.2f, 3};
@@ -749,7 +782,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}};
@@ -860,16 +893,30 @@ void Editor::renderShortcuts() {
          {"Ctrl+Z / Ctrl+Y", "Undo / redo"}},
         {{"Ctrl+N / Ctrl+O", "New / open (also Roblox .rbxl / .rbxm)"},
          {"Ctrl+S", "Save (Ctrl+Shift+S: save as)"},
-         {"F5", "Play"},
-         {"F8", "Run (no player)"},
-         {"Shift+F5 / Esc", "Stop"},
          {"F1", "Show / hide this list"}},
+        {{"Tab", "Modeling mode: reshape the selected part (Tab again = done)"},
+         {"F8", "Simulate mode: physics and scripts run, you fly around"},
+         {"F5", "Play mode: playtest with your character"},
+         {"Shift+F5 / Esc", "Stop: back to Build mode"},
+         {"F6 / F7", "Pause / step one frame (Simulate and Play)"}},
+        {{"1 / 2 / 3", "Pick vertices / edges / faces"},
+         {"Click / Shift+click / Ctrl+click", "Pick / add or toggle / take away"},
+         {"Drag a box", "Pick everything inside it"},
+         {"A / Alt+A / Ctrl+I", "Pick all (again = none) / none / swap"},
+         {"E", "Extrude: pull faces or edges out"},
+         {"I", "Inset: a smaller face inside each face"},
+         {"X / Del", "Delete what's picked"},
+         {"M", "Merge the picked corners into one"},
+         {"F", "Fill: make a face between picked corners"},
+         {"Alt+Z", "X-ray: see and pick through the mesh"},
+         {"Right-drag + WASD", "Fly the camera (letters are tools here)"}},
     };
-    static const char* kTitles[] = {"Camera & tools", "Selecting", "Explorer", "Editing", "Files & testing"};
+    static const char* kTitles[] = {"Camera & tools", "Selecting", "Explorer", "Editing", "Files",
+                                    "Modes", "Modeling mode"};
     ImGui::SetNextWindowSize(ImVec2(520, 560), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
     if (ImGui::Begin("Keyboard Shortcuts", &m_showShortcuts)) {
-        for (int s = 0; s < 5; ++s) {
+        for (int s = 0; s < 7; ++s) {
             ImGui::SeparatorText(kTitles[s]);
             if (ImGui::BeginTable(kTitles[s], 2)) {
                 ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthFixed, 190.0f);
@@ -1057,8 +1104,14 @@ void Editor::renderMenuBar() {
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Test")) {
-        if (ImGui::MenuItem(m_playing ? "Stop" : "Play", "F5")) togglePlay();
+    if (ImGui::BeginMenu("Mode")) {
+        static const char* keys[] = {"Shift+F5", "Tab", "F8", "F5"};
+        for (int i = 0; i < 4; ++i)
+            if (ImGui::MenuItem(kStudioModeNames[i], keys[i], (int)m_state.mode == i)) setMode((StudioMode)i);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Play Here", nullptr, false, !m_playing)) startPlay(1);
+        if (ImGui::MenuItem(m_state.simPaused ? "Resume" : "Pause", "F6", false, m_playing)) m_state.simPaused = !m_state.simPaused;
+        if (ImGui::MenuItem("Step one frame", "F7", false, m_playing)) { m_state.simPaused = true; m_state.simStep = true; }
         ImGui::EndMenu();
     }
 
@@ -1262,7 +1315,17 @@ void Editor::renderStatusBar() {
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     if (m_playing) {
-        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), m_session->runOnly() ? "RUNNING" : "PLAYING");
+        ImGui::TextColored(m_session->runOnly() ? ImVec4(0.4f, 0.75f, 1.0f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f), "%s%s",
+                           m_session->runOnly() ? "SIMULATE" : "PLAY", m_state.simPaused ? " (paused)" : "");
+    } else if (m_state.mode == StudioMode::Modeling) {
+        static const char* picks[] = {"vertices", "edges", "faces"};
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "MODELING");
+        ImGui::SameLine();
+        SceneNode* mn = m_scene->findById(m_state.modeling.node);
+        ImGui::TextDisabled("  %d picked (%s)   %d corners, %d faces", MeshEdit::countSelected(m_state.modeling.sel),
+                            picks[std::clamp(m_state.modeling.selectMode, 0, 2)],
+                            mn && mn->editMesh ? (int)mn->editMesh->verts.size() : 0,
+                            mn && mn->editMesh ? (int)mn->editMesh->faces.size() : 0);
     } else {
         const char* toolName =
             m_state.tool == GizmoTool::Select    ? "Select" :
@@ -1288,8 +1351,10 @@ void Editor::renderStatusBar() {
     }
 
     ImGui::SameLine();
-    const char* hint = m_playing && m_session->runOnly()
-        ? "Right-drag + WASDQE fly   Wheel zoom   Scripts are running   Shift+F5 stop"
+    const char* hint = m_state.mode == StudioMode::Modeling
+        ? "1/2/3 pick mode   E extrude   I inset   X delete   M merge   F fill   A all   Right-drag + WASD fly   Tab done"
+        : m_playing && m_session->runOnly()
+        ? "Click to inspect   Drag with gizmo   Right-drag + WASDQE fly   F6 pause   Shift+F5 stop"
         : m_playing
         ? "WASD move   Space jump   Right-drag camera   Wheel zoom   Click parts   F5/Esc stop"
         : "Ctrl+1-4 tools   Right-drag + WASDQE fly   MMB pan   F focus   Ctrl+D duplicate   F5 play   F1 all shortcuts";

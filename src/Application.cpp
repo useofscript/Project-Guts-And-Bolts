@@ -4,6 +4,7 @@
 #include "editor/Editor.h"
 
 #include <imgui.h>
+#include <algorithm>
 #include <sstream>
 #include <vector>
 
@@ -25,6 +26,8 @@ Chord parseChord(const std::string& text) {
         else if (part == "del") c.key = ImGuiKey_Delete;
         else if (part == "esc") c.key = ImGuiKey_Escape;
         else if (part == "enter") c.key = ImGuiKey_Enter;
+        else if (part == "tab") c.key = ImGuiKey_Tab;
+        else if (part == "home") c.key = ImGuiKey_Home;
         else if (part.size() >= 2 && part[0] == 'f') c.key = (ImGuiKey)(ImGuiKey_F1 + std::stoi(part.substr(1)) - 1);
         else if (part.size() == 1 && part[0] >= '0' && part[0] <= '9') c.key = (ImGuiKey)(ImGuiKey_0 + (part[0] - '0'));
         else if (part.size() == 1 && part[0] >= 'a' && part[0] <= 'z') c.key = (ImGuiKey)(ImGuiKey_A + (part[0] - 'a'));
@@ -51,6 +54,26 @@ void Application::run() {
     int frame = 0;
     std::vector<Chord> chords;
     { std::stringstream ss(m_opts.testKeys); std::string w; while (ss >> w) chords.push_back(parseChord(w)); }
+    // Test helper: mouse actions, one every 8 frames from frame 60.
+    struct MouseAct { bool shift = false; float x0, y0, x1, y1; };
+    std::vector<MouseAct> mouse;
+    {
+        std::stringstream ss(m_opts.testMouse);
+        std::string w;
+        while (ss >> w) {
+            MouseAct a{};
+            float v[4] = {0, 0, 0, 0};
+            std::string kind = w.substr(0, w.find(':'));
+            std::replace(w.begin(), w.end(), ':', ' ');
+            std::stringstream ps(w.substr(kind.size()));
+            for (float& f : v) ps >> f;
+            a.shift = kind == "shift";
+            a.x0 = v[0]; a.y0 = v[1];
+            a.x1 = kind == "drag" ? v[2] : v[0];
+            a.y1 = kind == "drag" ? v[3] : v[1];
+            mouse.push_back(a);
+        }
+    }
     while (!m_window->shouldClose()) {
         ++frame;
         float dt = m_window->beginFrame([&] {
@@ -59,6 +82,18 @@ void Application::run() {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
                            : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
                 ImGui::GetIO().AddKeyEvent(k, true);
+            }
+            int mstep = frame - 60;
+            if (mstep >= 0 && mstep / 8 < (int)mouse.size()) {
+                const MouseAct& a = mouse[mstep / 8];
+                ImGuiIO& io = ImGui::GetIO();
+                int k = mstep % 8;
+                io.AddKeyEvent(ImGuiMod_Shift, a.shift && k < 7);
+                io.AddKeyEvent(ImGuiKey_LeftShift, a.shift && k < 7);
+                if (k == 0) io.AddMousePosEvent(a.x0, a.y0);
+                if (k == 1) io.AddMouseButtonEvent(0, true);
+                if (k >= 2 && k <= 4) io.AddMousePosEvent(a.x0 + (a.x1 - a.x0) * (k - 1) / 3.0f, a.y0 + (a.y1 - a.y0) * (k - 1) / 3.0f);
+                if (k == 5) io.AddMouseButtonEvent(0, false);
             }
             // Test helper: press one chord every 6 frames, starting at frame 20.
             int step = frame - 20;
@@ -81,6 +116,7 @@ void Application::run() {
         if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
         if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
         if (!m_opts.testSelect.empty() && frame == 10) m_editor->testSelect(m_opts.testSelect);
+        if (!m_opts.testMesh.empty() && frame == 14) m_editor->testMesh(m_opts.testMesh);
         if (!m_opts.testCommand.empty() && frame == 12) m_editor->runCommand(m_opts.testCommand);
         if (!m_opts.exportRoblox.empty() && frame == 2) m_editor->testExportRoblox(m_opts.exportRoblox);
 

@@ -60,11 +60,14 @@ Studio is laid out like Roblox Studio, with the same dark theme and a
 **ribbon** across the top:
 
 - **HOME**: clipboard, the Select / Move / Scale / Rotate tools, insert a Part
-  or any Object, group / lock / anchor, and Play / Play Here / Run / Stop.
-- **MODEL**: snap-to-grid (studs and degrees), parts, constraints, scripts,
-  **Pivot to middle** for models, and **Align** (line the selection up on X,
+  or any Object, group / lock / anchor, and Play / Play Here / Simulate / Stop.
+- **MODEL**: snap-to-grid (studs and degrees), parts, **MeshPart** and
+  **Edit Mesh** (Modeling mode), constraints, scripts, **Pivot to middle** for models, and **Align** (line the selection up on X,
   Y or Z by their min, center or max).
-- **TEST**: the play buttons plus the Player and Lighting settings.
+- **TEST**: Play, Play Here, Simulate, Pause, Step and Stop, plus the Player
+  and Lighting settings.
+- **MESH** (only in Modeling mode): pick corners / edges / faces, and the
+  shape tools.
 - **VIEW**: show or hide each panel, reset the camera, and the shortcut list.
 
 The panels:
@@ -125,15 +128,40 @@ constraints, value objects, attributes and tags. Things we don't have yet
 file that Roblox Studio can open, so you can take your work either way.
 Roblox characters are twice our size, so everything is scaled to match.
 
-### Playtesting
+### Modes (like Blender)
 
-- **Play** (`F5`): your scripts start and you spawn at a SpawnLocation. Walk
-  with **WASD**, jump with **Space**, look around with the right mouse button
-  and zoom with the wheel.
-- **Play Here**: like Play, but you start where the camera is looking.
-- **Run** (`F8`): scripts run but there's no character; fly the camera
-  around to watch things happen.
-- **Stop** (`Shift+F5` or `Esc`): everything goes back exactly how it was.
+The menu in the Viewport's top-left corner (or the **Mode** menu) switches
+between four modes:
+
+- **Build** (the normal one): place, move, resize and change objects.
+- **Modeling** (`Tab`): reshape a part yourself, like Blender's Edit Mode.
+  Select a part and press `Tab`. It becomes a **MeshPart** and you can pick
+  its corners (`1`), edges (`2`) or faces (`3`). Click to pick, Shift+click
+  to add, or drag a box. Move, turn or stretch what you picked with the
+  gizmo. The **MESH** tab has the tools:
+  - **Extrude** (`E`): pull faces or edges out into new ones.
+  - **Inset** (`I`): put a smaller face inside each picked face.
+  - **Subdivide**: cut faces into smaller ones.
+  - **Merge** (`M`): squash the picked corners into one.
+  - **Fill** (`F`): make a face between picked corners.
+  - **Delete** (`X`).
+  - **Flip**: turn faces inside out.
+  - **Smooth / Flat** shading.
+  - **X-Ray** (`Alt+Z`): see and pick through the mesh.
+
+  Press `Tab` again when you're done. To start from scratch, use
+  **MODEL > MeshPart** or Insert Object > MeshPart. MeshParts save with your
+  game, work in the Player app and collide like any part.
+- **Simulate** (`F8`): physics and scripts run live, but there's no
+  character. Fly the camera around, click things to see their properties
+  change as they move, and drag them with the gizmo while everything keeps
+  running. `F6` pauses and `F7` steps one frame at a time.
+- **Play** (`F5`): a real playtest. You spawn at a SpawnLocation, walk with
+  **WASD**, jump with **Space** and look around with the right mouse button.
+  **Play Here** starts you where the camera is looking. `F6` pauses here too.
+
+**Stop** (`Shift+F5` or `Esc`) goes back to Build mode, and everything goes
+back exactly how it was before you pressed Simulate or Play.
 
 ### Controls
 
@@ -161,7 +189,9 @@ to see them all.
 | Duplicate / Delete | `Ctrl+D` / `Del` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
 | Save / Save as / Open / New | `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+O` / `Ctrl+N` |
-| Play / Run / Stop | `F5` / `F8` / `Shift+F5` |
+| Play / Simulate / Stop | `F5` / `F8` / `Shift+F5` |
+| Pause / step one frame (while testing) | `F6` / `F7` |
+| Modeling mode on / off | `Tab` |
 
 Copy, paste, duplicate, delete, hide, lock, anchor and the move tool all work
 on everything you've selected at once.

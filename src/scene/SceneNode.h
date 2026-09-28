@@ -6,7 +6,9 @@
 #include <glm/glm.hpp>
 #include "../renderer/Mesh.h"
 
-enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder };
+struct EditMesh;   // see EditMesh.h
+
+enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mesh = built in Modeling mode
 
 // What an object *is*, à la Roblox classes:
 //   Part   — a visible, physical shape (Cube / Sphere / Plane / Cylinder)
@@ -60,6 +62,7 @@ public:
     Transform             transform;
     PrimitiveType         primitiveType = PrimitiveType::None;
     std::shared_ptr<Mesh> mesh;
+    std::shared_ptr<EditMesh> editMesh;    // primitiveType == Mesh: the shape's points and faces
     glm::vec3             color    = {0.65f, 0.65f, 0.80f};
     bool                  selected = false;
     bool                  visible  = true;

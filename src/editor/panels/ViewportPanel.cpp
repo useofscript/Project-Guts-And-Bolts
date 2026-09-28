@@ -4,10 +4,12 @@
 #include "../../scene/Scene.h"
 #include "../../scene/SceneNode.h"
 #include "../../scene/Physics.h"
+#include "../../scene/EditMesh.h"
 #include "../../game/GameSession.h"
 #include "../../game/Hud.h"
 #include "../../core/Audio.h"
 #include "../TeamCreate.h"
+#include "../Icons.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -39,8 +41,14 @@ void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; 
 bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing(); }
 
 void ViewportPanel::focusSelected() {
-    if (SceneNode* sel = m_scene->selected())
-        m_camera.pivot = glm::vec3(sel->worldMatrix()[3]);
+    SceneNode* sel = m_scene->selected();
+    if (!sel) return;
+    m_camera.pivot = glm::vec3(sel->worldMatrix()[3]);
+    if (sel->isPart()) {   // back off far enough to see all of it
+        AABB b = Physics::worldBounds(sel);
+        m_camera.pivot = (b.min + b.max) * 0.5f;
+        m_camera.distance = std::clamp(glm::length(b.max - b.min) * 1.6f, 3.0f, 200.0f);
+    }
 }
 
 void ViewportPanel::handleInput(float dt) {
@@ -68,7 +76,23 @@ void ViewportPanel::handleInput(float dt) {
     }
     if (m_hovered && io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
 
-    if ((focused || looking) && !io.WantTextInput && !io.KeyCtrl && !io.KeyAlt) {
+    // Modeling mode: Home (or numpad .) looks at the picked points, like Blender.
+    if (m_state->mode == StudioMode::Modeling && (focused || m_hovered) && !io.WantTextInput &&
+        (ImGui::IsKeyPressed(ImGuiKey_Home, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadDecimal, false))) {
+        SceneNode* n = m_scene->findById(m_state->modeling.node);
+        if (n && n->editMesh) {
+            glm::mat4 M = n->worldMatrix();
+            glm::vec3 c(0.0f);
+            int count = 0;
+            const auto& sel = m_state->modeling.sel;
+            for (size_t i = 0; i < n->editMesh->verts.size(); ++i)
+                if (i < sel.size() && sel[i]) { c += glm::vec3(M * glm::vec4(n->editMesh->verts[i], 1.0f)); ++count; }
+            m_camera.pivot = count ? c / (float)count : glm::vec3(M[3]);
+        }
+    }
+    // In Modeling mode the letter keys are tools (E extrude, ...), so fly only while right-dragging.
+    bool keysFly = m_state->mode == StudioMode::Modeling ? looking : (focused || looking);
+    if (keysFly && !io.WantTextInput && !io.KeyCtrl && !io.KeyAlt) {
         float speed = (io.KeyShift ? 60.0f : 18.0f) * dt;
         float f = 0, r = 0, u = 0;
         if (ImGui::IsKeyDown(ImGuiKey_W)) f += speed;
@@ -185,13 +209,14 @@ void ViewportPanel::render(float dt) {
             m_camera.resize(w, h);
         }
         bool playing = m_session != nullptr;
-        m_renderer.render(*m_scene, m_camera, m_fbo, !playing);
+        m_renderer.render(*m_scene, m_camera, m_fbo, !playing || m_session->runOnly());
         Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();
         // Flip V so the framebuffer texture is the right way up in ImGui.
         ImGui::Image((ImTextureID)(intptr_t)m_fbo.colorTexture(),
                      avail, ImVec2(0, 1), ImVec2(1, 0));
+        if (drawModeMenu(imgPos)) m_hovered = false;   // clicks on the menu aren't clicks in the world
 
         glm::mat4 view = m_camera.view();
         glm::mat4 proj = m_camera.projection();
@@ -200,7 +225,33 @@ void ViewportPanel::render(float dt) {
         ImVec2 imgMax(imgPos.x + avail.x, imgPos.y + avail.y);
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
-        if (playing) {
+        if (playing && m_session->runOnly()) {
+            // Simulate: click things to look at them in Properties, and drag
+            // them with the gizmo while the world keeps running.
+            drawGizmo(view, proj, imgMin, imgSize);
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            if (ImGuizmo::IsUsing())
+                for (SceneNode* n : m_scene->selectionRoots()) { n->velocity = glm::vec3(0.0f); n->angularVelocity = glm::vec3(0.0f); n->sleepTime = 0; }
+            if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                ImVec2 m = ImGui::GetMousePos();
+                glm::vec3 ro, rd;
+                mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
+                SceneNode* hit = Physics::raycast(*m_scene, ro, rd);
+                if (hit && !ImGui::GetIO().KeyAlt && !m_scene->isCharacterPart(hit)) {
+                    SceneNode* top = hit;
+                    for (SceneNode* p = hit->parent; p && p != m_scene->root(); p = p->parent)
+                        if (p->kind == NodeKind::Model) top = p;
+                    hit = top;
+                }
+                if (hit) m_scene->select(hit); else m_scene->deselect();
+            }
+            Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui(), 0.0f, false);
+            dl->AddRect(imgPos, imgMax, IM_COL32(60, 170, 230, 255), 0.0f, 0, 3.0f);   // blue frame = simulating
+            const char* tip = m_state->simPaused
+                ? "SIMULATE (paused)  -  F6 resume, F7 step one frame, Shift+F5 stop"
+                : "SIMULATE  -  click things to inspect / drag them, right-drag + WASD fly, F6 pause, Shift+F5 stop";
+            dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10), IM_COL32(255, 255, 255, 190), tip);
+        } else if (playing) {
             // Clicks go to the game (part.Clicked / MouseButton1), not the editor.
             if (m_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 m = ImGui::GetMousePos();
@@ -210,14 +261,23 @@ void ViewportPanel::render(float dt) {
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd, nullptr, character);
                 m_session->click(hit ? hit->id : 0);
             }
-            bool run = m_session->runOnly();
-            Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui(), 0.0f, !run);
+            Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
             // Green frame = the game is running.
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);
-            const char* tip = run ? "RUNNING (no character)  -  right-drag + WASD to fly, Shift+F5 stop"
-                                  : "PLAYING  -  WASD move, Space jump, right-drag camera, F5/Esc stop";
+            const char* tip = m_state->simPaused ? "PLAY (paused)  -  F6 resume, F7 step, Shift+F5 stop"
+                                                 : "PLAYING  -  WASD move, Space jump, right-drag camera, F6 pause, F5/Esc stop";
             dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10),
                         IM_COL32(255, 255, 255, 170), tip);
+        } else if (m_state->mode == StudioMode::Modeling) {
+            modelingView(view, proj, imgMin, imgSize);
+            dl->AddRect(imgPos, imgMax, IM_COL32(255, 150, 40, 255), 0.0f, 0, 3.0f);   // orange frame = modeling
+            static const char* kPickNames[] = {"vertices", "edges", "faces"};
+            char tip[256];
+            std::snprintf(tip, sizeof(tip),
+                          "MODELING (picking %s)  -  1/2/3 vertex/edge/face, click / Shift+click / drag a box, A all, "
+                          "E extrude, I inset, X delete, M merge, F fill, Tab done",
+                          kPickNames[std::clamp(m_state->modeling.selectMode, 0, 2)]);
+            dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10), IM_COL32(255, 255, 255, 200), tip);
         } else {
             drawGizmo(view, proj, imgMin, imgSize);
 
@@ -342,4 +402,47 @@ void ViewportPanel::render(float dt) {
 
     ImGui::End();
     ImGui::PopStyleVar();
+}
+
+// Blender-style mode menu in the Viewport's top-left corner.
+bool ViewportPanel::drawModeMenu(ImVec2 imgPos) {
+    static const Icons::Id kIcons[] = {Icons::Id::Build, Icons::Id::Mesh, Icons::Id::Simulate, Icons::Id::Play};
+    static const char* kKeys[] = {"Shift+F5", "Tab", "F8", "F5"};
+    static const char* kTips[] = {"Place and change objects", "Reshape the selected part's mesh (corners, edges, faces)",
+                                  "Physics and scripts run live; fly around, inspect and drag things",
+                                  "Playtest with your character"};
+    int cur = (int)m_state->mode;
+    char label[64];
+    std::snprintf(label, sizeof(label), "%s Mode", kStudioModeNames[cur]);
+    ImVec2 ts = ImGui::CalcTextSize(label);
+    ImVec2 a(imgPos.x + 8, imgPos.y + 8), b(a.x + ts.x + 50, a.y + ts.y + 12);
+    ImGui::SetCursorScreenPos(a);
+    bool clicked = ImGui::InvisibleButton("##mode", ImVec2(b.x - a.x, b.y - a.y));
+    bool hover = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(a, b, hover ? IM_COL32(70, 70, 76, 235) : IM_COL32(40, 40, 44, 220), 5.0f);
+    dl->AddRect(a, b, IM_COL32(90, 90, 96, 255), 5.0f);
+    Icons::draw(dl, ImVec2(a.x + 14, (a.y + b.y) * 0.5f), 16.0f, kIcons[cur]);
+    dl->AddText(ImVec2(a.x + 27, a.y + 6), IM_COL32(235, 235, 235, 255), label);
+    float ax = b.x - 13, ay = (a.y + b.y) * 0.5f;
+    dl->AddTriangleFilled(ImVec2(ax - 4, ay - 2), ImVec2(ax + 4, ay - 2), ImVec2(ax, ay + 3), IM_COL32(200, 200, 200, 255));
+    if (hover) ImGui::SetTooltip("Switch mode (like Blender)");
+    if (clicked) ImGui::OpenPopup("##modes");
+    ImGui::SetNextWindowPos(ImVec2(a.x, b.y + 2));
+    if (ImGui::BeginPopup("##modes")) {
+        for (int i = 0; i < 4; ++i) {
+            ImGui::PushID(i);
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            char row[64];
+            std::snprintf(row, sizeof(row), "      %s", kStudioModeNames[i]);
+            if (ImGui::Selectable(row, cur == i, 0, ImVec2(230, 0)) && onMode) onMode((StudioMode)i);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kTips[i]);
+            Icons::draw(ImGui::GetWindowDrawList(), ImVec2(p.x + 10, p.y + ImGui::GetTextLineHeight() * 0.5f), 16.0f, kIcons[i]);
+            ImVec2 ks = ImGui::CalcTextSize(kKeys[i]);
+            ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + 230 - ks.x, p.y), IM_COL32(140, 140, 140, 255), kKeys[i]);
+            ImGui::PopID();
+        }
+        ImGui::EndPopup();
+    }
+    return hover;
 }

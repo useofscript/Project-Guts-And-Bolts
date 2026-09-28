@@ -10,6 +10,7 @@ class PropertiesPanel {
 public:
     PropertiesPanel(Scene* scene, std::function<void(SceneNode*)> openScript);
     void render();
+    std::function<void(SceneNode*)> m_editMesh;   // "Edit Mesh" button: go into Modeling mode
 
 private:
     void renderProperties(SceneNode* node);

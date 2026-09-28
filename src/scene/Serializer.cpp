@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "Serializer.h"
+#include "EditMesh.h"
 #include "RobloxFile.h"
 #include "Scene.h"
 #include "SceneNode.h"
@@ -59,6 +60,7 @@ const char* shapeName(PrimitiveType t) {
         case PrimitiveType::Sphere:   return "Sphere";
         case PrimitiveType::Plane:    return "Plane";
         case PrimitiveType::Cylinder: return "Cylinder";
+        case PrimitiveType::Mesh:     return "Mesh";
         default:                      return "None";
     }
 }
@@ -67,6 +69,7 @@ PrimitiveType shapeFrom(const std::string& s) {
     if (s == "Sphere")   return PrimitiveType::Sphere;
     if (s == "Plane")    return PrimitiveType::Plane;
     if (s == "Cylinder") return PrimitiveType::Cylinder;
+    if (s == "Mesh")     return PrimitiveType::Mesh;
     return PrimitiveType::None;
 }
 
@@ -85,6 +88,13 @@ json toJson(const SceneNode& n) {
     j["size"] = vec(n.transform.scale);
     if (n.kind == NodeKind::Part) {
         j["shape"]        = shapeName(n.primitiveType);
+        if (n.primitiveType == PrimitiveType::Mesh && n.editMesh) {
+            // A custom mesh: "v" = x,y,z,x,y,z..., "f" = lists of corner numbers.
+            json v = json::array(), f = json::array();
+            for (const auto& p : n.editMesh->verts) { v.push_back(p.x); v.push_back(p.y); v.push_back(p.z); }
+            for (const auto& face : n.editMesh->faces) f.push_back(face);
+            j["mesh"] = {{"v", v}, {"f", f}, {"smooth", n.editMesh->smooth}};
+        }
         j["color"]        = vec(n.color);
         j["transparency"] = n.transparency;
         j["material"]     = kMaterialNames[(int)n.material];
@@ -157,6 +167,22 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     if (n->kind == NodeKind::Part) {
         n->primitiveType = shapeFrom(get<std::string>(j, "shape", "None"));
         n->mesh          = MeshLibrary::get(n->primitiveType);
+        if (n->primitiveType == PrimitiveType::Mesh) {
+            auto m = std::make_shared<EditMesh>();
+            if (auto it = j.find("mesh"); it != j.end() && it->is_object()) {
+                const json& v = (*it)["v"];
+                for (size_t i = 0; i + 2 < v.size(); i += 3)
+                    m->verts.push_back({v[i].get<float>(), v[i + 1].get<float>(), v[i + 2].get<float>()});
+                for (const auto& face : (*it)["f"]) {
+                    std::vector<uint32_t> fv;
+                    for (const auto& k : face) if (k.get<uint32_t>() < m->verts.size()) fv.push_back(k.get<uint32_t>());
+                    if (fv.size() >= 3) m->faces.push_back(std::move(fv));
+                }
+                m->smooth = get<bool>(*it, "smooth", false);
+            }
+            if (m->faces.empty()) m = MeshEdit::fromPrimitive(PrimitiveType::Cube);
+            MeshEdit::attach(*n, m);
+        }
         n->color         = vec(j, "color", n->color);
         n->transparency  = get<float>(j, "transparency", 0.0f);
         n->material      = materialFrom(get<std::string>(j, "material", "Plastic"));
@@ -384,6 +410,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.name = src->name;           dst.kind = src->kind;
     dst.transform = src->transform; dst.primitiveType = src->primitiveType;
     dst.mesh = src->mesh;           dst.color = src->color;
+    dst.editMesh = src->editMesh;
     dst.visible = src->visible;     dst.internal = src->internal;
     dst.transparency = src->transparency; dst.material = src->material;
     dst.anchored = src->anchored;   dst.canCollide = src->canCollide; dst.castShadow = src->castShadow;

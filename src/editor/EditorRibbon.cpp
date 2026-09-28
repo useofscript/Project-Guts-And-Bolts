@@ -5,6 +5,7 @@
 #include "panels/ViewportPanel.h"
 #include "../scene/Scene.h"
 #include "../scene/Physics.h"
+#include "../scene/EditMesh.h"
 #include "../core/Log.h"
 
 #include <imgui.h>
@@ -149,9 +150,11 @@ void Editor::renderToolbar() {
     bg->AddRectFilled(ImVec2(origin.x, origin.y + tabsH), ImVec2(origin.x + width, origin.y + tabsH + ribbonH), kRibbonBg);
     bg->AddLine(ImVec2(origin.x, origin.y + tabsH + ribbonH - 1), ImVec2(origin.x + width, origin.y + tabsH + ribbonH - 1),
                 IM_COL32(26, 26, 26, 255));
-    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW"};
+    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "MESH"};
+    const bool modeling = m_state.mode == StudioMode::Modeling;
+    int tabCount = modeling ? 5 : 4;   // MESH only shows up in Modeling mode
     float x = origin.x + 10;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < tabCount; ++i) {
         ImVec2 ts = ImGui::CalcTextSize(tabs[i]);
         ImVec2 a(x, origin.y), b(x + ts.x + 24, origin.y + tabsH);
         ImGui::SetCursorScreenPos(a);
@@ -166,7 +169,7 @@ void Editor::renderToolbar() {
             bg->AddRectFilled(a, b, IM_COL32(55, 55, 55, 255));
         }
         bg->AddText(ImVec2(a.x + 12, a.y + (tabsH - ts.y) * 0.5f),
-                    on ? IM_COL32(255, 255, 255, 255) : IM_COL32(180, 180, 180, 255), tabs[i]);
+                    i == 4 ? IM_COL32(255, 170, 70, 255) : on ? IM_COL32(255, 255, 255, 255) : IM_COL32(180, 180, 180, 255), tabs[i]);
         x = b.x + 2;
     }
 
@@ -197,7 +200,8 @@ void Editor::renderToolbar() {
     SceneNode* sel = m_scene->selected();
     bool editable = canEdit(sel) && !m_playing;
     auto tool = [&](const char* label, Icons::Id icon, GizmoTool t, const char* tip) {
-        if (bigButton(label, icon, m_state.tool == t, !m_playing, tip)) m_state.tool = t;
+        bool usable = !m_playing || m_state.mode == StudioMode::Simulate;   // Simulate: drag things live
+        if (bigButton(label, icon, m_state.tool == t, usable, tip)) m_state.tool = t;
     };
     auto tools = [&] {
         Group g("Tools");
@@ -206,14 +210,21 @@ void Editor::renderToolbar() {
         tool("Scale", Icons::Id::Scale, GizmoTool::Scale, "Scale (Ctrl+3)");
         tool("Rotate", Icons::Id::Rotate, GizmoTool::Rotate, "Rotate (Ctrl+4)");
     };
-    auto test = [&] {
+    auto test = [&](bool pauseButtons, bool stepButton) {
         Group g("Test");
-        if (bigButton("Play", Icons::Id::Play, m_playing && m_playMode == 0, !m_playing, "Play (F5)")) startPlay(0);
+        if (bigButton("Play", Icons::Id::Play, m_playing && m_playMode == 0, !m_playing, "Play mode: playtest with your character (F5)"))
+            startPlay(0);
         if (bigButton("Play Here", Icons::Id::PlayHere, m_playing && m_playMode == 1, !m_playing,
                       "Play, starting where the camera is looking")) startPlay(1);
-        if (bigButton("Run", Icons::Id::Run, m_playing && m_playMode == 2, !m_playing,
-                      "Run the world and scripts without a player (F8)")) startPlay(2);
-        if (bigButton("Stop", Icons::Id::Stop, false, m_playing, "Stop (Shift+F5)")) togglePlay();
+        if (bigButton("Simulate", Icons::Id::Simulate, m_playing && m_playMode == 2, !m_playing,
+                      "Simulate mode: physics and scripts run live, no character.\n"
+                      "Fly around, click things to inspect them and drag them with the gizmo (F8)")) startPlay(2);
+        if (pauseButtons && bigButton(m_state.simPaused ? "Resume" : "Pause", m_state.simPaused ? Icons::Id::Play : Icons::Id::Pause,
+                      m_state.simPaused, m_playing, "Freeze / unfreeze the world (F6)"))
+            m_state.simPaused = !m_state.simPaused;
+        if (stepButton && bigButton("Step", Icons::Id::Step, false, m_playing && m_state.simPaused, "Move on one frame while paused (F7)"))
+            m_state.simStep = true;
+        if (bigButton("Stop", Icons::Id::Stop, false, m_playing, "Stop and go back to Build mode (Shift+F5)")) togglePlay();
     };
 
     switch (m_ribbonTab) {
@@ -255,7 +266,7 @@ void Editor::renderToolbar() {
                     m_state.gizmoLocal = !m_state.gizmoLocal;
             }
         }
-        test();
+        test(m_playing, false);   // Pause only while testing (Pause and Step are always on the TEST tab)
         {
             Group g("Settings");
             if (bigButton("Game Settings", Icons::Id::Settings, false, !m_playing, "Title, description and more")) m_openInfo = true;
@@ -282,6 +293,14 @@ void Editor::renderToolbar() {
             if (bigButton("Sphere", Icons::Id::Sphere, false, !m_playing)) spawnPrimitive(PrimitiveType::Sphere);
             if (bigButton("Cylinder", Icons::Id::Cylinder, false, !m_playing)) spawnPrimitive(PrimitiveType::Cylinder);
             if (bigButton("Plane", Icons::Id::Plane, false, !m_playing)) spawnPrimitive(PrimitiveType::Plane);
+        }
+        {
+            Group g("Mesh");
+            if (bigButton("MeshPart", Icons::Id::Mesh, false, !m_playing, "A new part you shape yourself (starts as a cube)"))
+                addMeshPart();
+            if (bigButton("Edit Mesh", Icons::Id::Extrude, false, editable && sel->isPart() && !m_scene->isCharacterPart(sel),
+                          "Modeling mode: reshape the selected part's corners, edges and faces (Tab)"))
+                setMode(StudioMode::Modeling);
         }
         {
             Group g("Constraints");
@@ -335,11 +354,50 @@ void Editor::renderToolbar() {
         break;
     }
     case 2: {   // TEST
-        test();
+        test(true, true);
         {
             Group g("Settings");
             if (bigButton("Player", Icons::Id::Player, false, true, "Walk speed, jump, death and gore")) m_showPanel[kPanelPlayer] = true;
             if (bigButton("Lighting", Icons::Id::Lighting, false, true)) m_showPanel[kPanelLighting] = true;
+        }
+        break;
+    }
+    case 4: {   // MESH (Modeling mode)
+        ModelingState& ms = m_state.modeling;
+        {
+            Group g("Pick");
+            if (bigButton("Vertex", Icons::Id::Vertex, ms.selectMode == 0, true, "Pick corners (1)")) ms.selectMode = 0;
+            if (bigButton("Edge", Icons::Id::Edge, ms.selectMode == 1, true, "Pick edges (2)")) ms.selectMode = 1;
+            if (bigButton("Face", Icons::Id::Face, ms.selectMode == 2, true, "Pick faces (3)")) ms.selectMode = 2;
+            Stack st;
+            if (smallButton("All", Icons::Id::Select, false, true, "Pick everything / nothing (A)")) meshOp(MeshOp::SelectAll);
+            if (smallButton("Invert", Icons::Id::Select, false, true, "Swap picked and not picked (Ctrl+I)")) meshOp(MeshOp::Invert);
+            if (smallButton("X-Ray", Icons::Id::XRay, ms.xray, true, "See and pick through the mesh (Alt+Z)")) ms.xray = !ms.xray;
+        }
+        tools();
+        {
+            Group g("Shape");
+            if (bigButton("Extrude", Icons::Id::Extrude, false, true, "Pull the picked faces (or edges) out into new ones (E)"))
+                meshOp(MeshOp::Extrude);
+            if (bigButton("Inset", Icons::Id::Inset, false, true, "A smaller face inside each picked face (I)")) meshOp(MeshOp::Inset);
+            if (bigButton("Subdivide", Icons::Id::Subdivide, false, true, "Cut the picked faces (or all) into smaller ones"))
+                meshOp(MeshOp::Subdivide);
+            Stack st;
+            if (smallButton("Merge", Icons::Id::Merge, false, true, "Squash the picked corners into one (M)")) meshOp(MeshOp::Merge);
+            if (smallButton("Fill", Icons::Id::Fill, false, true, "Make a face between the picked corners (F)")) meshOp(MeshOp::Fill);
+            if (smallButton("Delete", Icons::Id::Delete, false, true, "Delete what's picked (X / Del)")) meshOp(MeshOp::Delete);
+        }
+        {
+            Group g("Surface");
+            SceneNode* mn = m_scene->findById(ms.node);
+            bool smooth = mn && mn->editMesh && mn->editMesh->smooth;
+            if (bigButton(smooth ? "Smooth" : "Flat", Icons::Id::Smooth, smooth, true, "Smooth or flat shading"))
+                meshOp(MeshOp::Smooth);
+            if (bigButton("Flip", Icons::Id::Flip, false, true, "Turn the picked faces (or all) inside out")) meshOp(MeshOp::Flip);
+        }
+        {
+            Group g("Mode");
+            if (bigButton("Done", Icons::Id::Done, false, true, "Back to Build mode (Tab)")) setMode(StudioMode::Build);
         }
         break;
     }

@@ -227,6 +227,7 @@ add_library(gb_engine STATIC
     src/scene/Effects.cpp
     src/scene/Serializer.cpp
     src/scene/RobloxFile.cpp
+    src/scene/EditMesh.cpp
     src/scripting/Luau.cpp
     src/scripting/ScriptEngine.cpp
     src/scripting/LuaTypes.cpp
@@ -301,6 +302,8 @@ set(EDITOR_SOURCES
     src/editor/Editor.cpp
     src/editor/EditorRibbon.cpp
     src/editor/Icons.cpp
+    src/editor/panels/ViewportModeling.cpp
+    src/editor/EditorModes.cpp
     src/editor/Premades.cpp
     src/editor/TeamCreate.cpp
     src/editor/panels/ViewportPanel.cpp

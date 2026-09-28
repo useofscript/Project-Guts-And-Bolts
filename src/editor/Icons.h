@@ -15,6 +15,9 @@ enum class Id {
     Paste, Copy, Cut, Duplicate, Undo, Redo, Delete,
     Group, Ungroup, Lock, Anchor, Snap, Collide, Align,
     Insert, Toolbox, Explorer, Properties, Output, CommandBar, Settings, Team, Keyboard, Import, Export, Lighting,
+    // Studio modes and Modeling-mode tools
+    Build, Mesh, Simulate, Pause, Step,
+    Vertex, Edge, Face, Extrude, Inset, Subdivide, Merge, Fill, Flip, Smooth, XRay, Done,
 };
 
 // Draw an icon centred on `c`, `size` pixels across.

@@ -3,6 +3,7 @@
 #include "../../scene/SceneNode.h"
 #include "../../renderer/MeshLibrary.h"
 #include "../../core/Audio.h"
+#include "../../scene/EditMesh.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -171,11 +172,22 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
     if (ImGui::CollapsingHeader("Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::ColorEdit3("Color", &node->color.x);
 
-        const char* shapes[] = { "Cube", "Sphere", "Plane", "Cylinder" };
-        int shape = (int)node->primitiveType - 1;
-        if (ImGui::Combo("Shape", &shape, shapes, IM_ARRAYSIZE(shapes))) {
-            node->primitiveType = (PrimitiveType)(shape + 1);
-            node->mesh = MeshLibrary::get(node->primitiveType);
+        if (node->primitiveType == PrimitiveType::Mesh && node->editMesh) {
+            // A MeshPart: its shape was built in Modeling mode.
+            ImGui::TextDisabled("Custom mesh: %d corners, %d faces", (int)node->editMesh->verts.size(),
+                                (int)node->editMesh->faces.size());
+            bool smooth = node->editMesh->smooth;
+            if (ImGui::Checkbox("Smooth shading", &smooth)) { MeshEdit::own(*node).smooth = smooth; MeshEdit::refresh(*node); }
+            if (ImGui::Button("Edit Mesh (Tab)", ImVec2(-1, 0)) && m_editMesh) m_editMesh(node);
+        } else {
+            const char* shapes[] = { "Cube", "Sphere", "Plane", "Cylinder" };
+            int shape = (int)node->primitiveType - 1;
+            if (ImGui::Combo("Shape", &shape, shapes, IM_ARRAYSIZE(shapes))) {
+                node->primitiveType = (PrimitiveType)(shape + 1);
+                node->mesh = MeshLibrary::get(node->primitiveType);
+            }
+            if (ImGui::Button("Reshape in Modeling mode (Tab)", ImVec2(-1, 0)) && m_editMesh) m_editMesh(node);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turns this part into a MeshPart you can reshape");
         }
 
         int mat = (int)node->material;

@@ -284,6 +284,96 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         arrowHead(dl, ImVec2(c.x, id == Id::Import ? c.y + s * 0.2f : c.y - s * 0.46f), ImVec2(0, dir), s * 0.2f, rgb(80, 150, 240));
         break;
     }
+    // --- Modes ---
+    case Id::Build:     // a brick with a hammer handle
+        cube(dl, ImVec2(c.x - s * 0.08f, c.y + s * 0.08f), s * 0.7f, rgb(120, 170, 240), rgb(70, 120, 200), rgb(50, 95, 170));
+        dl->AddLine(ImVec2(c.x + s * 0.1f, c.y - s * 0.12f), ImVec2(c.x + s * 0.42f, c.y - s * 0.42f), rgb(200, 150, 90), th * 1.3f);
+        dl->AddRectFilled(ImVec2(c.x + s * 0.2f, c.y - s * 0.48f), ImVec2(c.x + s * 0.48f, c.y - s * 0.3f), tint, s * 0.03f);
+        break;
+    case Id::Mesh: {    // a wireframe cube with orange corner points
+        float h = s * 0.3f;
+        ImVec2 f0(c.x - h, c.y - h * 0.6f), f1(c.x + h * 0.6f, c.y - h * 0.6f), f2(c.x + h * 0.6f, c.y + h), f3(c.x - h, c.y + h);
+        ImVec2 o(h * 0.45f, -h * 0.45f);
+        ImVec2 b0(f0.x + o.x, f0.y + o.y), b1(f1.x + o.x, f1.y + o.y), b2(f2.x + o.x, f2.y + o.y);
+        ImU32 line = tint;
+        dl->AddQuad(f0, f1, f2, f3, line, th * 0.8f);
+        dl->AddLine(f0, b0, line, th * 0.8f); dl->AddLine(f1, b1, line, th * 0.8f); dl->AddLine(f2, b2, line, th * 0.8f);
+        dl->AddLine(b0, b1, line, th * 0.8f); dl->AddLine(b1, b2, line, th * 0.8f);
+        for (ImVec2 p : {f0, f1, f2, f3, b0, b1, b2}) dl->AddCircleFilled(p, s * 0.07f, rgb(255, 150, 40));
+        break;
+    }
+    case Id::Simulate:  // a ball bouncing
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.12f, c.y - s * 0.12f), s * 0.2f, rgb(90, 200, 120), 16);
+        dl->AddLine(ImVec2(c.x - s * 0.42f, c.y + s * 0.38f), ImVec2(c.x + s * 0.42f, c.y + s * 0.38f), tint, th);
+        dl->PathArcTo(ImVec2(c.x - s * 0.12f, c.y + s * 0.3f), s * 0.28f, kPi * 1.05f, kPi * 1.6f, 10);
+        dl->PathStroke(rgb(90, 200, 120, 150), 0, th * 0.8f);
+        break;
+    case Id::Pause:
+        dl->AddRectFilled(ImVec2(c.x - s * 0.26f, c.y - s * 0.32f), ImVec2(c.x - s * 0.08f, c.y + s * 0.32f), rgb(240, 200, 60), s * 0.04f);
+        dl->AddRectFilled(ImVec2(c.x + s * 0.08f, c.y - s * 0.32f), ImVec2(c.x + s * 0.26f, c.y + s * 0.32f), rgb(240, 200, 60), s * 0.04f);
+        break;
+    case Id::Step:
+        dl->AddTriangleFilled(ImVec2(c.x - s * 0.3f, c.y - s * 0.3f), ImVec2(c.x + s * 0.15f, c.y), ImVec2(c.x - s * 0.3f, c.y + s * 0.3f), rgb(90, 200, 120));
+        dl->AddRectFilled(ImVec2(c.x + s * 0.18f, c.y - s * 0.3f), ImVec2(c.x + s * 0.3f, c.y + s * 0.3f), rgb(90, 200, 120));
+        break;
+    // --- Modeling ---
+    case Id::Vertex:
+    case Id::Edge:
+    case Id::Face: {    // a square showing which part is picked
+        ImVec2 a(c.x - s * 0.32f, c.y - s * 0.32f), b(c.x + s * 0.32f, c.y + s * 0.32f);
+        ImU32 hi = rgb(255, 150, 40), dim = rgb(150, 150, 150);
+        if (id == Id::Face) dl->AddRectFilled(a, b, rgb(255, 150, 40, 110));
+        dl->AddRect(a, b, dim, 0, 0, th * 0.8f);
+        if (id == Id::Edge) dl->AddLine(ImVec2(a.x, b.y), b, hi, th * 1.6f);
+        for (ImVec2 p : {a, ImVec2(b.x, a.y), b, ImVec2(a.x, b.y)})
+            dl->AddCircleFilled(p, s * 0.08f, id == Id::Vertex && p.x == b.x && p.y == b.y ? hi : dim);
+        break;
+    }
+    case Id::Extrude:
+        dl->AddRectFilled(ImVec2(c.x - s * 0.36f, c.y + s * 0.12f), ImVec2(c.x + s * 0.36f, c.y + s * 0.4f), rgb(130, 132, 140));
+        dl->AddRect(ImVec2(c.x - s * 0.36f, c.y - s * 0.3f), ImVec2(c.x + s * 0.36f, c.y + s * 0.12f), rgb(255, 150, 40), 0, 0, th);
+        arrowHead(dl, ImVec2(c.x, c.y - s * 0.46f), ImVec2(0, -1), s * 0.16f, tint);
+        break;
+    case Id::Inset:
+        dl->AddRect(ImVec2(c.x - s * 0.4f, c.y - s * 0.4f), ImVec2(c.x + s * 0.4f, c.y + s * 0.4f), tint, 0, 0, th);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.2f, c.y - s * 0.2f), ImVec2(c.x + s * 0.2f, c.y + s * 0.2f), rgb(255, 150, 40, 170));
+        break;
+    case Id::Subdivide:
+        dl->AddRect(ImVec2(c.x - s * 0.4f, c.y - s * 0.4f), ImVec2(c.x + s * 0.4f, c.y + s * 0.4f), tint, 0, 0, th);
+        dl->AddLine(ImVec2(c.x, c.y - s * 0.4f), ImVec2(c.x, c.y + s * 0.4f), rgb(255, 150, 40), th);
+        dl->AddLine(ImVec2(c.x - s * 0.4f, c.y), ImVec2(c.x + s * 0.4f, c.y), rgb(255, 150, 40), th);
+        break;
+    case Id::Merge:
+        for (ImVec2 p : {ImVec2(c.x - s * 0.36f, c.y - s * 0.3f), ImVec2(c.x + s * 0.36f, c.y - s * 0.3f), ImVec2(c.x, c.y + s * 0.4f)}) {
+            dl->AddLine(p, c, tint, th * 0.8f);
+            dl->AddCircleFilled(p, s * 0.07f, tint);
+        }
+        dl->AddCircleFilled(c, s * 0.12f, rgb(255, 150, 40));
+        break;
+    case Id::Fill: {
+        ImVec2 p[] = {{c.x - s * 0.38f, c.y + s * 0.3f}, {c.x, c.y - s * 0.4f}, {c.x + s * 0.38f, c.y + s * 0.3f}};
+        dl->AddTriangleFilled(p[0], p[1], p[2], rgb(255, 150, 40, 140));
+        for (ImVec2 q : p) dl->AddCircleFilled(q, s * 0.08f, tint);
+        break;
+    }
+    case Id::Flip:
+        dl->PathArcTo(c, s * 0.3f, kPi * 0.9f, kPi * 2.1f, 16);
+        dl->PathStroke(tint, 0, th);
+        arrowHead(dl, ImVec2(c.x + s * 0.3f, c.y + s * 0.12f), ImVec2(0, 1), s * 0.16f, tint);
+        arrowHead(dl, ImVec2(c.x - s * 0.3f, c.y + s * 0.12f), ImVec2(0, 1), s * 0.16f, rgb(255, 150, 40));
+        break;
+    case Id::Smooth:
+        dl->AddCircleFilled(c, s * 0.36f, rgb(150, 155, 170), 24);
+        dl->AddCircleFilled(ImVec2(c.x - s * 0.12f, c.y - s * 0.12f), s * 0.14f, rgb(230, 232, 240, 200), 16);
+        break;
+    case Id::XRay:
+        dl->AddRect(ImVec2(c.x - s * 0.36f, c.y - s * 0.36f), ImVec2(c.x + s * 0.2f, c.y + s * 0.2f), tint, 0, 0, th * 0.8f);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.2f, c.y - s * 0.2f), ImVec2(c.x + s * 0.36f, c.y + s * 0.36f), rgb(120, 170, 240, 130));
+        break;
+    case Id::Done:
+        dl->AddLine(ImVec2(c.x - s * 0.34f, c.y), ImVec2(c.x - s * 0.08f, c.y + s * 0.28f), rgb(90, 200, 120), th * 1.5f);
+        dl->AddLine(ImVec2(c.x - s * 0.08f, c.y + s * 0.28f), ImVec2(c.x + s * 0.38f, c.y - s * 0.3f), rgb(90, 200, 120), th * 1.5f);
+        break;
     case Id::Lighting:
         dl->AddCircleFilled(c, s * 0.2f, rgb(255, 210, 80), 16);
         for (int i = 0; i < 8; ++i) {
@@ -310,6 +400,7 @@ Id forNode(const SceneNode& n) {
         case PrimitiveType::Sphere:   return Id::Sphere;
         case PrimitiveType::Cylinder: return Id::Cylinder;
         case PrimitiveType::Plane:    return Id::Plane;
+        case PrimitiveType::Mesh:     return Id::Mesh;
         default:                      return Id::Part;
     }
 }

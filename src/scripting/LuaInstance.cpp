@@ -78,7 +78,7 @@ const char* className(lua_State* L, const SceneNode* n) {
                 case ConstraintType::Weld:   return "WeldConstraint";
                 default:                     return "HingeConstraint";
             }
-        default:               return "Part";
+        default:               return n->primitiveType == PrimitiveType::Mesh ? "MeshPart" : "Part";
     }
 }
 

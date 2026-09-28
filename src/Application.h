@@ -19,6 +19,8 @@ struct LaunchOptions {
     std::string testKeys;          // --test-keys "ctrl+a ctrl+g f2"  (tests: press these one by one)
     std::string testSelect;        // --test-select "Name1,Name2"  (tests)
     std::string exportRoblox;      // --export-roblox <file.rbxlx> (tests)
+    std::string testMesh;          // --test-mesh "enter,face,top,extrude"  (tests: Modeling-mode steps)
+    std::string testMouse;         // --test-mouse "click:x:y shift:x:y drag:x1:y1:x2:y2"  (tests, from frame 60)
     std::string testCommand;       // --test-command "<lua>"  (tests: run it in the Command Bar)
     std::string testPremades;      // --test-premades <comma list or "all">  (tests)
 };

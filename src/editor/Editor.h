@@ -34,6 +34,8 @@ public:
     void testPremades(const std::string& list);
     void testSelect(const std::string& names);
     void testExportRoblox(const std::string& path);
+    void testMesh(const std::string& steps);    // --test-mesh "enter,face,top,extrude"
+    void setMode(StudioMode mode);               // Build / Modeling / Simulate / Play
 
 private:
     void buildDockspace();
@@ -65,7 +67,15 @@ private:
     void       toggleAnchored();
     void       centerModelPivot();
     void       alignSelected(int axis, int where);
-    void       startPlay(int mode);       // 0 Play, 1 Play Here, 2 Run
+    void       startPlay(int mode);       // 0 Play, 1 Play Here, 2 Simulate
+    // Modeling mode (EditorModes.cpp)
+    enum class MeshOp { Extrude, Inset, Subdivide, Delete, Merge, Fill, Flip, Smooth, SelectAll, SelectNone, Invert };
+    void       enterModeling();
+    void       exitModeling();
+    void       checkModeling();
+    void       meshOp(MeshOp op);
+    void       handleModelingKeys();
+    void       addMeshPart();
     void       insertObject(const std::string& what, SceneNode* parent);
     void       renderInsertObject();
     void       renderCommandBar();
@@ -122,7 +132,7 @@ private:
     std::string              m_committed;      // last known scene state
     std::vector<std::string> m_clipboard;
     bool                     m_showShortcuts = false;
-    int                      m_ribbonTab = 0;           // HOME / MODEL / TEST / VIEW
+    int                      m_ribbonTab = 0;           // HOME / MODEL / TEST / VIEW (/ MESH in Modeling mode)
     int                      m_playMode = 0;
     bool                     m_openInsert = false;
     SceneNode*               m_insertParent = nullptr;
