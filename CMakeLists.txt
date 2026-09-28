@@ -84,6 +84,9 @@ set(ENGINE_SOURCES
     src/scene/Scene.cpp
     src/scene/Player.cpp
     src/scene/Physics.cpp
+    src/scene/Particles.cpp
+    src/scene/Ragdoll.cpp
+    src/scene/Effects.cpp
     src/scene/Serializer.cpp
     src/scripting/ScriptEngine.cpp
     src/scripting/LuaTypes.cpp

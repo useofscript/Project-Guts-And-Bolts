@@ -204,6 +204,13 @@ int m_Clone(lua_State* L) {
     return 1;
 }
 
+// character:BreakJoints() — kill the character violently.
+int m_BreakJoints(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (isCharacterRoot(L, n)) E(L)->scene()->player()->kill(1.0f, glm::vec3(0, 4, 0));
+    return 0;
+}
+
 int m_IsA(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     lua_pushboolean(L, isA(L, n, luaL_checkstring(L, 2)));
@@ -237,7 +244,8 @@ const luaL_Reg kMethods[] = {
     {"GetDescendants", m_GetDescendants}, {"Destroy", m_Destroy}, {"Remove", m_Destroy},
     {"ClearAllChildren", m_ClearAllChildren}, {"Clone", m_Clone}, {"IsA", m_IsA},
     {"IsDescendantOf", m_IsDescendantOf}, {"GetFullName", m_GetFullName},
-    {"GetPivot", m_GetPivot}, {"PivotTo", m_PivotTo}, {nullptr, nullptr}};
+    {"GetPivot", m_GetPivot}, {"PivotTo", m_PivotTo}, {"BreakJoints", m_BreakJoints},
+    {nullptr, nullptr}};
 
 // ===========================================================================
 // Instance properties
@@ -298,9 +306,12 @@ int inst_index(lua_State* L) {
         if (is(k, "Angle"))      { lua_pushnumber(L, n->spotAngle); return 1; }
         if (is(k, "Color"))      { LuaApi::pushColor3(L, n->color); return 1; }
     }
-    if (n == E(L)->scene()->root() && is(k, "Gravity")) {
-        lua_pushnumber(L, E(L)->scene()->world().gravity);
-        return 1;
+    if (n == E(L)->scene()->root()) {
+        const WorldSettings& w = E(L)->scene()->world();
+        if (is(k, "Gravity"))    { lua_pushnumber(L, w.gravity); return 1; }
+        if (is(k, "DeathStyle")) { lua_pushstring(L, w.deathStyle == DeathStyle::Ragdoll ? "Ragdoll" : "Classic"); return 1; }
+        if (is(k, "Gore"))       { lua_pushstring(L, w.gore == GoreLevel::Blood ? "Blood" : w.gore == GoreLevel::OilAndBolts ? "Oil" : "Off"); return 1; }
+        if (is(k, "FallDamage")) { lua_pushboolean(L, w.fallDamage); return 1; }
     }
     if (is(k, "Humanoid") && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L); return 1; }
 
@@ -373,9 +384,16 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Angle"))      { n->spotAngle = glm::clamp((float)luaL_checknumber(L, 3), 1.0f, 179.0f); return 0; }
         if (is(k, "Color"))      { n->color = LuaApi::checkColor3(L, 3); return 0; }
     }
-    if (n == scene->root() && is(k, "Gravity")) {
-        scene->world().gravity = (float)luaL_checknumber(L, 3);
-        return 0;
+    if (n == scene->root()) {
+        WorldSettings& w = scene->world();
+        if (is(k, "Gravity"))    { w.gravity = (float)luaL_checknumber(L, 3); return 0; }
+        if (is(k, "DeathStyle")) { w.deathStyle = std::string(luaL_checkstring(L, 3)) == "Classic" ? DeathStyle::Classic : DeathStyle::Ragdoll; return 0; }
+        if (is(k, "Gore")) {
+            std::string g = luaL_checkstring(L, 3);
+            w.gore = g == "Blood" ? GoreLevel::Blood : g == "Off" ? GoreLevel::Off : GoreLevel::OilAndBolts;
+            return 0;
+        }
+        if (is(k, "FallDamage")) { w.fallDamage = lua_toboolean(L, 3); return 0; }
     }
     return luaL_error(L, "'%s' can't be set on %s \"%s\"", k, className(L, n), n->name.c_str());
 }
@@ -503,6 +521,10 @@ int hum_index(lua_State* L) {
     if (is(k, "Parent"))     { LuaApi::pushInstance(L, E(L)->scene()->player()->rootId()); return 1; }
     if (is(k, "Died"))       { LuaApi::pushSignal(L, SignalKind::Died, 0); return 1; }
     if (is(k, "TakeDamage")) { lua_pushcfunction(L, hum_takeDamage); return 1; }
+    if (is(k, "BreakJoints")) {
+        lua_pushcfunction(L, [](lua_State* L2) { E(L2)->scene()->player()->kill(1.0f, glm::vec3(0, 4, 0)); return 0; });
+        return 1;
+    }
     if (is(k, "IsA")) {
         lua_pushcfunction(L, [](lua_State* L2) {
             const char* c = luaL_checkstring(L2, 2);

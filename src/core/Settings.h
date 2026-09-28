@@ -10,6 +10,9 @@ struct GraphicsSettings {
     int   fpsCap      = 0;      // 0 = unlimited (only used when VSync is off)
     bool  showFps     = true;
 
+    // Content
+    bool  allowGore   = true;   // false hides blood / gore in every game
+
     // Graphics
     int   quality       = High;
     int   shadowRes     = 2048; // 1024 / 2048 / 4096

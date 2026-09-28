@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <random>
@@ -109,6 +110,7 @@ glm::vec3 Player::position() const {
 }
 
 glm::vec3 Player::focusPoint() const {
+    if (m_dead && m_ragdoll.active()) return m_ragdoll.center();
     if (m_dead)
         if (SceneNode* t = part("Torso")) return glm::vec3(t->worldMatrix()[3]);
     return position() + glm::vec3(0.0f, 1.6f, 0.0f);
@@ -257,6 +259,35 @@ void Player::respawn() {
     m_walkPhase = m_swing = m_airBlend = 0.0f;
     m_dead      = false;
     m_debris.clear();
+    m_ragdoll.stop();
+    m_pendingForce = 0.0f;
+    m_pendingImpulse = glm::vec3(0.0f);
+    m_lastHealth = m_humanoid.health;
+}
+
+void Player::kill(float force, const glm::vec3& impulse) {
+    if (m_dead) return;
+    m_pendingForce   = std::max(m_pendingForce, glm::clamp(force, 0.0f, 1.0f));
+    m_pendingImpulse += impulse;
+    m_humanoid.health = 0.0f;
+}
+
+void Player::hurt(float damage, float force, const glm::vec3& impulse) {
+    if (m_dead || damage <= 0.0f) return;
+    m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
+    if (m_humanoid.health <= 0.0f) kill(force, impulse);
+    else launch(m_velocity + impulse);
+}
+
+// Little squirts of blood / oil when the character gets hurt.
+void Player::bleed(float damage) {
+    if (!m_scene->goreEnabled()) return;
+    SceneNode* t = part("Torso");
+    if (!t) return;
+    glm::vec3 at = glm::vec3(t->worldMatrix()[3]);
+    int n = std::clamp((int)(damage * 0.5f), 3, 30);
+    m_scene->particles().spray(m_scene->goreKind(), at, glm::vec3(0, 0.5f, 0), n, 2.5f);
+    if (m_scene->goreKind() == GoreKind::Oil) m_scene->particles().sparks(at, n / 2);
 }
 
 bool Player::consumeDied() {
@@ -270,6 +301,10 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (!r) return;
 
     if (m_dead) { updateDeath(dt, physics); return; }
+
+    // Took damage since last frame (scripts, traps, explosions)?
+    if (m_humanoid.health < m_lastHealth - 0.5f) bleed(m_lastHealth - m_humanoid.health);
+    m_lastHealth = m_humanoid.health;
     if (m_humanoid.health <= 0.0f) { startDeath(); return; }
 
     glm::vec3 pos = r->transform.position;
@@ -311,6 +346,17 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_velocity.z *= drag;
 
     Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded);
+
+    // Fall damage: landing hard hurts, landing very hard is fatal (and messy).
+    const WorldSettings& world = m_scene->world();
+    float impact = -m_velocity.y;
+    if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed) {
+        float over = impact - world.fallDamageSpeed;
+        float damage = over * 7.0f;
+        m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
+        if (m_humanoid.health <= 0.0f)
+            kill(std::clamp(over / 15.0f, 0.0f, 1.0f), glm::vec3(m_velocity.x, 2.0f, m_velocity.z));
+    }
     m_grounded = res.grounded;
     if (res.grounded && m_velocity.y < 0.0f) m_velocity.y = 0.0f;
     if (res.hitCeiling && m_velocity.y > 0.0f) m_velocity.y = 0.0f;
@@ -365,6 +411,14 @@ void Player::startDeath() {
     m_deadTime = 0.0f;
     m_debris.clear();
 
+    if (m_scene->world().deathStyle == DeathStyle::Ragdoll) {
+        glm::vec3 vel(m_velocity.x, std::max(m_velocity.y, -30.0f), m_velocity.z);
+        m_ragdoll.start(*m_scene, r, vel, m_pendingImpulse, m_pendingForce);
+        m_pendingForce = 0.0f;
+        m_pendingImpulse = glm::vec3(0.0f);
+        return;
+    }
+
     // Move every body part into world space so they can tumble independently.
     glm::mat4 rootM = r->transform.matrix();
     float yaw = r->transform.rotation.y;
@@ -384,10 +438,27 @@ void Player::startDeath() {
     r->transform.position = glm::vec3(0.0f);
     r->transform.rotation = glm::vec3(0.0f);
     r->transform.scale    = glm::vec3(1.0f);
+
+    // Classic death with gore on: every piece sprays as it flies.
+    if (m_scene->goreEnabled()) {
+        GoreKind k = m_scene->goreKind();
+        for (auto& d : m_debris)
+            if (SceneNode* n = m_scene->findById(d.id))
+                m_scene->particles().spray(k, n->transform.position, glm::normalize(d.vel), 8, 3.0f);
+        if (m_pendingForce > 0.5f) m_scene->particles().gibs(k, center, glm::vec3(0, 2, 0), 8);
+    }
+    for (auto& d : m_debris) d.vel += m_pendingImpulse;
+    m_pendingForce = 0.0f;
+    m_pendingImpulse = glm::vec3(0.0f);
 }
 
 void Player::updateDeath(float dt, Physics& physics) {
     m_deadTime += dt;
+    if (m_ragdoll.active()) {
+        m_ragdoll.update(dt, *m_scene, physics);
+        if (m_deadTime >= m_respawnDelay) respawn();
+        return;
+    }
     const float g = m_scene->world().gravity;
     for (auto& d : m_debris) {
         SceneNode* n = m_scene->findById(d.id);

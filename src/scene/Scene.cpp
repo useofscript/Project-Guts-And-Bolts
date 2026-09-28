@@ -1,5 +1,6 @@
 #include "Scene.h"
 #include "../renderer/MeshLibrary.h"
+#include "../core/Settings.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -66,6 +67,14 @@ void Scene::buildDefault() {
     m_player->build();
 }
 
+bool Scene::goreEnabled() const {
+    return m_world.gore != GoreLevel::Off && GraphicsSettings::get().allowGore;
+}
+
+GoreKind Scene::goreKind() const {
+    return m_world.gore == GoreLevel::Blood ? GoreKind::Blood : GoreKind::Oil;
+}
+
 void Scene::select(SceneNode* node) {
     if (m_selected) m_selected->selected = false;
     m_selected = node;
@@ -129,6 +138,7 @@ bool Scene::reparent(SceneNode* node, SceneNode* newParent) {
 
 void Scene::replaceRoot(std::unique_ptr<SceneNode> root) {
     m_selected = nullptr;
+    m_particles.clear();
     m_root = std::move(root);
     markDirty();
 }

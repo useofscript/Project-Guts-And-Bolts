@@ -45,7 +45,7 @@ void GraphicsSettings::load() {
     rd("vsync", vsync); rd("fpsCap", fpsCap); rd("showFps", showFps);
     rd("quality", quality); rd("shadowRes", shadowRes); rd("shadowQuality", shadowQuality);
     rd("ssao", ssao); rd("bloom", bloom); rd("fxaa", fxaa); rd("postFx", postFx);
-    rd("renderScale", renderScale); rd("maxLights", maxLights);
+    rd("renderScale", renderScale); rd("maxLights", maxLights); rd("allowGore", allowGore);
 }
 
 void GraphicsSettings::save() const {
@@ -53,7 +53,7 @@ void GraphicsSettings::save() const {
         {"vsync", vsync}, {"fpsCap", fpsCap}, {"showFps", showFps},
         {"quality", quality}, {"shadowRes", shadowRes}, {"shadowQuality", shadowQuality},
         {"ssao", ssao}, {"bloom", bloom}, {"fxaa", fxaa}, {"postFx", postFx},
-        {"renderScale", renderScale}, {"maxLights", maxLights},
+        {"renderScale", renderScale}, {"maxLights", maxLights}, {"allowGore", allowGore},
     };
     std::ofstream f(kFile);
     if (f) f << j.dump(2);

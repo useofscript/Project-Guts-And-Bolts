@@ -7,6 +7,7 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../core/Settings.h"
+#include "MeshLibrary.h"
 
 #include <GL/glew.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -362,6 +363,45 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera) {
 
     glDisable(GL_BLEND);
     for (auto& it : opaque) draw(it);
+
+    // --- Particles (blood, oil, gibs, bolts, sparks, fire, smoke) ---
+    const auto& parts = scene.particles().items();
+    std::vector<const Particle*> fading;
+    if (!parts.empty()) {
+        auto cube = MeshLibrary::get(PrimitiveType::Cube);
+        auto cyl  = MeshLibrary::get(PrimitiveType::Cylinder);
+        m_lit->setBool("uSelected", false);
+        auto drawParticle = [&](const Particle& p, float alpha) {
+            glm::mat4 m = glm::translate(glm::mat4(1.0f), p.pos);
+            m = glm::rotate(m, glm::radians(p.rot.z), {0, 0, 1});
+            m = glm::rotate(m, glm::radians(p.rot.y), {0, 1, 0});
+            m = glm::rotate(m, glm::radians(p.rot.x), {1, 0, 0});
+            m = glm::scale(m, p.size);
+            m_lit->setMat4("uModel", m);
+            m_lit->setMat3("uNormalMat", glm::transpose(glm::inverse(glm::mat3(m))));
+            m_lit->setVec3("uColor", p.color);
+            int mat = (p.kind == Particle::Fire || p.kind == Particle::Spark) ? (int)Material::Neon
+                    : p.glossy ? (int)Material::Metal : (int)Material::Plastic;
+            m_lit->setInt("uMaterial", mat);
+            m_lit->setFloat("uAlpha", alpha);
+            (p.kind == Particle::Bolt || p.kind == Particle::Splat ? cyl : cube)->draw();
+        };
+        for (const Particle& p : parts) {
+            bool fade = p.kind == Particle::Smoke || (p.kind == Particle::Splat && p.life < 1.0f);
+            if (fade) fading.push_back(&p);
+            else      drawParticle(p, 1.0f);
+        }
+        glEnable(GL_BLEND);
+        glDepthMask(GL_FALSE);
+        for (const Particle* p : fading) {
+            float a = p->kind == Particle::Smoke ? 0.55f * std::min(1.0f, p->life / p->maxLife * 2.0f)
+                                                 : std::max(0.0f, p->life);
+            drawParticle(*p, a);
+        }
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+    }
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);

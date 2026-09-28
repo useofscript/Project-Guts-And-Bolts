@@ -57,6 +57,14 @@ public:
     void stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen);
     // How far `box` must move up to rest on top of a solid part (0 = free).
     float pushUp(const AABB& box) const;
+    // Is this point inside any solid part?
+    bool  solidAt(const glm::vec3& p) const;
+    // Push a sphere out of solid parts. Returns true (and the push normal) on contact.
+    bool  resolveSphere(glm::vec3& center, float radius, glm::vec3* normal = nullptr) const;
+    // Everything the physics world knows about (for explosions etc.).
+    template <typename F> void forEachCollider(F&& f) const {
+        for (const auto& c : m_colliders) f(c.node, c.box, c.dynamic);
+    }
     // New touches since the last call (parts vs character, unanchored vs others).
     void collectTouches(Scene& scene, std::vector<TouchEvent>& out);
 

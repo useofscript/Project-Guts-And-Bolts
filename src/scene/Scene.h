@@ -2,14 +2,27 @@
 #include "SceneNode.h"
 #include "Environment.h"
 #include "Player.h"
+#include "Particles.h"
 #include <functional>
 #include <memory>
 #include <unordered_map>
 
-// Physics settings for the whole place (like Roblox's Workspace properties).
+// How characters die. Classic = Roblox-style: the parts just fall apart.
+// Ragdoll = the body goes limp and tumbles with real joints.
+enum class DeathStyle { Classic, Ragdoll };
+// Gore = what comes out: nothing, oil & bolts (robots), or blood & guts.
+enum class GoreLevel  { Off, OilAndBolts, Blood };
+
+// Rules and physics for the whole place (like Roblox's Workspace properties).
 struct WorldSettings {
-    float gravity           = 22.0f;   // units / second²
-    float fallenPartsHeight = -50.0f;  // below this, parts are destroyed and players die
+    float      gravity           = 22.0f;   // units / second²
+    float      fallenPartsHeight = -50.0f;  // below this, parts are destroyed and players die
+
+    DeathStyle deathStyle      = DeathStyle::Ragdoll;
+    GoreLevel  gore            = GoreLevel::Blood;
+    bool       dismemberment   = true;      // big hits can knock limbs off
+    bool       fallDamage      = true;
+    float      fallDamageSpeed = 20.0f;     // landing faster than this hurts
 };
 
 // Shown on the game's card in the Guts&BoltsPlayer app.
@@ -29,6 +42,10 @@ public:
     WorldSettings& world()       { return m_world; }
     GameInfo&      info()        { return m_info; }
     Player*        player()      { return m_player.get(); }
+    ParticleSystem& particles()  { return m_particles; }
+    // Gore is shown only if the game allows it AND the player hasn't turned it off.
+    bool           goreEnabled() const;
+    GoreKind       goreKind() const;
 
     void select  (SceneNode* node);
     void deselect();
@@ -66,6 +83,7 @@ private:
     Environment                m_env;
     WorldSettings              m_world;
     GameInfo                   m_info;
+    ParticleSystem             m_particles;
     std::unique_ptr<Player>    m_player;
 
     std::unordered_map<uint64_t, SceneNode*> m_index;

@@ -3,6 +3,7 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../core/Log.h"
+#include "../scene/Effects.h"
 
 #include <imgui.h>
 #include <glm/glm.hpp>
@@ -200,6 +201,37 @@ int gui_clear(lua_State* L) {
     return 0;
 }
 
+// Explode(position, radius, power)
+int l_explode(lua_State* L) {
+    glm::vec3 pos = LuaApi::checkVector3(L, 1);
+    Effects::explode(*LuaApi::engine(L)->scene(), pos, (float)luaL_optnumber(L, 2, 6.0),
+                     (float)luaL_optnumber(L, 3, 1.0));
+    return 0;
+}
+
+// Effects.Blood(position, amount), Effects.Oil(...), Effects.Sparks(...), Effects.Gibs(...)
+int fx_spray(lua_State* L, GoreKind kind) {
+    Scene* s = LuaApi::engine(L)->scene();
+    if (!s->goreEnabled()) return 0;
+    int n = (int)luaL_optinteger(L, 2, 20);
+    s->particles().spray(kind, LuaApi::checkVector3(L, 1), glm::vec3(0, 1, 0), std::clamp(n, 1, 300), 3.0f);
+    return 0;
+}
+int fx_blood(lua_State* L) { return fx_spray(L, GoreKind::Blood); }
+int fx_oil(lua_State* L)   { return fx_spray(L, GoreKind::Oil); }
+int fx_gibs(lua_State* L) {
+    Scene* s = LuaApi::engine(L)->scene();
+    if (!s->goreEnabled()) return 0;
+    s->particles().gibs(s->goreKind(), LuaApi::checkVector3(L, 1), glm::vec3(0, 2, 0),
+                        std::clamp((int)luaL_optinteger(L, 2, 8), 1, 60));
+    return 0;
+}
+int fx_sparks(lua_State* L) {
+    LuaApi::engine(L)->scene()->particles().sparks(LuaApi::checkVector3(L, 1),
+                                                   std::clamp((int)luaL_optinteger(L, 2, 20), 1, 300));
+    return 0;
+}
+
 void timeoutHook(lua_State* L, lua_Debug*) { LuaApi::engine(L)->checkTimeout(L); }
 
 } // namespace
@@ -270,6 +302,15 @@ void ScriptEngine::start() {
     LuaApi::pushSignal(L, SignalKind::Heartbeat, 0);  lua_setglobal(L, "__gb_heartbeat");
     LuaApi::pushSignal(L, SignalKind::InputBegan, 0); lua_setglobal(L, "__gb_inputBegan");
     LuaApi::pushSignal(L, SignalKind::InputEnded, 0); lua_setglobal(L, "__gb_inputEnded");
+
+    lua_register(L, "Explode", l_explode);
+    lua_newtable(L);
+    lua_pushcfunction(L, l_explode);  lua_setfield(L, -2, "Explosion");
+    lua_pushcfunction(L, fx_blood);   lua_setfield(L, -2, "Blood");
+    lua_pushcfunction(L, fx_oil);     lua_setfield(L, -2, "Oil");
+    lua_pushcfunction(L, fx_gibs);    lua_setfield(L, -2, "Gibs");
+    lua_pushcfunction(L, fx_sparks);  lua_setfield(L, -2, "Sparks");
+    lua_setglobal(L, "Effects");
 
     lua_newtable(L);
     lua_pushcfunction(L, gui_message); lua_setfield(L, -2, "Message");

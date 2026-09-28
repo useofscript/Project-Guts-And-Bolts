@@ -12,6 +12,7 @@ GameSession::GameSession(Scene* scene) : m_scene(scene), m_scripts(scene) {}
 
 void GameSession::start() {
     m_physics.reset();
+    m_scene->particles().clear();
     if (Player* p = m_scene->player()) p->beginPlay();
     m_running = true;
     m_scripts.start();
@@ -21,6 +22,7 @@ void GameSession::stop() {
     m_scripts.stop();
     if (Player* p = m_scene->player()) p->endPlay();
     m_physics.reset();
+    m_scene->particles().clear();
     m_running = false;
 }
 
@@ -56,6 +58,9 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
         p->update(dt, move, jump, m_physics);
         if (p->consumeDied()) m_scripts.fireDied();
     }
+
+    // Blood, oil, sparks, smoke...
+    m_scene->particles().update(dt, m_scene->world().gravity, m_physics);
 
     // 4. Touched events (after everything has moved).
     std::vector<TouchEvent> touches;

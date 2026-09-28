@@ -5,6 +5,7 @@
 #include <vector>
 #include <glm/glm.hpp>
 #include "SceneNode.h"
+#include "Ragdoll.h"
 
 class Scene;
 class Physics;
@@ -47,6 +48,11 @@ public:
     // One simulation step. Fills `touched` with ids of parts the body touches.
     void update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics);
     bool consumeDied();               // true once, right after dying
+    // Kill the character. `force` 0..1 = how violent (1 = limbs fly off),
+    // `impulse` = which way the body gets thrown.
+    void kill(float force = 0.0f, const glm::vec3& impulse = glm::vec3(0.0f));
+    // Damage with a direction (used by explosions); kills if health runs out.
+    void hurt(float damage, float force, const glm::vec3& impulse);
     bool isDead() const { return m_dead; }
     float respawnIn() const { return m_dead ? m_respawnDelay - m_deadTime : 0.0f; }
 
@@ -73,6 +79,7 @@ private:
     SceneNode* part(const char* name) const;
     void animate(float dt, bool moving, bool grounded);
     void startDeath();
+    void bleed(float damage);
     void updateDeath(float dt, Physics& physics);
     void respawn();
 
@@ -104,4 +111,9 @@ private:
     const float m_respawnDelay = 4.0f;
     struct Debris { uint64_t id; glm::vec3 vel; glm::vec3 spin; };
     std::vector<Debris> m_debris;
+
+    Ragdoll   m_ragdoll;
+    float     m_pendingForce = 0.0f;
+    glm::vec3 m_pendingImpulse{0.0f};
+    float     m_lastHealth = 100.0f;
 };

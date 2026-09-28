@@ -159,6 +159,82 @@ while true do
 end
 )";
 
+const char* kLandmine = R"(-- Landmine: explodes when the player steps on it.
+local mine = script.Parent
+local armed = true
+
+mine.Touched:Connect(function(hit)
+    if armed and hit.Parent:FindFirstChild("Humanoid") then
+        armed = false
+        Explode(mine.Position, 8)    -- position, radius
+        mine:Destroy()
+    end
+end)
+
+-- Blink the light so you can (just about) see it.
+while mine.Parent do
+    mine.Color = Color3.fromRGB(255, 40, 40)
+    wait(0.5)
+    mine.Color = Color3.fromRGB(60, 10, 10)
+    wait(0.5)
+end
+)";
+
+const char* kSawBlade = R"(-- Saw Blade: spins fast and slices whoever touches it.
+local saw = script.Parent
+
+game:GetService("RunService").Heartbeat:Connect(function(dt)
+    saw.Orientation = saw.Orientation + Vector3.new(0, 0, 720 * dt)
+end)
+
+saw.Touched:Connect(function(hit)
+    local character = hit.Parent
+    if character:FindFirstChild("Humanoid") then
+        Effects.Sparks(saw.Position, 30)
+        character:BreakJoints()      -- a very messy death
+    end
+end)
+)";
+
+const char* kSpikeTrap = R"(-- Spike Trap: the spikes shoot up every few seconds.
+local trap = script.Parent
+local spikes = trap:FindFirstChild("Spikes")
+local down = spikes.Position
+local up = down + Vector3.new(0, 1, 0)
+
+spikes.Touched:Connect(function(hit)
+    local humanoid = hit.Parent:FindFirstChild("Humanoid")
+    if humanoid and spikes.Position.Y > down.Y + 0.5 then
+        humanoid:TakeDamage(45)
+    end
+end)
+
+while true do
+    wait(2)
+    spikes.Position = up      -- stab!
+    wait(0.6)
+    spikes.Position = down
+end
+)";
+
+const char* kBarrel = R"(-- Exploding Barrel: click it, or knock it over, and BOOM.
+local barrel = script.Parent
+local done = false
+
+local function boom()
+    if done then return end
+    done = true
+    Explode(barrel.Position, 10, 1.5)
+    barrel:Destroy()
+end
+
+barrel.Clicked:Connect(boom)
+barrel.Touched:Connect(function(hit)
+    -- Blow up if something slams into it fast.
+    if hit.AssemblyLinearVelocity.Magnitude > 12 then boom() end
+end)
+)";
+
 SceneNode* addPart(Scene& scene, const char* name, PrimitiveType shape, glm::vec3 pos,
                    glm::vec3 size, glm::vec3 color, Material mat = Material::Plastic) {
     SceneNode* n = scene.addNode(name, shape, MeshLibrary::get(shape));
@@ -190,6 +266,10 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::ClickButton,          "Click Button",    "Click it with the mouse during Play"},
         {Premade::FallingBall,          "Falling Ball",    "An unanchored ball that drops with gravity"},
         {Premade::DayNightCycle,        "Day/Night Cycle", "A script that makes time pass"},
+        {Premade::Landmine,             "Landmine",        "Explodes when stepped on"},
+        {Premade::SawBlade,             "Saw Blade",       "A spinning blade. Touch it and lose limbs"},
+        {Premade::SpikeTrap,            "Spike Trap",      "Spikes shoot up every few seconds"},
+        {Premade::ExplodingBarrel,      "Exploding Barrel","Click it (or bump it) to blow it up"},
         {Premade::LampPost,             "Lamp Post",       "A street lamp with a real light (try it at night)"},
         {Premade::DiscoFloor,           "Disco Floor",     "Tiles and a light that change colour"},
     };
@@ -240,6 +320,30 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
         case Premade::FallingBall:
             n = addPart(scene, "Ball", PrimitiveType::Sphere, at + glm::vec3(0, 6.0f, 0), {1.5f, 1.5f, 1.5f}, {0.95f, 0.95f, 0.95f});
             n->anchored = false;
+            break;
+        case Premade::Landmine:
+            n = addPart(scene, "Landmine", PrimitiveType::Cylinder, at + glm::vec3(0, 0.05f, 0), {0.9f, 0.1f, 0.9f}, {0.3f, 0.05f, 0.05f}, Material::Neon);
+            n->canCollide = false;
+            addScript(scene, n, kLandmine);
+            break;
+        case Premade::SawBlade:
+            n = addPart(scene, "SawBlade", PrimitiveType::Cylinder, at + glm::vec3(0, 1.6f, 0), {3.0f, 0.12f, 3.0f}, {0.75f, 0.77f, 0.8f}, Material::Metal);
+            n->transform.rotation = {90, 0, 0};
+            addScript(scene, n, kSawBlade);
+            break;
+        case Premade::SpikeTrap: {
+            n = scene.insert(std::make_unique<SceneNode>("SpikeTrap", NodeKind::Model));
+            SceneNode* base = addPart(scene, "Base", PrimitiveType::Cube, at + glm::vec3(0, 0.05f, 0), {3, 0.1f, 3}, {0.2f, 0.2f, 0.22f}, Material::Metal);
+            scene.reparent(base, n);
+            SceneNode* spikes = addPart(scene, "Spikes", PrimitiveType::Cube, at + glm::vec3(0, -0.45f, 0), {2.6f, 1.0f, 2.6f}, {0.7f, 0.7f, 0.75f}, Material::Metal);
+            scene.reparent(spikes, n);
+            addScript(scene, n, kSpikeTrap);
+            break;
+        }
+        case Premade::ExplodingBarrel:
+            n = addPart(scene, "ExplodingBarrel", PrimitiveType::Cylinder, at + glm::vec3(0, 0.75f, 0), {1.0f, 1.5f, 1.0f}, {0.8f, 0.12f, 0.08f}, Material::Metal);
+            n->anchored = false;
+            addScript(scene, n, kBarrel);
             break;
         case Premade::LampPost: {
             n = addPart(scene, "LampPost", PrimitiveType::Cylinder, at + glm::vec3(0, 2.0f, 0), {0.25f, 4.0f, 0.25f}, {0.15f, 0.15f, 0.17f}, Material::Metal);

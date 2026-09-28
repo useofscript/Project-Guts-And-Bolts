@@ -184,8 +184,11 @@ std::string saveScene(Scene& scene, bool pretty) {
     j["info"] = {{"title", scene.info().title}, {"description", scene.info().description},
                  {"author", scene.info().author}};
     j["environment"] = envToJson(scene.environment());
-    j["world"] = {{"gravity", scene.world().gravity},
-                  {"fallenPartsHeight", scene.world().fallenPartsHeight}};
+    const WorldSettings& ws = scene.world();
+    j["world"] = {{"gravity", ws.gravity}, {"fallenPartsHeight", ws.fallenPartsHeight},
+                  {"deathStyle", (int)ws.deathStyle}, {"gore", (int)ws.gore},
+                  {"dismemberment", ws.dismemberment}, {"fallDamage", ws.fallDamage},
+                  {"fallDamageSpeed", ws.fallDamageSpeed}};
     if (Player* p = scene.player()) {
         const Humanoid& h = p->humanoid();
         j["player"] = {
@@ -223,6 +226,11 @@ bool loadScene(Scene& scene, const std::string& text, std::string* error) {
         if (j.contains("world")) {
             w.gravity           = get<float>(j["world"], "gravity", w.gravity);
             w.fallenPartsHeight = get<float>(j["world"], "fallenPartsHeight", w.fallenPartsHeight);
+            w.deathStyle        = (DeathStyle)get<int>(j["world"], "deathStyle", (int)w.deathStyle);
+            w.gore              = (GoreLevel)get<int>(j["world"], "gore", (int)w.gore);
+            w.dismemberment     = get<bool>(j["world"], "dismemberment", w.dismemberment);
+            w.fallDamage        = get<bool>(j["world"], "fallDamage", w.fallDamage);
+            w.fallDamageSpeed   = get<float>(j["world"], "fallDamageSpeed", w.fallDamageSpeed);
         }
         scene.world() = w;
 

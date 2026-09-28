@@ -67,6 +67,35 @@ void PlayerPanel::render() {
             player->setHat((HatStyle)hat);
     }
 
+    if (ImGui::CollapsingHeader("Death & Gore", ImGuiTreeNodeFlags_DefaultOpen)) {
+        WorldSettings& w = m_scene->world();
+        const char* styles[] = {"Classic (fall apart)", "Ragdoll"};
+        int ds = (int)w.deathStyle;
+        if (ImGui::Combo("Death Style", &ds, styles, 2)) w.deathStyle = (DeathStyle)ds;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Classic: the character falls to pieces like in Roblox.\n"
+                              "Ragdoll: the body goes limp and tumbles with real joints.");
+        const char* gore[] = {"Off", "Oil & Bolts", "Blood"};
+        int g = (int)w.gore;
+        if (ImGui::Combo("Gore", &g, gore, 3)) w.gore = (GoreLevel)g;
+        ImGui::BeginDisabled(w.gore == GoreLevel::Off);
+        ImGui::Checkbox("Dismemberment", &w.dismemberment);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Big hits (explosions, long falls, saws) knock limbs off");
+        ImGui::EndDisabled();
+        ImGui::Checkbox("Fall Damage", &w.fallDamage);
+        ImGui::BeginDisabled(!w.fallDamage);
+        ImGui::SliderFloat("Safe Fall Speed", &w.fallDamageSpeed, 5.0f, 60.0f, "%.0f");
+        ImGui::EndDisabled();
+        if (ImGui::Button("Classic Roblox rules")) {
+            w.deathStyle = DeathStyle::Classic; w.gore = GoreLevel::Off; w.fallDamage = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Full carnage")) {
+            w.deathStyle = DeathStyle::Ragdoll; w.gore = GoreLevel::Blood;
+            w.dismemberment = true; w.fallDamage = true;
+        }
+    }
+
     if (ImGui::CollapsingHeader("Character")) {
         if (ImGui::Button("Rebuild Character")) player->build();
         if (ImGui::IsItemHovered())

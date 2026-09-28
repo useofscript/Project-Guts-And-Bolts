@@ -37,6 +37,10 @@ void draw(bool* open) {
     ImGui::Checkbox("Show FPS", &s.showFps);
     ImGui::TextDisabled("Current: %.0f FPS", ImGui::GetIO().Framerate);
 
+    ImGui::SeparatorText("Content");
+    ImGui::Checkbox("Show blood & gore", &s.allowGore);
+    help("Turn off to hide blood, oil and gibs in every game.");
+
     ImGui::SeparatorText("Graphics");
     const char* presets[] = {"Low", "Medium", "High", "Ultra", "Custom"};
     int q = s.quality;

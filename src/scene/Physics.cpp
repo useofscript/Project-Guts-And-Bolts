@@ -135,6 +135,44 @@ float Physics::pushUp(const AABB& box) const {
     return push;
 }
 
+bool Physics::solidAt(const glm::vec3& p) const {
+    for (const auto& c : m_colliders)
+        if (c.solid && p.x > c.box.min.x && p.x < c.box.max.x && p.y > c.box.min.y &&
+            p.y < c.box.max.y && p.z > c.box.min.z && p.z < c.box.max.z)
+            return true;
+    return false;
+}
+
+bool Physics::resolveSphere(glm::vec3& c, float r, glm::vec3* normal) const {
+    bool hit = false;
+    for (const auto& col : m_colliders) {
+        if (!col.solid) continue;
+        glm::vec3 closest = glm::clamp(c, col.box.min, col.box.max);
+        glm::vec3 d = c - closest;
+        float dist2 = glm::dot(d, d);
+        if (dist2 > r * r) continue;
+        glm::vec3 n;
+        if (dist2 > 1e-10f) {
+            float dist = std::sqrt(dist2);
+            n = d / dist;
+            c += n * (r - dist);
+        } else {
+            // Centre is inside the box: leave through the nearest face.
+            glm::vec3 toMin = c - col.box.min, toMax = col.box.max - c;
+            float best = toMax.y; n = {0, 1, 0};
+            if (toMin.y < best) { best = toMin.y; n = {0, -1, 0}; }
+            if (toMax.x < best) { best = toMax.x; n = {1, 0, 0}; }
+            if (toMin.x < best) { best = toMin.x; n = {-1, 0, 0}; }
+            if (toMax.z < best) { best = toMax.z; n = {0, 0, 1}; }
+            if (toMin.z < best) { best = toMin.z; n = {0, 0, -1}; }
+            c += n * (best + r);
+        }
+        if (normal) *normal = n;
+        hit = true;
+    }
+    return hit;
+}
+
 Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec3& delta,
                                            bool wasGrounded) const {
     MoveResult r;
