@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "../game/Profile.h"
 #include "../scene/EditMesh.h"
 #include "../online/OnlineClient.h"
 #include "Plugins.h"
@@ -553,6 +554,10 @@ void Editor::exportRoblox(bool selectionOnly) {
 
 void Editor::saveFile(const std::string& path) {
     if (m_playing) togglePlay();
+    // A new game is signed by whoever made it (it shows on the site's Create page).
+    GameInfo& info = m_scene->info();
+    if ((info.author.empty() || info.author == "Builder") && Profile::get().name != "Player")
+        info.author = Profile::get().name;
     if (Serializer::writeFile(path, Serializer::saveScene(*m_scene, true))) {
         m_path  = path;
         m_dirty = false;

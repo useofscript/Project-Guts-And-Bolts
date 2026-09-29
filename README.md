@@ -274,6 +274,28 @@ A script that loops forever without `wait()` is stopped after 5 seconds with a
 friendly error, so it can't freeze your game. Scripts can't touch files on
 your computer.
 
+## Decals (pictures on parts)
+
+A **Decal** puts a picture on one side of a part. Insert one inside a part
+(*Insert Object > Decal*), then set it up in Properties:
+
+- **Texture:** the picture. It can be a `.png` / `.jpg` in the games folder
+  (like `pics/logo.png`), a full path, or `gb:<id>` for one uploaded on the
+  site's Create page. **Browse...** picks a file.
+- **Face:** which side: Front, Back, Left, Right, Top or Bottom. The picture
+  stretches to fill that side.
+- **Color3** tints it (white shows it as it is), and **Transparency** fades it.
+  See-through parts of a PNG stay see-through.
+
+Scripts can change them too:
+
+```lua
+local d = Instance.new("Decal")
+d.Texture = "gb:decal-1234abcd"
+d.Face = Enum.NormalId.Top
+d.Parent = workspace.Sign
+```
+
 ## Tools (swords, bats, anything you can hold)
 
 A **Tool** is something a character carries, like a Roblox Tool. Insert one
@@ -489,18 +511,37 @@ On another computer, start the server once with `--official <your account ID>`
 - **Uploads:**
   - hats, shirts and pants (the online **Catalog**);
   - audio (in Studio's **Marketplace**; sounds play as `gb:<id>`);
+  - **decals**, pictures for Decal objects (`.png` or `.jpg`, up to 4 MB;
+    used as `gb:<id>`);
   - **plugins** (Studio's Marketplace);
   - **games** (Studio's **File > Publish to Guts&Bolts**; they show up under
     **Online Games** on the site's home page).
 - **Who owns what.**
 
-On the site, the **Create** page uploads hats, shirts, pants, audio and
-plugins:
+### The Create page
+
+The site's **Create** page has one tab per kind of thing you make:
+
+- **My Games:** every game you made in Studio (on this computer, plus the ones
+  you published). Each has a picture and three buttons:
+  - **Edit name** renames it. A published game gets the new name on the
+    server too.
+  - **Open in Studio** opens it in Studio to keep building.
+  - **Play** plays it.
+  Studio signs a new game with your username when you save it, so it shows up
+  here.
+- **Decals, Audio, Hats, Shirts, Pants, Plugins:** an upload form (with a
+  **Browse...** button to pick the file, and a preview for pictures and
+  clothes), then a list of what you've uploaded. Decals and audio show their
+  `gb:<id>`, with a **Copy ID** button: paste it into a Decal's **Texture** or a
+  Sound's **File** in Studio.
+
+Uploading costs:
 
 - **Verified creators:** free, with no limit. They can set a price, and they
   get 70% of every sale.
-- **Everyone else:** a small fee (10 Bolts for clothes, 20 for audio and
-  plugins), 5 uploads a day, and everything they make is free.
+- **Everyone else:** a small fee (5 Bolts for decals, 10 for clothes, 20 for
+  audio and plugins), 5 uploads a day, and everything they make is free.
 
 The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also

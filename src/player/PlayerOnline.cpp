@@ -3,6 +3,7 @@
 #include "PlayerApp.h"
 #include "SiteUi.h"
 #include "../core/Account.h"
+#include "../core/FileDialog.h"
 #include "../core/Paths.h"
 #include "../game/Badges.h"
 #include "../game/Bolts.h"
@@ -10,6 +11,8 @@
 #include "../online/AssetCache.h"
 #include "../online/OnlineClient.h"
 #include "../online/Protocol.h"
+#include "../renderer/Framebuffer.h"
+#include "../renderer/Textures.h"
 #include "../scene/Scene.h"
 
 #include <imgui.h>
@@ -18,7 +21,9 @@
 #include <cctype>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 using namespace Site;
@@ -308,67 +313,214 @@ void PlayerApp::drawOnlineItemDialog() {
 }
 
 // ---------------------------------------------------------------------------
-// Create: upload hats, shirts, pants, audio and plugins
+// Create: your games, and uploading decals, audio, clothes and plugins
 // ---------------------------------------------------------------------------
 
-void PlayerApp::drawCreate() {
-    ImGui::SetWindowFontScale(1.5f);
-    ImGui::TextUnformatted("Create");
-    ImGui::SetWindowFontScale(1.0f);
-    if (!Online::online()) {
-        ImGui::PushTextWrapPos(0);
-        ImGui::TextDisabled("Uploading needs a Guts&Bolts server, so everyone can see what you make.");
-        ImGui::PopTextWrapPos();
-        if (Classic::button("Pick a server", Classic::kBlue, ImVec2(160, 30))) {
-            m_serverInput = Online::serverAddress();
-            m_showServer = true;
-        }
-        return;
-    }
-    if (m_loaded.find("mine") == std::string::npos) refreshOnline("mine");
-    const bool verified = Online::verified();
-    const json& me = Online::me();
+namespace {
 
-    // What being Verified means here.
+// The Create page's tabs. The first is your games; the rest are upload kinds.
+const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "Pants", "Plugins"};
+const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "pants", "plugin"};
+constexpr int     kCreateTabCount = 7;
+
+std::string readWholeFile(const std::filesystem::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    std::stringstream buf;
+    buf << f.rdbuf();
+    return buf.str();
+}
+
+// Strip the quotes a pasted path often has ("C:\pics\a.png").
+std::string cleanPath(std::string path) {
+    while (!path.empty() && (path.back() == ' ' || path.back() == '\n')) path.pop_back();
+    if (path.size() > 1 && path.front() == '"' && path.back() == '"') path = path.substr(1, path.size() - 2);
+    return path;
+}
+
+std::string lowerExt(const std::string& path) {
+    std::string ext = std::filesystem::path(path).extension().string();
+    if (!ext.empty()) ext.erase(0, 1);
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    return ext;
+}
+
+// A picture squeezed into a w x h box, keeping its shape, on a checkerboard
+// so see-through parts show.
+void drawPicture(ImDrawList* dl, ImVec2 p, float w, float h, unsigned tex, int texW, int texH) {
+    const float cell = 8.0f;
+    for (float y = 0; y < h; y += cell)
+        for (float x = 0; x < w; x += cell) {
+            bool dark = ((int)(x / cell) + (int)(y / cell)) % 2;
+            dl->AddRectFilled(ImVec2(p.x + x, p.y + y), ImVec2(p.x + std::min(x + cell, w), p.y + std::min(y + cell, h)),
+                              dark ? IM_COL32(205, 208, 214, 255) : IM_COL32(235, 237, 240, 255));
+        }
+    if (tex && texW > 0 && texH > 0) {
+        float s = std::min(w / (float)texW, h / (float)texH);
+        float dw = texW * s, dh = texH * s;
+        ImVec2 a(p.x + (w - dw) * 0.5f, p.y + (h - dh) * 0.5f);
+        dl->AddImage((ImTextureID)(intptr_t)tex, a, ImVec2(a.x + dw, a.y + dh), ImVec2(0, 1), ImVec2(1, 0));
+    }
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), IM_COL32(160, 165, 175, 255));
+}
+
+} // namespace
+
+bool PlayerApp::renameGameFile(const std::filesystem::path& path, const std::string& title, std::string& error) {
+    json j = json::parse(readWholeFile(path), nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { error = "That game file couldn't be read."; return false; }
+    if (!j.contains("info") || !j["info"].is_object()) j["info"] = json::object();
+    j["info"]["title"] = title;
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f << j.dump(2);
+    if (!f) { error = "Couldn't save the game file (is it read-only?)."; return false; }
+    return true;
+}
+
+void PlayerApp::renameGame(const std::filesystem::path& path, const std::string& publishedId, const std::string& title) {
+    std::string clean = Online::cleanText(title, 50);
+    if (clean.empty()) { m_createMsg = "Give it a name."; return; }
+    std::string err;
+    if (!path.empty() && !renameGameFile(path, clean, err)) { m_createMsg = err; return; }
+    m_createMsg = "Renamed to \"" + clean + "\".";
+    m_gamesDirty = true;
+    if (publishedId.empty() || !Online::online() || path.empty()) return;
+    // Published: send the renamed file to the server too, so everyone sees the new name.
+    Online::request("update", {{"id", publishedId}, {"name", clean}, {"data", Online::base64Encode(readWholeFile(path))}},
+                    [this](const json& r) {
+        if (!r.value("ok", false)) m_createMsg = r.value("error", std::string("The server didn't take the new name."));
+        refreshOnline("mine");
+        refreshOnline("games");
+    }, 120);
+}
+
+void PlayerApp::openInStudio(const std::filesystem::path& path) {
+#if defined(GB_MOBILE)
+    (void)path;
+    m_createMsg = "Studio runs on computers, not phones.";
+#else
+    if (!Paths::launch(Paths::sibling("GutsAndBolts"), path.string()))
+        m_createMsg = "Couldn't find Studio (GutsAndBolts) next to this app.";
+    else
+        m_createMsg = "Opening " + path.filename().string() + " in Studio...";
+#endif
+}
+
+// One row of My Games: picture on the left, name and buttons on the right.
+// `key` identifies the row for renaming; `path` is empty for a game that is
+// only on the server (it's downloaded first when needed).
+void PlayerApp::myGameRow(const std::string& key, const std::string& title, const std::string& sub,
+                          unsigned thumbTex, const std::string& cardId, const std::filesystem::path& path,
+                          const std::string& publishedId, const std::function<void()>& play) {
+    ImGui::PushID(key.c_str());
+    const bool tall = portraitScreen();
+    const float tw = tall ? ImGui::GetContentRegionAvail().x : 192.0f, th = tw * 9.0f / 16.0f;
     ImVec2 p = ImGui::GetCursorScreenPos();
-    float w = ImGui::GetContentRegionAvail().x;
+    ImGui::Dummy(ImVec2(tw, th));
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    float boxH = portraitScreen() ? 78.0f : 52.0f;
-    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + boxH), verified ? IM_COL32(225, 240, 255, 255) : IM_COL32(245, 245, 248, 255), 6);
-    dl->AddRect(p, ImVec2(p.x + w, p.y + boxH), verified ? IM_COL32(29, 155, 240, 255) : IM_COL32(190, 195, 205, 255), 6);
-    ImGui::SetCursorScreenPos(ImVec2(p.x + 10, p.y + 8));
+    if (thumbTex) dl->AddImage((ImTextureID)(intptr_t)thumbTex, p, ImVec2(p.x + tw, p.y + th), ImVec2(0, 1), ImVec2(1, 0));
+    else          gameCard(dl, p, ImVec2(p.x + tw, p.y + th), cardId, title);
+    dl->AddRect(p, ImVec2(p.x + tw, p.y + th), IM_COL32(150, 158, 170, 255));
+    if (!tall) ImGui::SameLine(0, 14);
     ImGui::BeginGroup();
-    ImGui::PushTextWrapPos(p.x + w - 10);
-    if (verified) {
-        Badges::check();
+    if (m_renameKey == key) {
+        ImGui::SetNextItemWidth(std::min(300.0f, ImGui::GetContentRegionAvail().x));
+        if (ImGui::IsWindowAppearing() || m_renameFocus) { ImGui::SetKeyboardFocusHere(); m_renameFocus = false; }
+        bool enter = ImGui::InputText("##name", &m_renameText, ImGuiInputTextFlags_EnterReturnsTrue);
+        if (Classic::button("Save", Classic::kPlay, ImVec2(80, 28)) || enter) {
+            std::string newName = m_renameText;
+            m_renameKey.clear();
+            if (path.empty()) {
+                // Only on the server: fetch it, rename the file, send it back.
+                Online::download(publishedId, [this, publishedId, newName](bool ok, const std::filesystem::path& file, const json&) {
+                    if (ok) renameGame(file, publishedId, newName);
+                    else m_createMsg = "Couldn't download the game to rename it.";
+                });
+            } else {
+                renameGame(path, publishedId, newName);
+            }
+        }
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.05f, 0.35f, 0.7f, 1), "You're Verified!");
-        ImGui::TextDisabled("Uploading is free, there's no daily limit, and you can sell what you make.");
+        if (ImGui::Button("Cancel", ImVec2(80, 28))) m_renameKey.clear();
     } else {
-        ImGui::TextUnformatted("Uploading costs a few Bolts (clothes 10, audio 20, plugins 20).");
-        ImGui::TextDisabled("%d uploads left today. Verified creators upload for free, with no limit, and can sell "
-                            "their creations - ask the staff!", me.value("uploadsLeft", 0));
+        ImGui::SetWindowFontScale(1.25f);
+        ImGui::TextColored(Classic::kLink, "%s", title.c_str());
+        ImGui::SetWindowFontScale(1.0f);
     }
-    ImGui::PopTextWrapPos();
-    ImGui::EndGroup();
-    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + boxH + 10));
-
-    const char* tabs[] = {"Hat", "Shirt", "Pants", "Audio", "Plugin"};
-    const char* kinds[] = {"hat", "shirt", "pants", "audio", "plugin"};
-    for (int i = 0; i < 5; ++i) {
-        if (i > 0) ImGui::SameLine();
-        float tw = std::min(84.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 4) / (5 - i));
-        bool on = m_createKind == i;
-        if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(tw, 28)) : ImGui::Button(tabs[i], ImVec2(tw, 28))) {
-            m_createKind = i;
-            m_createMsg.clear();
+    ImGui::TextDisabled("%s", sub.c_str());
+    ImGui::Spacing();
+    if (m_renameKey != key) {
+        if (ImGui::Button("Edit name", ImVec2(96, 30))) { m_renameKey = key; m_renameText = title; m_renameFocus = true; }
+        ImGui::SameLine();
+    }
+#if !defined(GB_MOBILE)
+    if (Classic::button("Open in Studio", Classic::kBlue, ImVec2(130, 30))) {
+        if (!path.empty()) openInStudio(path);
+        else {
+            m_createMsg = "Downloading...";
+            Online::download(publishedId, [this](bool ok, const std::filesystem::path& file, const json&) {
+                if (ok) openInStudio(file);
+                else m_createMsg = "Couldn't download the game.";
+            });
         }
     }
+    ImGui::SameLine();
+#endif
+    if (Classic::button("Play", Classic::kPlay, ImVec2(70, 30)) && play) play();
+    ImGui::EndGroup();
+    ImGui::Separator();
+    ImGui::PopID();
+}
+
+void PlayerApp::drawMyGames() {
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Games you made in Studio. Click Edit name to rename one, or Open in Studio to keep building.");
+    ImGui::PopTextWrapPos();
     ImGui::Spacing();
-    const std::string kind = kinds[m_createKind];
+    std::set<std::string> onDisk;   // published ids we have a local file for
+    int shown = 0;
+    for (size_t i = 0; i < m_games.size(); ++i) {
+        GameCard& g = m_games[i];
+        if (g.broken || g.info.author == "Guts and Bolts" || g.path.extension() != Paths::kExtension) continue;
+        if (!g.info.publishedId.empty()) onDisk.insert(g.info.publishedId);
+        std::string sub = g.path.filename().string() +
+                          (g.info.publishedId.empty() ? "  -  only on this computer" : "  -  published");
+        const std::filesystem::path path = g.path;
+        const std::string key = "local:" + path.stem().string(), title = g.info.title;
+        myGameRow(key, title, sub, g.thumb ? g.thumb->colorTexture() : 0, key, path, g.info.publishedId,
+                  [this, key, title, path]() { playGame(key, title, localStarter(path)); });
+        ++shown;
+        if (m_gamesDirty) break;   // the list is being rebuilt
+    }
+    if (Online::online() && !m_gamesDirty) {
+        for (const json& a : m_myCreations) {
+            if (a.value("kind", std::string()) != "game") continue;
+            const std::string id = a.value("id", std::string()), name = a.value("name", std::string());
+            if (onDisk.count(id)) continue;
+            std::string sub = "on the server  -  " + std::to_string(a.value("plays", 0LL)) + " plays";
+            myGameRow("online:" + id, name, sub, 0, id, {}, id,
+                      [this, id, name]() { playGame(id, name, onlineStarter(id)); });
+            ++shown;
+        }
+    }
+    if (m_gamesDirty) { m_gamesDirty = false; refreshGames(); }
+    if (shown == 0) {
+        ImGui::TextDisabled("You haven't made any games yet.");
+#if !defined(GB_MOBILE)
+        if (Classic::button("Open Studio", Classic::kBlue, ImVec2(160, 32)) &&
+            !Paths::launch(Paths::sibling("GutsAndBolts")))
+            m_createMsg = "Couldn't find Studio (GutsAndBolts) next to this app.";
+#endif
+    }
+    ImGui::TextDisabled("Publish a game from Studio (File > Publish to Guts&Bolts) so everyone can play it.");
+}
+
+void PlayerApp::drawUploadForm(const std::string& kind) {
+    const bool verified = Online::verified();
     const bool clothing = Online::isClothing(kind);
+    const bool tall = portraitScreen();
     float fieldW = std::min(360.0f, ImGui::GetContentRegionAvail().x - 110);
 
+    ImGui::SeparatorText(("Upload a new " + std::string(Online::kindTitle(kind))).c_str());
     ImGui::BeginGroup();
     ImGui::SetNextItemWidth(fieldW);
     ImGui::InputTextWithHint("Name", "Give it a name", &m_createName);
@@ -383,9 +535,26 @@ void PlayerApp::drawCreate() {
         ImGui::SetNextItemWidth(fieldW);
         ImGui::ColorEdit3("Colour", &m_createColor.x);
     } else {
-        ImGui::SetNextItemWidth(fieldW);
-        ImGui::InputTextWithHint("File", kind == "audio" ? "C:/music/song.mp3" : "C:/plugins/myplugin.lua", &m_createPath);
-        ImGui::TextDisabled(kind == "audio" ? "An .mp3, .wav, .ogg or .flac file (up to 6 MB)."
+        const char* hint = kind == "decal" ? "C:/pictures/logo.png" : kind == "audio" ? "C:/music/song.mp3" : "C:/plugins/myplugin.lua";
+        bool browse = FileDialog::available();
+        ImGui::SetNextItemWidth(browse ? fieldW - 90 : fieldW);
+        ImGui::InputTextWithHint("##file", hint, &m_createPath);
+        if (browse) {
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...", ImVec2(82, 0))) {
+                std::string picked = kind == "decal" ? FileDialog::openImage("Pick a picture to upload")
+                                   : kind == "audio" ? FileDialog::openAudio("Pick a sound to upload")
+                                   : FileDialog::openAny("Pick a Studio plugin", "Lua plugins", "*.lua");
+                if (!picked.empty()) {
+                    m_createPath = picked;
+                    if (m_createName.empty()) m_createName = std::filesystem::path(picked).stem().string();
+                }
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted("File");
+        ImGui::TextDisabled(kind == "decal" ? "A .png or .jpg picture (up to 4 MB)."
+                          : kind == "audio" ? "An .mp3, .wav, .ogg or .flac file (up to 6 MB)."
                                             : "A Lua plugin for Studio (see the README for how plugins work).");
     }
     if (verified) {
@@ -394,16 +563,32 @@ void PlayerApp::drawCreate() {
         ImGui::TextDisabled("0 = free. You get %d%% of every sale.", Online::kCreatorSharePercent);
     }
     ImGui::EndGroup();
-    if (clothing && !portraitScreen()) {
-        ImGui::SameLine(0, 24);
-        Catalog::Item preview;
-        preview.type = kind == "hat" ? Catalog::Type::Hat : kind == "shirt" ? Catalog::Type::Shirt : Catalog::Type::Pants;
-        preview.hat = (HatStyle)m_createStyle;
-        preview.color = m_createColor;
+
+    // A preview next to the form (under it on phones held upright).
+    if (clothing || kind == "decal") {
+        if (!tall) ImGui::SameLine(0, 24);
         ImVec2 q = ImGui::GetCursorScreenPos();
         ImGui::Dummy(ImVec2(150, 150));
-        ImGui::GetWindowDrawList()->AddRectFilled(q, ImVec2(q.x + 150, q.y + 150), IM_COL32(255, 255, 255, 255), 6);
-        drawItemIcon(ImGui::GetWindowDrawList(), ImVec2(q.x + 75, q.y + 75), 120, preview);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (clothing) {
+            Catalog::Item preview;
+            preview.type = kind == "hat" ? Catalog::Type::Hat : kind == "shirt" ? Catalog::Type::Shirt : Catalog::Type::Pants;
+            preview.hat = (HatStyle)m_createStyle;
+            preview.color = m_createColor;
+            dl->AddRectFilled(q, ImVec2(q.x + 150, q.y + 150), IM_COL32(255, 255, 255, 255), 6);
+            drawItemIcon(dl, ImVec2(q.x + 75, q.y + 75), 120, preview);
+        } else {
+            std::string path = cleanPath(m_createPath);
+            unsigned tex = path.empty() ? 0 : Textures::get(path);
+            int w = 0, h = 0;
+            if (tex) Textures::size(path, w, h);
+            drawPicture(dl, q, 150, 150, tex, w, h);
+            if (!tex) {
+                const char* msg = path.empty() ? "Preview" : "Can't read it";
+                ImVec2 ts = ImGui::CalcTextSize(msg);
+                dl->AddText(ImVec2(q.x + 75 - ts.x * 0.5f, q.y + 75 - ts.y * 0.5f), IM_COL32(110, 115, 125, 255), msg);
+            }
+        }
     }
 
     ImGui::Spacing();
@@ -419,20 +604,14 @@ void PlayerApp::drawCreate() {
             if (kind == "hat") args["meta"]["style"] = m_createStyle;
             args["data"] = "";
         } else {
-            std::string path = m_createPath;
-            if (path.size() > 1 && path.front() == '"' && path.back() == '"') path = path.substr(1, path.size() - 2);
-            std::ifstream f(path, std::ios::binary);
-            if (!f) { m_createMsg = "Couldn't open that file. Check the path."; ok = false; }
-            else {
-                std::stringstream buf;
-                buf << f.rdbuf();
-                args["data"] = Online::base64Encode(buf.str());
-                if (kind == "audio") {
-                    std::string ext = std::filesystem::path(path).extension().string();
-                    if (!ext.empty()) ext.erase(0, 1);
-                    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
-                    args["meta"] = {{"ext", ext}};
-                }
+            std::string path = cleanPath(m_createPath);
+            std::error_code ec;
+            if (path.empty() || !std::filesystem::is_regular_file(path, ec)) {
+                m_createMsg = "Couldn't open that file. Check the path.";
+                ok = false;
+            } else {
+                args["data"] = Online::base64Encode(readWholeFile(path));
+                if (kind == "audio") args["meta"] = {{"ext", lowerExt(path)}};
             }
         }
         if (ok) {
@@ -454,32 +633,133 @@ void PlayerApp::drawCreate() {
         }
     }
     ImGui::EndDisabled();
-    if (!m_createMsg.empty()) { ImGui::SameLine(); ImGui::TextWrapped("%s", m_createMsg.c_str()); }
-    ImGui::TextDisabled("Games are published from Studio (File > Publish to Guts&Bolts).");
+}
 
-    ImGui::SeparatorText("My creations");
-    if (m_myCreations.empty()) ImGui::TextDisabled("Nothing yet.");
+void PlayerApp::drawMyUploads(const std::string& kind) {
+    const std::string title = std::string("My ") + Online::kindTitle(kind) + (kind == "pants" ? "" : "s");
+    ImGui::SeparatorText(title.c_str());
+    int shown = 0;
     for (size_t i = 0; i < m_myCreations.size(); ++i) {
         const json& a = m_myCreations[i];
-        ImGui::PushID((int)i);
+        if (a.value("kind", std::string()) != kind) continue;
+        ++shown;
+        const std::string id = a.value("id", std::string());
+        ImGui::PushID(id.c_str());
+        if (kind == "decal") {
+            // The picture itself: download it once, then it's a texture like any other.
+            const std::string texId = "gb:" + id;
+            unsigned tex = Textures::get(texId);
+            if (!tex && m_askedDownloads.insert(id).second) Online::download(id);
+            int w = 0, h = 0;
+            if (tex) Textures::size(texId, w, h);
+            ImVec2 q = ImGui::GetCursorScreenPos();
+            ImGui::Dummy(ImVec2(64, 64));
+            drawPicture(ImGui::GetWindowDrawList(), q, 64, 64, tex, w, h);
+            ImGui::SameLine(0, 12);
+        }
+        ImGui::BeginGroup();
         ImGui::TextUnformatted(a.value("name", std::string()).c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", Online::kindTitle(a.value("kind", std::string())));
-        ImGui::SameLine();
         long long price = a.value("price", 0LL);
         if (price > 0) Bolts::amount(price); else ImGui::TextDisabled("free");
         ImGui::SameLine();
-        if (a.value("kind", std::string()) == "game") ImGui::TextDisabled("- %lld plays", a.value("plays", 0LL));
-        else ImGui::TextDisabled("- %lld sold", a.value("sales", 0LL));
-        ImGui::SameLine();
+        ImGui::TextDisabled("- %lld sold", a.value("sales", 0LL));
+        if (kind == "decal" || kind == "audio") {
+            ImGui::TextDisabled("ID: gb:%s", id.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy ID")) {
+                ImGui::SetClipboardText(("gb:" + id).c_str());
+                m_createMsg = kind == "decal" ? "Copied! Paste it into a Decal's Texture in Studio."
+                                              : "Copied! Paste it into a Sound's File in Studio.";
+            }
+            ImGui::SameLine();
+        }
         if (ImGui::SmallButton("Delete")) {
-            Online::request("delete", {{"id", a.value("id", std::string())}}, [this](const json&) {
+            Online::request("delete", {{"id", id}}, [this](const json&) {
                 refreshOnline("mine");
                 refreshOnline("catalog");
             });
         }
+        ImGui::EndGroup();
+        ImGui::Spacing();
         ImGui::PopID();
     }
+    if (shown == 0) ImGui::TextDisabled("Nothing yet.");
+}
+
+void PlayerApp::drawCreate() {
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::TextUnformatted("Create");
+    ImGui::SetWindowFontScale(1.0f);
+    if (Online::online() && m_loaded.find("mine") == std::string::npos) refreshOnline("mine");
+
+    // Tabs, wrapping onto a second row on narrow screens.
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    float x = 0, avail = ImGui::GetContentRegionAvail().x;
+    m_createKind = std::clamp(m_createKind, 0, kCreateTabCount - 1);
+    for (int i = 0; i < kCreateTabCount; ++i) {
+        float tw = ImGui::CalcTextSize(kCreateTabs[i]).x + 26;
+        if (i > 0) {
+            if (x + gap + tw <= avail) { ImGui::SameLine(); x += gap; }
+            else x = 0;
+        }
+        x += tw;
+        bool on = m_createKind == i;
+        if (on ? Classic::button(kCreateTabs[i], Classic::kBlue, ImVec2(tw, 28)) : ImGui::Button(kCreateTabs[i], ImVec2(tw, 28))) {
+            m_createKind = i;
+            m_createMsg.clear();
+            m_renameKey.clear();
+        }
+    }
+    ImGui::Spacing();
+    if (!m_createMsg.empty()) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(0.1f, 0.35f, 0.7f, 1), "%s", m_createMsg.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    if (m_createKind == 0) { drawMyGames(); return; }
+    const std::string kind = kCreateKinds[m_createKind];
+
+    if (!Online::online()) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Uploading needs a Guts&Bolts server, so everyone can see what you make.");
+        ImGui::PopTextWrapPos();
+        if (Classic::button("Pick a server", Classic::kBlue, ImVec2(160, 30))) {
+            m_serverInput = Online::serverAddress();
+            m_showServer = true;
+        }
+        return;
+    }
+    const bool verified = Online::verified();
+    const json& me = Online::me();
+
+    // What being Verified means here.
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float w = ImGui::GetContentRegionAvail().x;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float boxH = portraitScreen() ? 78.0f : 52.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + boxH), verified ? IM_COL32(225, 240, 255, 255) : IM_COL32(245, 245, 248, 255), 6);
+    dl->AddRect(p, ImVec2(p.x + w, p.y + boxH), verified ? IM_COL32(29, 155, 240, 255) : IM_COL32(190, 195, 205, 255), 6);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + 10, p.y + 8));
+    ImGui::BeginGroup();
+    ImGui::PushTextWrapPos(p.x + w - 10);
+    if (verified) {
+        Badges::check();
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.05f, 0.35f, 0.7f, 1), "You're Verified!");
+        ImGui::TextDisabled("Uploading is free, there's no daily limit, and you can sell what you make.");
+    } else {
+        ImGui::TextUnformatted("Uploading costs a few Bolts (decals 5, clothes 10, audio 20, plugins 20).");
+        ImGui::TextDisabled("%d uploads left today. Verified creators upload for free, with no limit, and can sell "
+                            "their creations - ask the staff!", me.value("uploadsLeft", 0));
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndGroup();
+    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + boxH + 10));
+
+    drawUploadForm(kind);
+    ImGui::Spacing();
+    drawMyUploads(kind);
 }
 
 // ---------------------------------------------------------------------------

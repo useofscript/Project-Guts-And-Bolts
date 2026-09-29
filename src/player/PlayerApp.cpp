@@ -169,7 +169,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "settings") m_showSettings = true;
     if (m_opts.page == "catalog") m_page = Page::Catalog;
     if (m_opts.page == "bolts") m_page = Page::Bolts;
-    if (m_opts.page == "create") m_page = Page::Create;
+    if (m_opts.page == "create") { m_page = Page::Create; m_createKind = m_opts.createTab; }
     if (m_opts.page == "people") m_page = Page::People;
     if (m_opts.page == "groups") m_page = Page::Groups;
     if (m_opts.page == "friends") m_page = Page::Friends;
@@ -207,6 +207,16 @@ PlayerApp::~PlayerApp() {
 void PlayerApp::run() {
     while (!m_window->shouldClose()) {
         ++m_frame;
+        // Test helper: rename your first game from the Create page.
+        if (!m_opts.testRename.empty() && m_page == Page::Create && m_frame == 30) {
+            for (GameCard& g : m_games)
+                if (!g.broken && g.info.author != "Guts and Bolts" && g.path.extension() == Paths::kExtension) {
+                    std::printf("RENAME %s -> %s\n", g.info.title.c_str(), m_opts.testRename.c_str());
+                    std::fflush(stdout);
+                    renameGame(g.path, g.info.publishedId, m_opts.testRename);
+                    break;
+                }
+        }
         // Test helper: drive the tool hotbar, one step every 25 frames.
         if (!m_opts.testTools.empty() && m_page == Page::Game && m_frame > 40 && m_frame % 25 == 0) {
             size_t sp = m_opts.testTools.find(' ');
