@@ -70,3 +70,7 @@ from an unknown developer.
 - The Android app is tested in "phone mode" on Linux and built for real phones,
   but hasn't been tried on many devices yet. If something looks wrong, please
   open an issue.
+
+## Download
+
+Pick your system below: Android (APK), Windows, macOS or Linux.
