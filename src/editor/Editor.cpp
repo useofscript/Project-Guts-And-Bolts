@@ -407,6 +407,40 @@ void Editor::testAnimation(int frame) {
     }
 }
 
+void Editor::testCollisions() {
+    // Two 2-stud blocks, B at x = 5; slide A from x = 0 to x = 4.5 (into B), then turn it.
+    auto block = [&](const char* name, float x) {
+        SceneNode* n = addPrimitive("Cube", PrimitiveType::Cube);
+        n->name = name;
+        n->transform.position = {x, 20.0f, 0.0f};
+        n->transform.scale = glm::vec3(2.0f);
+        return n;
+    };
+    SceneNode* a = block("A", 0.0f);
+    block("B", 5.0f);
+    std::vector<SceneNode*> movers{a};
+    std::vector<Transform> before{a->transform};
+    auto hit0 = ViewportPanel::collisionsOf(*m_scene, movers);
+    a->transform.position.x = 4.5f;
+    ViewportPanel::stopAtCollisions(*m_scene, movers, before, hit0, true);
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "COLLIDE slide: A.x = %.3f (flush = 3.000)", a->transform.position.x);
+    Log::info(buf);
+    before = {a->transform};
+    hit0 = ViewportPanel::collisionsOf(*m_scene, movers);
+    a->transform.rotation.y = 45.0f;   // a turned corner would poke into B
+    ViewportPanel::stopAtCollisions(*m_scene, movers, before, hit0, false);
+    std::snprintf(buf, sizeof(buf), "COLLIDE turn: A.rotY = %.1f (blocked = 0.0)", a->transform.rotation.y);
+    Log::info(buf);
+    a->transform.position.x = -3.0f;   // away from B, turning is fine
+    before = {a->transform};
+    hit0 = ViewportPanel::collisionsOf(*m_scene, movers);
+    a->transform.rotation.y = 45.0f;
+    ViewportPanel::stopAtCollisions(*m_scene, movers, before, hit0, false);
+    std::snprintf(buf, sizeof(buf), "COLLIDE free turn: A.rotY = %.1f (45.0)", a->transform.rotation.y);
+    Log::info(buf);
+}
+
 void Editor::testSelect(const std::string& names) {
     m_scene->deselect();
     std::string list = "," + names + ",";
@@ -707,6 +741,12 @@ void Editor::handleShortcuts() {
     if (m_state.mode == StudioMode::Modeling) { handleModelingKeys(); return; }
     // Tab: reshape the selected part (Blender's Edit Mode).
     if (ImGui::IsKeyPressed(ImGuiKey_Tab, false) && !io.KeyCtrl && !io.KeyAlt) { setMode(StudioMode::Modeling); return; }
+    // F: zoom to the selection (things with a body only), from any panel.
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !io.KeyCtrl && !io.KeyAlt && !io.KeyShift &&
+        !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+        if (!m_viewport->focusSelected() && m_scene->selected())
+            Log::info("F zooms to things with a body (parts, models, tools) - \"" + m_scene->selected()->name + "\" has none.");
+    }
 
     if (io.KeyAlt) {
         if (ImGui::IsKeyPressed(ImGuiKey_L, false)) toggleLocked();
@@ -1018,7 +1058,7 @@ void Editor::renderShortcuts() {
          {"Right-drag", "Look around"},
          {"Middle-drag", "Pan (Shift+middle-drag orbits)"},
          {"Mouse wheel", "Zoom"},
-         {"F", "Focus the camera on the selection"}},
+         {"F", "Zoom to the selection (things with a body)"}},
         {{"Click", "Select (a part in a Model picks the Model)"},
          {"Alt+click", "Select just the part"},
          {"Ctrl+click / Shift+click", "Add to the selection"},

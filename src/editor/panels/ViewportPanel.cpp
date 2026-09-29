@@ -38,19 +38,117 @@ void ViewportPanel::resetCamera() {
 
 float ViewportPanel::cameraYaw() const { return m_camera.yaw; }
 
+namespace {
+
+// "Collisions" (MODEL tab): parts being moved stop against others.
+void partsUnder(SceneNode* n, std::vector<SceneNode*>& out) {
+    if (n->isPart()) out.push_back(n);
+    if (n->kind == NodeKind::Part || n->kind == NodeKind::Model || n->kind == NodeKind::Tool)
+        for (auto& c : n->children) partsUnder(c.get(), out);
+}
+
+// The other parts the moving ones go into (touching / just flush doesn't count).
+std::vector<uint64_t> hitsOf(Scene& scene, const std::vector<SceneNode*>& moving) {
+    std::vector<uint64_t> hits;
+    std::vector<OBB> boxes;
+    std::vector<AABB> bounds;
+    AABB all{glm::vec3(1e9f), glm::vec3(-1e9f)};
+    for (SceneNode* m : moving) {
+        if (!m->canCollide || !m->visible) continue;
+        boxes.push_back(Physics::worldOBB(m));
+        bounds.push_back(Physics::worldBounds(m));
+        all.min = glm::min(all.min, bounds.back().min);
+        all.max = glm::max(all.max, bounds.back().max);
+    }
+    if (boxes.empty()) return hits;
+    scene.forEach([&](SceneNode* o) {
+        if (!o->isPart() || !o->visible || !o->canCollide) return;
+        if (std::find(moving.begin(), moving.end(), o) != moving.end()) return;
+        AABB ob = Physics::worldBounds(o);
+        if (!ob.overlaps(all, 0.0f)) return;
+        OBB oo = Physics::worldOBB(o);
+        for (size_t i = 0; i < boxes.size(); ++i) {
+            if (!ob.overlaps(bounds[i], 0.0f)) continue;
+            glm::vec3 nrm;
+            float depth = 0.0f;
+            if (Physics::obbOverlap(boxes[i], oo, nrm, depth) && depth > 0.002f) { hits.push_back(o->id); return; }
+        }
+    });
+    return hits;
+}
+
+bool newHit(const std::vector<uint64_t>& now, const std::vector<uint64_t>& before) {
+    for (uint64_t id : now) if (std::find(before.begin(), before.end(), id) == before.end()) return true;
+    return false;
+}
+
+} // namespace
+
+std::vector<uint64_t> ViewportPanel::collisionsOf(Scene& scene, const std::vector<SceneNode*>& movers) {
+    std::vector<SceneNode*> parts;
+    for (SceneNode* o : movers) partsUnder(o, parts);
+    return hitsOf(scene, parts);
+}
+
+void ViewportPanel::stopAtCollisions(Scene& scene, const std::vector<SceneNode*>& movers,
+                                     const std::vector<Transform>& before, const std::vector<uint64_t>& hitBefore,
+                                     bool sliding) {
+    std::vector<SceneNode*> parts;
+    for (SceneNode* o : movers) partsUnder(o, parts);
+    if (parts.empty() || !newHit(hitsOf(scene, parts), hitBefore)) return;
+    if (!sliding) {
+        // Turning / resizing into something: don't.
+        for (size_t i = 0; i < movers.size(); ++i) movers[i]->transform = before[i];
+        return;
+    }
+    std::vector<Transform> after;
+    for (SceneNode* o : movers) after.push_back(o->transform);
+    auto place = [&](float f) {
+        for (size_t i = 0; i < movers.size(); ++i)
+            movers[i]->transform.position = glm::mix(before[i].position, after[i].position, f);
+    };
+    // Slide as far as it goes: it ends up flush against what it hit.
+    float lo = 0.0f, hi = 1.0f;
+    for (int it = 0; it < 16; ++it) {
+        float mid = (lo + hi) * 0.5f;
+        place(mid);
+        if (newHit(hitsOf(scene, parts), hitBefore)) hi = mid; else lo = mid;
+    }
+    place(lo);
+}
+
 void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; }
 
 bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing(); }
 
-void ViewportPanel::focusSelected() {
-    SceneNode* sel = m_scene->selected();
-    if (!sel) return;
-    m_camera.pivot = glm::vec3(sel->worldMatrix()[3]);
-    if (sel->isPart()) {   // back off far enough to see all of it
-        AABB b = Physics::worldBounds(sel);
-        m_camera.pivot = (b.min + b.max) * 0.5f;
-        m_camera.distance = std::clamp(glm::length(b.max - b.min) * 1.6f, 3.0f, 200.0f);
+bool ViewportPanel::focusSelected() {
+    // The box around every part in the selection (and inside selected models / tools).
+    glm::vec3 lo(1e9f), hi(-1e9f);
+    bool any = false;
+    std::vector<SceneNode*> stack;
+    for (SceneNode* n : m_scene->selectionRoots()) if (n != m_scene->root()) stack.push_back(n);
+    while (!stack.empty()) {
+        SceneNode* n = stack.back();
+        stack.pop_back();
+        if (n->isPart() && n->visible) {
+            AABB b = Physics::worldBounds(n);
+            lo = glm::min(lo, b.min);
+            hi = glm::max(hi, b.max);
+            any = true;
+        }
+        if (n->kind == NodeKind::Part || n->kind == NodeKind::Model || n->kind == NodeKind::Tool)
+            for (auto& c : n->children) stack.push_back(c.get());
     }
+    if (!any) return false;
+    // Back off far enough that the whole box fits on screen.
+    float radius = std::max(0.5f, glm::length(hi - lo) * 0.5f);
+    float fit = radius / std::sin(glm::radians(m_camera.fov * 0.5f)) * 1.15f;
+    m_glideFrom = m_camera.pivot;
+    m_glideDistFrom = m_camera.distance;
+    m_glideTo = (lo + hi) * 0.5f;
+    m_glideDistTo = std::clamp(fit, 3.0f, 800.0f);
+    m_glide = 0.0f;
+    return true;
 }
 
 void ViewportPanel::handleInput(float dt) {
@@ -103,8 +201,17 @@ void ViewportPanel::handleInput(float dt) {
         if (ImGui::IsKeyDown(ImGuiKey_A)) r -= speed;
         if (ImGui::IsKeyDown(ImGuiKey_E)) u += speed;
         if (ImGui::IsKeyDown(ImGuiKey_Q)) u -= speed;
-        if (f != 0 || r != 0 || u != 0) m_camera.fly(f, r, u);
-        if (ImGui::IsKeyPressed(ImGuiKey_F, false)) focusSelected();
+        if (f != 0 || r != 0 || u != 0) { m_camera.fly(f, r, u); m_glide = -1.0f; }
+    }
+    // Gliding to the selection (F); any camera move of your own stops it.
+    if (looking || (m_hovered && (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || io.MouseWheel != 0.0f))) m_glide = -1.0f;
+    if (m_glide >= 0.0f) {
+        m_glide += dt;
+        float t = std::min(1.0f, m_glide / 0.35f);
+        float e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);   // quick, then gentle
+        m_camera.pivot = glm::mix(m_glideFrom, m_glideTo, e);
+        m_camera.distance = glm::mix(m_glideDistFrom, m_glideDistTo, e);
+        if (t >= 1.0f) m_glide = -1.0f;
     }
 }
 
@@ -139,7 +246,8 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     ImGuizmo::MODE mode = m_state->gizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
 
     float snap[3] = {0, 0, 0};
-    if (m_state->snapEnabled) {
+    bool snapping = op == ImGuizmo::ROTATE ? m_state->rotSnapEnabled : m_state->snapEnabled;
+    if (snapping) {
         float s = (op == ImGuizmo::TRANSLATE) ? m_state->snapTranslate
                 : (op == ImGuizmo::ROTATE)    ? m_state->snapRotate
                                               : m_state->snapScale;
@@ -168,7 +276,7 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     const glm::vec3 pivotBefore(world[3]);
     if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
                              glm::value_ptr(world), nullptr,
-                             m_state->snapEnabled ? snap : nullptr)) {
+                             snapping ? snap : nullptr)) {
         glm::vec3 movedPivot = glm::vec3(world[3]) - pivotBefore;
         world = world * glm::translate(glm::mat4(1.0f), -localPivot);
         // Convert the manipulated world matrix back into a local transform.
@@ -182,6 +290,18 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         glm::vec3 newRot{r[0], r[1], r[2]};
         // Accumulate the rotation delta to avoid Euler-angle flips at +/-90 deg.
         glm::vec3 deltaRot = newRot - sel->transform.rotation;
+        // Collisions: remember where everything was and what it already touched.
+        std::vector<SceneNode*> movers{sel};
+        if (m_state->tool == GizmoTool::Translate)
+            for (SceneNode* o : m_scene->selectionRoots())
+                if (o != sel && !m_scene->isProtected(o) && !m_scene->isCharacterPart(o)) movers.push_back(o);
+        std::vector<Transform> before;
+        std::vector<uint64_t> hitBefore;
+        const bool collide = m_state->collisions && !m_state->animRig;
+        if (collide) {
+            for (SceneNode* o : movers) before.push_back(o->transform);
+            hitBefore = collisionsOf(*m_scene, movers);
+        }
         // Moving several things: everything else selected slides along too.
         glm::vec3 moved = movedPivot;
         if (m_state->tool == GizmoTool::Translate && glm::length(moved) > 0.0f) {
@@ -195,6 +315,8 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         sel->transform.position = {t[0], t[1], t[2]};
         sel->transform.rotation += deltaRot;
         sel->transform.scale    = {s[0], s[1], s[2]};
+
+        if (collide) stopAtCollisions(*m_scene, movers, before, hitBefore, m_state->tool == GizmoTool::Translate);
     }
 }
 
@@ -215,7 +337,8 @@ void ViewportPanel::render(float dt) {
             m_camera.resize(w, h);
         }
         bool playing = m_session != nullptr;
-        m_renderer.render(*m_scene, m_camera, m_fbo, !playing || m_session->runOnly());
+        m_renderer.setGridSpacing(m_state->snapEnabled && m_state->snapTranslate >= 0.25f ? m_state->snapTranslate : 1.0f);
+        m_renderer.render(*m_scene, m_camera, m_fbo, m_state->showGrid && (!playing || m_session->runOnly()));
         Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();

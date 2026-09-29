@@ -40,6 +40,7 @@ public:
     void testExportRoblox(const std::string& path);
     void testMesh(const std::string& steps);    // --test-mesh "enter,face,top,extrude"
     void testAnimation(int frame);               // --test-anim
+    void testCollisions();                       // --test-collide
     void setMode(StudioMode mode);               // Build / Modeling / Simulate / Play
 
 private:

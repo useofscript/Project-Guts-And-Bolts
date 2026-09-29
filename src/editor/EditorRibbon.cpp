@@ -151,11 +151,14 @@ void Editor::renderToolbar() {
     bg->AddRectFilled(ImVec2(origin.x, origin.y + tabsH), ImVec2(origin.x + width, origin.y + tabsH + ribbonH), kRibbonBg);
     bg->AddLine(ImVec2(origin.x, origin.y + tabsH + ribbonH - 1), ImVec2(origin.x + width, origin.y + tabsH + ribbonH - 1),
                 IM_COL32(26, 26, 26, 255));
-    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "PLUGINS", "MESH"};
+    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "PLUGINS", "MESH", "AVATAR"};
     const bool modeling = m_state.mode == StudioMode::Modeling;
-    int tabCount = modeling ? 6 : 5;   // MESH only shows up in Modeling mode
+    // Shown in Roblox Studio's order; MESH only shows up in Modeling mode.
+    const int order[] = {0, 1, 6, 2, 3, 4, 5};
+    int tabCount = modeling ? 7 : 6;
     float x = origin.x + 10;
-    for (int i = 0; i < tabCount; ++i) {
+    for (int oi = 0; oi < tabCount; ++oi) {
+        const int i = order[oi];
         ImVec2 ts = ImGui::CalcTextSize(tabs[i]);
         ImVec2 a(x, origin.y), b(x + ts.x + 24, origin.y + tabsH);
         ImGui::SetCursorScreenPos(a);
@@ -262,9 +265,21 @@ void Editor::renderToolbar() {
                 Stack st;
                 if (smallButton("Anchor", Icons::Id::Anchor, sel && sel->anchored && sel->isPart(), editable, "Anchor: stays put (Alt+A)"))
                     toggleAnchored();
-                if (smallButton("Snap", Icons::Id::Snap, m_state.snapEnabled, true, "Snap to grid")) m_state.snapEnabled = !m_state.snapEnabled;
+                if (smallButton("Snap", Icons::Id::Snap, m_state.snapEnabled, true, "Move in steps of the grid (studs: MODEL tab)"))
+                    m_state.snapEnabled = !m_state.snapEnabled;
                 if (smallButton(m_state.gizmoLocal ? "Local" : "World", Icons::Id::Transform, false, true, "Local / world axes (Ctrl+L)"))
                     m_state.gizmoLocal = !m_state.gizmoLocal;
+            }
+            {
+                Stack st;
+                if (smallButton("Collide", Icons::Id::Collide, m_state.collisions, true,
+                                "Collisions: moved parts stop flush against others instead of going through"))
+                    m_state.collisions = !m_state.collisions;
+                if (smallButton("Rot snap", Icons::Id::Rotate, m_state.rotSnapEnabled, true,
+                                "Turn in steps (degrees: MODEL tab)"))
+                    m_state.rotSnapEnabled = !m_state.rotSnapEnabled;
+                if (smallButton("Grid", Icons::Id::Snap, m_state.showGrid, true, "Show the floor grid"))
+                    m_state.showGrid = !m_state.showGrid;
             }
         }
         test(m_playing, false);   // Pause only while testing (Pause and Step are always on the TEST tab)
@@ -280,11 +295,21 @@ void Editor::renderToolbar() {
         {
             Group g("Snap to Grid");
             ImGui::BeginGroup();
-            ImGui::Checkbox("Move", &m_state.snapEnabled);
-            ImGui::SetNextItemWidth(70);
-            ImGui::DragFloat("studs##mv", &m_state.snapTranslate, 0.05f, 0.05f, 50.0f, "%.2f");
-            ImGui::SetNextItemWidth(70);
+            ImGui::Checkbox("Move##snapmv", &m_state.snapEnabled);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Move (and resize) in steps of this many studs; the grid follows");
+            ImGui::SameLine(80);
+            ImGui::SetNextItemWidth(60);
+            ImGui::DragFloat("studs##mv", &m_state.snapTranslate, 0.05f, 0.05f, 64.0f, "%.2f");
+            ImGui::Checkbox("Rotate##snaprot", &m_state.rotSnapEnabled);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn in steps of this many degrees");
+            ImGui::SameLine(80);
+            ImGui::SetNextItemWidth(60);
             ImGui::DragFloat("deg##rot", &m_state.snapRotate, 1.0f, 1.0f, 180.0f, "%.0f");
+            ImGui::Checkbox("Collisions", &m_state.collisions);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Moved parts stop flush against other parts instead of going through them");
+            ImGui::SameLine();
+            ImGui::Checkbox("Grid", &m_state.showGrid);
             ImGui::EndGroup();
             ImGui::SameLine(0, 4);
         }
@@ -336,14 +361,6 @@ void Editor::renderToolbar() {
             }
         }
         {
-            Group g("Animation");
-            if (bigButton("Rig", Icons::Id::Rig, false, !m_playing, "Insert a dummy character to animate (or use as an NPC)"))
-                insertObject("Rig", nullptr);
-            if (bigButton("Animation Editor", Icons::Id::Animation, m_showPanel[kPanelAnimation], !m_playing,
-                          "Make animations for a rig: pose its parts on a timeline"))
-                openAnimationEditor();
-        }
-        {
             Group g("Align");
             ImGui::BeginGroup();
             static int axis = 0;
@@ -369,6 +386,24 @@ void Editor::renderToolbar() {
             if (bigButton("Player", Icons::Id::Player, false, true, "Walk speed, jump, death and gore")) m_showPanel[kPanelPlayer] = true;
             if (bigButton("Lighting", Icons::Id::Lighting, false, true)) m_showPanel[kPanelLighting] = true;
         }
+        break;
+    }
+    case 6: {   // AVATAR
+        {
+            Group g("Rig");
+            if (bigButton("Rig Builder", Icons::Id::Rig, false, !m_playing, "Insert a dummy character to animate (or use as an NPC)"))
+                insertObject("Rig", nullptr);
+        }
+        {
+            Group g("Animation");
+            if (bigButton("Animation Editor", Icons::Id::Animation, m_showPanel[kPanelAnimation], !m_playing,
+                          "Make animations for a rig: pose its parts on a timeline"))
+                openAnimationEditor();
+            if (bigButton("Animation", Icons::Id::Animation, false, !m_playing && sel,
+                          "Add an Animation object to the selected rig (then open it in the Animation Editor)"))
+                insertObject("Animation", sel);
+        }
+        tools();
         break;
     }
     case 4:     // PLUGINS

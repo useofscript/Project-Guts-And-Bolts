@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-select")) opts.testSelect = next();
         else if (!std::strcmp(argv[i], "--test-mesh")) opts.testMesh = next();
         else if (!std::strcmp(argv[i], "--test-anim")) opts.testAnim = true;
+        else if (!std::strcmp(argv[i], "--test-collide")) opts.testCollide = true;
         else if (!std::strcmp(argv[i], "--test-mouse")) opts.testMouse = next();
         else if (!std::strcmp(argv[i], "--test-command")) opts.testCommand = next();
         else if (!std::strcmp(argv[i], "--export-roblox")) opts.exportRoblox = next();

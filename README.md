@@ -202,7 +202,7 @@ to see them all.
 | Local / world gizmo | `Ctrl+L` |
 | Fly the camera | Hold right mouse + `W` `A` `S` `D`, `Q` / `E` down / up, `Shift` faster |
 | Look / pan / zoom | Right-drag / middle-drag / wheel (Shift + middle-drag orbits) |
-| Focus on selection | `F` |
+| Zoom to the selection (parts, models, tools) | `F` |
 | Pick the part inside a Model | `Alt+click` |
 | Pick several things | `Ctrl+click` or `Shift+click` |
 | Select all / parent / children / nothing | `Ctrl+A` / `Ctrl+Up` / `Ctrl+Down` / `Esc` |
@@ -223,6 +223,16 @@ to see them all.
 
 Copy, paste, duplicate, delete, hide, lock, anchor and the move tool all work
 on everything you've selected at once.
+
+**Snapping, the grid and collisions** (MODEL tab > Snap to Grid, or the
+buttons in HOME > Edit):
+
+- **Move** snaps moving (and resizing) to steps of however many studs you type,
+  and the floor grid follows that size. **Rotate** snaps turning to steps of
+  so many degrees. **Grid** shows or hides the floor grid.
+- **Collisions**: parts you move stop flush against other parts instead of
+  going through them, and can't be turned or resized into them. (Things
+  already overlapping when you start can still move apart.)
 
 ## Scripting (Lua)
 
@@ -332,6 +342,58 @@ Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
 **Bat** in *Demolition Yard*. Tools work in single player and for the host
 of an online game; people who join someone else's game can't carry tools
 yet.
+
+## Animations (the Animation Editor)
+
+Like Roblox's: make an animation in Studio, then play it from a script.
+
+1. **AVATAR tab > Rig Builder** puts a dummy character in the world (or use
+   any Model made of parts, like your own character).
+2. **AVATAR tab > Animation Editor** opens the timeline along the bottom.
+   Select the rig and press **Animate**, then **New** to make an Animation
+   (it's saved inside the rig).
+3. Move the red playhead to a time, click a body part, and turn it with the
+   **Rotate** tool (or move it with Move). That adds a keyframe there. The
+   handles sit on the joint, so arms turn at the shoulder, legs at the hip and
+   heads at the neck. You can also type exact numbers in the panel on the right.
+4. **Play** shows it moving. Drag keyframes to change their timing,
+   right-click one for its **easing** (Linear, Constant, Cubic, Elastic,
+   Bounce; In / Out / InOut), to name it, copy it or delete it. Tick **Loop**
+   for things like idles and dances, and pick a **Priority** (Core, Idle,
+   Movement, Action: higher wins when two animations move the same part).
+
+While the editor is open the rig is only *shown* posed: saving, undo and
+Play all see it exactly as you built it. Close the editor (or press
+**Done**) to put it back.
+
+Arms and legs hang off the torso like Roblox's R6 (and R15) characters, so
+turning the Torso takes the arms and head with it. For your own models, a
+part inside another part follows it, and an **Attachment named `Pivot`**
+inside a part sets where it bends.
+
+Play an animation from a script:
+
+```lua
+-- On your character (like a Roblox LocalScript):
+local character = game.Players.LocalPlayer.Character
+local humanoid = character:WaitForChild("Humanoid")
+local animator = humanoid:WaitForChild("Animator")
+local wave = animator:LoadAnimation(workspace.Wave)   -- an Animation object
+wave:Play()                 -- :Play(fadeTime, weight, speed)
+wave.Stopped:Wait()
+
+-- On any rig (an NPC, a door, a machine): model:LoadAnimation(animation)
+local dance = workspace.Rig:LoadAnimation(workspace.Rig.Dance)
+dance.Looped = true
+dance:Play()
+dance.KeyframeReached:Connect(function(name) print("reached", name) end)
+```
+
+An AnimationTrack has `Play`, `Stop(fadeTime)`, `AdjustSpeed`,
+`AdjustWeight`, `GetTimeOfKeyframe`, and `IsPlaying`, `Length`, `Looped`,
+`Speed`, `TimePosition`, `Priority`, plus the `Stopped`, `Ended`, `DidLoop`
+and `KeyframeReached` events. Animations play on top of walking: an
+animation that moves the arms takes over the arms, and the legs keep walking.
 
 ## Leaderboard, checkpoints and saved data
 

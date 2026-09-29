@@ -25,7 +25,10 @@ struct ModelingState {
 struct EditorState {
     GizmoTool tool        = GizmoTool::Translate;
     bool      gizmoLocal  = true;   // gizmo orientation: local vs. world space
-    bool      snapEnabled = false;
+    bool      snapEnabled = false;   // Move (and Scale) go in steps of snapTranslate studs
+    bool      rotSnapEnabled = false; // Rotate goes in steps of snapRotate degrees
+    bool      collisions  = false;   // moved parts stop against others instead of going through
+    bool      showGrid    = true;
 
     StudioMode    mode = StudioMode::Build;
     ModelingState modeling;
