@@ -9,7 +9,7 @@
 namespace Online {
 
 bool validKind(const std::string& k) {
-    return k == "hat" || k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game";
+    return k == "hat" || k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal";
 }
 bool isClothing(const std::string& k) { return k == "hat" || k == "shirt" || k == "pants"; }
 
@@ -17,6 +17,7 @@ long long uploadFee(const std::string& k) {
     if (isClothing(k)) return kFeeClothing;
     if (k == "audio") return kFeeAudio;
     if (k == "plugin") return kFeePlugin;
+    if (k == "decal") return kFeeDecal;
     return kFeeGame;
 }
 
@@ -24,6 +25,7 @@ size_t maxSize(const std::string& k) {
     if (k == "audio") return kMaxAudio;
     if (k == "game") return kMaxGame;
     if (k == "plugin") return kMaxPlugin;
+    if (k == "decal") return kMaxDecal;
     return 64u * 1024u;   // clothing is just a little description of the look
 }
 
@@ -34,6 +36,7 @@ const char* kindTitle(const std::string& k) {
     if (k == "audio") return "Audio";
     if (k == "plugin") return "Plugin";
     if (k == "game") return "Game";
+    if (k == "decal") return "Decal";
     return "?";
 }
 
