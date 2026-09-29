@@ -50,6 +50,7 @@ public:
     void fireTag(bool added, uint64_t id, const std::string& tag);
     void fireTool(SignalKind kind, uint64_t toolId);   // Activated / Deactivated / Equipped / Unequipped
     void fireValueChanged(uint64_t valueId);            // an IntValue etc. changed (.Changed)
+    void fireAnimationEvents();                         // AnimationTracks: Stopped, KeyframeReached...
     // DataStoreService's saved data for this game (a file in the player's account folder).
     const nlohmann::json& saveData();
     void setSaveData(const std::string& store, const std::string& key, const nlohmann::json& value);

@@ -240,9 +240,10 @@ mbedtls_x509_crt* trustedCerts(std::string& error) {
 }
 
 std::string tlsError(int code) {
-    char buf[160];
+    char buf[160], hex[16];
     mbedtls_strerror(code, buf, sizeof(buf));
-    return buf;
+    std::snprintf(hex, sizeof(hex), " [-0x%04X]", (unsigned)-code);
+    return std::string(buf) + hex;
 }
 
 } // namespace
@@ -299,6 +300,9 @@ bool Connection::Web::startTls(const std::string& hostName, std::string& error, 
         error = "Couldn't start a secure connection.";
         return false;
     }
+    // TLS 1.2: every server speaks it, and mbedTLS's TLS 1.3 client failed
+    // against Cloudflare on some computers ("SSL - Internal error").
+    mbedtls_ssl_conf_max_tls_version(&conf, MBEDTLS_SSL_VERSION_TLS1_2);
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&conf, certs, nullptr);
     mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &drbg);

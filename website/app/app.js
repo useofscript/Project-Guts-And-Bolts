@@ -2,6 +2,7 @@
 // create, friends, people, groups, Bolts, sign up / log in) in a browser.
 // Pages are picked by the address after '#', like #/games or #/user/12.
 import * as gb from './gb.js';
+import { mountAvatar, avatarPicture } from './avatar3d.js';
 
 // --- small helpers ------------------------------------------------------------
 
@@ -402,19 +403,59 @@ pages.user = async (id) => {
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
           : html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`;
   const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => ['hat', 'shirt', 'pants'].includes(a.kind));
-  const worn = u.avatar && Array.isArray(u.avatar.wearing) && u.avatar.wearing.length
-    ? (await pageCall('list', { kind: 'clothing', limit: 100 })).assets || [] : [];
-  show(html`<div class="row top"><div class="box" style="text-align:center;margin:0 16px 10px 0">
-      ${avatarSvg(u.avatar, 120, worn.filter((a) => u.avatar.wearing.includes(a.id)))}</div><div class="grow">
-    <h1>${u.username}${verified(u.verified)}</h1>
-    <p class="muted">User #${u.userId} · joined ${ago(u.created)} · ${r.friendCount} friends
-      ${u.official ? html` · <b>Guts&amp;Bolts staff</b>` : ''}${u.banned ? html` · <span class="error">banned</span>` : ''}</p>
-    ${(r.user.badges || []).length ? html`<p>Badges: ${r.user.badges.map((b) => html`<span class="btn small" style="cursor:default">${b}</span> `)}</p>` : ''}
-    <p>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Change my avatar</a>` : ''}</p></div></div>
-    <h2>Games</h2>${games.length ? html`<div class="grid">${games.map(gameCard)}</div>` : html`<p class="muted">None yet.</p>`}
-    <h2>Creations</h2>${items.length ? html`<div class="grid">${items.map(itemCard)}</div>` : html`<p class="muted">None yet.</p>`}
-    <h2>Groups</h2>${r.groups.length ? html`<div class="list">${r.groups.map((g) => html`<div><a class="grow" href="#/group/${g.id}">${g.name}</a>
-      <span class="muted small">${g.role}</span></div>`)}</div>` : html`<p class="muted">None yet.</p>`}`);
+  // What they wear (older servers don't say: look it up in the catalog).
+  let worn = r.wearing;
+  if (!worn) {
+    const ids = u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
+    worn = ids.length ? ((await pageCall('list', { kind: 'clothing', limit: 100 })).assets || []).filter((a) => ids.includes(a.id)) : [];
+  }
+  const friends = r.friends || [];
+  const badgeNames = { admin: 'Administrator', verified: 'Verified', staff: 'Staff', tester: 'Tester', bughunter: 'Bug Hunter', featured: 'Featured Creator' };
+  const online = r.online === undefined ? null : r.online;
+  show(html`<div class="profile-head">
+      <h1>${u.username}${verified(u.verified)}</h1>
+      ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
+      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>` : ''}</div>
+    <div class="profile">
+      <div class="profile-left">
+        <div class="box avatar-box"><div id="profileAvatar">${avatarSvg(u.avatar, 200, worn)}</div>
+          <div class="small muted">Drag to turn</div></div>
+        <div class="box"><h2 class="boxhead">Currently Wearing</h2>
+          ${worn.length ? html`<div class="wearing">${worn.map((it) => html`<a class="card square" href="#/item/${it.id}" title="${it.name}">
+              <div class="pic">${itemIcon(it)}</div><div class="name small">${it.name}</div></a>`)}</div>`
+            : html`<p class="muted small">Nothing from the catalog${u.avatar && u.avatar.hat ? ' (just a hat)' : ''}.</p>`}</div>
+        <div class="box"><h2 class="boxhead">Statistics</h2>
+          <table class="stats"><tr><td>Joined</td><td>${new Date(u.created * 1000).toLocaleDateString()} (${ago(u.created)})</td></tr>
+            <tr><td>User number</td><td>#${u.userId}</td></tr>
+            <tr><td>Friends</td><td>${r.friendCount}</td></tr>
+            ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
+            <tr><td>Games made</td><td>${games.length}</td></tr></table>
+          ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned</p>` : ''}</div>
+        ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Badges</h2><div class="row">
+          ${u.badges.map((b) => html`<span class="badge-pill">${badgeNames[b] || b}</span>`)}</div></div>` : ''}
+      </div>
+      <div class="profile-right">
+        <div class="box"><h2 class="boxhead">Friends (${r.friendCount})${f === 'self' ? html` <a class="small" href="#/friends" style="float:right">See all</a>` : ''}</h2>
+          ${friends.length ? html`<div class="friends-grid">${friends.map((p) => html`<a class="friend" href="#/user/${p.userId}">
+              <div class="friend-pic" data-friend-avatar="${p.id}">${avatarSvg(p.avatar, 60)}</div>
+              <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span>${p.username || p.name}</div></a>`)}</div>`
+            : html`<p class="muted small">${f === 'self' ? 'No friends yet. Find people on the People page!' : 'No friends yet.'}</p>`}</div>
+        <div class="box"><h2 class="boxhead">Games</h2>
+          ${games.length ? html`<div class="grid">${games.map(gameCard)}</div>` : html`<p class="muted small">None yet.</p>`}</div>
+        ${items.length ? html`<div class="box"><h2 class="boxhead">Creations</h2><div class="grid">${items.map(itemCard)}</div></div>` : ''}
+        <div class="box"><h2 class="boxhead">Groups</h2>
+          ${r.groups.length ? html`<div class="list">${r.groups.map((g) => html`<div><a class="grow" href="#/group/${g.id}">${g.name}</a>
+            <span class="muted small">${g.role}</span></div>`)}</div>` : html`<p class="muted small">None yet.</p>`}</div>
+      </div>
+    </div>`);
+  // The 3D avatar (the flat one stays if the browser can't do 3D).
+  mountAvatar($('#profileAvatar'), u.avatar, worn, { width: 220 }).catch(() => {});
+  for (const p of friends) {
+    avatarPicture(p.avatar, [], 60).then((url) => {
+      const box = view.querySelector(`[data-friend-avatar="${p.id}"]`);
+      if (url && box) box.innerHTML = html`<img src="${url}" alt="" width="60" height="75">`.s;
+    }).catch(() => {});
+  }
 };
 
 pages.friends = async () => {
@@ -512,6 +553,7 @@ pages.avatar = async () => {
   show(html`<h1>Avatar</h1>
     <div class="row top">
       <div class="box" style="text-align:center;margin-right:16px"><div id="avatarPreview">${avatarSvg(a, 180, wornItems)}</div>
+        <div class="small muted">Drag to turn</div>
         <p><button class="btn green" data-act="saveAvatar">Save</button>
           <button class="btn" data-act="resetAvatar">Undo changes</button></p>
         <p class="small muted" style="max-width:200px">Your avatar is the same in the app and on the website.</p></div>
@@ -534,7 +576,12 @@ pages.avatar = async () => {
           : html`<p class="muted">You don't have any clothes yet. Get some in the <a href="#/catalog">Catalog</a>!</p>`}
       </div></div>`);
   // Colours change the preview straight away (without redrawing the page, so the colour picker stays open).
-  const preview = () => { $('#avatarPreview').innerHTML = avatarSvg(a, 180, wornItems).s; };
+  let avatar3d = null;
+  const preview = () => {
+    if (avatar3d) avatar3d.set(a, wornItems);
+    else $('#avatarPreview').innerHTML = avatarSvg(a, 180, wornItems).s;
+  };
+  mountAvatar($('#avatarPreview'), a, wornItems, { width: 240 }).then((c) => { avatar3d = c; }).catch(() => {});
   view.querySelectorAll('[data-avatar-part]').forEach((inp) => inp.addEventListener('input', () => {
     a[inp.dataset.avatarPart] = fromHex(inp.value); preview();
   }));

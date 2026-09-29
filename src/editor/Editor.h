@@ -19,6 +19,7 @@ class ToolboxPanel;
 class PlayerPanel;
 class OutputPanel;
 class ScriptEditorPanel;
+class AnimationEditor;
 class TeamCreate;
 class Plugins;
 
@@ -38,6 +39,8 @@ public:
     void testSnapshot(const std::string& file);   // --test-snapshot
     void testExportRoblox(const std::string& path);
     void testMesh(const std::string& steps);    // --test-mesh "enter,face,top,extrude"
+    void testAnimation(int frame);               // --test-anim
+    void testCollisions();                       // --test-collide
     void setMode(StudioMode mode);               // Build / Modeling / Simulate / Play
 
 private:
@@ -123,6 +126,7 @@ private:
     std::unique_ptr<PlayerPanel>       m_player;
     std::unique_ptr<OutputPanel>       m_output;
     std::unique_ptr<ScriptEditorPanel> m_scriptEditor;
+    std::unique_ptr<AnimationEditor>   m_animEditor;
     std::unique_ptr<TeamCreate>        m_team;
     std::unique_ptr<Plugins>           m_plugins;
     // Online
@@ -156,8 +160,10 @@ private:
     std::vector<std::string> m_cmdHistory;
     int                      m_cmdHistoryPos = -1;
     enum Panel { kPanelExplorer, kPanelProperties, kPanelToolbox, kPanelOutput, kPanelCommandBar, kPanelScript,
-                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelCount };
-    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true};
+                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelAnimation, kPanelCount };
+    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true, false};
+    void                     openAnimationEditor();
+    bool                     m_focusAnim = false;
     std::function<void()>    m_deferred;       // tree changes asked for while the Explorer was drawing
 
     std::string m_path;                         // current file ("" = never saved)

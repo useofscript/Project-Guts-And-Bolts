@@ -16,6 +16,7 @@
 #include "panels/PlayerPanel.h"
 #include "panels/OutputPanel.h"
 #include "panels/ScriptEditorPanel.h"
+#include "panels/AnimationEditor.h"
 #include "TeamCreate.h"
 #include "../scene/Scene.h"
 #include "../scene/Player.h"
@@ -76,6 +77,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_player       = std::make_unique<PlayerPanel>(scene);
     m_output       = std::make_unique<OutputPanel>();
     m_scriptEditor = std::make_unique<ScriptEditorPanel>(scene);
+    m_animEditor   = std::make_unique<AnimationEditor>(scene, &m_state);
     m_team         = std::make_unique<TeamCreate>(scene);
     m_viewport->setTeam(m_team.get());
 
@@ -130,6 +132,7 @@ void Editor::render(float dt) {
         if (p && !m_session->runOnly()) m_viewport->frameOn(p->focusPoint());   // Run: the camera stays free
     }
     buildDockspace();
+    if (!m_playing) m_animEditor->update(dt, m_viewport->gizmoInUse());   // show the rig posed
     m_viewport->render(dt);
     if (m_showPanel[kPanelExplorer]) m_outliner->render();
     if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
@@ -148,6 +151,14 @@ void Editor::render(float dt) {
     renderDialogs();
     renderShortcuts();
     if (m_showPanel[kPanelTeam]) renderTeamPanel();
+    if (m_showPanel[kPanelAnimation] && !m_playing) {
+        // A tab next to Output (like Roblox's, along the bottom), in front when just opened.
+        if (ImGuiWindow* out = ImGui::FindWindowByName("Output"); out && out->DockId)
+            ImGui::SetNextWindowDockID(out->DockId, ImGuiCond_FirstUseEver);
+        if (m_focusAnim) { ImGui::SetNextWindowFocus(); m_focusAnim = false; }
+        m_animEditor->render(&m_showPanel[kPanelAnimation]);
+    }
+    if (!m_showPanel[kPanelAnimation] && m_animEditor->editing()) m_animEditor->close();
     SettingsWindow::draw(&m_showSettings);
     if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 
@@ -161,6 +172,7 @@ void Editor::render(float dt) {
 
 void Editor::togglePlay() {
     if (!m_playing) {
+        m_animEditor->close();   // the rig goes back how it really is
         // Remember the world exactly as it is, so Stop can put it back.
         m_playSnapshot = Serializer::saveScene(*m_scene);
         m_playing = true;
@@ -291,6 +303,15 @@ void Editor::addScript(SceneNode* parent) {
     openScript(raw);
 }
 
+void Editor::openAnimationEditor() {
+    m_showPanel[kPanelAnimation] = true;
+    m_focusAnim = true;
+    SceneNode* sel = m_scene->selected();
+    if (sel && !m_animEditor->editing() && (Anim::rigOf(sel) || (sel->kind == NodeKind::Model && sel->parent)) &&
+        !Anim::rigParts(sel->kind == NodeKind::Model && sel->parent ? sel : Anim::rigOf(sel)).empty())
+        m_animEditor->editRig(sel);
+}
+
 void Editor::addModel() {
     SceneNode* m = m_scene->insert(std::make_unique<SceneNode>("Model", NodeKind::Model));
     m_scene->select(m);
@@ -313,6 +334,111 @@ void Editor::testExportRoblox(const std::string& path) {
     std::string err;
     if (RobloxFile::exportPlace(*m_scene, path, err)) Log::system("Exported " + path);
     else Log::error(err);
+}
+
+void Editor::testAnimation(int frame) {
+    auto rig = [&]() -> SceneNode* {
+        SceneNode* found = nullptr;
+        m_scene->forEach([&](SceneNode* n) { if (!found && n->name == "Rig" && n->kind == NodeKind::Model) found = n; });
+        return found;
+    };
+    auto arm = [&]() { SceneNode* r = rig(); return r ? r->findChild("Right Arm") : nullptr; };
+    auto show = [&](const char* what) {
+        SceneNode* a = arm();
+        if (!a) return;
+        glm::vec3 w(a->worldMatrix()[3]);
+        char buf[200];
+        std::snprintf(buf, sizeof(buf), "ANIMTEST %s t=%.2f arm local pos %.2f %.2f %.2f rot %.1f %.1f %.1f world %.2f %.2f %.2f",
+                      what, m_animEditor->time(), a->transform.position.x, a->transform.position.y, a->transform.position.z,
+                      a->transform.rotation.x, a->transform.rotation.y, a->transform.rotation.z, w.x, w.y, w.z);
+        Log::info(buf);
+    };
+    switch (frame) {
+    case 5:
+        insertObject("Rig", nullptr);
+        openAnimationEditor();
+        break;
+    case 8: {   // New animation
+        auto a = std::make_unique<SceneNode>("Wave", NodeKind::Animation);
+        a->source = Anim::emptyClipText();
+        m_scene->insert(std::move(a), rig());
+        break;
+    }
+    case 12:   // turn the arm forward at 0 s (like dragging the Rotate tool)
+        m_scene->select(arm());
+        arm()->transform.rotation.x = -90.0f;
+        break;
+    case 16:
+        m_animEditor->testSetTime(1.0f);
+        break;
+    case 20:   // and up over the head at 1 s
+        arm()->transform.rotation = glm::vec3(0.0f, 0.0f, 170.0f);
+        break;
+    case 24:
+        m_animEditor->testSetTime(0.5f);
+        break;
+    case 28: {
+        show("half-way");
+        auto j = nlohmann::json::parse(Serializer::nodeToString(*arm()));
+        Log::info("ANIMTEST saved arm pos " + j["pos"].dump() + " rot " + j["rot"].dump());
+        SceneNode* w = nullptr;
+        m_scene->forEach([&](SceneNode* n) { if (n->isAnimation()) w = n; });
+        if (w) Log::info("ANIMTEST clip " + w->source);
+        break;
+    }
+    case 30:
+        m_animEditor->testSetTime(0.0f);
+        break;
+    case 34:
+        show("at 0");
+        undo();   // the last key (the arm up at 1 s) goes away
+        break;
+    case 38: {
+        SceneNode* w = nullptr;
+        m_scene->forEach([&](SceneNode* n) { if (n->isAnimation()) w = n; });
+        if (w) Log::info("ANIMTEST after undo " + w->source);
+        redo();
+        m_animEditor->testSetTime(0.75f);
+        break;
+    }
+    case 42:
+        show("0.75 after redo");
+        break;
+    }
+}
+
+void Editor::testCollisions() {
+    // Two 2-stud blocks, B at x = 5; slide A from x = 0 to x = 4.5 (into B), then turn it.
+    auto block = [&](const char* name, float x) {
+        SceneNode* n = addPrimitive("Cube", PrimitiveType::Cube);
+        n->name = name;
+        n->transform.position = {x, 20.0f, 0.0f};
+        n->transform.scale = glm::vec3(2.0f);
+        return n;
+    };
+    SceneNode* a = block("A", 0.0f);
+    block("B", 5.0f);
+    std::vector<SceneNode*> movers{a};
+    std::vector<Transform> before{a->transform};
+    auto hit0 = ViewportPanel::collisionsOf(*m_scene, movers);
+    a->transform.position.x = 4.5f;
+    ViewportPanel::stopAtCollisions(*m_scene, movers, before, hit0, true);
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "COLLIDE slide: A.x = %.3f (flush = 3.000)", a->transform.position.x);
+    Log::info(buf);
+    before = {a->transform};
+    hit0 = ViewportPanel::collisionsOf(*m_scene, movers);
+    a->transform.rotation.y = 45.0f;   // a turned corner would poke into B
+    ViewportPanel::stopAtCollisions(*m_scene, movers, before, hit0, false);
+    std::snprintf(buf, sizeof(buf), "COLLIDE turn: A.rotY = %.1f (blocked = 0.0)", a->transform.rotation.y);
+    Log::info(buf);
+    a->transform.position.x = -3.0f;   // away from B, turning is fine
+    before = {a->transform};
+    hit0 = ViewportPanel::collisionsOf(*m_scene, movers);
+    a->transform.rotation.y = 45.0f;
+    ViewportPanel::stopAtCollisions(*m_scene, movers, before, hit0, false);
+    std::snprintf(buf, sizeof(buf), "COLLIDE free turn: A.rotY = %.1f (45.0)", a->transform.rotation.y);
+    Log::info(buf);
 }
 
 void Editor::testSelect(const std::string& names) {
@@ -496,6 +622,7 @@ void Editor::toggleHidden() {
 
 void Editor::newScene() {
     if (m_playing) togglePlay();
+    m_animEditor->close();
     m_scene->buildDefault();
     m_objCounter = 0;
     m_path.clear();
@@ -505,6 +632,7 @@ void Editor::newScene() {
 
 void Editor::openFile(const std::string& path) {
     if (m_playing) togglePlay();
+    m_animEditor->close();
     if (RobloxFile::isRobloxFile(path)) {
         RobloxFile::Report report;
         std::string err;
@@ -613,6 +741,12 @@ void Editor::handleShortcuts() {
     if (m_state.mode == StudioMode::Modeling) { handleModelingKeys(); return; }
     // Tab: reshape the selected part (Blender's Edit Mode).
     if (ImGui::IsKeyPressed(ImGuiKey_Tab, false) && !io.KeyCtrl && !io.KeyAlt) { setMode(StudioMode::Modeling); return; }
+    // F: zoom to the selection (things with a body only), from any panel.
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !io.KeyCtrl && !io.KeyAlt && !io.KeyShift &&
+        !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+        if (!m_viewport->focusSelected() && m_scene->selected())
+            Log::info("F zooms to things with a body (parts, models, tools) - \"" + m_scene->selected()->name + "\" has none.");
+    }
 
     if (io.KeyAlt) {
         if (ImGui::IsKeyPressed(ImGuiKey_L, false)) toggleLocked();
@@ -785,6 +919,18 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         v->value.type = what == "StringValue" ? Attribute::String : what == "BoolValue" ? Attribute::Bool : Attribute::Number;
         put(std::move(v));
     }
+    else if (what == "Animation") {
+        // Animations usually live inside the rig they move.
+        auto a = std::make_unique<SceneNode>("Animation", NodeKind::Animation);
+        a->source = Anim::emptyClipText();
+        put(std::move(a));
+    }
+    else if (what == "Rig") {
+        // A classic R6 dummy to animate (or to use as an NPC).
+        SceneNode* rig = Player::buildRig(*m_scene, "Rig", spawnPoint());
+        if (parent && parent != m_scene->root()) m_scene->reparent(rig, parent);
+        m_scene->select(rig);
+    }
     else if (what == "Decal") {
         auto d = std::make_unique<SceneNode>("Decal", NodeKind::Decal);
         d->color = {1.0f, 1.0f, 1.0f};
@@ -825,6 +971,7 @@ void Editor::renderInsertObject() {
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
+        {"Animation", Icons::Id::Animation}, {"Rig", Icons::Id::Rig},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;
@@ -911,7 +1058,7 @@ void Editor::renderShortcuts() {
          {"Right-drag", "Look around"},
          {"Middle-drag", "Pan (Shift+middle-drag orbits)"},
          {"Mouse wheel", "Zoom"},
-         {"F", "Focus the camera on the selection"}},
+         {"F", "Zoom to the selection (things with a body)"}},
         {{"Click", "Select (a part in a Model picks the Model)"},
          {"Alt+click", "Select just the part"},
          {"Ctrl+click / Shift+click", "Add to the selection"},
@@ -1027,6 +1174,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderDockWindow("Script Editor", center);
         ImGui::DockBuilderDockWindow("Viewport",      center);
         ImGui::DockBuilderDockWindow("Output",        bottomLeft);
+        ImGui::DockBuilderDockWindow("Animation Editor", bottomLeft);
         ImGui::DockBuilderDockWindow("Command Bar",   bottomRight);
         ImGui::DockBuilderDockWindow("Team",          bottomRight);
         ImGui::DockBuilderDockWindow("Explorer",      rightTop);

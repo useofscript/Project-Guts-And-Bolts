@@ -162,7 +162,8 @@ void GbServer::relayRequest(Client& c, const json& req) {
         c.ticket = Account::randomHex(16);
         c.since = now;
         // The host only hears a ticket (and who's coming), never an address.
-        s->control->conn->send(json{{"t", "incoming"}, {"ticket", c.ticket}, {"account", me->id}, {"name", me->name}}.dump());
+        s->control->conn->send(json{{"t", "incoming"}, {"ticket", c.ticket}, {"account", me->id}, {"name", me->name},
+                                                    {"guest", me->userId == 0}}.dump());
         return;
     }
     reply(fail("Unknown request."));

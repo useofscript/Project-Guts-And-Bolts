@@ -1,5 +1,7 @@
 #pragma once
 #include <functional>
+#include <cstdint>
+#include <vector>
 #include <memory>
 #include <glm/glm.hpp>
 #include "../../renderer/Camera.h"
@@ -13,6 +15,7 @@ class Scene;
 class GameSession;
 class TeamCreate;
 class SceneNode;
+struct Transform;
 
 // 3D viewport: renders the scene to an off-screen framebuffer and displays it
 // as an ImGui image. In edit mode it handles camera navigation, click-to-select
@@ -33,6 +36,15 @@ public:
     // A picture of the game from its spawn point, as a PNG file (for publishing).
     std::string snapshotPng(int width, int height);
     bool      gizmoInUse() const;
+    // F: glide the camera to the selected things (only ones with a body:
+    // parts, and models / tools with parts in them). False if none.
+    bool      focusSelected();
+    // Collisions: the parts `movers` go into, and after a move, pull them
+    // back to where they only just touch (sliding) or undo it (turning).
+    static std::vector<uint64_t> collisionsOf(Scene& scene, const std::vector<SceneNode*>& movers);
+    static void stopAtCollisions(Scene& scene, const std::vector<SceneNode*>& movers,
+                                 const std::vector<Transform>& before, const std::vector<uint64_t>& hitBefore,
+                                 bool sliding);
 
     // While a session is set, the viewport is in Play mode.
     void setSession(GameSession* session) { m_session = session; }
@@ -49,7 +61,6 @@ private:
                    const glm::vec2& imgMin, const glm::vec2& imgSize);
     void mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
                   const glm::mat4& view, const glm::mat4& proj, glm::vec3& ro, glm::vec3& rd) const;
-    void focusSelected();
     void modelingView(const glm::mat4& view, const glm::mat4& proj,
                       const glm::vec2& imgMin, const glm::vec2& imgSize);   // ViewportModeling.cpp
     bool drawModeMenu(ImVec2 imgPos);   // true while the mouse is on it
@@ -67,6 +78,11 @@ private:
     int  m_viewW = 0, m_viewH = 0;
     bool m_hovered = false;
     bool m_wantFocus = false;
+
+    // F "zoom to": the camera glides from -> to over a moment.
+    float     m_glide = -1.0f;              // seconds in (negative = not gliding)
+    glm::vec3 m_glideFrom{0.0f}, m_glideTo{0.0f};
+    float     m_glideDistFrom = 8.0f, m_glideDistTo = 8.0f;
 
     // Modeling mode
     glm::mat4 m_meshGizmo{1.0f};

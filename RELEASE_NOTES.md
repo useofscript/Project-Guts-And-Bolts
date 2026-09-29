@@ -1,3 +1,46 @@
+# Guts&Bolts 0.5.2: animations, guests and 3D avatars
+
+**Fixed:** "couldn't make a secure connection ... (SSL - Internal error)" when
+connecting to the online server. The apps now connect with TLS 1.2, which every
+server supports.
+
+## New
+
+**Animations, like Roblox**
+- **AVATAR tab > Rig Builder** adds a dummy character. **Animation Editor**
+  opens a timeline: move the playhead, then click a body part and turn it with
+  the Rotate tool (it bends at the shoulder, hip or neck). That makes a keyframe.
+- Drag keyframes to change their timing. Right-click one to change its easing
+  (Linear, Constant, Cubic, Elastic, Bounce), give it a name, copy it or delete
+  it. You can also loop an animation and set its priority.
+- Scripts play them: `humanoid:LoadAnimation(anim):Play()`, or
+  `model:LoadAnimation(anim)` for any rig. Tracks have Stop, speed, weight,
+  and the Stopped, DidLoop and KeyframeReached events. Animations play on top
+  of walking.
+
+**Studio**
+- **F** zooms the camera to whatever you've selected (parts, models, tools).
+- **Snap to Grid**: move in steps of any number of studs (the grid follows),
+  and turn in steps of any number of degrees. Each can be on or off.
+- **Collisions**: parts you move stop flush against other parts instead of
+  going through them.
+
+**Guests**
+- No account? Press **Play as Guest** and play any game, alone or with others.
+  Guests can't chat ("Sign up to chat with other users!"), make friends or get
+  Bolts.
+
+**Avatars and profiles**
+- The website shows your avatar in **3D** (drag to turn), on the Avatar page
+  and on profiles.
+- Profiles, on the website and in the app, look like a classic Roblox
+  profile:
+  - the 3D avatar and whether they're online;
+  - **Currently Wearing**;
+  - statistics (joined, friends, place visits);
+  - badges, friends, games and groups.
+- **Footstep sounds** while you run.
+
 # Guts&Bolts 0.5.1
 
 **Fixed:** the apps sometimes couldn't connect to the online server, with "SSL -

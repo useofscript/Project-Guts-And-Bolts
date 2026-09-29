@@ -21,6 +21,8 @@ struct LaunchOptions {
     std::string exportRoblox;      // --export-roblox <file.rbxlx> (tests)
     std::string testSnapshot;      // --test-snapshot <file.png> (tests: the picture Publish sends)
     std::string testMesh;          // --test-mesh "enter,face,top,extrude"  (tests: Modeling-mode steps)
+    bool        testAnim = false;  // --test-anim (tests: the Animation Editor)
+    bool        testCollide = false; // --test-collide (tests: Studio's Collisions)
     std::string testMouse;         // --test-mouse "click:x:y shift:x:y drag:x1:y1:x2:y2"  (tests, from frame 60)
     std::string testCommand;       // --test-command "<lua>"  (tests: run it in the Command Bar)
     std::string testPremades;      // --test-premades <comma list or "all">  (tests)

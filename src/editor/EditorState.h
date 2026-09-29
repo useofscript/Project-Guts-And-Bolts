@@ -25,7 +25,10 @@ struct ModelingState {
 struct EditorState {
     GizmoTool tool        = GizmoTool::Translate;
     bool      gizmoLocal  = true;   // gizmo orientation: local vs. world space
-    bool      snapEnabled = false;
+    bool      snapEnabled = false;   // Move (and Scale) go in steps of snapTranslate studs
+    bool      rotSnapEnabled = false; // Rotate goes in steps of snapRotate degrees
+    bool      collisions  = false;   // moved parts stop against others instead of going through
+    bool      showGrid    = true;
 
     StudioMode    mode = StudioMode::Build;
     ModelingState modeling;
@@ -36,6 +39,9 @@ struct EditorState {
     int   connectTool = -1;         // ConstraintType, or -1 when off; 5 = hinge + motor
     unsigned long long connectFirst = 0;
     float connectPoint[3] = {0, 0, 0};
+
+    // Animation Editor: the rig being animated (clicks pick its parts, not the whole model).
+    unsigned long long animRig = 0;
 
     float snapTranslate = 0.5f;     // world units
     float snapRotate    = 15.0f;    // degrees

@@ -1,0 +1,71 @@
+#pragma once
+#include <cstdint>
+#include <map>
+#include <string>
+#include "../../scene/Animation.h"
+#include "../EditorState.h"
+
+class Scene;
+class SceneNode;
+
+// Studio's Animation Editor, like Roblox's: pick a rig (a Model of parts, like
+// the Rig from the MODEL tab or your character), make or pick an Animation
+// inside it, then pose its parts at points on the timeline. Turning or moving
+// a part with the Rotate / Move tools adds a keyframe where the playhead is;
+// Play shows it moving between them.
+//
+// While it's open the rig is shown posed, but every part remembers where it
+// really is (SceneNode::restPose), so saving, undo and Play see the real rig.
+class AnimationEditor {
+public:
+    AnimationEditor(Scene* scene, EditorState* state);
+
+    void render(bool* open);              // the window
+    // Once a frame (before the Viewport draws): turn edits of the rig's
+    // parts into keyframes, and show the pose at the playhead.
+    void update(float dt, bool gizmoInUse);
+    void close();                         // stop editing: the rig goes back how it was
+    bool editing() const { return m_rig != 0; }
+    // Start on this rig (the Model around `node`).
+    void editRig(SceneNode* node);
+    // Tests.
+    void  testSetTime(float t) { m_time = t; m_playing = false; }
+    void  testPlay() { m_time = 0.0f; m_playing = true; }
+    float time() const { return m_time; }
+
+private:
+    SceneNode* rig();
+    SceneNode* animation();
+    Anim::Clip clip();                    // the Animation's keyframes (parsed)
+    void       save(const Anim::Clip& c); // write them back (undoable)
+    void       ensureRest();
+    void       setTime(float t);
+    float      snap(float t) const;
+    void       keyPart(Anim::Clip& c, SceneNode* part);   // key the part as it's posed now
+    void       drawTimeline(Anim::Clip& c);
+    void       drawToolbar(Anim::Clip& c);
+    void       drawPosePanel(Anim::Clip& c);
+
+    Scene*       m_scene;
+    EditorState* m_state;
+    uint64_t     m_rig = 0;
+    uint64_t     m_anim = 0;
+    Anim::RestPose m_rest;
+    std::map<uint64_t, Transform> m_applied;   // what we posed each part to last frame
+
+    float m_time = 0.0f;
+    float m_view = 2.0f;                  // seconds shown on the timeline
+    bool  m_playing = false;
+    int   m_fps = 60;                     // keyframes snap to 1/60 s
+
+    // The picked keyframe (part "" = the whole keyframe).
+    bool        m_hasSel = false;
+    float       m_selTime = 0.0f;
+    std::string m_selPart;
+    // Dragging a keyframe along the timeline.
+    bool        m_dragging = false;
+    float       m_dragFrom = 0.0f;
+    // Copy / paste of a keyframe's poses.
+    std::map<std::string, Anim::Pose> m_clipboard;
+    std::string m_newName;
+};

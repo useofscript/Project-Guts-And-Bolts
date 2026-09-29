@@ -37,6 +37,7 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Tool       ? "Tool"
                     : node->kind == NodeKind::Value      ? node->valueClass()
                     : node->kind == NodeKind::Decal      ? "Decal"
+                    : node->kind == NodeKind::Animation  ? "Animation"
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 

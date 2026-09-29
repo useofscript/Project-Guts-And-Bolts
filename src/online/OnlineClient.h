@@ -51,6 +51,15 @@ nlohmann::json signedRequest(const std::string& op, const nlohmann::json& args);
 // The server's host name and port, split out of serverAddress().
 bool serverHostPort(std::string& host, int& port);
 
+// Guests: playing online without an account (like Roblox's guests). They can
+// play games (on their own or with others) but not chat, make friends, buy or
+// earn Bolts. isGuest() stays false once the account is signed up.
+void        setGuest(bool on);
+bool        isGuest();
+std::string guestName();   // "Guest 1234" (the same on this device every time)
+std::string playerName();  // your name in games: the guest name for guests, else your profile's
+inline const char* kGuestChatText = "Sign up to chat with other users!";
+
 // Wait for every request to finish (tests / quitting).
 void finishAll(int timeoutMs = 30000);
 

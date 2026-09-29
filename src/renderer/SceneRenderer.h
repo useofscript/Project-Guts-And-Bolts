@@ -34,6 +34,11 @@ private:
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
     void ensureTargets(int w, int h);
     void buildGrid();
+public:
+    // The floor grid's line spacing in studs (it follows Move snapping).
+    void setGridSpacing(float studs);
+private:
+    float m_gridSpacing = 1.0f;
     void buildAxes();
 
     std::unique_ptr<Shader> m_lit, m_grid, m_sky, m_depth;

@@ -44,6 +44,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Tool:   return "Tool";
         case NodeKind::Value:  return "Value";
         case NodeKind::Decal:  return "Decal";
+        case NodeKind::Animation: return "Animation";
         default:               return "Part";
     }
 }
@@ -58,6 +59,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Tool")   return NodeKind::Tool;
     if (s == "Value")  return NodeKind::Value;
     if (s == "Decal")  return NodeKind::Decal;
+    if (s == "Animation") return NodeKind::Animation;
     return NodeKind::Part;
 }
 
@@ -90,8 +92,9 @@ json toJson(const SceneNode& n) {
     j["id"]   = n.id;
     j["name"] = n.name;
     j["kind"] = kindName(n.kind);
-    j["pos"]  = vec(n.transform.position);
-    j["rot"]  = vec(n.transform.rotation);
+    // (A part posed in the Animation Editor is saved where it really is.)
+    j["pos"]  = vec(n.restPose ? n.restPose->position : n.transform.position);
+    j["rot"]  = vec(n.restPose ? n.restPose->rotation : n.transform.rotation);
     j["size"] = vec(n.transform.scale);
     if (n.kind == NodeKind::Part) {
         j["shape"]        = shapeName(n.primitiveType);
@@ -121,6 +124,7 @@ json toJson(const SceneNode& n) {
         j["motorSpeed"] = n.motorSpeed; j["motorTorque"] = n.motorTorque;
         j["thickness"] = n.thickness; j["color"] = vec(n.color); j["enabled"] = n.enabled;
     }
+    if (n.kind == NodeKind::Animation) j["source"] = n.source;
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
         j["enabled"] = n.enabled;

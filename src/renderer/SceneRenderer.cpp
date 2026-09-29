@@ -132,17 +132,29 @@ SceneRenderer::~SceneRenderer() {
     for (auto& b : m_bloom) destroyTarget(b);
 }
 
+void SceneRenderer::setGridSpacing(float studs) {
+    studs = std::clamp(studs, 0.25f, 64.0f);
+    if (std::fabs(studs - m_gridSpacing) < 1e-4f) return;
+    m_gridSpacing = studs;
+    if (m_gridVbo)  glDeleteBuffers(1, &m_gridVbo);
+    if (m_gridVao)  glDeleteVertexArrays(1, &m_gridVao);
+    m_gridVbo = m_gridVao = 0;
+    buildGrid();
+}
+
 void SceneRenderer::buildGrid() {
     std::vector<glm::vec3> lines;
-    const int   half = 10;
-    const float ext  = (float)half;
+    // About 20 studs each way (more for big steps), at most 80 lines each way.
+    const float s    = m_gridSpacing;
+    const int   half = std::clamp((int)std::ceil(20.0f / s), 10, 80);
+    const float ext  = half * s;
     for (int i = -half; i <= half; ++i) {
         // Skip the two centre lines; they are drawn separately as coloured axes.
         if (i == 0) continue;
-        lines.push_back({(float)i, kGridY, -ext});
-        lines.push_back({(float)i, kGridY,  ext});
-        lines.push_back({-ext, kGridY, (float)i});
-        lines.push_back({ ext, kGridY, (float)i});
+        lines.push_back({i * s, kGridY, -ext});
+        lines.push_back({i * s, kGridY,  ext});
+        lines.push_back({-ext, kGridY, i * s});
+        lines.push_back({ ext, kGridY, i * s});
     }
     m_gridVertexCount = (int)lines.size();
 

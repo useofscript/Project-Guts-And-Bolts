@@ -101,6 +101,23 @@ bool configured() { return !serverAddress().empty(); }
 Status status() { return S().status; }
 const std::string& statusText() { return S().statusText; }
 bool online() { return S().status == Status::Online; }
+
+namespace { bool g_guest = false; }
+void setGuest(bool on) {
+    if (g_guest == on) return;
+    g_guest = on;
+    S().helloOut = false;
+    connect();   // tell the server our guest name
+}
+bool isGuest() { return g_guest && S().me.value("userId", 0LL) == 0; }
+std::string playerName() { return isGuest() && online() ? guestName() : Profile::get().name; }
+std::string guestName() {
+    // Four digits from the account's public ID, so it doesn't change between games.
+    const std::string& id = Account::id();
+    unsigned n = 0;
+    for (size_t i = 0; i < id.size() && i < 8; ++i) n = n * 16 + (unsigned)std::stoul(id.substr(i, 1), nullptr, 16);
+    return "Guest " + std::to_string(1000 + n % 9000);
+}
 const json& me() { return S().me; }
 const json& serverInfo() { return S().server; }
 bool verified() { return online() && S().me.value("verified", false); }
@@ -269,7 +286,7 @@ void connect() {
     Profile& p = Profile::get();
     json grants = json::array();
     for (const auto& [k, sig] : p.grants) grants.push_back({k, sig});
-    request("hello", {{"name", p.name}, {"grants", grants}, {"protocol", kProtocol}}, [](const json& r) {
+    request("hello", {{"name", isGuest() ? guestName() : p.name}, {"grants", grants}, {"protocol", kProtocol}}, [](const json& r) {
         S().helloOut = false;
         if (r.value("ok", false)) {
             takeMe(r);

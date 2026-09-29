@@ -303,6 +303,7 @@ add_library(gb_engine STATIC
     src/scene/Physics.cpp
     src/scene/RigidBodies.cpp
     src/scene/Particles.cpp
+    src/scene/Animation.cpp
     src/scene/Ragdoll.cpp
     src/scene/Effects.cpp
     src/scene/Serializer.cpp
@@ -416,6 +417,7 @@ set(EDITOR_SOURCES
     src/editor/Premades.cpp
     src/editor/TeamCreate.cpp
     src/editor/panels/ViewportPanel.cpp
+    src/editor/panels/AnimationEditor.cpp
     src/editor/panels/OutlinerPanel.cpp
     src/editor/panels/PropertiesPanel.cpp
     src/editor/panels/EnvironmentPanel.cpp

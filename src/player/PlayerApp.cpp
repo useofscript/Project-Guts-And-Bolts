@@ -165,6 +165,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     }
     std::fflush(stdout);
 
+    if (m_opts.guest) Online::setGuest(true);   // tests: "Play as Guest"
     if (m_opts.page == "avatar") m_page = Page::Avatar;
     if (m_opts.page == "games") m_page = Page::Games;
     if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
@@ -311,9 +312,9 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     Profile& me = Profile::get();
     if (Player* p = m_scene->player()) {
         me.applyTo(*p);
-        if (SceneNode* r = p->root()) r->name = me.name;   // like Roblox: the character is named after you
+        if (SceneNode* r = p->root()) r->name = Online::playerName();   // like Roblox: the character is named after you
     }
-    m_session->scripts().setPlayerName(me.name);
+    m_session->scripts().setPlayerName(Online::playerName());
     *m_soloChat = ChatLog{};
 
     m_currentTitle = m_scene->info().title;
@@ -384,9 +385,10 @@ ChatLog& PlayerApp::chat() {
 
 void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
+    if (Online::isGuest() && Online::online()) { chat().add("", Online::kGuestChatText, true); return; }
     if (m_server)      m_server->say(text);
     else if (m_client) m_client->say(text);
-    else               m_soloChat->add(Profile::get().name, text, false, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified));
+    else               m_soloChat->add(Online::playerName(), text, false, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified));
 }
 
 void PlayerApp::leaveGame() {
@@ -567,14 +569,15 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
 #endif
 
     // Account box, top-right of the banner: name, your Bolts and a link to the avatar editor.
-    std::string hi = "Hi, " + me.name;
+    const bool guest = Online::online() && Online::isGuest();
+    std::string hi = "Hi, " + (guest ? Online::guestName() : me.name);
     ImVec2 ts = ImGui::CalcTextSize(hi.c_str());
     const bool staff = Account::iAmStaff();
     const bool verifiedMe = Badges::iHave(Badges::Id::Verified);
     float badgeW = (staff ? 24.0f : 0.0f) + (verifiedMe ? 20.0f : 0.0f);
     std::string boltsText = Bolts::format(Online::online() ? Online::bolts() : Bolts::balance());
     float boltsW = 18 + 4 + ImGui::CalcTextSize(boltsText.c_str()).x;
-    float line2 = boltsW + 14 + ImGui::CalcTextSize("Edit avatar").x;
+    float line2 = boltsW + 14 + ImGui::CalcTextSize(Online::online() && Online::isGuest() ? "Sign up" : "Edit avatar").x;
     float boxW = std::max(ts.x + badgeW, line2) + 24;
     ImVec2 a(b1.x - boxW - 10, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
@@ -598,7 +601,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0.08f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-    if (ImGui::SmallButton("Edit avatar")) m_page = Page::Avatar;
+    if (guest) { if (ImGui::SmallButton("Sign up")) { m_page = Page::Login; m_loginTab = 0; } }
+    else if (ImGui::SmallButton("Edit avatar")) m_page = Page::Avatar;
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
 
@@ -1063,8 +1067,9 @@ void PlayerApp::drawGame(float dt) {
         return;
     }
 
-    // Chat: "/" or Enter starts typing.
-    if (!m_chatOpen && !io.WantTextInput && !m_paused &&
+    // Chat: "/" or Enter starts typing (not for guests: they sign up to chat).
+    const bool guestChat = Online::online() && Online::isGuest();
+    if (!m_chatOpen && !guestChat && !io.WantTextInput && !m_paused &&
         (ImGui::IsKeyPressed(ImGuiKey_Slash, false) || ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
         m_chatOpen = true;
 
@@ -1139,8 +1144,8 @@ void PlayerApp::drawGame(float dt) {
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
     if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
-    else Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
-                                             m_session->scripts().leaderstats(Profile::get().name)}});
+    else Hud::drawPlayerList(dl, pos, max, {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+                                             m_session->scripts().leaderstats(Online::playerName())}});
     drawChat(pos, max);
 
     // "+5 Bolts for playing!" popup, top middle.
@@ -1234,6 +1239,15 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
             if (ImGui::Button("X", ImVec2(-1, 0))) { m_chatOpen = false; m_chatInput.clear(); }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_chatOpen = false; m_chatInput.clear(); }
+    } else if (Online::online() && Online::isGuest()) {
+        // Greyed out, with the reason, like Roblox's guests.
+        ImGui::BeginDisabled();
+        static std::string none;
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##guestsay", Online::kGuestChatText, &none, ImGuiInputTextFlags_ReadOnly);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Guests can't chat. Leave the game and sign up (it's free) to talk to other players.");
     } else {
         if (!touch) ImGui::TextDisabled("Press / to chat");
     }
