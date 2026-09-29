@@ -320,6 +320,7 @@ add_library(gb_engine STATIC
     src/game/GameSession.cpp
     src/game/Hud.cpp
     src/game/GameGui.cpp
+    src/game/PlayCamera.cpp
     src/game/SettingsWindow.cpp
     src/game/Profile.cpp
     src/game/UpdateToast.cpp
