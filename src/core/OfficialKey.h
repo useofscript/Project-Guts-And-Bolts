@@ -7,4 +7,4 @@
 //
 // This is a *public* key: it's safe to share and to commit. The secret half
 // never leaves the owner's computer. Empty = no staff account set up yet.
-inline constexpr const char* kOfficialKey = "";
+inline constexpr const char* kOfficialKey = "78587146c5027463ff988ef3dd4da3830482f59d6ac0e16fd29548c4a2c84c45";
