@@ -278,7 +278,7 @@ function setMe(m) {
   const box = $('#me');
   if (signedIn()) {
     box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}
-      | <a href="#/bolts">${bolts(me.bolts)}</a> | <a href="#" data-act="logout">Logout</a>`.s;
+      | <a href="#/bolts">${bolts(me.bolts)}</a> | <a href="#/settings">Settings</a> | <a href="#" data-act="logout">Logout</a>`.s;
   } else {
     box.innerHTML = html`<a href="#/signup">Sign Up</a> | <a href="#/login">Login</a>`.s;
   }
@@ -791,6 +791,66 @@ pages.bolts = async () => {
       : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see your Bolts. New accounts start with 100!'}</p>`}</div>`);
 };
 
+// Forgot password: a code goes to the account's email, then pick a new password.
+pages.forgot = async () => {
+  if (signedIn()) { show(html`<h1>Forgot password</h1><p>You're logged in as ${me.username}. You can change your password in
+    <a href="#/settings">Account Settings</a>.</p>`); return; }
+  show(html`<div class="form" style="margin:0 auto">
+    <h1>Forgot your password?</h1>
+    <p class="muted">If your account has an email, we'll send it a code.</p>
+    <form data-form="forgot"><label>Username</label><input type="text" name="username" autocomplete="username" required maxlength="20">
+      <p><button class="btn blue">Email me a code</button></p><p id="forgotMsg"></p></form>
+    <form data-form="reset" id="resetForm" hidden><input type="hidden" name="username">
+      <label>Code from your email</label><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <label>New password</label><input type="password" name="password" autocomplete="new-password" required>
+      <label>New password again</label><input type="password" name="password2" autocomplete="new-password" required>
+      <p><button class="btn green big" style="width:100%">Set new password</button></p><p class="error" id="resetMsg"></p>
+      <p class="small muted">This logs your other devices out. Log in on them again with the new password.</p></form>
+    <p class="small muted">No email on your account? Log in on a device where you're still logged in (like the Guts&amp;Bolts app)
+      and add one in Account Settings, so this works next time.</p></div>`);
+};
+
+// Account Settings: email, two-step verification, password.
+pages.settings = async () => {
+  if (!signedIn()) { show(html`<h1>Account Settings</h1>${needSignIn('change your account settings')}`); return; }
+  const noPw = !me.hasPassword;
+  show(html`<h1>Account Settings</h1>
+    <div class="settings">
+      <div class="box"><h2 class="boxhead">Account</h2>
+        <table class="stats"><tr><td>Username</td><td><b>${me.username}</b></td></tr><tr><td>User number</td><td>#${me.userId}</td></tr>
+          <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr></table></div>
+      <div class="box"><h2 class="boxhead">Email</h2>
+        ${me.canMail ? '' : html`<p class="box gold small">Email isn't switched on for this server yet, so codes can't be sent.</p>`}
+        <p>${me.email ? html`Your email: <b>${me.email}</b> <span class="ok">(confirmed)</span>` : html`<span class="muted">No email yet.</span>
+          Add one so you can reset your password and turn on two-step verification.`}</p>
+        <form class="form" data-form="setEmail"><label>${me.email ? 'Change email' : 'Add an email'}</label>
+          <input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+          ${me.twoStep ? html`<label>Password</label><input type="password" name="password" autocomplete="current-password" required>` : ''}
+          <p><button class="btn blue">Send a code</button> <span id="emailMsg"></span></p></form>
+        <form class="form" data-form="verifyEmail" ${me.emailPending ? '' : 'hidden'} id="verifyForm">
+          <label>Code we sent to <span id="pendingTo">${me.emailPending}</span></label>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+          <p><button class="btn green">Confirm email</button> <span id="verifyMsg"></span></p></form>
+        ${me.email ? html`<form class="form" data-form="removeEmail"><label>Remove your email</label>
+          ${noPw ? '' : html`<input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>`}
+          <p><button class="btn red small">Remove email</button></p></form>` : ''}</div>
+      <div class="box"><h2 class="boxhead">Two-step verification</h2>
+        <p>${me.twoStep ? html`<b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> a code we email you.`
+          : html`<b>Off.</b> Turn it on so a stolen password isn't enough to get into your account: logging in also needs a code
+            from your email.`}</p>
+        ${noPw ? html`<p class="muted small">Set a password first.</p>` : !me.email && !me.twoStep ? html`<p class="muted small">Add and confirm an email first.</p>`
+          : html`<form class="form" data-form="twoStep"><input type="hidden" name="on" value="${me.twoStep ? '' : '1'}">
+            <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>
+            <p><button class="btn ${me.twoStep ? '' : 'green'}">${me.twoStep ? 'Turn off' : 'Turn on'}</button> <span id="twoStepMsg"></span></p></form>`}</div>
+      ${noPw ? '' : html`<div class="box"><h2 class="boxhead">Change password</h2>
+        <form class="form" data-form="changePassword">
+          <label>Current password</label><input type="password" name="current" autocomplete="current-password" required>
+          <label>New password</label><input type="password" name="password" autocomplete="new-password" required>
+          <label>New password again</label><input type="password" name="password2" autocomplete="new-password" required>
+          <p><button class="btn blue">Change password</button> <span id="pwMsg"></span></p></form></div>`}
+    </div>`);
+};
+
 pages.login = async () => loginPage(false);
 pages.signup = async () => loginPage(true);
 
@@ -805,7 +865,10 @@ function loginPage(signup) {
         ${signup ? raw('placeholder="3-20 letters or numbers"') : ''}>
       ${signup ? html`<div class="small" id="nameCheck"></div>` : ''}
       <label>Password</label><input type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required>
-      ${signup ? html`<label>Password again</label><input type="password" name="password2" autocomplete="new-password" required>` : ''}
+      ${signup ? html`<label>Password again</label><input type="password" name="password2" autocomplete="new-password" required>`
+        : html`<div id="codeBox" hidden><label>Code from your email</label>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits"></div>
+          <p class="small"><a href="#/forgot">Forgot your password?</a></p>`}
       <p><button class="btn green big" style="width:100%">${signup ? 'Sign Up' : 'Log In'}</button></p>
       <p class="error" id="loginMsg"></p></form>
     <p class="small muted">${signup ? 'Usernames can\'t be changed. Your password never leaves this page: if you forget it, nobody can get it back, so write it down somewhere safe.'
@@ -943,6 +1006,62 @@ const actions = {
 };
 
 const forms = {
+  async forgot(f) {
+    const msg = $('#forgotMsg');
+    msg.className = 'muted'; msg.textContent = 'Sending...';
+    const r = await call('account.forgot', { username: f.username.value.trim() });
+    msg.className = r.ok ? 'ok' : 'error';
+    msg.textContent = r.ok ? r.message : r.error;
+    if (r.ok) { const rf = $('#resetForm'); rf.hidden = false; rf.username.value = f.username.value.trim(); rf.code.focus(); }
+  },
+  async reset(f) {
+    const msg = $('#resetMsg');
+    if (f.password.value.length < 8) { msg.textContent = 'Your password needs at least 8 characters.'; return; }
+    if (f.password.value !== f.password2.value) { msg.textContent = 'The two passwords don\'t match.'; return; }
+    msg.className = 'muted'; msg.textContent = 'Setting your new password...';
+    const r = await gb.resetPassword(f.username.value, f.code.value.trim(), f.password.value);
+    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    await hello();
+    toast('Your password is changed, ' + me.username + '. You\'re logged in.', 6000);
+    location.hash = '#/';
+  },
+  async setEmail(f) {
+    const msg = $('#emailMsg');
+    msg.className = 'muted'; msg.textContent = 'Sending...';
+    const args = { email: f.email.value.trim() };
+    if (f.password) args.auth = await gb.passwordProof(me.username, f.password.value);
+    const r = await call('account.email', args);
+    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    msg.className = 'ok'; msg.textContent = 'Sent! Check your inbox (and spam).';
+    $('#pendingTo').textContent = r.sentTo;
+    $('#verifyForm').hidden = false;
+    $('#verifyForm').code.focus();
+  },
+  async verifyEmail(f) {
+    const r = await call('account.emailVerify', { code: f.code.value.trim() });
+    if (!r.ok) { const m = $('#verifyMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    me = r.me; toast('Email confirmed!'); render();
+  },
+  async removeEmail(f) {
+    if (!confirm('Remove your email? You won\'t be able to reset your password, and two-step verification turns off.')) return;
+    const r = await call('account.emailRemove', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});
+    if (!r.ok) { toast(r.error); return; }
+    me = r.me; toast('Email removed.'); render();
+  },
+  async twoStep(f) {
+    const r = await call('account.twoStep', { on: !!f.on.value, auth: await gb.passwordProof(me.username, f.password.value) });
+    if (!r.ok) { const m = $('#twoStepMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    me = r.me; toast(me.twoStep ? 'Two-step verification is on.' : 'Two-step verification is off.'); render();
+  },
+  async changePassword(f) {
+    const msg = $('#pwMsg');
+    if (f.password.value.length < 8) { msg.className = 'error'; msg.textContent = 'Your new password needs at least 8 characters.'; return; }
+    if (f.password.value !== f.password2.value) { msg.className = 'error'; msg.textContent = 'The two new passwords don\'t match.'; return; }
+    msg.className = 'muted'; msg.textContent = 'Changing...';
+    const r = await gb.changePassword(me.username, f.current.value, f.password.value);
+    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    toast('Password changed.'); render();
+  },
   async configure(f) {
     const msg = $('#configMsg'), say = (t, cls = 'muted') => { msg.className = cls; msg.textContent = ' ' + t; };
     const id = f.id.value;
@@ -982,8 +1101,9 @@ const forms = {
     setTimeout(checkRequests, 1500);
     const msg = $('#loginMsg');
     msg.className = 'muted'; msg.textContent = 'Logging in...';
-    const r = await gb.logIn(f.username.value.trim(), f.password.value);
-    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    const r = await gb.logIn(f.username.value.trim(), f.password.value, f.code ? f.code.value.trim() : '');
+    if (r.needCode) { $('#codeBox').hidden = false; f.code.focus(); }   // two-step verification: type the emailed code
+    if (!r.ok) { msg.className = r.needCode ? 'muted' : 'error'; msg.textContent = r.error; return; }
     await hello();
     toast('Welcome back, ' + me.username + '!');
     location.hash = '#/';

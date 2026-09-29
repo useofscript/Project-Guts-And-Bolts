@@ -29,6 +29,16 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get']);
+// Email codes (adding an email, forgot password, two-step login).
+const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
+const isEmail = (e) => typeof e === 'string' && e.length <= 254 && /^[^\s@<>"]{1,64}@[^\s@<>"]{1,190}\.[^\s@<>"]{2,}$/.test(e);
+function maskEmail(e) {
+  if (!e) return '';
+  const [name, host] = e.split('@');
+  return (name.length <= 2 ? name[0] + '*' : name[0] + '*'.repeat(Math.min(6, name.length - 2)) + name[name.length - 1]) + '@' + host;
+}
+function sixDigits() { return String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0'); }
+
 // Who can play a game: everyone, the creator's friends, or only the creator.
 const ACCESS = ['public', 'friends', 'private'];
 // Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
@@ -173,6 +183,12 @@ export class GbServerObject extends DurableObject {
       if (u.userId > 0) { this.nextUserId = Math.max(this.nextUserId, u.userId + 1); this.takenNames.add(lower(u.username)); }
     }
     this.takenNames.add('guts');
+    // Keys made by "forgot password": they sign for the account they reset.
+    this.aliases = new Map();
+    for (const u of this.users.values()) for (const k of u.keys || []) this.aliases.set(k, u.id);
+    // Emails to send once the request is done (see sendMail).
+    this.outbox = [];
+    this.canMail = !!(env.BREVO_API_KEY || env.RESEND_API_KEY || env.MAIL_DEBUG);
     this.failedLogins = new Map();
     this.lastPost = new Map();
     this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false };
@@ -288,7 +304,65 @@ export class GbServerObject extends DurableObject {
       uploadsLeft: this.isVerified(u) ? -1 : kDailyUploadsUnverified - (u.uploadDay === today ? u.uploadsToday : 0),
       owned: [...u.owned].sort(),
       avatar: u.avatar || null,
+      email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
+      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail,
     });
+  }
+
+  // --- email codes ---
+  // Make a code for `purpose` and put an email with it in the outbox. Returns an error text, or ''.
+  mailCode(u, purpose, to, subject, what) {
+    if (!this.canMail) return 'Email isn\'t set up on this server yet, so it can\'t send codes.';
+    const t = now();
+    u.mailTimes = (u.mailTimes || []).filter((x) => t - x < 86400);
+    const last = u.codes && u.codes[purpose];   // one of each kind of email a minute
+    if (last && last.sent && t - last.sent < kMailGap) return 'We just sent a code. Wait a minute and try again.';
+    if (u.mailTimes.length >= kMailsPerDay) return 'That\'s enough emails for today. Try again tomorrow.';
+    const code = sixDigits();
+    u.codes = u.codes || {};
+    u.codes[purpose] = { hash: hashHex(code + ':' + u.id + ':' + purpose), exp: t + kCodeMinutes * 60, tries: 0, sent: t };
+    u.mailTimes.push(t);
+    this.saveUser(u);
+    this.outbox.push({ to, subject, text: 'Hi ' + (u.username || u.name) + ',\n\n' + what + '\n\n    ' + code + '\n\n'
+      + 'The code works for ' + kCodeMinutes + ' minutes. If you didn\'t ask for this, you can ignore this email.\n\n- Guts&Bolts',
+      code });
+    return '';
+  }
+  // Check a code: '' if right (and it's used up), else what went wrong.
+  checkCode(u, purpose, code) {
+    const c = u.codes && u.codes[purpose];
+    if (!c || now() > c.exp) return 'That code has expired. Ask for a new one.';
+    if (c.tries >= kCodeTries) return 'Too many wrong codes. Ask for a new one.';
+    if (hashHex(String(code || '').trim() + ':' + u.id + ':' + purpose) !== c.hash) {
+      c.tries++;
+      this.saveUser(u);
+      return 'That code isn\'t right.';
+    }
+    delete u.codes[purpose];
+    this.saveUser(u);
+    return '';
+  }
+  // Send what's in the outbox (after the request, so the answer isn't held up by much).
+  async sendMail() {
+    const mails = this.outbox.splice(0);
+    for (const m of mails) {
+      const from = this.env.MAIL_FROM || '', fromName = this.env.MAIL_NAME || 'Guts&Bolts';
+      try {
+        if (this.env.BREVO_API_KEY) {
+          await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST',
+            headers: { 'api-key': this.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ sender: { name: fromName, email: from }, to: [{ email: m.to }], subject: m.subject, textContent: m.text }) });
+        } else if (this.env.RESEND_API_KEY) {
+          await fetch('https://api.resend.com/emails', { method: 'POST',
+            headers: { authorization: 'Bearer ' + this.env.RESEND_API_KEY, 'content-type': 'application/json' },
+            body: JSON.stringify({ from: fromName + ' <' + from + '>', to: [m.to], subject: m.subject, text: m.text }) });
+        } else {
+          console.log('MAIL (MAIL_DEBUG) to ' + m.to + ': ' + m.subject + ' code ' + m.code);
+        }
+      } catch (e) {
+        console.log('Couldn\'t send an email: ' + (e && e.message || e));
+      }
+    }
   }
   publicAsset(a) {
     const c = this.users.get(a.creator);
@@ -338,7 +412,11 @@ export class GbServerObject extends DurableObject {
       return { bad: fail('That request was already sent once.') };
     }
     if (Math.random() < 0.01) this.sql.exec('DELETE FROM nonces WHERE time < ?', t - 2 * kMaxClockSkew);
-    const me = this.user(account);
+    const owner = this.aliases.get(account);
+    const me = owner ? this.users.get(owner) : this.user(account);
+    if (!me) return { bad: fail('That account is gone.') };
+    if (!owner && me.keyRevoked)
+      return { bad: fail('This device was logged out because the account\'s password was reset. Log in again with the new password.') };
     me.lastSeen = t;
     this.saveUser(me);
     if (me.banned && opName !== 'hello') return { bad: fail('This account has been banned from this server.') };
@@ -725,7 +803,83 @@ export class GbServerObject extends DurableObject {
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
+    // --- your email, password and two-step verification (signed in) ---
+    const provePassword = () => me.keyBlob && isHex(str(args, 'auth'), 64, 64) && hashHex(lower(str(args, 'auth'))) === me.pwHash;
+    if (name === 'account.email') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const email = lower(cleanText(str(args, 'email'), 254));
+      if (!isEmail(email)) return fail('That doesn\'t look like an email address.');
+      if (me.twoStep && me.emailVerified && !provePassword()) return fail('Type your password to change your email.');
+      const problem = this.mailCode(me, 'email', email, 'Your Guts&Bolts email code',
+        'Type this code on the Guts&Bolts website to add this email to your account (' + me.username + '):');
+      if (problem) return fail(problem);
+      me.pendingEmail = email;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me), sentTo: maskEmail(email) });
+    }
+    if (name === 'account.emailVerify') {
+      if (me.userId === 0 || !me.pendingEmail) return fail('Add an email first.');
+      const problem = this.checkCode(me, 'email', str(args, 'code'));
+      if (problem) return fail(problem);
+      me.email = me.pendingEmail; me.emailVerified = true; me.pendingEmail = '';
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.emailRemove') {
+      if (me.userId === 0) return fail('Sign up first.');
+      if (me.keyBlob && !provePassword()) return fail('Wrong password.');
+      me.email = ''; me.emailVerified = false; me.pendingEmail = ''; me.twoStep = false;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.twoStep') {
+      if (me.userId === 0) return fail('Sign up first.');
+      if (!provePassword()) return fail('Wrong password.');
+      const on = !!args.on;
+      if (on && !me.emailVerified) return fail('Add and confirm an email first: the codes go there.');
+      me.twoStep = on;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.password') {
+      // Change your password: the new locked key comes from this device (which has the key).
+      if (me.userId === 0 || !me.keyBlob) return fail('Set a password in the app first.');
+      if (!provePassword()) return fail('Your current password is wrong.');
+      const salt = lower(str(args, 'salt')), auth = lower(str(args, 'newAuth')), blob = lower(str(args, 'key'));
+      if (!isHex(salt, 32, 32) || !isHex(auth, 64, 64) || !isHex(blob, 208, 208)) return fail('Something was missing. Try again.');
+      me.pwSalt = salt; me.pwHash = hashHex(auth); me.keyBlob = blob;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+
     const u = this.findUsername(username);
+    // --- forgot password: a code by email, then a new password (and a new key) ---
+    if (name === 'account.forgot') {
+      const sent = okay({ message: 'If that account has an email, we sent it a code. Check your inbox (and spam).' });
+      if (!u || !u.emailVerified || !u.email) return sent;
+      if (this.isOfficial(u)) return fail('The Guts account can\'t be reset by email.');
+      const problem = this.mailCode(u, 'reset', u.email, 'Reset your Guts&Bolts password',
+        'Someone (hopefully you) asked to reset the password for ' + u.username + '. Type this code on the website:');
+      return problem && problem.startsWith('Email isn') ? fail(problem) : sent;
+    }
+    if (name === 'account.reset') {
+      if (!u || !u.emailVerified) return fail('That code isn\'t right.');
+      if (this.isOfficial(u)) return fail('The Guts account can\'t be reset by email.');
+      if (me.userId > 0) return fail('Log out first: this device is signed in as ' + me.username + '.');
+      const problem = this.checkCode(u, 'reset', str(args, 'code'));
+      if (problem) return fail(problem);
+      const salt = lower(str(args, 'salt')), auth = lower(str(args, 'auth')), blob = lower(str(args, 'key'));
+      if (!isHex(salt, 32, 32) || !isHex(auth, 64, 64) || !isHex(blob, 208, 208)) return fail('Something was missing. Try again.');
+      // This device's key takes over the account; every older key (and device) is logged out.
+      for (const k of u.keys || []) this.aliases.delete(k);
+      u.keys = [me.id];
+      this.aliases.set(me.id, u.id);
+      u.keyRevoked = true;
+      u.pwSalt = salt; u.pwHash = hashHex(auth); u.keyBlob = blob;
+      this.failedLogins.delete(lower(u.username));
+      this.saveUser(u);
+      return okay({ me: this.meJson(u) });
+    }
     // An account made on a device that never set a password can't be logged into anywhere else yet.
     const noLogin = (acc) => (!acc ? 'There\'s no account with that username.'
       : 'That account hasn\'t set a password yet, so it only works on the device it was made on. On that device, open the '
@@ -743,8 +897,21 @@ export class GbServerObject extends DurableObject {
       if (fails.length >= kMaxWrongPasswords) return fail('Too many wrong passwords. Wait 10 minutes and try again.');
       const auth = lower(str(args, 'auth'));
       if (!isHex(auth, 64, 64) || hashHex(auth) !== u.pwHash) { fails.push(t); return fail('Wrong password.'); }
+      if (u.twoStep && u.emailVerified) {
+        const code = str(args, 'code');
+        if (!code) {
+          const problem = this.mailCode(u, 'login', u.email, 'Your Guts&Bolts login code',
+            'Someone (hopefully you) is logging in to ' + u.username + '. Type this code to finish:');
+          if (problem && !problem.startsWith('We just sent')) return fail(problem);
+          return Object.assign(fail('We emailed a code to ' + maskEmail(u.email) + '. Type it in to finish logging in.'), { needCode: true });
+        }
+        const problem = this.checkCode(u, 'login', code);
+        if (problem) return Object.assign(fail(problem), { needCode: true });
+      }
       this.failedLogins.delete(key);
-      return okay({ account: u.id, key: u.keyBlob, username: u.username, name: u.name });
+      // The locked key is for the account's newest key (after a password reset, not the account ID itself).
+      const keyAccount = u.keys && u.keys.length ? u.keys[0] : u.id;
+      return okay({ account: u.id, keyAccount, key: u.keyBlob, username: u.username, name: u.name });
     }
     return fail('Unknown request.');
   }
@@ -1164,7 +1331,9 @@ export class GbServerObject extends DurableObject {
     try { req = JSON.parse(await request.text()); } catch { req = null; }
     if (!req || typeof req !== 'object' || Array.isArray(req)) return json(fail('That wasn\'t a proper request.'), 400);
     if (typeof req.op === 'string' && req.op.startsWith('relay.')) return json(fail('Multiplayer needs the Guts&Bolts app.'));
-    return json(this.handle(req));
+    const answer = this.handle(req);
+    if (this.outbox.length) await this.sendMail();
+    return json(answer);
   }
 }
 

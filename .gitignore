@@ -45,3 +45,4 @@ server_data/
 .wrangler/
 # (the website draws avatars with a copy of the character model)
 !website/app/player.obj
+.dev.vars

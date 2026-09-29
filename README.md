@@ -623,13 +623,27 @@ Games published from Studio get a **picture** (Studio takes it from the spawn
 point when you publish), shown on the website's game cards. A red number on
 **Friends** means friend requests are waiting.
 
-Playing games still happens in the app. Visitors who aren't signed in can look
-around (games, catalog, people, groups) but can't change anything.
+Playing games still happens in the app. The website's **Play** button opens the
+app on that game with a `gutsandbolts://play/<game>` link (the Player sets that
+up by itself on Windows and Linux, and the Android app has it built in; on a Mac,
+open the app yourself). Visitors who aren't signed in pick **Play As Boy** or
+**Play As Girl** first and play as a guest.
+
+Visitors who aren't signed in can see every page. Buying, claiming Bolts,
+saving an avatar, adding friends, joining groups and uploading pop up *"You need
+to log in"* with Sign Up and Log In buttons.
 
 The website talks to the Guts&Bolts server on Cloudflare (see below). Your
 password never leaves the browser.
 
 ### The Create page
+
+**Configure** a published game on the website (Create > My Games > Configure):
+change its name and description, choose **who can play** (*Public*, *Friends
+only* or *Private*), upload a **thumbnail** (cropped to 16:9) and a square
+**icon**, or upload a new version. Private and friends-only games are hidden
+from everyone else: the server won't list them, send them or start servers
+for them.
 
 The site's **Create** page has one tab per kind of thing you make:
 
@@ -688,7 +702,37 @@ with your password and stores the locked copy on the server. Logging in on
 another device downloads the copy and unlocks it there. The password itself
 never leaves your device. The server only gets a scrambled token made from
 it, so it can't unlock your key. After 5 wrong passwords, that username is
-locked for 10 minutes. If you forget your password, nobody can get it back.
+locked for 10 minutes.
+
+### Email, forgot password and two-step verification
+
+On the website, **Settings** (top right) has your account settings:
+
+- **Email:** add one, and type the code we email you to confirm it.
+- **Forgot your password?** (on the Log In page) emails a code. Type it with a
+  new password. That browser takes over the account with a new key, and every
+  other device is logged out: log in on them again with the new password. (The
+  Guts account can't be reset by email.)
+- **Two-step verification:** when it's on, logging in on a new device needs your
+  password *and* a code from your email (the app asks for the code too).
+- **Change password.**
+
+Emails need an email service, because Cloudflare can't send email to anyone
+by itself. The easiest is [Brevo](https://www.brevo.com) (free, 300 emails a
+day, and you don't need your own domain):
+
+1. Make a Brevo account. Under *Senders*, add the email address the codes
+   should come from and confirm it.
+2. Under *SMTP & API > API Keys*, make an API key.
+3. In the Cloudflare dashboard, open the Worker: *Settings > Variables and
+   Secrets*. Add a **Secret** `BREVO_API_KEY` (the key) and a **Text**
+   variable `MAIL_FROM` (the sender address from step 1). You can also run
+   `npx wrangler secret put BREVO_API_KEY`.
+
+Resend works too: set `RESEND_API_KEY` instead (it needs a domain you own).
+Until one is set, the settings page says email isn't switched on yet. For
+testing with `wrangler dev`, put `MAIL_DEBUG=1` in a `.dev.vars` file: codes
+are printed in the terminal instead of emailed.
 
 ### Friends and servers (no IP addresses)
 

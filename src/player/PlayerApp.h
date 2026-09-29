@@ -264,6 +264,8 @@ private:
     // Sign up / log in
     int            m_loginTab = 0;                 // Sign Up / Log In
     std::string    m_loginUser, m_loginPass, m_loginPass2, m_loginMsg;
+    std::string    m_loginCode;                    // two-step verification: the code from your email
+    bool           m_loginNeedCode = false;
     nlohmann::json m_nameCheck = nlohmann::json::object();   // is the typed username free?
     double         m_nameCheckAt = 0.0;
     bool           m_playOffline = false;          // "Play offline instead"

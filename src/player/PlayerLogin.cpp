@@ -75,16 +75,21 @@ void PlayerApp::logIn(const std::string& username, const std::string& password) 
             m_loginMsg = "Something went wrong. Try again.";
             return;
         }
-        Online::request("account.login", {{"username", username}, {"auth", auth}}, [this, lock](const json& r) {
+        json args = {{"username", username}, {"auth", auth}};
+        if (m_loginNeedCode && !m_loginCode.empty()) args["code"] = m_loginCode;
+        Online::request("account.login", args, [this, lock](const json& r) {
             m_busy = false;
             if (!r.value("ok", false)) {
+                if (r.value("needCode", false)) m_loginNeedCode = true;   // two-step verification: a code was emailed
                 m_loginMsg = r.value("error", std::string("Couldn't log in."));
                 std::printf("LOGIN failed: %s\n", m_loginMsg.c_str());
                 std::fflush(stdout);
                 return;
             }
             // Unlock the key copy: from now on this device IS that account.
-            if (!Account::restoreKey(lock, r.value("key", std::string())) || Account::id() != r.value("account", std::string())) {
+            // (After a password reset on the website, the account's key is a newer one: keyAccount.)
+            const std::string keyAccount = r.value("keyAccount", r.value("account", std::string()));
+            if (!Account::restoreKey(lock, r.value("key", std::string())) || Account::id() != keyAccount) {
                 m_loginMsg = "Couldn't unlock your account on this device.";
                 return;
             }
@@ -94,6 +99,8 @@ void PlayerApp::logIn(const std::string& username, const std::string& password) 
             p.save();
             m_loginMsg.clear();
             m_loginPass.clear();
+            m_loginCode.clear();
+            m_loginNeedCode = false;
             std::printf("LOGIN ok %s account %s\n", r.value("username", std::string()).c_str(), Account::shortId().c_str());
             std::fflush(stdout);
             m_friends = json::object();
@@ -172,6 +179,12 @@ void PlayerApp::drawLogin() {
         ImGui::SetNextItemWidth(w);
         bool enter = ImGui::InputTextWithHint("##pass", m_loginTab == 0 ? "at least 8 characters" : "", &m_loginPass,
                                               ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
+        if (m_loginTab == 1 && m_loginNeedCode) {
+            ImGui::TextUnformatted("Code from your email");
+            ImGui::SetNextItemWidth(w);
+            enter = ImGui::InputTextWithHint("##code", "6 digits", &m_loginCode,
+                                             ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue) || enter;
+        }
         if (m_loginTab == 0) {
             ImGui::TextUnformatted("Password again");
             ImGui::SetNextItemWidth(w);
@@ -195,8 +208,8 @@ void PlayerApp::drawLogin() {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
         if (m_loginTab == 0)
             ImGui::TextDisabled("Usernames can't be changed, and once taken they're gone for good. "
-                                "Your password never leaves this device. If you forget it, nobody can get it back, "
-                                "so write it down somewhere safe.%s",
+                                "Your password never leaves this device. Add an email in Account Settings on the "
+                                "website, so you can reset it if you forget it.%s",
                                 official ? "\n\nThis is the staff computer: sign up as Guts to add a password to user #1." : "");
         else
             ImGui::TextDisabled("Logging in makes this device your account. Whatever it was playing as before "
