@@ -303,6 +303,7 @@ void Player::beginPlay() {
 }
 
 void Player::endPlay() {
+    footsteps(false, glm::vec3(0.0f));
     m_checkpoint = 0;
     m_dead = false;
     m_debris.clear();
@@ -639,7 +640,24 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
     animate(dt, moving, m_grounded);
+    footsteps(moving && m_grounded, res.position);
     updateGrip();
+}
+
+void Player::footsteps(bool running, const glm::vec3& at) {
+    if (!running) {
+        if (m_stepSound) Audio::stop(m_stepSound);
+        m_stepSound = 0;
+        return;
+    }
+    glm::vec3 feet = at + glm::vec3(0.0f, 0.5f, 0.0f);
+    float pitch = std::clamp(m_humanoid.walkSpeed / 6.0f, 0.6f, 1.6f);   // faster walkers step faster (6 = normal)
+    if (m_stepSound && Audio::isPlaying(m_stepSound)) {
+        Audio::setPosition(m_stepSound, feet);
+        Audio::setPitch(m_stepSound, pitch);
+        return;
+    }
+    m_stepSound = Audio::play("footsteps", 0.35f, pitch, true, &feet);
 }
 
 void Player::animate(float dt, bool moving, bool grounded) {
@@ -687,6 +705,7 @@ void Player::startDeath() {
     SceneNode* r = root();
     if (!r) return;
     equip(0);   // the tool goes back in the backpack (it'd get in the ragdoll's way)
+    footsteps(false, glm::vec3(0.0f));
     if (SceneNode* ff = m_scene->findById(m_spawnFF)) m_scene->removeNode(ff);
     m_spawnFF = 0;
     m_dead = true;

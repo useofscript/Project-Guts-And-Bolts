@@ -4,12 +4,13 @@
 //     runs on Cloudflare (worker/server.js, a Durable Object with its own
 //     database), so it's online even when your computer is off.
 //
-// Settings: add these in the Cloudflare dashboard (Workers & Pages >
-// project-guts-and-bolts > Settings > Variables and Secrets). They're kept
-// when the site is redeployed (keep_vars below).
+// Settings ("vars" below, or in the Cloudflare dashboard: Workers & Pages >
+// project-guts-and-bolts > Settings > Variables and Secrets; those are kept
+// when the site is redeployed, see keep_vars):
 //   OFFICIAL     the staff account's ID (64 letters/numbers; in the Player: Staff
 //                page > "Copy official ID"). That account becomes user #1,
-//                "Guts", with the Staff and Verified badges.
+//                "Guts", with the Staff and Verified badges. It's a public ID,
+//                safe to keep here.
 //   SERVER_NAME  the name the apps show for this server (default "Guts&Bolts").
 //   GB_SERVER    only to use a server on a computer instead (host:port).
 {
@@ -17,6 +18,7 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-09-01",
   "keep_vars": true,
+  "vars": { "OFFICIAL": "78587146c5027463ff988ef3dd4da3830482f59d6ac0e16fd29548c4a2c84c45" },
   "assets": {
     "directory": "./website",
     "binding": "ASSETS",

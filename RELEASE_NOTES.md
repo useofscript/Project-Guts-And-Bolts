@@ -1,3 +1,9 @@
+# Guts&Bolts 0.5.1
+
+**Fixed:** the apps sometimes couldn't connect to the online server, with "SSL -
+Internal error". When the app sent several requests at once, their secure
+connections could get in each other's way. Now they take turns.
+
 # Guts&Bolts 0.5.0: always online
 
 Guts&Bolts now has its own **online server in the cloud**, so your account,

@@ -119,6 +119,7 @@ public:
 private:
     SceneNode* part(const char* name) const;
     void animate(float dt, bool moving, bool grounded);
+    void footsteps(bool running, const glm::vec3& at);   // loop the running sound while on the ground
     void updateGrip();                // put the held tool's Handle in the right hand
     void syncSlots();
     void startDeath();
@@ -150,6 +151,7 @@ private:
     float m_walkPhase = 0.0f;
     float m_swing     = 0.0f;   // current limb swing amplitude (degrees)
     float m_airBlend  = 0.0f;   // 0 = on ground, 1 = jump pose
+    int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 
     // Rest pose captured when Play starts (local transforms by node id).
     std::unordered_map<uint64_t, Transform> m_rest;

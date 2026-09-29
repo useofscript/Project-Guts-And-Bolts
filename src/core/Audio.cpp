@@ -6,6 +6,7 @@
 #include "SoundJump.h"      // generated from assets/sounds
 #include "SoundRespawn.h"
 #include "SoundSpawn.h"
+#include "SoundFootsteps.h"
 #include "Paths.h"
 #include "Log.h"
 
@@ -173,7 +174,7 @@ Instance* find(int handle) {
 
 const std::vector<std::string>& builtinNames() {
     static const std::vector<std::string> names = {
-        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn", "respawn"};
+        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn", "respawn", "footsteps"};
     return names;
 }
 
@@ -189,7 +190,8 @@ void init() {
     struct Recorded { const char* name; const unsigned char* data; size_t size; };
     for (const Recorded& r : {Recorded{"jump", kSoundJump, kSoundJumpSize},
                               Recorded{"respawn", kSoundRespawn, kSoundRespawnSize},
-                              Recorded{"spawn", kSoundSpawn, kSoundSpawnSize}})
+                              Recorded{"spawn", kSoundSpawn, kSoundSpawnSize},
+                              Recorded{"footsteps", kSoundFootsteps, kSoundFootstepsSize}})
         if (Samples s = decode(r.data, r.size); !s.empty()) g_builtin[r.name] = std::move(s);
     g_ready = true;
 }

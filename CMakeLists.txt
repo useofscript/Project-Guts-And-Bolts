@@ -268,6 +268,7 @@ gb_embed("${CMAKE_SOURCE_DIR}/assets/models/player.obj" kPlayerObj "${GB_GENERAT
 gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/jump.wav"    kSoundJump    "${GB_GENERATED}/SoundJump.h")
 gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/respawn.wav" kSoundRespawn "${GB_GENERATED}/SoundRespawn.h")
 gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/spawn.wav"   kSoundSpawn   "${GB_GENERATED}/SoundSpawn.h")
+gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/footsteps.mp3" kSoundFootsteps "${GB_GENERATED}/SoundFootsteps.h")
 add_custom_target(gb_version ALL
     COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${GB_GENERATED}
             -DVERSION=${PROJECT_VERSION} -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
