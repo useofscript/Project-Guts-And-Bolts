@@ -179,11 +179,21 @@ function avatarSvg(av, size = 160, items = []) {
   return raw(svg);
 }
 
+// How many people are in each game's servers right now (game id -> players), for the cards.
+let playingNow = {};
+async function loadPlaying() {
+  const r = await gb.call('servers.list', {});
+  playingNow = {};
+  if (r.ok) for (const s of r.servers) playingNow[s.game] = (playingNow[s.game] || 0) + (s.players || 0);
+}
+
 function gameCard(g) {
+  const n = playingNow[g.id] || 0;
   return html`<a class="card" href="#/game/${g.id}">
     ${gamePic(g)}
     <div class="name">${g.name}</div>
-    <div class="by">by ${g.creatorName}${verified(g.creatorVerified)} · ${g.plays || 0} plays</div></a>`;
+    <div class="by">by ${g.creatorName}${verified(g.creatorVerified)}</div>
+    <div class="by">${g.plays || 0} visits${n ? html` · <b class="playing">${n} playing</b>` : ''}</div></a>`;
 }
 
 function itemCard(a) {
@@ -322,6 +332,7 @@ pages.home = async () => {
     pageCall('list', { kind: 'game', sort: 'popular', limit: 8 }),
     pageCall('list', { kind: 'clothing', limit: 6 }),
     signedIn() ? pageCall('friends.list', {}) : Promise.resolve({ ok: false }),
+    loadPlaying(),
   ]);
   const gameBox = (title, r, more) => html`<div class="box"><h2 class="boxhead">${title}
       <a href="${more}" style="float:right">See more &raquo;</a></h2>
@@ -369,7 +380,7 @@ pages.games = async () => {
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
   const sort = q.get('sort') || 'popular', query = q.get('q') || '';
   show(html`<h1>Games</h1><p class="muted">Loading...</p>`);
-  const r = await pageCall('list', { kind: 'game', sort, query, limit: 100 });
+  const [r] = await Promise.all([pageCall('list', { kind: 'game', sort, query, limit: 100 }), loadPlaying()]);
   show(html`<h1>Games</h1>
     <form class="row" data-form="gameSearch">
       <input type="search" name="q" placeholder="Search games" value="${query}" style="max-width:280px">
