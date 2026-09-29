@@ -518,6 +518,25 @@ On another computer, start the server once with `--official <your account ID>`
     **Online Games** on the site's home page).
 - **Who owns what.**
 
+### The website
+
+The site also works in a web browser, hosted free on Cloudflare (see
+`website/README.md`). The front page shows what Guts&Bolts is. **Enter the
+site** (`/app/`) to do what the Player's site pages do:
+
+- sign up and log in (the same accounts as the apps);
+- browse games and see who's playing;
+- buy from the catalog;
+- upload decals, audio, clothes, plugins and games, and rename your games;
+- use friends, people, groups and Bolts.
+
+Playing games still happens in the app. Visitors who aren't signed in can look
+around (games, catalog, people, groups) but can't change anything.
+
+The website reaches your Guts&Bolts server through a small Cloudflare Worker
+(`worker/index.js`), set by `GB_SERVER` in `wrangler.jsonc`. Your password
+never leaves the browser.
+
 ### The Create page
 
 The site's **Create** page has one tab per kind of thing you make:

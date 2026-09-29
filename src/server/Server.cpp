@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <iterator>
+#include <set>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -121,8 +122,12 @@ json GbServer::checkRequest(const json& req, User*& out) {
     User& me = user(account);
     me.lastSeen = now;
     if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
-    // Everything else needs a signed-up account (hello just says who we are).
-    if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0)
+    // Everything else needs a signed-up account (hello just says who we are),
+    // except looking around: visitors to the website can browse before signing up.
+    static const std::set<std::string> kLookOnly = {"list", "profile", "users.search", "groups.list", "groups.get",
+                                                    "servers.list", "stats"};
+    if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
+        !kLookOnly.count(opName))
         return fail("Sign up or log in first.");
     out = &me;
     return nullptr;
@@ -512,7 +517,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             return fail("Buy it first.");
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
-        if (a.kind == "game") { a.plays++; saveAssets(); }
+        if (a.kind == "game" && a.creator != me.id) { a.plays++; saveAssets(); }   // creators opening their own game don't count
         json r = okay(); r["asset"] = publicAsset(a); r["data"] = Online::base64Encode(data); return r;
     }
     if (name == "buy") {
