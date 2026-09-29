@@ -552,7 +552,14 @@ site** (`/app/`) to do what the Player's site pages do:
 - browse games and see who's playing;
 - buy from the catalog;
 - upload decals, audio, clothes, plugins and games, and rename your games;
-- use friends, people, groups and Bolts.
+- use friends, people, groups and Bolts;
+- change your **avatar** (colours, hat, and clothes from the catalog). It's saved
+  on the server, so the app and the website always match;
+- **staff:** a Staff page to verify people, make staff, give Bolts and ban.
+
+Games published from Studio get a **picture** (Studio takes it from the spawn
+point when you publish), shown on the website's game cards. A red number on
+**Friends** means friend requests are waiting.
 
 Playing games still happens in the app. Visitors who aren't signed in can look
 around (games, catalog, people, groups) but can't change anything.

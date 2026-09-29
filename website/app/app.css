@@ -123,3 +123,7 @@ label { display: block; margin: 10px 0 4px; font-weight: bold; font-size: 13px; 
   .nav a { padding: 8px 9px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
+
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #e23b3b; color: #fff;
+  font-size: 11px; line-height: 18px; text-align: center; margin-left: 3px; }
+.nav a[hidden] { display: none; }

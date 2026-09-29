@@ -87,9 +87,72 @@ function itemIcon(a) {
   return raw(`<svg viewBox="0 0 100 100" width="80%" height="80%" aria-hidden="true">${shape}</svg>`);
 }
 
+// A game's picture (set when it's published from Studio), or a colourful card.
+function gamePic(g, cls = 'pic') {
+  if (g.thumb) return html`<div class="${cls}" style="background:#223 center / cover no-repeat url('/thumb/${encodeURIComponent(g.id)}?v=${g.thumb}')"
+    role="img" aria-label="${g.name}"></div>`;
+  return html`<div class="${cls}" style="background:${raw(gameColors(g.id))}">${g.name}</div>`;
+}
+
+// --- avatars ---
+// The same colours and hats as the Player (Player::colorPresets, HatStyle).
+const PRESETS = [
+  ['Classic Noob', [[245, 205, 48], [13, 105, 172], [245, 205, 48], [245, 205, 48], [75, 151, 75], [75, 151, 75]]],
+  ['Guest', [[163, 163, 168], [31, 31, 36], [163, 163, 168], [163, 163, 168], [217, 217, 222], [217, 217, 222]]],
+  ['Builder', [[245, 204, 166], [237, 140, 41], [245, 204, 166], [245, 204, 166], [89, 69, 51], [89, 69, 51]]],
+  ['Ninja', [[31, 31, 36], [31, 31, 36], [31, 31, 36], [31, 31, 36], [31, 31, 36], [31, 31, 36]]],
+  ['Red Team', [[245, 204, 166], [204, 46, 41], [245, 204, 166], [245, 204, 166], [31, 31, 36], [31, 31, 36]]],
+  ['Blue Team', [[245, 204, 166], [41, 92, 217], [245, 204, 166], [245, 204, 166], [31, 31, 36], [31, 31, 36]]],
+  ['Robot', [[184, 189, 199], [115, 122, 135], [184, 189, 199], [184, 189, 199], [115, 122, 135], [115, 122, 135]]],
+];
+const PARTS = ['head', 'torso', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
+const PART_NAMES = { head: 'Head', torso: 'Torso', leftArm: 'Left Arm', rightArm: 'Right Arm', leftLeg: 'Left Leg', rightLeg: 'Right Leg' };
+const HATS = ['None', 'Top Hat', 'Cap', 'Crown'];
+const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40] };   // a hat's normal colours
+
+function defaultAvatar() {
+  const a = { hat: 0, hatColor: [-1, -1, -1], wearing: [] };
+  PARTS.forEach((p, i) => { a[p] = PRESETS[0][1][i].slice(); });
+  return a;
+}
+const rgbCss = (c) => `rgb(${c.map((x) => Math.max(0, Math.min(255, Number(x) | 0))).join(',')})`;
+const hexOf = (c) => '#' + c.map((x) => (Math.max(0, Math.min(255, x | 0))).toString(16).padStart(2, '0')).join('');
+const fromHex = (h) => [1, 3, 5].map((i) => parseInt(h.substr(i, 2), 16));
+
+// A blocky character, front view. Clothes from the catalog colour the parts they cover.
+function avatarSvg(av, size = 160, items = []) {
+  const a = Object.assign(defaultAvatar(), av || {});
+  const col = {};
+  PARTS.forEach((p) => { col[p] = rgbCss(Array.isArray(a[p]) ? a[p] : defaultAvatar()[p]); });
+  let hat = a.hat | 0, hatCol = Array.isArray(a.hatColor) && a.hatColor[0] >= 0 ? rgbCss(a.hatColor) : rgbCss(HAT_COLORS[hat] || [0, 0, 0]);
+  for (const it of items) {
+    const c = it.meta && Array.isArray(it.meta.color) ? rgbCss(it.meta.color) : null;
+    if (!c) continue;
+    if (it.kind === 'shirt') { col.torso = c; col.leftArm = c; col.rightArm = c; }
+    if (it.kind === 'pants') { col.leftLeg = c; col.rightLeg = c; }
+    if (it.kind === 'hat') { hat = Number(it.meta.style) || 2; hatCol = c; }
+  }
+  const hats = {
+    1: `<rect x="37" y="-6" width="26" height="22" rx="2" fill="${hatCol}"/><rect x="30" y="13" width="40" height="5" rx="2" fill="${hatCol}"/><rect x="37" y="9" width="26" height="4" fill="rgba(0,0,0,.25)"/>`,
+    2: `<path d="M34 17 Q35 3 50 3 Q65 3 66 17 Z" fill="${hatCol}"/><path d="M50 15 L76 15 Q76 19 70 19 L50 19 Z" fill="${hatCol}"/>`,
+    3: `<path d="M35 16 L36 2 L43 9 L50 0 L57 9 L64 2 L65 16 Z" fill="${hatCol}"/><rect x="35" y="13" width="30" height="4" fill="rgba(0,0,0,.2)"/>`,
+  };
+  const svg = `<svg viewBox="0 -8 100 128" width="${size}" height="${size * 1.28}" role="img" aria-label="Avatar">
+    <rect x="37" y="12" width="26" height="22" rx="4" fill="${col.head}" stroke="rgba(0,0,0,.25)"/>
+    <circle cx="45" cy="21" r="1.8" fill="#222"/><circle cx="55" cy="21" r="1.8" fill="#222"/>
+    <path d="M44 27 Q50 31 56 27" stroke="#222" stroke-width="1.6" fill="none"/>
+    <rect x="30" y="35" width="40" height="38" fill="${col.torso}" stroke="rgba(0,0,0,.25)"/>
+    <rect x="12" y="35" width="17" height="38" fill="${col.rightArm}" stroke="rgba(0,0,0,.25)"/>
+    <rect x="71" y="35" width="17" height="38" fill="${col.leftArm}" stroke="rgba(0,0,0,.25)"/>
+    <rect x="30" y="74" width="19.5" height="40" fill="${col.rightLeg}" stroke="rgba(0,0,0,.25)"/>
+    <rect x="50.5" y="74" width="19.5" height="40" fill="${col.leftLeg}" stroke="rgba(0,0,0,.25)"/>
+    ${hats[hat] || ''}</svg>`;
+  return raw(svg);
+}
+
 function gameCard(g) {
   return html`<a class="card" href="#/game/${g.id}">
-    <div class="pic" style="background:${raw(gameColors(g.id))}">${g.name}</div>
+    ${gamePic(g)}
     <div class="name">${g.name}</div>
     <div class="by">by ${g.creatorName}${verified(g.creatorVerified)} · ${g.plays || 0} plays</div></a>`;
 }
@@ -125,6 +188,8 @@ async function pageCall(op, args) {
 
 function setMe(m) {
   me = m;
+  const staffLink = $('#nav a[data-page=staff]');
+  if (staffLink) staffLink.hidden = !(signedIn() && me.staff);
   const box = $('#me');
   if (signedIn()) {
     box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}<br>
@@ -132,6 +197,18 @@ function setMe(m) {
   } else {
     box.innerHTML = html`<a href="#/login">Log in</a> · <a href="#/signup"><b>Sign up</b></a>`.s;
   }
+}
+
+// How many friend requests are waiting (shown on the Friends link).
+async function checkRequests() {
+  const link = $('#nav a[data-page=friends]');
+  if (!link) return;
+  let n = 0;
+  if (signedIn()) {
+    const r = await gb.call('friends.list', {});
+    if (r.ok) n = r.incoming.length;
+  }
+  link.innerHTML = 'Friends' + (n ? ` <span class="badge">${n}</span>` : '');
 }
 
 async function hello() {
@@ -200,7 +277,7 @@ pages.game = async (id) => {
   if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted.' : r.error}</p>`); return; }
   const servers = s.ok ? s.servers : [];
   show(html`<p><a href="#/games">&lt; Games</a></p>
-    <div class="hero"><div class="pic" style="background:${raw(gameColors(g.id))}">${g.name}</div>
+    <div class="hero">${gamePic(g)}
       <div><h1>${g.name}</h1>
         <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
         <p class="muted">${g.plays || 0} plays · published ${ago(g.created)}</p>
@@ -209,7 +286,7 @@ pages.game = async (id) => {
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     <h2>Servers</h2>
     ${servers.length ? html`<div class="list">${servers.map((sv) => html`<div><span class="grow">${sv.title || g.name}</span>
-        <span class="muted">${(sv.players || 0) + 1} / ${sv.max || '?'} players${sv.friends ? html` · ${sv.friends} friend(s)` : ''}</span></div>`)}</div>`
+        <span class="muted">${sv.players || 1} / ${sv.max || '?'} players${sv.friends ? html` · ${sv.friends} friend(s)` : ''}</span></div>`)}</div>`
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
 };
 
@@ -325,11 +402,15 @@ pages.user = async (id) => {
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
           : html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`;
   const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => ['hat', 'shirt', 'pants'].includes(a.kind));
-  show(html`<h1>${u.username}${verified(u.verified)}</h1>
+  const worn = u.avatar && Array.isArray(u.avatar.wearing) && u.avatar.wearing.length
+    ? (await pageCall('list', { kind: 'clothing', limit: 100 })).assets || [] : [];
+  show(html`<div class="row top"><div class="box" style="text-align:center;margin:0 16px 10px 0">
+      ${avatarSvg(u.avatar, 120, worn.filter((a) => u.avatar.wearing.includes(a.id)))}</div><div class="grow">
+    <h1>${u.username}${verified(u.verified)}</h1>
     <p class="muted">User #${u.userId} · joined ${ago(u.created)} · ${r.friendCount} friends
       ${u.official ? html` · <b>Guts&amp;Bolts staff</b>` : ''}${u.banned ? html` · <span class="error">banned</span>` : ''}</p>
     ${(r.user.badges || []).length ? html`<p>Badges: ${r.user.badges.map((b) => html`<span class="btn small" style="cursor:default">${b}</span> `)}</p>` : ''}
-    <p>${friendBtn}</p>
+    <p>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Change my avatar</a>` : ''}</p></div></div>
     <h2>Games</h2>${games.length ? html`<div class="grid">${games.map(gameCard)}</div>` : html`<p class="muted">None yet.</p>`}
     <h2>Creations</h2>${items.length ? html`<div class="grid">${items.map(itemCard)}</div>` : html`<p class="muted">None yet.</p>`}
     <h2>Groups</h2>${r.groups.length ? html`<div class="list">${r.groups.map((g) => html`<div><a class="grow" href="#/group/${g.id}">${g.name}</a>
@@ -417,6 +498,73 @@ pages.group = async (id) => {
       <label><input type="checkbox" name="open" ${g.open ? 'checked' : ''}> Anyone can join</label>
       <p><button class="btn blue">Save</button>
       ${role === 'Owner' ? html` <button type="button" class="btn red" data-act="group" data-op="groups.delete" data-id="${g.id}">Delete group</button>` : ''}</p></form>` : ''}`);
+};
+
+let avatarDraft = null;   // the avatar being edited (saved with the Save button)
+
+pages.avatar = async () => {
+  if (!signedIn()) { show(html`<h1>Avatar</h1>${needSignIn('change your avatar')}`); return; }
+  const r = await pageCall('list', { kind: 'clothing', limit: 100 });
+  const owned = (r.ok ? r.assets : []).filter((a) => (me.owned || []).includes(a.id));
+  if (!avatarDraft) avatarDraft = Object.assign(defaultAvatar(), JSON.parse(JSON.stringify(me.avatar || {})));
+  const a = avatarDraft;
+  const wornItems = owned.filter((it) => a.wearing.includes(it.id));
+  show(html`<h1>Avatar</h1>
+    <div class="row top">
+      <div class="box" style="text-align:center;margin-right:16px"><div id="avatarPreview">${avatarSvg(a, 180, wornItems)}</div>
+        <p><button class="btn green" data-act="saveAvatar">Save</button>
+          <button class="btn" data-act="resetAvatar">Undo changes</button></p>
+        <p class="small muted" style="max-width:200px">Your avatar is the same in the app and on the website.</p></div>
+      <div class="grow">
+        <h2 style="margin-top:0">Colours</h2>
+        <div class="row">${PRESETS.map(([name], i) => html`<button class="btn small" data-act="avatarPreset" data-i="${i}">${name}</button>`)}</div>
+        <div class="row" style="margin-top:10px">${PARTS.map((p) => html`<label style="margin:0 12px 0 0;font-weight:normal">
+          <input type="color" data-avatar-part="${p}" value="${hexOf(a[p])}"> ${PART_NAMES[p]}</label>`)}</div>
+        <h2>Hat</h2>
+        <div class="row">${HATS.map((h, i) => html`<button class="btn small ${a.hat === i ? 'blue' : ''}" data-act="avatarHat" data-i="${i}">${h}</button>`)}</div>
+        ${a.hat ? html`<p class="row"><label style="margin:0;font-weight:normal"><input type="checkbox" data-avatar-hatcolor-on
+          ${a.hatColor[0] >= 0 ? 'checked' : ''}> My own colour</label>
+          <input type="color" data-avatar-hatcolor value="${hexOf(a.hatColor[0] >= 0 ? a.hatColor : HAT_COLORS[a.hat])}"></p>` : ''}
+        <h2>My clothes</h2>
+        ${owned.length ? html`<div class="grid">${owned.map((it) => html`<div class="card square">
+            <div class="pic" style="${a.wearing.includes(it.id) ? 'outline:3px solid #16a34a' : ''}">${itemIcon(it)}</div>
+            <div class="name">${it.name}</div>
+            <button class="btn small ${a.wearing.includes(it.id) ? 'green' : ''}" data-act="avatarWear" data-id="${it.id}" data-kind="${it.kind}">
+              ${a.wearing.includes(it.id) ? 'Wearing' : 'Wear'}</button></div>`)}</div>`
+          : html`<p class="muted">You don't have any clothes yet. Get some in the <a href="#/catalog">Catalog</a>!</p>`}
+      </div></div>`);
+  // Colours change the preview straight away (without redrawing the page, so the colour picker stays open).
+  const preview = () => { $('#avatarPreview').innerHTML = avatarSvg(a, 180, wornItems).s; };
+  view.querySelectorAll('[data-avatar-part]').forEach((inp) => inp.addEventListener('input', () => {
+    a[inp.dataset.avatarPart] = fromHex(inp.value); preview();
+  }));
+  const hc = view.querySelector('[data-avatar-hatcolor]'), hcOn = view.querySelector('[data-avatar-hatcolor-on]');
+  if (hc) hc.addEventListener('input', () => { a.hatColor = fromHex(hc.value); if (hcOn) hcOn.checked = true; preview(); });
+  if (hcOn) hcOn.addEventListener('change', () => { a.hatColor = hcOn.checked ? fromHex(hc.value) : [-1, -1, -1]; preview(); });
+};
+
+// Staff tools (like the Player's Staff page): verify people, give Bolts, ban.
+pages.staff = async () => {
+  if (!signedIn() || !me.staff) { show(html`<h1>Staff</h1><p class="muted">Only Guts&amp;Bolts staff can see this page.</p>`); return; }
+  const query = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
+  const r = await pageCall('admin.find', { query });
+  show(html`<h1>Staff</h1>
+    <p class="muted">${me.official ? 'You\'re the official Guts account: you can verify people, make staff, give Bolts and ban.'
+      : 'Staff can verify people and take Verified away.'}</p>
+    <form class="row" data-form="staffSearch"><input type="search" name="q" placeholder="Search by name or account ID" value="${query}" style="max-width:320px">
+      <button class="btn blue">Search</button></form>
+    <div class="list">${r.ok ? r.users.map((u) => html`<div>
+      <a class="grow" href="#/user/${u.id}"><b>${u.username || u.name}</b></a>${verified(u.verified)}
+      <span class="small muted">${u.userId ? '#' + u.userId : 'not signed up'}${u.staff ? ' · staff' : ''}${u.banned ? ' · banned' : ''}</span>
+      ${u.official ? '' : html`
+        ${u.verified ? html`<button class="btn small" data-act="staff" data-op="revoke" data-key="verified" data-id="${u.id}">Unverify</button>`
+          : html`<button class="btn small green" data-act="staff" data-op="grant" data-key="verified" data-id="${u.id}">Verify</button>`}
+        ${me.official ? html`
+          ${u.staff ? html`<button class="btn small" data-act="staff" data-op="revoke" data-key="staff" data-id="${u.id}">Remove staff</button>`
+            : html`<button class="btn small" data-act="staff" data-op="grant" data-key="staff" data-id="${u.id}">Make staff</button>`}
+          <button class="btn small" data-act="staff" data-op="bolts" data-id="${u.id}" data-name="${u.username || u.name}">Give Bolts</button>
+          <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
+      </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
 };
 
 pages.bolts = async () => {
@@ -526,6 +674,48 @@ const actions = {
     toast(r.ok ? 'Renamed to "' + name + '".' : r.error);
     render();
   },
+  resetAvatar() { avatarDraft = null; render(); },
+  avatarPreset(d) { PRESETS[Number(d.i)][1].forEach((c, i) => { avatarDraft[PARTS[i]] = c.slice(); }); render(); },
+  avatarHat(d) { avatarDraft.hat = Number(d.i); avatarDraft.hatColor = [-1, -1, -1]; render(); },
+  avatarWear(d) {
+    const w = avatarDraft.wearing;
+    if (w.includes(d.id)) w.splice(w.indexOf(d.id), 1);
+    else if (w.length < 8) w.push(d.id);
+    render();
+  },
+  async saveAvatar() {
+    const a = avatarDraft, avatar = { hat: a.hat, hatColor: a.hatColor.map((x) => x | 0), wearing: a.wearing };
+    PARTS.forEach((p) => { avatar[p] = a[p].map((x) => x | 0); });
+    const r = await call('avatar.set', { avatar });
+    toast(r.ok ? 'Saved! You\'ll look like this in every game.' : r.error);
+    if (r.ok) { avatarDraft = null; render(); }
+  },
+  async staff(d) {
+    let r;
+    if (d.op === 'grant') {
+      // A badge is a signature: the official account signs it, or a staff member
+      // signs it and adds their own Staff badge (only for Verified).
+      const message = 'gb-badge:' + d.key + ':' + d.id;
+      let sig = await gb.sign(message);
+      if (!me.official) {
+        const mine = (me.grants || []).find((g) => g[0] === 'staff');
+        if (!mine) { toast('You need the Staff badge for that.'); return; }
+        sig = 's:' + me.id + ':' + mine[1] + ':' + sig;
+      }
+      r = await call('admin.grant', { to: d.id, key: d.key, sig });
+    } else if (d.op === 'revoke') {
+      r = await call('admin.revoke', { to: d.id, key: d.key });
+    } else if (d.op === 'bolts') {
+      const amount = parseInt(prompt('How many Bolts to give ' + d.name + '? (A minus number takes them away.)', '100') || '0', 10);
+      if (!amount) return;
+      r = await call('admin.giveBolts', { to: d.id, amount, reason: '' });
+    } else if (d.op === 'ban') {
+      if (d.on && !confirm('Ban this account?')) return;
+      r = await call('admin.ban', { to: d.id, on: !!d.on });
+    }
+    toast(r && r.ok ? 'Done.' : (r && r.error) || 'That didn\'t work.');
+    render();
+  },
   async friend(d) {
     const r = await call(d.op, { user: d.user });
     toast(r.ok ? ({ friends: 'You\'re friends now!', sent: 'Friend request sent.', none: 'Done.' }[r.status] || 'Done.') : r.error);
@@ -551,6 +741,7 @@ const forms = {
   gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   peopleSearch(f) { location.hash = '#/people?' + new URLSearchParams({ q: f.q.value }); },
+  staffSearch(f) { location.hash = '#/staff?' + new URLSearchParams({ q: f.q.value }); },
   groupSearch(f) { location.hash = '#/groups?' + new URLSearchParams({ q: f.q.value }); },
   async redeem(f) {
     const r = await call('bolts.redeem', { code: f.code.value });
@@ -558,6 +749,7 @@ const forms = {
     if (r.ok) render();
   },
   async login(f) {
+    setTimeout(checkRequests, 1500);
     const msg = $('#loginMsg');
     msg.className = 'muted'; msg.textContent = 'Logging in...';
     const r = await gb.logIn(f.username.value.trim(), f.password.value);
@@ -651,6 +843,7 @@ async function render() {
     a.classList.toggle('on', p === name || (p === 'games' && name === 'game') || (p === 'catalog' && name === 'item') ||
       (p === 'people' && name === 'user') || (p === 'groups' && name === 'group'));
   });
+  if (name !== 'avatar') avatarDraft = null;   // leaving the avatar page drops unsaved changes
   if (!me) {
     show(html`<h1>Can't reach the Guts&amp;Bolts server</h1>
       <p class="muted">It might be switched off right now. Try again in a bit.</p>
@@ -674,4 +867,6 @@ window.addEventListener('hashchange', () => {
 (async () => {
   await hello();
   render();
+  checkRequests();
+  setInterval(() => { if (document.visibilityState === 'visible') checkRequests(); }, 60000);
 })();

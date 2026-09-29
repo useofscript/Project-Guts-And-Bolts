@@ -218,6 +218,8 @@ private:
     bool           m_renameFocus = false;
     bool           m_gamesDirty = false;           // a game was renamed: re-read the games list
     std::set<std::string> m_askedDownloads;        // decal pictures already asked for
+    std::string    m_testLastId;                   // --online-test: id of the last upload ("$LAST")
+    double         m_avatarPushAt = 0.0;           // save the avatar on the server at this time (0 = nothing to save)
     bool           m_busy = false;                 // waiting on the server
     float          m_onlinePlaySeconds = 0.0f;
     std::string    m_loaded;                       // lists already fetched this visit ("catalog games ...")

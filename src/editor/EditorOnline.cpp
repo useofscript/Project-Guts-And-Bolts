@@ -1,6 +1,7 @@
 // Studio's online side: connecting to a Guts&Bolts server, publishing the
 // game, and the Marketplace (plugins and audio people uploaded).
 #include "Editor.h"
+#include "panels/ViewportPanel.h"
 #include "Plugins.h"
 #include "../core/Account.h"
 #include "../core/Audio.h"
@@ -124,15 +125,21 @@ void Editor::renderPublishDialog() {
     const std::string& published = m_scene->info().publishedId;
     auto send = [this](bool update) {
         std::string data = Serializer::saveScene(*m_scene);
+        std::string picture = m_viewport->snapshotPng(480, 270);   // for the game's card on the site
         json args = {{"name", m_publishName}, {"description", m_publishDesc}, {"data", Online::base64Encode(data)}};
         if (update) args["id"] = m_scene->info().publishedId;
         else args["kind"] = "game";
         m_onlineBusy = true;
         m_publishMsg = "Publishing...";
-        Online::request(update ? "update" : "upload", args, [this](const json& r) {
+        Online::request(update ? "update" : "upload", args, [this, picture](const json& r) {
             m_onlineBusy = false;
             if (!r.value("ok", false)) { m_publishMsg = r.value("error", std::string("Publishing didn't work.")); return; }
             m_scene->info().publishedId = r["asset"].value("id", std::string());
+            if (!picture.empty())
+                Online::request("thumb.set", {{"id", m_scene->info().publishedId}, {"data", Online::base64Encode(picture)}},
+                                [](const json& t) {
+                    if (!t.value("ok", false)) Log::warn("The game's picture didn't upload: " + t.value("error", std::string()));
+                }, 60);
             m_scene->info().title = m_publishName;
             m_scene->info().description = m_publishDesc;
             m_publishMsg = "Published! It's on the site's home page now. (Save your game to remember it's published.)";
@@ -318,4 +325,10 @@ void Editor::renderMarketplace() {
         ImGui::EndTabBar();
     }
     ImGui::End();
+}
+
+void Editor::testSnapshot(const std::string& file) {
+    std::string png = m_viewport->snapshotPng(480, 270);
+    std::ofstream(file, std::ios::binary).write(png.data(), (std::streamsize)png.size());
+    Log::system("Snapshot: " + std::to_string(png.size()) + " bytes to " + file);
 }

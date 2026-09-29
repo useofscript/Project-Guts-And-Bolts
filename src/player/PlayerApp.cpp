@@ -128,13 +128,15 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
                 args["to"] = args["grantFor"]; args.erase("grantFor");
                 args["key"] = g.first; args["sig"] = g.second;
             }
+            if (args.contains("id") && args["id"] == "$LAST") args["id"] = m_testLastId;   // the thing uploaded just before
             if (args.contains("fileB64")) {    // upload a file from disk
                 std::ifstream f(args["fileB64"].get<std::string>(), std::ios::binary);
                 std::stringstream buf; buf << f.rdbuf();
                 args["data"] = Online::base64Encode(buf.str());
                 args.erase("fileB64");
             }
-            Online::request(op, args, [op](const nlohmann::json& r) {
+            Online::request(op, args, [this, op](const nlohmann::json& r) {
+                if (r.contains("asset") && r["asset"].is_object()) m_testLastId = r["asset"].value("id", m_testLastId);
                 nlohmann::json shown = r;
                 if (shown.contains("data")) shown["data"] = "(" + std::to_string(shown["data"].get<std::string>().size()) + " base64 chars)";
                 if (shown.contains("me")) shown["me"] = {{"name", r["me"].value("name", "")}, {"bolts", r["me"].value("bolts", 0)},
@@ -1013,6 +1015,11 @@ void PlayerApp::drawAvatar(float dt) {
     if (changed && p) {
         me.applyTo(*p);
         me.save();
+        m_avatarPushAt = ImGui::GetTime() + 1.5;   // then save it on the server too (after you stop clicking)
+    }
+    if (m_avatarPushAt > 0.0 && ImGui::GetTime() > m_avatarPushAt) {
+        m_avatarPushAt = 0.0;
+        if (Online::online() && Online::me().value("userId", 0LL) > 0) Online::pushAvatar();
     }
 }
 

@@ -42,6 +42,7 @@ void Profile::load() {
     // those players onto it once (choosing "Go offline" afterwards sticks).
     if (!j.value("serverChecked", false) && server.empty()) server = Online::kOfficialServer;
     strings("wearing", wearing);
+    avatarUpdated = j.value("avatarUpdated", 0LL);
     // Nobody else gets to be called Guts, even by editing profile.json.
     if (Account::nameIsReserved(name) && !Account::iAmStaff()) name = "Player";
     hatColor        = vec(j, "hatColor", hatColor);
@@ -60,6 +61,7 @@ void Profile::save() const {
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
         {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server}, {"serverChecked", true},
+        {"avatarUpdated", avatarUpdated},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

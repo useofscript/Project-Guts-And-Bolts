@@ -6,8 +6,10 @@ Hosted on **Cloudflare Workers** (free), from this repo. It has two parts:
   and download links.
 - **The site** (`app/`): the same pages as the Player app, in a browser. People
   can sign up and log in, browse games, buy from the catalog, upload decals,
-  audio, clothes, plugins and games, rename their games, and use friends,
-  people, groups and Bolts.
+  audio, clothes, plugins and games, rename their games, change their avatar
+  (shared with the app), and use friends, people, groups and Bolts. Staff get
+  a Staff page. Game cards show the picture Studio uploads when publishing
+  (served at `/thumb/<game id>`).
 
 ## The Guts&Bolts server lives here too
 

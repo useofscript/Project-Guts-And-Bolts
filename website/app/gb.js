@@ -211,3 +211,9 @@ export function base64Bytes(b64) {
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
   return out;
 }
+
+// Sign a message with this browser's account key (hex), like Account::sign.
+// Staff use it to give badges: the server checks it against their account.
+export async function sign(message) {
+  return hex(await signBytes(await loadKey(), enc.encode(message)));
+}
