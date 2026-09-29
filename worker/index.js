@@ -1,14 +1,15 @@
-// The Guts&Bolts website's helper on Cloudflare.
+// The Guts&Bolts website and server on Cloudflare.
 //
-// Web pages can't open the kind of connection the Guts&Bolts server speaks
-// (plain TCP with length-prefixed messages), so the site sends each request
-// here, to /api, and this Worker passes it on to the server and brings the
-// answer back. Requests are already signed in the browser with the player's
-// own key, so the Worker can't change them and never sees a password.
+//   /api   one signed request -> one answer   (the website and the apps)
+//   /ws    a WebSocket for the multiplayer relay (the apps)
+//   else   the website's files (website/)
 //
-// The server's address is the GB_SERVER setting (wrangler.jsonc, or the
-// Worker's Settings > Variables in the Cloudflare dashboard).
+// Normally the Guts&Bolts server itself runs here too (server.js, a Durable
+// Object), so it's online even when your computer is off. If GB_SERVER is set
+// (host:port), /api is passed on to that server instead, over TCP.
 import { connect } from 'cloudflare:sockets';
+import { GbServerObject } from './server.js';
+export { GbServerObject };
 
 const MAX_REQUEST = 40 * 1024 * 1024;   // a whole game, base64
 const MAX_REPLY   = 48 * 1024 * 1024;
@@ -67,11 +68,18 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/info') {
-      return reply({ ok: true, server: env.GB_SERVER || '', time: Math.floor(Date.now() / 1000) });
+      return reply({ ok: true, server: env.GB_SERVER || 'cloudflare', time: Math.floor(Date.now() / 1000) });
     }
+    // The server on Cloudflare: one Durable Object holds everything.
+    const builtIn = () => env.GB_SERVER_OBJECT.get(env.GB_SERVER_OBJECT.idFromName('main'));
+    if (url.pathname === '/ws') return builtIn().fetch(request);
     if (url.pathname === '/api') {
       if (request.method !== 'POST') return reply({ ok: false, error: 'Use POST.' }, 405);
-      if (!env.GB_SERVER) return reply({ ok: false, error: 'The website isn\'t connected to a Guts&Bolts server yet (set GB_SERVER).' });
+      if (!env.GB_SERVER) {
+        const len = Number(request.headers.get('content-length') || 0);
+        if (len > MAX_REQUEST) return reply({ ok: false, error: 'That\'s too big to send.' }, 413);
+        return builtIn().fetch(request);
+      }
       const len = Number(request.headers.get('content-length') || 0);
       if (len > MAX_REQUEST) return reply({ ok: false, error: 'That\'s too big to send.' }, 413);
       const text = await request.text();

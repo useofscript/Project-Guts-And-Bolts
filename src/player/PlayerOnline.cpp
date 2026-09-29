@@ -101,8 +101,9 @@ void PlayerApp::drawServerDialog() {
     ImGui::TextUnformatted("A Guts&Bolts server keeps your Bolts, badges and everything people upload (clothes, "
                            "audio, plugins and games) in one place, so everyone sees the same site.");
     ImGui::Spacing();
-    ImGui::TextDisabled("Run GutsAndBoltsServer on a computer, then type its address here, like 192.168.1.20 or "
-                        "myserver.com:7780. Leave it empty to play offline.");
+    ImGui::TextDisabled("The official server runs on Cloudflare, so it's always on. You can also run your own "
+                        "GutsAndBoltsServer on a computer and type its address here, like 192.168.1.20 or "
+                        "myserver.com:7780.");
     ImGui::PopTextWrapPos();
     ImGui::Spacing();
     ImGui::SetNextItemWidth(-1);
@@ -114,7 +115,14 @@ void PlayerApp::drawServerDialog() {
         m_serverMsg = m_serverInput.empty() ? "Playing offline." : "Connecting...";
     }
     ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(120, 32))) {
+    if (ImGui::Button("Official server", ImVec2(130, 32))) {
+        m_serverInput = Online::kOfficialServer;
+        Online::setServerAddress(m_serverInput);
+        m_loaded.clear();
+        m_serverMsg = "Connecting...";
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Go offline", ImVec2(110, 32))) {
         m_serverInput.clear();
         Online::setServerAddress("");
         m_loaded.clear();

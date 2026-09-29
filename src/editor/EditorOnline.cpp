@@ -61,7 +61,8 @@ void Editor::renderServerDialog() {
     ImGui::SetNextWindowSize(ImVec2(520, 0));
     if (!ImGui::BeginPopupModal("Guts&Bolts Server", nullptr, ImGuiWindowFlags_NoResize)) return;
     ImGui::TextWrapped("A Guts&Bolts server keeps published games, plugins, audio, Bolts and badges for everyone. "
-                       "Run GutsAndBoltsServer on a computer and type its address here (like 192.168.1.20 or "
+                       "The official one runs on Cloudflare, so it's always on. You can also run your own "
+                       "GutsAndBoltsServer on a computer and type its address here (like 192.168.1.20 or "
                        "myserver.com:7780).");
     ImGui::Spacing();
     ImGui::SetNextItemWidth(-1);
@@ -69,7 +70,13 @@ void Editor::renderServerDialog() {
                                           ImGuiInputTextFlags_EnterReturnsTrue);
     if (ImGui::Button("Connect", ImVec2(120, 0)) || enter) { Online::setServerAddress(m_serverInput); m_marketLoaded = false; }
     ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(120, 0))) { m_serverInput.clear(); Online::setServerAddress(""); }
+    if (ImGui::Button("Official server", ImVec2(130, 0))) {
+        m_serverInput = Online::kOfficialServer;
+        Online::setServerAddress(m_serverInput);
+        m_marketLoaded = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Go offline", ImVec2(110, 0))) { m_serverInput.clear(); Online::setServerAddress(""); }
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
     ImGui::Spacing();

@@ -9,29 +9,27 @@ Hosted on **Cloudflare Workers** (free), from this repo. It has two parts:
   audio, clothes, plugins and games, rename their games, and use friends,
   people, groups and Bolts.
 
-## How the site talks to your Guts&Bolts server
+## The Guts&Bolts server lives here too
 
-Browsers can't open the kind of connection the Guts&Bolts server uses, so the
-site sends its requests to `/api`. A small Cloudflare Worker
-(`worker/index.js` in the repo root) passes them on to the server and brings
-the answers back.
+The same Cloudflare Worker also **is** the Guts&Bolts server
+(`worker/server.js`, a Durable Object with its own database), so everything
+stays online when your computer is off:
 
-The server's address is the **`GB_SERVER`** setting in `wrangler.jsonc` (for
-example `rails-volley.tun.ply.gg:61229`). To change it, edit that file, or set
-it in the Cloudflare dashboard under the Worker's **Settings → Variables**.
+- `/api`: signed requests (from the website and the apps).
+- `/ws`: WebSockets for the apps' multiplayer relay.
+
+Settings, in the dashboard under the Worker's **Settings → Variables and
+Secrets** (kept across deploys):
+
+- `OFFICIAL`: your staff account's ID. That account becomes user #1, "Guts".
+- `SERVER_NAME`: the name the apps show (default "Guts&Bolts").
+- `GB_SERVER`: only set this to use a server on a computer instead (host:port).
 
 **Your password never leaves the browser.** Every request is signed in the page
 with the account's own key, just like the apps do (the crypto is the same
 Monocypher library, compiled to WebAssembly: `app/gbcrypto.wasm`). The Worker
 only carries sealed requests and can't change them.
 
-For the site to work:
-
-1. The Guts&Bolts server must be running (`gnb-server status`) and up to date
-   (`gnb-server update`). Older servers don't know decals, and don't let
-   visitors look around before they sign in.
-2. The address in `GB_SERVER` must reach it. With playit.gg, that's a **TCP**
-   tunnel to local port **7780**.
 
 ## Put it online (one time)
 
@@ -53,7 +51,9 @@ From then on, every change merged into `main` goes live on its own.
 ## Try it on your computer
 
 ```sh
-npx wrangler dev --var GB_SERVER:127.0.0.1:7780
+npx wrangler dev
 ```
+
+Point an app at it with the server address `http://localhost:8787`.
 
 Then open <http://localhost:8787/app/>.

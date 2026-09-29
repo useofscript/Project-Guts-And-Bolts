@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -46,17 +47,28 @@ double clockSeconds() {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
+// "host", "host:port", or a web address: "https://name.workers.dev" (a server on
+// Cloudflare). Web addresses come back as "wss://name" (or "ws://name" for
+// plain http), which Net::Connection understands.
 bool splitAddress(const std::string& address, std::string& host, int& port) {
-    host = address;
-    port = kDefaultPort;
+    std::string a = address;
+    while (!a.empty() && (a.back() == ' ' || a.back() == '/')) a.pop_back();
+    while (!a.empty() && a.front() == ' ') a.erase(a.begin());
+    std::string scheme;
+    for (const char* sc : {"https://", "wss://", "http://", "ws://"})
+        if (a.rfind(sc, 0) == 0) { scheme = sc; a = a.substr(std::strlen(sc)); break; }
+    if (size_t slash = a.find('/'); slash != std::string::npos) a.resize(slash);
+    if (scheme.empty() && a.find(".workers.dev") != std::string::npos) scheme = "https://";
+    const bool web = !scheme.empty(), secure = scheme == "https://" || scheme == "wss://";
+    host = a;
+    port = web ? (secure ? 443 : 80) : kDefaultPort;
     // "[::1]:7780" isn't supported; "host:port" and plain "host" are.
-    auto colon = address.rfind(':');
-    if (colon != std::string::npos && address.find(':') == colon) {
-        host = address.substr(0, colon);
-        port = std::atoi(address.c_str() + colon + 1);
+    auto colon = a.rfind(':');
+    if (colon != std::string::npos && a.find(':') == colon) {
+        host = a.substr(0, colon);
+        port = std::atoi(a.c_str() + colon + 1);
     }
-    while (!host.empty() && host.back() == ' ') host.pop_back();
-    while (!host.empty() && host.front() == ' ') host.erase(host.begin());
+    if (web && !host.empty()) host = (secure ? "wss://" : "ws://") + host;
     return !host.empty() && port > 0 && port < 65536;
 }
 
@@ -140,6 +152,15 @@ void request(const std::string& op, const json& args, Reply done, int timeoutSec
         int port = 0;
         if (!splitAddress(address, host, port)) {
             reply = {{"ok", false}, {"error", "That server address doesn't look right (use host or host:port)."}};
+        } else if (Net::isWebAddress(host)) {
+            // A server on the web (Cloudflare): one HTTPS request to its /api.
+            std::string answer;
+            if (Net::httpPost(host, port, "/api", text, answer, err, timeoutSeconds * 1000)) {
+                reply = json::parse(answer, nullptr, false);
+                if (!reply.is_object()) reply = {{"ok", false}, {"error", "The server sent back something odd."}};
+            } else {
+                reply = {{"ok", false}, {"error", "Couldn't reach the server at " + address + " (" + err + ")."}};
+            }
         } else if (auto conn = Net::Connection::connectTo(host, port, err, 5000)) {
             conn->send(text);
             auto until = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);

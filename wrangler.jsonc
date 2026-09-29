@@ -1,17 +1,29 @@
-// Cloudflare settings for the Guts&Bolts website.
-//   - website/ is served as it is (the pages, pictures and the web app).
-//   - worker/index.js answers /api: it passes the web app's requests on to the
-//     Guts&Bolts server at GB_SERVER (change it here or in the dashboard).
+// Cloudflare settings for Guts&Bolts: the website AND the Guts&Bolts server.
+//   - website/ is served as it is (the front page and the web app).
+//   - worker/index.js answers /api and /ws with the Guts&Bolts server, which
+//     runs on Cloudflare (worker/server.js, a Durable Object with its own
+//     database), so it's online even when your computer is off.
+//
+// Settings: add these in the Cloudflare dashboard (Workers & Pages >
+// project-guts-and-bolts > Settings > Variables and Secrets). They're kept
+// when the site is redeployed (keep_vars below).
+//   OFFICIAL     the staff account's ID (64 letters/numbers; in the Player: Staff
+//                page > "Copy official ID"). That account becomes user #1,
+//                "Guts", with the Staff and Verified badges.
+//   SERVER_NAME  the name the apps show for this server (default "Guts&Bolts").
+//   GB_SERVER    only to use a server on a computer instead (host:port).
 {
   "name": "project-guts-and-bolts",
   "main": "worker/index.js",
   "compatibility_date": "2026-09-01",
+  "keep_vars": true,
   "assets": {
     "directory": "./website",
     "binding": "ASSETS",
-    "run_worker_first": ["/api", "/api/*"]
+    "run_worker_first": ["/api", "/api/*", "/ws"]
   },
-  "vars": {
-    "GB_SERVER": "rails-volley.tun.ply.gg:61229"
-  }
+  "durable_objects": {
+    "bindings": [{ "name": "GB_SERVER_OBJECT", "class_name": "GbServerObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GbServerObject"] }]
 }

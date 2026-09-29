@@ -54,3 +54,13 @@ __attribute__((export_name("unlock"))) int unlock(void) {
 }
 
 __attribute__((export_name("wipe"))) void wipe(void) { crypto_wipe(io, 1u << 20); }
+
+// For the Cloudflare server: check a signature, and hash like Account::hashHex.
+// pub[32] @0, sig[64] @32, message @128 (len bytes) -> 0 if it's genuine
+__attribute__((export_name("check"))) int check(unsigned len) {
+    return crypto_eddsa_check(io + 32, io, io + 128, len);
+}
+// data @128 (len bytes) -> BLAKE2b-256 @64
+__attribute__((export_name("hash"))) void hash(unsigned len) {
+    crypto_blake2b(io + 64, 32, io + 128, len);
+}

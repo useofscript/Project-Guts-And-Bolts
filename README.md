@@ -480,8 +480,32 @@ public half is your **account ID** (safe to share). The secret half stays in
 
 ### Guts&Bolts server (storing things online)
 
-To keep everyone's accounts, Bolts, badges and uploads in one place, run the
-**Guts&Bolts server** on a computer:
+The **official Guts&Bolts server runs on Cloudflare** (with the website), so it's
+online even when nobody's computer is on. The apps start on it:
+`https://project-guts-and-bolts.pizzadoe173.workers.dev`. In the server window
+(the site's **Online/Offline** button, or Studio's **File > Guts&Bolts
+Server...**), **Official server** switches back to it at any time.
+
+How it works:
+
+- `worker/server.js` is the server, rewritten in JavaScript for Cloudflare. It
+  uses the same requests and rules as the C++ server in `src/server`, and keeps
+  its data in a Cloudflare Durable Object's own database.
+- The apps talk to it over **HTTPS** (normal requests) and **secure WebSockets**
+  (multiplayer). They use mbedTLS for that, and trust Mozilla's list of
+  certificate authorities (`assets/certs/cacert.pem`).
+- **Multiplayer** still runs each game on the host player's computer, and
+  Cloudflare only passes messages between players. So no game runs on Cloudflare
+  when nobody's playing, and players never see each other's addresses.
+- **The staff account:** in the Cloudflare dashboard, open
+  **Workers & Pages → project-guts-and-bolts → Settings → Variables and
+  Secrets**, and add `OFFICIAL` = your account ID (the Player's Staff page:
+  **Copy official ID**). That account is then user #1, **Guts**.
+- Everything fits Cloudflare's free plan for a small community: about 100,000
+  requests a day, and 5 GB of storage.
+
+You can still run your own server on a computer instead, for example for LAN
+parties:
 
 1. **Start it.** Double-click `tools/Start Server.bat` (Windows) or
    `tools/Start Server.command` (Mac), or run `python3 install.py --server`.
@@ -533,9 +557,8 @@ site** (`/app/`) to do what the Player's site pages do:
 Playing games still happens in the app. Visitors who aren't signed in can look
 around (games, catalog, people, groups) but can't change anything.
 
-The website reaches your Guts&Bolts server through a small Cloudflare Worker
-(`worker/index.js`), set by `GB_SERVER` in `wrangler.jsonc`. Your password
-never leaves the browser.
+The website talks to the Guts&Bolts server on Cloudflare (see below). Your
+password never leaves the browser.
 
 ### The Create page
 
