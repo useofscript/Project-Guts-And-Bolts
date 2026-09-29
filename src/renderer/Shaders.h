@@ -46,8 +46,10 @@ uniform mat3 uNormalMat;
 
 out vec3 vNormal;
 out vec3 vWorldPos;
+out vec2 vUV;
 
 void main() {
+    vUV = aUV;
     vec4 world = uModel * vec4(aPos, 1.0);
     vWorldPos  = world.xyz;
     vNormal    = normalize(uNormalMat * aNormal);
@@ -58,6 +60,10 @@ void main() {
 inline const char* litFrag = R"(#version 410 core
 in vec3 vNormal;
 in vec3 vWorldPos;
+in vec2 vUV;
+
+uniform bool      uUseDecal;   // drawing a Decal: its picture colours the surface
+uniform sampler2D uDecal;
 
 uniform vec3  uColor;
 uniform int   uMaterial;      // 0 plastic 1 metal 2 neon 3 wood 4 glass 5 concrete 6 ice
@@ -178,6 +184,13 @@ void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uViewPos - vWorldPos);
     vec3 albedo = lin(uColor);
+    float decalAlpha = 1.0;
+    if (uUseDecal) {
+        vec4 px = texture(uDecal, vUV);
+        if (px.a < 0.01) discard;
+        albedo *= lin(px.rgb);
+        decalAlpha = px.a;
+    }
 
     // --- Material look ---
     // Fine surface detail fades out when it gets smaller than a pixel (no shimmering).
@@ -198,7 +211,7 @@ void main() {
     else if (uMaterial == 6) { rough = 0.08; albedo = mix(albedo, vec3(0.8, 0.9, 1.0), 0.2); }
 
     vec3 color;
-    float alpha = uAlpha;
+    float alpha = uAlpha * decalAlpha;
 
     if (uMaterial == 2) {
         // Neon glows on its own (and blooms).

@@ -41,6 +41,8 @@ struct PlayerOptions {
     bool        privateServer = false; // --private-server (with a game): start a private server once online
     std::string joinCode;              // --join-code <code>: join a private server once online
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
+    float       cameraYaw = -1000.0f;  // --camera-yaw <degrees> (tests: look from another side)
+    std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,

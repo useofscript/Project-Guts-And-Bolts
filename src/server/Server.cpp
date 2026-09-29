@@ -429,6 +429,14 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (ext != "mp3" && ext != "wav" && ext != "ogg" && ext != "flac") return fail("Audio must be .mp3, .wav, .ogg or .flac.");
             if (data.empty()) return fail("That audio file is empty.");
         }
+        if (kind == "decal") {
+            // Only real pictures: check the first bytes, not just the name.
+            bool png = data.size() > 8 && data.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0;
+            bool jpg = data.size() > 3 && (unsigned char)data[0] == 0xFF && (unsigned char)data[1] == 0xD8 &&
+                       (unsigned char)data[2] == 0xFF;
+            if (!png && !jpg) return fail("Decals must be .png or .jpg pictures.");
+            meta["ext"] = png ? "png" : "jpg";
+        }
         if (kind == "game" && !json::accept(data)) return fail("That isn't a Guts&Bolts game file.");
         if (kind == "plugin" && data.empty()) return fail("That plugin is empty.");
         const long long fee = verified ? 0 : Online::uploadFee(kind);

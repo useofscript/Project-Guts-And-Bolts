@@ -14,7 +14,7 @@ namespace Online {
 using Downloaded = std::function<void(bool ok, const std::filesystem::path& file, const nlohmann::json& info)>;
 void download(const std::string& assetId, Downloaded done = nullptr, bool redownload = false);
 
-// Start downloading any server audio ("gb:<id>" sounds) a game uses.
+// Start downloading any server audio and decal pictures ("gb:<id>") a game uses.
 void fetchSounds(Scene& scene);
 
 } // namespace Online

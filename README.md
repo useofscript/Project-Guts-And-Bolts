@@ -274,6 +274,96 @@ A script that loops forever without `wait()` is stopped after 5 seconds with a
 friendly error, so it can't freeze your game. Scripts can't touch files on
 your computer.
 
+## Tools (swords, bats, anything you can hold)
+
+A **Tool** is something a character carries, like a Roblox Tool. Insert one
+with *Insert Object > Tool*: it comes with a part called **Handle**. That's
+what the character holds, with its long side (Y) pointing forward out of
+the fist. Add more parts inside the tool (a blade, a guard...) and they
+come along.
+
+- **Picking up:** walk into a tool's Handle and it goes in your backpack.
+- **Hotbar:** your tools show along the bottom of the screen. Press **1-9**
+  (or click / tap a slot) to hold one; press the same number again to put it
+  away. **Backspace** drops the one you're holding (unless *CanBeDropped* is
+  off).
+- **In StarterPack:** tick this and everyone spawns with that tool (and gets
+  it again after respawning, like Roblox).
+- **Using it:** clicking while you hold a tool swings your arm and fires the
+  tool's `Activated` event.
+
+```lua
+-- A script inside the tool
+local tool = script.Parent
+tool.Activated:Connect(function()
+    print("Swing!")
+end)
+tool.Handle.Touched:Connect(function(hit)
+    -- the held Handle touching something (only while you hold it)
+end)
+tool.Equipped:Connect(function() end)      -- also Unequipped, Deactivated
+```
+
+Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
+`humanoid:EquipTool(tool)`, `humanoid:UnequipTools()` and
+`Players.LocalPlayer.Backpack` (parent a tool there to give it). Try the
+**Bat** in *Demolition Yard*. Tools work in single player and for the host
+of an online game; people who join someone else's game can't carry tools
+yet.
+
+## Leaderboard, checkpoints and saved data
+
+**Leaderstats**, the Roblox way: put a folder called `leaderstats` inside a
+player, with IntValues (or other values) in it, and they show as columns on
+the player list, for everyone in an online game too.
+
+```lua
+local Players = game:GetService("Players")
+local function setup(player)
+    local stats = Instance.new("Folder")
+    stats.Name = "leaderstats"
+    stats.Parent = player
+    local coins = Instance.new("IntValue")
+    coins.Name = "Coins"
+    coins.Parent = stats
+end
+setup(Players.LocalPlayer)
+Players.PlayerAdded:Connect(setup)          -- people joining an online game
+-- later: player.leaderstats.Coins.Value = player.leaderstats.Coins.Value + 1
+```
+
+Value objects (**IntValue, NumberValue, StringValue, BoolValue**) can also be
+added in Studio (*Insert Object*). Scripts use `.Value` and `.Changed`.
+
+**Checkpoints:** add the ready-made *Checkpoint* pad from the Toolbox (or
+name any part `Checkpoint`). Touching it makes it your respawn point. Scripts
+can also set `player.RespawnLocation = somePart`.
+
+**Saved data** (`DataStoreService`) keeps things between visits:
+
+```lua
+local store = game:GetService("DataStoreService"):GetDataStore("Stats")
+local visits = store:IncrementAsync("visits_" .. player.UserId, 1)
+store:SetAsync("best", { score = 42 })
+print(store:GetAsync("best").score)
+```
+
+It also has `UpdateAsync` and `RemoveAsync`. Data is saved per game, in each
+player's account folder on the computer that runs the game (the host, online).
+
+### Sound effects
+
+Most built-in sounds are made in code, but a few are recordings in
+`assets/sounds` (built into the apps):
+
+| File | Name in scripts | When it plays |
+| --- | --- | --- |
+| `jump.wav` | `"jump"` | the character jumps |
+| `spawn.wav` | `"spawn"` | you arrive in a game (a splat) |
+| `respawn.wav` | `"respawn"` | you come back after dying |
+
+Swap in your own .wav files with the same names and rebuild.
+
 ## Physics
 
 Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,

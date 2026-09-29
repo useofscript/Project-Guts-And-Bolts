@@ -3,6 +3,9 @@
 #include "../../scene/SceneNode.h"
 #include "../../renderer/MeshLibrary.h"
 #include "../../core/Audio.h"
+#include "../../core/FileDialog.h"
+#include "../../core/Paths.h"
+#include "../../renderer/Textures.h"
 #include "../../scene/EditMesh.h"
 
 #include <imgui.h>
@@ -31,6 +34,9 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Attachment ? "Attachment"
                     : node->kind == NodeKind::Constraint ? "Constraint"
                     : node->kind == NodeKind::ForceField ? "ForceField"
+                    : node->kind == NodeKind::Tool       ? "Tool"
+                    : node->kind == NodeKind::Value      ? node->valueClass()
+                    : node->kind == NodeKind::Decal      ? "Decal"
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
@@ -54,6 +60,81 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::TextDisabled("Runs when you press Play.");
         ImGui::TextDisabled("Inside the code, 'script.Parent' is the");
         ImGui::TextDisabled("object this script is inside of.");
+        return;
+    }
+
+    if (node->isValue()) {
+        ImGui::SeparatorText("Value");
+        switch (node->value.type) {
+            case Attribute::Bool:   ImGui::Checkbox("Value", &node->value.b); break;
+            case Attribute::String: ImGui::InputText("Value", &node->value.s); break;
+            case Attribute::Vector3: ImGui::DragFloat3("Value", &node->value.v.x, 0.1f); break;
+            case Attribute::Color3: ImGui::ColorEdit3("Value", &node->value.v.x); break;
+            default:
+                if (node->intValue) {
+                    long long v = (long long)node->value.n;
+                    if (ImGui::InputScalar("Value", ImGuiDataType_S64, &v)) node->value.n = (double)v;
+                } else {
+                    ImGui::InputDouble("Value", &node->value.n);
+                }
+        }
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Scripts read and change it with .Value (and hear about changes with .Changed). "
+                            "Put IntValues in a folder called leaderstats inside a player to show them on the leaderboard.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    if (node->isDecal()) {
+        ImGui::SeparatorText("Decal");
+        ImGui::InputText("Texture", &node->texture);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A picture: a .png / .jpg in the games folder, a full path,\nor gb:<id> for one uploaded on the Create page.");
+        if (FileDialog::available()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...")) {
+                std::string path = FileDialog::openImage("Pick a picture for the decal");
+                if (!path.empty()) { node->texture = Paths::relativeToGames(path); m_scene->markDirty(); }
+            }
+        }
+        int face = (int)node->face;
+        if (ImGui::Combo("Face", &face, kFaceNames, 6)) node->face = (Face)face;
+        ImGui::ColorEdit3("Color3", &node->color.x);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tints the picture. White shows it as it is.");
+        ImGui::SliderFloat("Transparency", &node->transparency, 0.0f, 1.0f);
+        if (unsigned tex = Textures::get(node->texture)) {
+            int w = 0, h = 0;
+            Textures::size(node->texture, w, h);
+            float pw = std::min(ImGui::GetContentRegionAvail().x, 160.0f);
+            float ph = w > 0 ? pw * (float)h / (float)w : pw;
+            ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(pw, ph), ImVec2(0, 1), ImVec2(1, 0));
+        } else if (!node->texture.empty()) {
+            ImGui::TextColored(ImVec4(0.9f, 0.5f, 0.3f, 1), "Can't find that picture yet.");
+        }
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Put a Decal inside a part: the picture is stuck on the side you pick in Face, "
+                            "stretched to fill it.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    if (node->isTool()) {
+        ImGui::SeparatorText("Tool");
+        ImGui::Checkbox("Enabled", &node->enabled);
+        ImGui::InputText("ToolTip", &node->toolTip);
+        ImGui::Checkbox("CanBeDropped", &node->canBeDropped);
+        ImGui::Checkbox("In StarterPack", &node->starterTool);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Everyone gets this tool in their backpack when they spawn.");
+        ImGui::DragFloat3("GripPos", &node->gripPos.x, 0.02f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where on the Handle the hand holds it (in the Handle's own space).");
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Put a part called Handle inside: that's what the character holds (its long side, Y, "
+                            "points forward out of the hand). Players pick tools up by touching them, and press "
+                            "1-9 to equip. Scripts inside get tool.Activated when the player clicks.");
+        ImGui::PopTextWrapPos();
         return;
     }
 

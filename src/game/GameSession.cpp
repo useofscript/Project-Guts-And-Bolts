@@ -1,4 +1,6 @@
 #include "GameSession.h"
+#include "../scene/Serializer.h"
+#include "../scripting/LuaApi.h"   // SignalKind (tool events)
 #include "../scene/Scene.h"
 #include "../scene/Player.h"
 #include "../core/Audio.h"
@@ -23,11 +25,95 @@ void GameSession::start() {
         bool in3d = n->parent && n->parent->isPart();
         n->audioHandle = Audio::play(n->soundId, n->volume, n->pitch, n->looped, in3d ? &at : nullptr);
     });
+    if (m_role != Role::Client) setupTools();   // before the scripts, so tools' scripts start with the rest
     if (m_role != Role::Client) m_scripts.start();
+}
+
+// ---------------------------------------------------------------------------
+// Tools
+// ---------------------------------------------------------------------------
+
+void GameSession::setupTools() {
+    m_starterPack.clear();
+    m_noPickupUntil.clear();
+    m_toolDown = false;
+    Player* p = m_runOnly ? nullptr : m_scene->player();
+    // StarterPack tools are templates: everyone gets a copy each time they spawn.
+    std::vector<SceneNode*> starters;
+    m_scene->forEach([&](SceneNode* n) {
+        if (n->isTool() && n->starterTool && !m_scene->isCharacterPart(n)) starters.push_back(n);
+    });
+    for (SceneNode* t : starters)
+        if (auto owned = m_scene->detach(t)) m_starterPack.push_back(std::move(owned));
+    if (!p) return;
+    p->onToolEquip = [this](uint64_t tool, bool equipped) {
+        if (m_scripts.running()) m_scripts.fireTool(equipped ? SignalKind::Equipped : SignalKind::Unequipped, tool);
+    };
+    giveStarterTools();
+    p->consumeRespawned();
+}
+
+void GameSession::giveStarterTools() {
+    Player* p = m_scene->player();
+    if (!p) return;
+    for (const auto& tpl : m_starterPack) {
+        SceneNode* copy = m_scene->insert(Serializer::clone(*tpl));
+        if (!p->give(copy)) { m_scene->removeNode(copy); continue; }
+        m_scripts.runScriptsIn(copy);   // (does nothing before the scripts have started)
+    }
+}
+
+void GameSession::pickUpTools(const std::vector<TouchEvent>& touches) {
+    Player* p = m_scene->player();
+    SceneNode* me = p ? p->root() : nullptr;
+    if (!me || p->isDead()) return;
+    for (const TouchEvent& t : touches) {
+        SceneNode* part = m_scene->findById(t.partId);
+        SceneNode* other = m_scene->findById(t.otherId);
+        if (!part || !other || part->name != "Handle" || !part->parent || !part->parent->isTool()) continue;
+        if (other != me && other->parent != me) continue;             // only your own character picks things up
+        SceneNode* tool = part->parent;
+        if (m_scene->isCharacterPart(tool)) continue;                  // someone's already got it
+        if (auto it = m_noPickupUntil.find(tool->id); it != m_noPickupUntil.end() && m_time < it->second) continue;
+        p->give(tool);
+    }
+}
+
+void GameSession::reachCheckpoints(const std::vector<TouchEvent>& touches) {
+    Player* p = m_scene->player();
+    SceneNode* me = p ? p->root() : nullptr;
+    if (!me || p->isDead()) return;
+    for (const TouchEvent& t : touches) {
+        SceneNode* part = m_scene->findById(t.partId);
+        SceneNode* other = m_scene->findById(t.otherId);
+        if (!part || !other || part->name != "Checkpoint" || p->checkpoint() == part->id) continue;
+        if (other != me && other->parent != me) continue;
+        p->setCheckpoint(part->id);
+        glm::vec3 at(part->worldMatrix()[3]);
+        Audio::play("coin", 0.5f, 1.4f, false, &at);
+        if (m_scripts.gui().messageTime <= 0.0f) {   // don't talk over the game's own messages
+            m_scripts.gui().message = "Checkpoint!";
+            m_scripts.gui().messageTime = 1.5f;
+        }
+    }
+}
+
+void GameSession::selectToolSlot(int slot) {
+    if (!m_running || m_role == Role::Client) return;
+    if (Player* p = m_scene->player(); p && !p->isDead()) p->toggleSlot(slot);
+}
+
+void GameSession::dropTool() {
+    if (!m_running || m_role == Role::Client) return;
+    Player* p = m_scene->player();
+    if (!p) return;
+    if (SceneNode* t = p->drop()) m_noPickupUntil[t->id] = m_time + 2.0;
 }
 
 void GameSession::stop() {
     m_scripts.stop();
+    if (Player* p = m_scene->player()) p->onToolEquip = nullptr;
+    m_starterPack.clear();
     Audio::stopAll();
     if (Player* p = m_scene->player()) p->endPlay();
     m_physics.reset();
@@ -40,6 +126,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
     dt = std::min(dt, 1.0f / 30.0f);   // big hitches would let things tunnel
 
     const bool client = m_role == Role::Client;
+    m_time += dt;
 
     // 1. Scripts: wake up waits, keyboard events, Heartbeat.
     if (!client) m_scripts.update(dt);
@@ -72,8 +159,24 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             move += right * m_touchMove.x + fwd * m_touchMove.y;
             jump = jump || m_touchJump;
         }
+        // Tools: 1-9 picks a slot (again puts it away), Backspace drops the held one.
+        if (!client && acceptInput && !ImGui::GetIO().WantTextInput) {
+            for (int i = 0; i < Player::kMaxTools; ++i)
+                if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i), false)) selectToolSlot(i);
+            if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) dropTool();
+        }
+        if (m_toolDown && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            m_toolDown = false;
+            if (SceneNode* t = p->equippedTool()) m_scripts.fireTool(SignalKind::Deactivated, t->id);
+        }
         p->update(dt, move, jump, m_physics);
         if (p->consumeDied()) m_scripts.fireDied(p->rootId());
+        if (!client && p->consumeRespawned()) {
+            // Like Roblox: you come back with just the StarterPack tools.
+            for (SceneNode* t : p->tools()) m_scripts.stopScripts(t);
+            p->clearTools();
+            giveStarterTools();
+        }
     }
 
     // Sounds inside moving parts follow them.
@@ -102,10 +205,19 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
         if (!m_scripts.running()) break;
         m_scripts.fireTouched(t.partId, t.otherId);
     }
+    pickUpTools(touches);
+    reachCheckpoints(touches);
 }
 
 void GameSession::click(uint64_t partId) {
     if (!m_running) return;
     if (m_role == Role::Client) { if (onClick && partId) onClick(partId); return; }
     m_scripts.fireClicked(partId);
+    // Holding a tool: clicking uses it (tool.Activated), like Roblox.
+    if (Player* p = m_runOnly ? nullptr : m_scene->player())
+        if (SceneNode* t = p->equippedTool(); t && t->enabled && !p->isDead()) {
+            m_scripts.fireTool(SignalKind::Activated, t->id);
+            p->swingTool();
+            m_toolDown = true;
+        }
 }

@@ -2,6 +2,7 @@
 // Lighting, and the Signal / Connection event objects.
 #include "LuaApi.h"
 #include "ScriptEngine.h"
+#include "../scene/Player.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../scene/Serializer.h"
@@ -68,6 +69,9 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
+        case NodeKind::Tool:       return "Tool";
+        case NodeKind::Value:      return n->valueClass();
+        case NodeKind::Decal:      return "Decal";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint:
@@ -91,6 +95,9 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Script && (cls == "BaseScript" || cls == "LuaSourceContainer")) return true;
     if (n->kind == NodeKind::Light && cls == "Light") return true;
     if (n->kind == NodeKind::Constraint && cls == "Constraint") return true;
+    if (n->kind == NodeKind::Tool && cls == "BackpackItem") return true;
+    if (n->kind == NodeKind::Value && cls == "ValueBase") return true;
+    if (n->kind == NodeKind::Decal && cls == "FaceInstance") return true;
     return false;
 }
 
@@ -487,6 +494,27 @@ int inst_index(lua_State* L) {
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }
         if (is(k, "Clicked"))      { LuaApi::pushSignal(L, SignalKind::Clicked, n->id); return 1; }
     }
+    if (n->isValue()) {
+        if (is(k, "Value"))   { LuaApi::pushValue(L, *n); return 1; }
+        if (is(k, "Changed")) { LuaApi::pushSignal(L, SignalKind::Changed, n->id); return 1; }
+    }
+    if (n->isDecal()) {
+        if (is(k, "Texture"))      { lua_pushstring(L, n->texture.c_str()); return 1; }
+        if (is(k, "Face"))         { lua_pushstring(L, kFaceNames[(int)n->face]); return 1; }
+        if (is(k, "Color3"))       { LuaApi::pushColor3(L, n->color); return 1; }
+        if (is(k, "Transparency")) { lua_pushnumber(L, n->transparency); return 1; }
+    }
+    if (n->isTool()) {
+        if (is(k, "Enabled"))        { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "ToolTip"))        { lua_pushstring(L, n->toolTip.c_str()); return 1; }
+        if (is(k, "CanBeDropped"))   { lua_pushboolean(L, n->canBeDropped); return 1; }
+        if (is(k, "RequiresHandle")) { lua_pushboolean(L, true); return 1; }
+        if (is(k, "GripPos"))        { LuaApi::pushVector3(L, n->gripPos); return 1; }
+        if (is(k, "Activated"))      { LuaApi::pushSignal(L, SignalKind::Activated, n->id); return 1; }
+        if (is(k, "Deactivated"))    { LuaApi::pushSignal(L, SignalKind::Deactivated, n->id); return 1; }
+        if (is(k, "Equipped"))       { LuaApi::pushSignal(L, SignalKind::Equipped, n->id); return 1; }
+        if (is(k, "Unequipped"))     { LuaApi::pushSignal(L, SignalKind::Unequipped, n->id); return 1; }
+    }
     if (n->kind == NodeKind::Script) {
         if (is(k, "Enabled"))  { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "Disabled")) { lua_pushboolean(L, !n->enabled); return 1; }
@@ -622,6 +650,37 @@ int inst_newindex(lua_State* L) {
             return 0;
         }
     }
+    if (n->isValue() && is(k, "Value")) {
+        Attribute& v = n->value;
+        switch (v.type) {
+            case Attribute::Bool:   v.b = lua_toboolean(L, 3); break;
+            case Attribute::String: v.s = luaL_tolstring(L, 3, nullptr); lua_pop(L, 1); break;
+            case Attribute::Vector3: v.v = LuaApi::checkVector3(L, 3); break;
+            case Attribute::Color3: v.v = LuaApi::checkColor3(L, 3); break;
+            default: {
+                double d = luaL_checknumber(L, 3);
+                v.n = n->intValue ? (double)(long long)std::llround(d) : d;
+            }
+        }
+        LuaApi::engine(L)->fireValueChanged(n->id);
+        return 0;
+    }
+    if (n->isDecal()) {
+        if (is(k, "Texture"))      { n->texture = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "Color3"))       { n->color = LuaApi::checkColor3(L, 3); return 0; }
+        if (is(k, "Transparency")) { n->transparency = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "Face")) {
+            std::string f = luaL_checkstring(L, 3);   // Enum.NormalId.Top -> "Top"
+            for (int i = 0; i < 6; ++i) if (f == kFaceNames[i]) n->face = (Face)i;
+            return 0;
+        }
+    }
+    if (n->isTool()) {
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "ToolTip"))      { n->toolTip = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "CanBeDropped")) { n->canBeDropped = lua_toboolean(L, 3); return 0; }
+        if (is(k, "GripPos"))      { n->gripPos = LuaApi::checkVector3(L, 3); return 0; }
+    }
     if (n->isLight()) {
         if (is(k, "Enabled"))    { n->enabled = lua_toboolean(L, 3); return 0; }
         if (is(k, "Brightness")) { n->brightness = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
@@ -680,6 +739,17 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Sound);
     } else if (cls == "ForceField") {
         n = std::make_unique<SceneNode>(cls, NodeKind::ForceField);
+    } else if (cls == "Tool") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Tool);
+    } else if (cls == "Decal") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Decal);
+        n->color = {1.0f, 1.0f, 1.0f};
+    } else if (cls == "IntValue" || cls == "NumberValue" || cls == "StringValue" || cls == "BoolValue" ||
+               cls == "Vector3Value" || cls == "Color3Value") {
+        n = std::make_unique<SceneNode>("Value", NodeKind::Value);
+        n->intValue = cls == "IntValue";
+        n->value.type = cls == "StringValue" ? Attribute::String : cls == "BoolValue" ? Attribute::Bool
+                      : cls == "Vector3Value" ? Attribute::Vector3 : cls == "Color3Value" ? Attribute::Color3 : Attribute::Number;
     } else if (cls == "PointLight" || cls == "SpotLight") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Light);
         n->lightType = cls == "SpotLight" ? LightType::Spot : LightType::Point;
@@ -784,6 +854,21 @@ int hum_breakJoints(lua_State* L) {
     return 0;
 }
 
+// humanoid:EquipTool(tool) / humanoid:UnequipTools() (your own character only)
+Player* toolPlayer(lua_State* L) {
+    Player* p = E(L)->scene()->player();
+    return p && p->rootId() == humRoot(L) ? p : nullptr;
+}
+int hum_equipTool(lua_State* L) {
+    SceneNode* tool = LuaApi::checkNode(L, 2);
+    if (Player* p = toolPlayer(L); p && tool->isTool()) p->equip(tool->id);
+    return 0;
+}
+int hum_unequipTools(lua_State* L) {
+    if (Player* p = toolPlayer(L)) p->equip(0);
+    return 0;
+}
+
 int hum_isA(lua_State* L) {
     const char* c = luaL_checkstring(L, 2);
     lua_pushboolean(L, is(c, "Humanoid") || is(c, "Instance"));
@@ -803,6 +888,8 @@ int hum_index(lua_State* L) {
     if (is(k, "Died"))       { LuaApi::pushSignal(L, SignalKind::Died, humRoot(L)); return 1; }
     if (is(k, "TakeDamage")) { lua_pushcfunction(L, hum_takeDamage); return 1; }
     if (is(k, "BreakJoints")) { lua_pushcfunction(L, hum_breakJoints); return 1; }
+    if (is(k, "EquipTool"))   { lua_pushcfunction(L, hum_equipTool); return 1; }
+    if (is(k, "UnequipTools")) { lua_pushcfunction(L, hum_unequipTools); return 1; }
     if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
     return luaL_error(L, "'%s' is not a valid member of Humanoid", k);
 }
@@ -891,6 +978,19 @@ void pushInstance(lua_State* L, uint64_t id) {
 }
 
 SceneNode* checkNode(lua_State* L, int idx) {
+    // A player (a Lua table) stands for its object: `folder.Parent = player`.
+    if (lua_type(L, idx) == LUA_TTABLE) {
+        idx = lua_absindex(L, idx);
+        lua_pushstring(L, "__node");
+        lua_rawget(L, idx);
+        auto* r = static_cast<InstRef*>(luaL_testudata(L, -1, kInst));
+        uint64_t id = r ? r->id : 0;
+        lua_pop(L, 1);
+        if (!id) luaL_argerror(L, idx, "expected an object");
+        SceneNode* n = engine(L)->resolve(id);
+        if (!n) luaL_error(L, "This object has been destroyed");
+        return n;
+    }
     auto* ref = static_cast<InstRef*>(luaL_checkudata(L, idx, kInst));
     SceneNode* n = engine(L)->resolve(ref->id);
     if (!n) luaL_error(L, "This object has been destroyed");
@@ -902,6 +1002,19 @@ void pushSignal(lua_State* L, SignalKind kind, uint64_t id) {
     s->kind = kind;
     s->id   = id;
     luaL_setmetatable(L, kSig);
+}
+
+void pushValue(lua_State* L, const SceneNode& n) {
+    const Attribute& v = n.value;
+    switch (v.type) {
+        case Attribute::Bool:    lua_pushboolean(L, v.b); break;
+        case Attribute::String:  lua_pushstring(L, v.s.c_str()); break;
+        case Attribute::Vector3: pushVector3(L, v.v); break;
+        case Attribute::Color3:  pushColor3(L, v.v); break;
+        default:
+            if (n.intValue) lua_pushinteger(L, (lua_Integer)v.n);
+            else lua_pushnumber(L, v.n);
+    }
 }
 
 void pushHumanoid(lua_State* L, uint64_t rootId) {

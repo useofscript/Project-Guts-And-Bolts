@@ -257,6 +257,9 @@ std::string className(const SceneNode& n) {
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::ForceField: return "ForceField";
+        case NodeKind::Tool:       return "Tool";
+        case NodeKind::Value:      return n.valueClass();
+        case NodeKind::Decal:      return "Decal";
         case NodeKind::Constraint: return std::string(kConstraintNames[(int)n.constraintType]) + "Constraint";
         default: return n.name == "SpawnLocation" ? "SpawnLocation" : "Part";
     }

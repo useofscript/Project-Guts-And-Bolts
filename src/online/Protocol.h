@@ -22,6 +22,7 @@ inline constexpr long long kFeeClothing = 10;     // hats, shirts, pants
 inline constexpr long long kFeeAudio    = 20;
 inline constexpr long long kFeePlugin   = 20;
 inline constexpr long long kFeeGame     = 0;
+inline constexpr long long kFeeDecal    = 5;
 inline constexpr int       kDailyUploadsUnverified = 5;
 inline constexpr int       kCreatorSharePercent = 70;   // of every sale goes to the creator
 
@@ -29,9 +30,10 @@ inline constexpr int       kCreatorSharePercent = 70;   // of every sale goes to
 inline constexpr size_t kMaxAudio  = 6u * 1024u * 1024u;
 inline constexpr size_t kMaxGame   = 24u * 1024u * 1024u;
 inline constexpr size_t kMaxPlugin = 512u * 1024u;
+inline constexpr size_t kMaxDecal  = 4u * 1024u * 1024u;   // a .png or .jpg picture
 
 // Kinds of things people upload.
-bool        validKind(const std::string& kind);        // hat, shirt, pants, audio, plugin, game
+bool        validKind(const std::string& kind);        // hat, shirt, pants, audio, plugin, game, decal
 bool        isClothing(const std::string& kind);
 long long   uploadFee(const std::string& kind);
 size_t      maxSize(const std::string& kind);

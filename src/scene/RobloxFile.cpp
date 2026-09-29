@@ -700,7 +700,28 @@ struct Converter {
             node->locked = in.flag("Locked", false);
             node->material = materialFromRoblox((int)in.num("Material", 256));
             ++report.parts;
-        } else if (c == "Model" || c == "Folder" || c == "Configuration" || c == "Tool" || c == "Accessory") {
+        } else if (c == "IntValue" || c == "NumberValue" || c == "StringValue" || c == "BoolValue") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Value);
+            node->intValue = c == "IntValue";
+            node->value.type = c == "StringValue" ? Attribute::String : c == "BoolValue" ? Attribute::Bool : Attribute::Number;
+            node->value.n = in.num("Value", 0.0);
+            node->value.b = in.num("Value", 0.0) != 0.0;
+            node->value.s = in.str("Value");
+        } else if (c == "Decal" || c == "Texture") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Decal);
+            node->texture = in.str("Texture");   // rbxassetid:// links won't load here, but are kept
+            int f = (int)in.num("Face", 5);
+            node->face = (Face)(f >= 0 && f < 6 ? f : 5);
+            if (const Value* v = in.get("Color3")) node->color = v->v;
+            else node->color = {1, 1, 1};
+            node->transparency = (float)in.num("Transparency", 0.0);
+        } else if (c == "Tool" || c == "HopperBin") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Tool);
+            node->enabled = in.flag("Enabled", true);
+            node->canBeDropped = in.flag("CanBeDropped", true);
+            node->toolTip = in.str("ToolTip");
+            ++report.models;
+        } else if (c == "Model" || c == "Folder" || c == "Configuration" || c == "Accessory") {
             node = std::make_unique<SceneNode>(name, NodeKind::Model);
             ++report.models;
         } else if (c == "Script" || c == "LocalScript" || c == "ModuleScript") {
@@ -934,6 +955,11 @@ struct XmlWriter {
             case NodeKind::Sound:      cls = "Sound"; break;
             case NodeKind::Attachment: cls = "Attachment"; break;
             case NodeKind::ForceField: cls = "ForceField"; break;
+            case NodeKind::Tool:       cls = "Tool"; break;
+            case NodeKind::Decal:      cls = "Decal"; break;
+            case NodeKind::Value:
+                cls = n.value.type == Attribute::Vector3 || n.value.type == Attribute::Color3 ? nullptr : n.valueClass();
+                break;
             case NodeKind::Constraint: {
                 static const char* names[] = {"RopeConstraint", "RodConstraint", "SpringConstraint", "WeldConstraint", "HingeConstraint"};
                 cls = names[(int)n.constraintType];
@@ -944,6 +970,17 @@ struct XmlWriter {
         o << "<Item class=\"" << cls << "\" referent=\"" << ref(n.id) << "\">\n<Properties>\n";
         common(n);
         switch (n.kind) {
+        case NodeKind::Decal:
+            o << "<Content name=\"Texture\"><url>" << n.texture << "</url></Content>\n";
+            o << "<token name=\"Face\">" << (int)n.face << "</token>\n";
+            flt("Transparency", n.transparency);
+            break;
+        case NodeKind::Value:
+            if (n.value.type == Attribute::String) str("Value", n.value.s);
+            else if (n.value.type == Attribute::Bool) boolean("Value", n.value.b);
+            else if (n.intValue) o << "<int64 name=\"Value\">" << (long long)n.value.n << "</int64>\n";
+            else o << "<double name=\"Value\">" << n.value.n << "</double>\n";
+            break;
         case NodeKind::Part: {
             glm::mat4 w = n.worldMatrix();
             glm::vec3 size(glm::length(glm::vec3(w[0])), glm::length(glm::vec3(w[1])), glm::length(glm::vec3(w[2])));

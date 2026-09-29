@@ -13,6 +13,55 @@ endif()
 
 include(FetchContent)
 
+# The server's source files (used by both the full build and GB_SERVER_ONLY).
+set(GB_SERVER_SOURCES
+    src/server/ServerMain.cpp
+    src/server/Server.cpp
+    src/server/ServerGroups.cpp
+    src/server/ServerFriends.cpp
+    src/server/ServerAccounts.cpp
+    src/server/ServerRelay.cpp
+    src/online/Protocol.cpp
+    src/core/Account.cpp
+    src/core/Paths.cpp
+    src/core/Log.cpp
+    src/net/Socket.cpp
+)
+
+# GB_SERVER_ONLY builds just GutsAndBoltsServer: no graphics libraries needed,
+# so it builds on a bare Linux box / VPS (cmake -DGB_SERVER_ONLY=ON).
+option(GB_SERVER_ONLY "Build only the Guts&Bolts server (no graphics libraries needed)" OFF)
+if(GB_SERVER_ONLY)
+    FetchContent_Declare(json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(json)
+    FetchContent_Declare(monocypher
+        GIT_REPOSITORY https://github.com/LoupVaillant/Monocypher.git
+        GIT_TAG        4.0.3
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  cmake-build-disabled)
+    FetchContent_MakeAvailable(monocypher)
+    add_library(monocypher STATIC ${monocypher_SOURCE_DIR}/src/monocypher.c)
+    target_include_directories(monocypher PUBLIC ${monocypher_SOURCE_DIR}/src)
+    find_package(Threads REQUIRED)
+    set(GB_GENERATED "${CMAKE_BINARY_DIR}/generated")
+    file(MAKE_DIRECTORY "${GB_GENERATED}")
+    add_custom_target(gb_version ALL
+        COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${GB_GENERATED}
+                -DVERSION=${PROJECT_VERSION} -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
+        BYPRODUCTS "${GB_GENERATED}/Version.h"
+        COMMENT "Checking version")
+    add_executable(GutsAndBoltsServer ${GB_SERVER_SOURCES})
+    target_include_directories(GutsAndBoltsServer PRIVATE src/ ${GB_GENERATED})
+    add_dependencies(GutsAndBoltsServer gb_version)
+    target_link_libraries(GutsAndBoltsServer PRIVATE nlohmann_json::nlohmann_json monocypher Threads::Threads)
+    if(WIN32)
+        target_link_libraries(GutsAndBoltsServer PRIVATE ws2_32 bcrypt)
+    endif()
+    return()
+endif()
+
 # GB_MOBILE builds the phone / tablet version of the Player (SDL2 + OpenGL ES 3,
 # touch controls). It's on automatically for Android; turning it on for Linux
 # lets you try the phone version on a computer.
@@ -96,6 +145,25 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(monocypher)
 add_library(monocypher STATIC ${monocypher_SOURCE_DIR}/src/monocypher.c)
 target_include_directories(monocypher PUBLIC ${monocypher_SOURCE_DIR}/src)
+
+# stb_image: reading PNG / JPG pictures (decals).
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(stb)
+
+# portable-file-dialogs: the system's own "Open file" window (Browse... buttons).
+FetchContent_Declare(
+    pfd
+    GIT_REPOSITORY https://github.com/samhocevar/portable-file-dialogs.git
+    GIT_TAG        main
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(pfd)
 
 # zstd (decoder only): newer Roblox .rbxl / .rbxm files are compressed with it.
 FetchContent_Declare(
@@ -196,6 +264,10 @@ file(MAKE_DIRECTORY "${GB_GENERATED}")
 # The default character (assets/models/player.obj), baked into the program.
 include(cmake/Embed.cmake)
 gb_embed("${CMAKE_SOURCE_DIR}/assets/models/player.obj" kPlayerObj "${GB_GENERATED}/PlayerObj.h")
+# Recorded sound effects (the rest are made in code, see Audio.cpp).
+gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/jump.wav"    kSoundJump    "${GB_GENERATED}/SoundJump.h")
+gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/respawn.wav" kSoundRespawn "${GB_GENERATED}/SoundRespawn.h")
+gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/spawn.wav"   kSoundSpawn   "${GB_GENERATED}/SoundSpawn.h")
 add_custom_target(gb_version ALL
     COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${GB_GENERATED}
             -DVERSION=${PROJECT_VERSION} -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
@@ -211,6 +283,7 @@ add_library(gb_engine STATIC
     src/core/Log.cpp
     src/core/Settings.cpp
     src/core/Paths.cpp
+    src/core/FileDialog.cpp
     src/core/Audio.cpp
     src/core/UpdateChecker.cpp
     src/core/Account.cpp
@@ -218,6 +291,7 @@ add_library(gb_engine STATIC
     src/scene/PlayerModel.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
+    src/renderer/Textures.cpp
     src/renderer/Camera.cpp
     src/renderer/Framebuffer.cpp
     src/renderer/ShadowMap.cpp
@@ -259,7 +333,7 @@ if(GB_MOBILE)
 else()
     target_sources(gb_engine PRIVATE src/core/AppWindow.cpp)
 endif()
-target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR} ${GB_GENERATED})
+target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR} ${GB_GENERATED} ${stb_SOURCE_DIR} ${pfd_SOURCE_DIR})
 add_dependencies(gb_engine gb_version)
 find_package(Threads REQUIRED)
 target_link_libraries(gb_engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
@@ -352,19 +426,7 @@ target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
 # ---------------------------------------------------------------------------
 # GutsAndBoltsServer — keeps accounts, Bolts, badges and uploads (no graphics)
 # ---------------------------------------------------------------------------
-add_executable(GutsAndBoltsServer
-    src/server/ServerMain.cpp
-    src/server/Server.cpp
-    src/server/ServerGroups.cpp
-    src/server/ServerFriends.cpp
-    src/server/ServerAccounts.cpp
-    src/server/ServerRelay.cpp
-    src/online/Protocol.cpp
-    src/core/Account.cpp
-    src/core/Paths.cpp
-    src/core/Log.cpp
-    src/net/Socket.cpp
-)
+add_executable(GutsAndBoltsServer ${GB_SERVER_SOURCES})
 target_include_directories(GutsAndBoltsServer PRIVATE src/ ${GB_GENERATED})
 add_dependencies(GutsAndBoltsServer gb_version)
 target_link_libraries(GutsAndBoltsServer PRIVATE nlohmann_json::nlohmann_json monocypher Threads::Threads)

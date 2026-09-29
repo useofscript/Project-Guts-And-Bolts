@@ -1,4 +1,8 @@
 #include "ScriptEngine.h"
+#include "../core/Account.h"
+#include <cctype>
+#include <sstream>
+#include <fstream>
 #include "LuaApi.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
@@ -28,8 +32,24 @@ end })
 task = { wait = __gb_wait, spawn = __gb_spawn, delay = __gb_delay, defer = __gb_spawn }
 wait, spawn, delay = task.wait, task.spawn, task.delay
 
-local LocalPlayer = { Name = __gb_playerName, DisplayName = __gb_playerName, UserId = 1,
-                      Character = __gb_character }
+-- Players are tables with an object behind them (__node), so `player.leaderstats`
+-- and `folder.Parent = player` work like Roblox.
+local playerNode, setRespawn = __gb_playerNode, __gb_setRespawn
+local playerMeta = {
+    __index = function(t, k) return rawget(t, "__node")[k] end,
+    __newindex = function(t, k, v)
+        if k == "RespawnLocation" and rawget(t, "__local") then setRespawn(v) end
+        rawset(t, k, v)
+    end,
+    __tostring = function(t) return rawget(t, "Name") end,
+}
+local function makePlayer(name, character, id)
+    return setmetatable({ Name = name, DisplayName = name, UserId = id, Character = character,
+                          __node = playerNode(name) }, playerMeta)
+end
+local LocalPlayer = makePlayer(__gb_playerName, __gb_character, 1)
+rawset(LocalPlayer, "Backpack", __gb_backpack)
+rawset(LocalPlayer, "__local", true)
 local playerList = { LocalPlayer }
 Players = { LocalPlayer = LocalPlayer, PlayerAdded = __gb_playerAdded,
             PlayerRemoving = __gb_playerRemoving }
@@ -49,7 +69,7 @@ function Players:FindFirstChild(name)
 end
 -- Used by the engine when people join / leave a multiplayer game.
 function __gb_addPlayer(name, character, id)
-    local p = { Name = name, DisplayName = name, UserId = id, Character = character }
+    local p = makePlayer(name, character, id)
     table.insert(playerList, p)
     return p
 end
@@ -120,9 +140,37 @@ function CollectionService:GetInstanceRemovedSignal(tag)
     return filtered(tagRemoved, function(_, t) return t == tag end, function(o) return o end)
 end
 
+-- DataStoreService: save things between visits (coins, levels...). Kept per
+-- game in this player's account folder.
+local dsGet, dsSet = __gb_dsGet, __gb_dsSet
+DataStoreService = {}
+function DataStoreService:GetDataStore(name, scope)
+    local store = tostring(name) .. (scope and ("/" .. tostring(scope)) or "")
+    local ds = {}
+    function ds:GetAsync(key) return dsGet(store, tostring(key)) end
+    function ds:SetAsync(key, value) dsSet(store, tostring(key), value) end
+    function ds:RemoveAsync(key)
+        local old = dsGet(store, tostring(key))
+        dsSet(store, tostring(key), nil)
+        return old
+    end
+    function ds:UpdateAsync(key, fn)
+        local new = fn(dsGet(store, tostring(key)))
+        if new ~= nil then dsSet(store, tostring(key), new) end
+        return new
+    end
+    function ds:IncrementAsync(key, delta)
+        local v = (tonumber(dsGet(store, tostring(key))) or 0) + (delta or 1)
+        dsSet(store, tostring(key), v)
+        return v
+    end
+    return ds
+end
+DataStoreService.GetOrderedDataStore = DataStoreService.GetDataStore
+
 local services = { Workspace = workspace, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
-                   CollectionService = CollectionService }
+                   CollectionService = CollectionService, DataStoreService = DataStoreService }
 game = setmetatable({}, { __index = function(_, name) return services[name] end })
 function game:GetService(name)
     local s = services[name]
@@ -154,9 +202,10 @@ function table.find(t, value)
     return nil
 end
 
-__gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName = nil, nil, nil, nil, nil
+__gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
+__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet = nil, nil, nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -290,6 +339,87 @@ int l_tick(lua_State* L) {
 int l_isKeyDown(lua_State* L) {
     lua_pushboolean(L, LuaApi::engine(L)->isKeyDown(luaL_checkstring(L, 1)));
     return 1;
+}
+
+// --- DataStoreService: Lua values <-> JSON, kept in a file per game ----------
+
+nlohmann::json toJson(lua_State* L, int idx, int depth = 0) {
+    idx = lua_absindex(L, idx);
+    switch (lua_type(L, idx)) {
+        case LUA_TBOOLEAN: return (bool)lua_toboolean(L, idx);
+        case LUA_TNUMBER:
+            if (lua_isinteger(L, idx)) return (long long)lua_tointeger(L, idx);
+            return lua_tonumber(L, idx);
+        case LUA_TSTRING: return std::string(lua_tostring(L, idx));
+        case LUA_TTABLE: {
+            if (depth > 20) luaL_error(L, "That table is nested too deep to save");
+            // A list (1..n) saves as an array; anything else as an object with string keys.
+            lua_Integer n = (lua_Integer)lua_rawlen(L, idx);
+            nlohmann::json out = n > 0 ? nlohmann::json::array() : nlohmann::json::object();
+            if (n > 0) {
+                for (lua_Integer i = 1; i <= n; ++i) {
+                    lua_rawgeti(L, idx, i);
+                    out.push_back(toJson(L, -1, depth + 1));
+                    lua_pop(L, 1);
+                }
+                return out;
+            }
+            lua_pushnil(L);
+            while (lua_next(L, idx)) {
+                lua_pushvalue(L, -2);
+                std::string key = luaL_tolstring(L, -1, nullptr);
+                lua_pop(L, 2);   // the tostring'd key and its copy
+                out[key] = toJson(L, -1, depth + 1);
+                lua_pop(L, 1);
+            }
+            return out;
+        }
+        case LUA_TNIL: return nullptr;
+        default: luaL_error(L, "DataStores can only save numbers, text, true/false and tables of those");
+    }
+    return nullptr;
+}
+
+void pushJson(lua_State* L, const nlohmann::json& j) {
+    if (j.is_boolean()) lua_pushboolean(L, j.get<bool>());
+    else if (j.is_number_integer()) lua_pushinteger(L, j.get<lua_Integer>());
+    else if (j.is_number()) lua_pushnumber(L, j.get<double>());
+    else if (j.is_string()) lua_pushstring(L, j.get<std::string>().c_str());
+    else if (j.is_array()) {
+        lua_createtable(L, (int)j.size(), 0);
+        for (size_t i = 0; i < j.size(); ++i) { pushJson(L, j[i]); lua_rawseti(L, -2, (lua_Integer)i + 1); }
+    } else if (j.is_object()) {
+        lua_createtable(L, 0, (int)j.size());
+        for (auto& [k, v] : j.items()) { pushJson(L, v); lua_setfield(L, -2, k.c_str()); }
+    } else lua_pushnil(L);
+}
+
+int l_dsGet(lua_State* L) {
+    const nlohmann::json& all = LuaApi::engine(L)->saveData();
+    std::string store = luaL_checkstring(L, 1), key = luaL_checkstring(L, 2);
+    if (all.contains(store) && all[store].contains(key)) pushJson(L, all[store][key]);
+    else lua_pushnil(L);
+    return 1;
+}
+
+int l_dsSet(lua_State* L) {
+    std::string store = luaL_checkstring(L, 1), key = luaL_checkstring(L, 2);
+    nlohmann::json v = toJson(L, 3);
+    if (v.dump().size() > 256 * 1024) return luaL_error(L, "That's too much to save in one key (256 KB at most)");
+    LuaApi::engine(L)->setSaveData(store, key, v);
+    return 0;
+}
+
+int l_playerNode(lua_State* L) {
+    LuaApi::pushInstance(L, LuaApi::engine(L)->playerNode(luaL_checkstring(L, 1)));
+    return 1;
+}
+
+// LocalPlayer.RespawnLocation = part (nil = back to the normal spawn)
+int l_setRespawn(lua_State* L) {
+    Player* p = LuaApi::engine(L)->scene()->player();
+    if (p) p->setCheckpoint(lua_isnil(L, 1) ? 0 : LuaApi::checkNode(L, 1)->id);
+    return 0;
 }
 
 // Gui.Message(text, seconds), Gui.Label(key, text), Gui.Clear()
@@ -428,11 +558,17 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_spawn", l_spawn);
     lua_register(L, "__gb_delay", l_delay);
     lua_register(L, "__gb_isKeyDown", l_isKeyDown);
+    lua_register(L, "__gb_playerNode", l_playerNode);
+    lua_register(L, "__gb_setRespawn", l_setRespawn);
+    lua_register(L, "__gb_dsGet", l_dsGet);
+    lua_register(L, "__gb_dsSet", l_dsSet);
 
     LuaApi::pushInstance(L, m_scene->root()->id);
     lua_setglobal(L, "workspace");
     LuaApi::pushInstance(L, m_scene->player() ? m_scene->player()->rootId() : 0);
     lua_setglobal(L, "__gb_character");
+    LuaApi::pushInstance(L, m_scene->player() ? m_scene->player()->backpackId() : 0);
+    lua_setglobal(L, "__gb_backpack");
     lua_pushstring(L, m_playerName.c_str());
     lua_setglobal(L, "__gb_playerName");
     LuaApi::pushLighting(L);
@@ -582,6 +718,7 @@ void ScriptEngine::runScript(SceneNode* script) {
     lua_State* co = lua_newthread(L);
     int ref = luaL_ref(L, LUA_REGISTRYINDEX);
     lua_xmove(L, co, 1);
+    m_started.insert(script->id);
     m_stopped.erase(script->id);
     uint64_t prev = m_current;
     m_current = script->id;
@@ -610,6 +747,30 @@ void ScriptEngine::stopScripts(SceneNode* root) {
     }
 }
 
+void ScriptEngine::runScriptsIn(SceneNode* root) {
+    if (!m_L || !root) return;
+    std::vector<uint64_t> ids;
+    std::vector<SceneNode*> stack{root};
+    while (!stack.empty()) {
+        SceneNode* n = stack.back(); stack.pop_back();
+        if (n->isScript() && n->enabled && !n->isModule && !m_started.count(n->id)) ids.push_back(n->id);
+        for (auto& c : n->children) stack.push_back(c.get());
+    }
+    for (uint64_t id : ids)
+        if (SceneNode* s = resolve(id)) runScript(s);
+}
+
+void ScriptEngine::fireTool(SignalKind kind, uint64_t toolId) { fire(kind, toolId, nullptr); }
+
+void ScriptEngine::fireValueChanged(uint64_t id) {
+    fire(SignalKind::Changed, id, [this, id](lua_State* co) {
+        SceneNode* n = resolve(id);
+        if (!n) { lua_pushnil(co); return 1; }
+        LuaApi::pushValue(co, *n);
+        return 1;
+    });
+}
+
 void ScriptEngine::setScriptEnabled(SceneNode* script, bool on) {
     if (!script || !script->isScript() || script->enabled == on) return;
     script->enabled = on;
@@ -623,6 +784,10 @@ void ScriptEngine::stop() {
     m_waiting.clear();
     m_conns.clear();
     m_stopped.clear();
+    m_started.clear();
+    m_playersRoot = 0;
+    m_saveData = nlohmann::json::object();   // the next game reads its own file
+    m_saveLoaded = false;
     m_current = 0;
     m_detached.clear();
     m_gui = GuiState{};
@@ -785,6 +950,63 @@ void ScriptEngine::fireTag(bool added, uint64_t id, const std::string& tag) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Players (for leaderstats): each one has an object outside the world.
+// ---------------------------------------------------------------------------
+
+std::filesystem::path ScriptEngine::saveFile() const {
+    // One file per game: its published ID if it has one, else its title.
+    const GameInfo& info = m_scene->info();
+    std::string key = !info.publishedId.empty() ? info.publishedId : info.title.empty() ? "Untitled" : info.title;
+    for (char& c : key)
+        if (!std::isalnum((unsigned char)c) && c != '-' && c != '_') c = '_';
+    return Account::folder() / "savedata" / (key + ".json");
+}
+
+const nlohmann::json& ScriptEngine::saveData() {
+    if (!m_saveLoaded) {
+        m_saveLoaded = true;
+        std::ifstream f(saveFile());
+        std::stringstream ss;
+        ss << f.rdbuf();
+        m_saveData = nlohmann::json::parse(ss.str(), nullptr, false);
+        if (!m_saveData.is_object()) m_saveData = nlohmann::json::object();
+    }
+    return m_saveData;
+}
+
+void ScriptEngine::setSaveData(const std::string& store, const std::string& key, const nlohmann::json& value) {
+    saveData();
+    if (value.is_null()) { if (m_saveData.contains(store)) m_saveData[store].erase(key); }
+    else m_saveData[store][key] = value;
+    std::error_code ec;
+    std::filesystem::create_directories(saveFile().parent_path(), ec);
+    std::string tmp = saveFile().string() + ".tmp";
+    { std::ofstream f(tmp, std::ios::trunc); f << m_saveData.dump(1); }
+    std::filesystem::rename(tmp, saveFile(), ec);
+}
+
+uint64_t ScriptEngine::playerNode(const std::string& name) {
+    if (!m_playersRoot || !resolve(m_playersRoot)) {
+        auto root = std::make_unique<SceneNode>("Players", NodeKind::Model);
+        m_playersRoot = adopt(std::move(root))->id;
+    }
+    SceneNode* root = resolve(m_playersRoot);
+    if (SceneNode* p = root->findChild(name)) return p->id;
+    return root->addChild(std::make_unique<SceneNode>(name, NodeKind::Model))->id;
+}
+
+std::vector<std::pair<std::string, std::string>> ScriptEngine::leaderstats(const std::string& name) {
+    std::vector<std::pair<std::string, std::string>> out;
+    SceneNode* root = m_playersRoot ? resolve(m_playersRoot) : nullptr;
+    SceneNode* p = root ? root->findChild(name) : nullptr;
+    SceneNode* ls = p ? p->findChild("leaderstats") : nullptr;
+    if (!ls) return out;
+    for (auto& c : ls->children)
+        if (c->isValue() && out.size() < 4) out.push_back({c->name, c->valueText()});   // Roblox shows up to 4
+    return out;
+}
+
 void ScriptEngine::addPlayer(const std::string& name, uint64_t rootId, int userId) {
     if (!m_L) return;
     lua_getglobal(m_L, "__gb_addPlayer");
@@ -893,8 +1115,10 @@ bool ScriptEngine::setParent(SceneNode* node, SceneNode* newParent, std::string&
     if (!owned) { err = "Couldn't move " + node->name; return false; }
 
     if (newParent) {
-        newParent->addChild(std::move(owned));
+        SceneNode* moved = newParent->addChild(std::move(owned));
         m_scene->markDirty();
+        // Like Roblox: scripts start when they arrive in the world (a clone parented in, say).
+        if (!inScene && topOf(moved) == m_scene->root()) runScriptsIn(moved);
     } else {
         m_detached.push_back(std::move(owned));
     }

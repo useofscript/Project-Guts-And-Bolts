@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guts&amp;Bolts</title>
+<meta name="description" content="Build games, play them with friends, and fall apart in spectacular ragdoll fashion. Free for Windows, Mac, Linux and Android.">
+<link rel="icon" href="img/icon.png">
+<meta property="og:title" content="Guts&amp;Bolts">
+<meta property="og:description" content="Build games, play with friends, fall apart spectacularly.">
+<meta property="og:image" content="img/demolition.jpg">
+<style>
+  :root {
+    --blue: #1d6fd8; --blue-dark: #0b4ea8; --sky1: #3b8ee8; --sky2: #9fd0ff;
+    --green: #16a34a; --green-dark: #0f7a36; --red: #c81e1e;
+    --panel: #ffffff; --text: #1d2430; --muted: #5b6575; --line: #cfd6e0;
+    --bg: #e9eef5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --panel: #1b212b; --text: #e8ecf2; --muted: #9aa5b5; --line: #2e3745; --bg: #11151c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Verdana, "Segoe UI", system-ui, sans-serif; color: var(--text); background: var(--bg); line-height: 1.5; }
+  a { color: var(--blue); }
+  header {
+    background: linear-gradient(var(--sky1), var(--sky2)); color: #fff;
+    padding: 28px 16px 0; text-align: center; overflow: hidden;
+  }
+  .logo { display: flex; align-items: center; justify-content: center; gap: 14px; }
+  .logo img { width: 72px; height: 72px; border-radius: 14px; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
+  .logo h1 {
+    margin: 0; font-size: clamp(34px, 7vw, 60px); letter-spacing: 1px;
+    color: #e23b3b; text-shadow: 2px 2px 0 #fff, 4px 4px 0 rgba(0,0,0,.25); font-family: Impact, "Arial Black", sans-serif;
+  }
+  .tag { font-size: 18px; margin: 10px 0 18px; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+  .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 24px; }
+  .btn {
+    display: inline-block; padding: 12px 22px; border-radius: 6px; color: #fff; text-decoration: none; font-weight: bold;
+    border: 1px solid rgba(0,0,0,.25); box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .btn.play { background: linear-gradient(#22c35e, var(--green-dark)); font-size: 18px; }
+  .btn.blue { background: linear-gradient(#3a8cf0, var(--blue-dark)); }
+  .btn:hover { filter: brightness(1.08); }
+  .hero-shot { max-width: 900px; margin: 0 auto; }
+  .hero-shot img { width: 100%; display: block; border-radius: 10px 10px 0 0; border: 3px solid #fff; border-bottom: 0; }
+  nav { background: var(--blue); display: flex; justify-content: center; flex-wrap: wrap; }
+  nav a { color: #fff; text-decoration: none; padding: 10px 14px; font-size: 14px; }
+  nav a:hover { background: rgba(255,255,255,.15); }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin: 18px 0; }
+  h2 { margin: 0 0 12px; font-size: 22px; color: var(--blue); }
+  @media (prefers-color-scheme: dark) { h2 { color: #6fb0ff; } }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
+  .card img { width: 100%; display: block; aspect-ratio: 772/270; object-fit: cover; }
+  .card div { padding: 10px 12px; }
+  .card b { display: block; }
+  .card span { color: var(--muted); font-size: 14px; }
+  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .feat div { padding: 12px; border-left: 4px solid var(--blue); background: var(--bg); border-radius: 4px; }
+  .feat b { display: block; margin-bottom: 4px; }
+  .feat p { margin: 0; color: var(--muted); font-size: 14px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; }
+  @media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
+  .two img { width: 100%; border-radius: 6px; border: 1px solid var(--line); }
+  .dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .dl div { text-align: center; }
+  .dl small { display: block; color: var(--muted); margin-top: 6px; text-align: center; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 24px 16px 40px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><img src="img/icon.png" alt=""><h1>GUTS&amp;BOLTS</h1></div>
+  <p class="tag">Build games. Play them with friends. Fall apart spectacularly.</p>
+  <div class="btns">
+    <a class="btn play" href="#download">Download free</a>
+    <a class="btn blue" href="https://github.com/useofscript/Project-Guts-And-Bolts">Source code</a>
+  </div>
+  <div class="hero-shot"><img src="img/demolition.jpg" alt="A player standing in the Demolition Yard, surrounded by crates and barrels"></div>
+</header>
+<nav>
+  <a href="#games">Games</a><a href="#features">Features</a><a href="#studio">Studio</a>
+  <a href="#download">Download</a><a href="#server">Run a server</a>
+</nav>
+
+<main>
+  <section id="games">
+    <h2>Games that come with it</h2>
+    <div class="grid">
+      <div class="card"><img src="img/demolition.jpg" alt="Demolition Yard"><div><b>Demolition Yard</b><span>Exploding barrels, landmines and a very big red button.</span></div></div>
+      <div class="card"><img src="img/obby.jpg" alt="Obby of Doom"><div><b>Obby of Doom</b><span>Reach the golden platform. Don't touch the lava.</span></div></div>
+      <div class="card"><img src="img/plaza.jpg" alt="Night Plaza"><div><b>Night Plaza</b><span>Hang out under the lights on a glowing dance floor.</span></div></div>
+    </div>
+  </section>
+
+  <section id="features">
+    <h2>What's inside</h2>
+    <div class="feat">
+      <div><b>Ragdolls &amp; gore</b><p>Happy-Wheels-style falls: limbs come off, oil and bolts fly. You can turn it down or off.</p></div>
+      <div><b>Multiplayer</b><p>Public and private servers, friends, chat and a leaderboard, with no IP addresses to share.</p></div>
+      <div><b>Lua scripting</b><p>Roblox-style scripts: Touched, tools, leaderstats, saved data and more.</p></div>
+      <div><b>Real physics</b><p>Tumbling parts, ropes, springs, hinges, motors and welds.</p></div>
+      <div><b>Tools &amp; hotbar</b><p>Give players bats, guns or anything else, equipped with 1–9.</p></div>
+      <div><b>Your own look</b><p>Hats, shirts and pants from the catalog, paid for with Bolts you earn by playing.</p></div>
+      <div><b>Decals &amp; audio</b><p>Upload pictures and sounds on the Create page and use them in your games.</p></div>
+      <div><b>Roblox files</b><p>Import and export .rbxl and .rbxm places and models.</p></div>
+    </div>
+  </section>
+
+  <section id="studio">
+    <h2>Make your own with Studio</h2>
+    <div class="two">
+      <img src="img/studio.jpg" alt="Guts&amp;Bolts Studio editing the Demolition Yard">
+      <div>
+        <p>Studio looks and works like Roblox Studio: Explorer, Properties, a script editor with autocomplete, and ready-made pieces like spawns, checkpoints and traps.</p>
+        <p>Press <b>Play</b> to test straight away. Build with friends in Team Create, then publish your game to the server so everyone can play it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="site">
+    <h2>The site in the app</h2>
+    <div class="two">
+      <div>
+        <p>The Guts&amp;Bolts Player feels like the classic 2011 site: a games list, a catalog, friends, groups, a Create page and daily Bolts.</p>
+        <p>It works on phones too. The Android app plays every game with touch controls.</p>
+      </div>
+      <img src="img/site.jpg" alt="The Guts&amp;Bolts Player home page">
+    </div>
+  </section>
+
+  <section id="download">
+    <h2>Download</h2>
+    <p>Free, for Windows, Mac, Linux and Android. Each download has both the Player and Studio.</p>
+    <div class="dl">
+      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Windows</a><small>GutsAndBolts-Windows.zip</small></div>
+      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Mac</a><small>GutsAndBolts-macOS.zip</small></div>
+      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Linux</a><small>GutsAndBolts-Linux.tar.gz</small></div>
+      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Android</a><small>GutsAndBoltsPlayer-Android.apk</small></div>
+    </div>
+    <p style="color:var(--muted);font-size:14px">Every button opens the releases page. Pick the newest release, then click the file for your computer.</p>
+  </section>
+
+  <section id="server">
+    <h2>Join a server</h2>
+    <p>Open the Player, click <b>Offline</b> (or <b>Online</b>) in the menu bar, and type the server address you were given. Then sign up, pick a game and press Play.</p>
+    <p>Want to run your own? The <a href="https://github.com/useofscript/Project-Guts-And-Bolts#readme">README</a> explains how to host a Guts&amp;Bolts server for your friends.</p>
+  </section>
+</main>
+
+<footer>Guts&amp;Bolts is a fan-made game engine. Not affiliated with Roblox.</footer>
+</body>
+</html>

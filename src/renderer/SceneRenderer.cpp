@@ -1,4 +1,5 @@
 #include "SceneRenderer.h"
+#include "Textures.h"
 #include "Shader.h"
 #include "Shaders.h"
 #include "Mesh.h"
@@ -196,6 +197,7 @@ void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) 
     m_depth->setMat4("uLightSpace", lightSpace);
     scene.forEach([&](SceneNode* node) {
         if (!node->mesh || !node->visible || !node->castShadow) return;
+        for (SceneNode* p = node->parent; p; p = p->parent) if (!p->visible) return;   // inside something hidden (a backpack)
         if (node->kind != NodeKind::Part || node->transparency > 0.5f) return;
         m_depth->setMat4("uModel", node->worldMatrix());
         node->mesh->draw();
@@ -439,9 +441,30 @@ void SceneRenderer::drawConstraints(Scene& scene, bool editing) {
     });
 }
 
+// Where a decal sits: the plane mesh (flat in X/Z, facing +Y) turned to lie on
+// one side of its part's unit box, so the picture reads the right way round
+// when you look at that side.
+glm::mat4 SceneRenderer::decalMatrix(const SceneNode& d) {
+    glm::vec3 R, U, N;
+    switch (d.face) {
+        case Face::Front:  R = {-1, 0, 0}; U = {0, 1, 0};  N = {0, 0, -1}; break;
+        case Face::Back:   R = {1, 0, 0};  U = {0, 1, 0};  N = {0, 0, 1};  break;
+        case Face::Right:  R = {0, 0, -1}; U = {0, 1, 0};  N = {1, 0, 0};  break;
+        case Face::Left:   R = {0, 0, 1};  U = {0, 1, 0};  N = {-1, 0, 0}; break;
+        case Face::Top:    R = {1, 0, 0};  U = {0, 0, -1}; N = {0, 1, 0};  break;
+        default:           R = {1, 0, 0};  U = {0, 0, 1};  N = {0, -1, 0}; break;   // Bottom
+    }
+    glm::mat4 local(1.0f);
+    local[0] = glm::vec4(R, 0);
+    local[1] = glm::vec4(N, 0);
+    local[2] = glm::vec4(U, 0);
+    local[3] = glm::vec4(N * 0.5f, 1);
+    return d.parent->worldMatrix() * local;
+}
+
 void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editing) {
     struct Item { SceneNode* node; glm::mat4 model; float dist; };
-    std::vector<Item> opaque, transparent, shielded;
+    std::vector<Item> opaque, transparent, shielded, decals;
     glm::vec3 camPos = camera.position();
 
     // Walk manually so hidden models hide everything inside them, and so
@@ -453,6 +476,9 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         if (!node->visible) continue;
         ff = ff || node->hasForceField();
         for (auto& c : node->children) stack.push_back({c.get(), ff});
+        if (node->isDecal() && !node->texture.empty() && node->transparency < 0.99f &&
+            node->parent && node->parent->kind == NodeKind::Part)
+            decals.push_back({node, decalMatrix(*node), 0.0f});
         if (!node->mesh || node->kind != NodeKind::Part) continue;
         if (ff && !node->internal && node->transparency < 0.99f) shielded.push_back({node, node->worldMatrix(), 0.0f});
         float alpha = 1.0f - node->transparency;
@@ -522,6 +548,33 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
+
+    // --- Decals: pictures stuck flat on a side of their part ---
+    if (!decals.empty()) {
+        auto plane = MeshLibrary::get(PrimitiveType::Plane);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-1.0f, -4.0f);          // win the depth fight with the part's own side
+        glDisable(GL_CULL_FACE);
+        m_lit->setBool("uUseDecal", true);
+        m_lit->setInt("uDecal", 5);
+        for (auto& it : decals) {
+            unsigned tex = Textures::get(it.node->texture);
+            if (!tex) continue;
+            bindTex(5, tex);
+            m_lit->setMat4("uModel", it.model);
+            m_lit->setMat3("uNormalMat", glm::transpose(glm::inverse(glm::mat3(it.model))));
+            m_lit->setVec3("uColor", it.node->color);
+            m_lit->setBool("uSelected", it.node->selected || it.node->parent->selected);
+            m_lit->setInt("uMaterial", (int)Material::Plastic);
+            m_lit->setFloat("uAlpha", 1.0f - it.node->transparency);
+            plane->draw();
+        }
+        m_lit->setBool("uUseDecal", false);
+        glActiveTexture(GL_TEXTURE0);
+        glEnable(GL_CULL_FACE);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+
     for (auto& it : transparent) draw(it);
 
     // --- ForceFields: a glowing neon shell cycling through the rainbow ---

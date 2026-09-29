@@ -131,6 +131,26 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddCircle(c, s * 0.38f, rgb(120, 220, 255), 24, th * 1.4f);
         dl->AddCircleFilled(c, s * 0.3f, rgb(120, 220, 255, 60), 24);
         break;
+    case Id::Value: {   // a little tag with a number on it
+        dl->AddRectFilled(ImVec2(c.x - s * 0.36f, c.y - s * 0.26f), ImVec2(c.x + s * 0.36f, c.y + s * 0.26f), rgb(90, 170, 120), s * 0.08f);
+        dl->AddText(nullptr, s * 0.5f, ImVec2(c.x - s * 0.14f, c.y - s * 0.26f), rgb(255, 255, 255), "1");
+        break;
+    }
+    case Id::Decal: {   // a little picture: sky, sun and a hill
+        ImVec2 a(c.x - s * 0.38f, c.y - s * 0.3f), b(c.x + s * 0.38f, c.y + s * 0.3f);
+        dl->AddRectFilled(a, b, rgb(120, 180, 240), s * 0.05f);
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.18f, c.y - s * 0.1f), s * 0.08f, rgb(255, 220, 90), 12);
+        dl->AddTriangleFilled(ImVec2(a.x, b.y), ImVec2(c.x - s * 0.08f, c.y - s * 0.06f), ImVec2(c.x + s * 0.2f, b.y), rgb(80, 170, 90));
+        dl->AddRect(a, b, rgb(235, 238, 245), s * 0.05f, 0, th * 0.8f);
+        break;
+    }
+    case Id::Tool: {   // a little sword
+        ImVec2 tip(c.x + s * 0.38f, c.y - s * 0.38f), guard(c.x - s * 0.12f, c.y + s * 0.12f);
+        dl->AddLine(guard, tip, rgb(200, 210, 225), th * 2.0f);
+        dl->AddLine(ImVec2(c.x - s * 0.3f, c.y - s * 0.02f), ImVec2(c.x + s * 0.02f, c.y + s * 0.3f), rgb(230, 180, 60), th * 1.6f);
+        dl->AddLine(guard, ImVec2(c.x - s * 0.36f, c.y + s * 0.36f), rgb(150, 100, 50), th * 2.0f);
+        break;
+    }
     case Id::Workspace:
         dl->AddCircleFilled(c, s * 0.4f, rgb(70, 140, 230), 24);
         dl->AddEllipse(c, ImVec2(s * 0.18f, s * 0.4f), rgb(200, 230, 255), 0, 20, th * 0.8f);
@@ -394,6 +414,9 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Attachment: return Id::Attachment;
         case NodeKind::Constraint: return Id::Constraint;
         case NodeKind::ForceField: return Id::ForceField;
+        case NodeKind::Tool:       return Id::Tool;
+        case NodeKind::Value:      return Id::Value;
+        case NodeKind::Decal:      return Id::Decal;
         default: break;
     }
     switch (n.primitiveType) {

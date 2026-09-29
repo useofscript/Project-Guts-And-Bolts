@@ -41,6 +41,9 @@ const char* kindName(NodeKind k) {
         case NodeKind::Sound:  return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint: return "Constraint";
+        case NodeKind::Tool:   return "Tool";
+        case NodeKind::Value:  return "Value";
+        case NodeKind::Decal:  return "Decal";
         default:               return "Part";
     }
 }
@@ -52,6 +55,9 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Sound")  return NodeKind::Sound;
     if (s == "Attachment") return NodeKind::Attachment;
     if (s == "Constraint") return NodeKind::Constraint;
+    if (s == "Tool")   return NodeKind::Tool;
+    if (s == "Value")  return NodeKind::Value;
+    if (s == "Decal")  return NodeKind::Decal;
     return NodeKind::Part;
 }
 
@@ -118,6 +124,29 @@ json toJson(const SceneNode& n) {
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
         j["enabled"] = n.enabled;
+    }
+    if (n.kind == NodeKind::Decal) {
+        j["texture"] = n.texture;
+        j["face"] = kFaceNames[(int)n.face];
+        j["color"] = vec(n.color);
+        j["transparency"] = n.transparency;
+    }
+    if (n.kind == NodeKind::Value) {
+        json v = {{"t", (int)n.value.type}, {"int", n.intValue}};
+        switch (n.value.type) {
+            case Attribute::Bool:   v["v"] = n.value.b; break;
+            case Attribute::Number: v["v"] = n.value.n; break;
+            case Attribute::String: v["v"] = n.value.s; break;
+            default:                v["v"] = vec(n.value.v); break;
+        }
+        j["value"] = v;
+    }
+    if (n.kind == NodeKind::Tool) {
+        j["enabled"] = n.enabled;
+        j["toolTip"] = n.toolTip;
+        j["canBeDropped"] = n.canBeDropped;
+        j["starterTool"] = n.starterTool;
+        j["gripPos"] = vec(n.gripPos);
     }
     if (n.kind == NodeKind::Sound) {
         j["soundId"] = n.soundId; j["volume"] = n.volume; j["pitch"] = n.pitch;
@@ -221,6 +250,29 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->brightness = get<float>(j, "brightness", 2.0f);
         n->range      = get<float>(j, "range", 14.0f);
         n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
+    if (n->kind == NodeKind::Decal) {
+        n->texture = get<std::string>(j, "texture", std::string());
+        std::string f = get<std::string>(j, "face", std::string("Front"));
+        for (int i = 0; i < 6; ++i) if (f == kFaceNames[i]) n->face = (Face)i;
+        n->color = vec(j, "color", {1, 1, 1});
+        n->transparency = get<float>(j, "transparency", 0.0f);
+    }
+    if (n->kind == NodeKind::Value && j.contains("value") && j["value"].is_object()) {
+        const json& vj = j["value"];
+        n->value.type = (Attribute::Type)std::clamp(vj.value("t", 1), 0, 4);
+        n->intValue = vj.value("int", false);
+        const json v = vj.contains("v") ? vj["v"] : json();
+        if (n->value.type == Attribute::Bool && v.is_boolean()) n->value.b = v.get<bool>();
+        else if (n->value.type == Attribute::Number && v.is_number()) n->value.n = v.get<double>();
+        else if (n->value.type == Attribute::String && v.is_string()) n->value.s = v.get<std::string>();
+        else if (v.is_array() && v.size() == 3) n->value.v = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+    }
+    if (n->kind == NodeKind::Tool) {
+        n->toolTip      = get<std::string>(j, "toolTip", std::string());
+        n->canBeDropped = get<bool>(j, "canBeDropped", true);
+        n->starterTool  = get<bool>(j, "starterTool", false);
+        n->gripPos      = vec(j, "gripPos", {0, 0, 0});
     }
     if (n->kind == NodeKind::Sound) {
         n->soundId  = get<std::string>(j, "soundId", "coin");
@@ -433,6 +485,10 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.range = src->range;         dst.spotAngle = src->spotAngle;
     dst.soundId = src->soundId;     dst.volume = src->volume; dst.pitch = src->pitch;
     dst.looped = src->looped;       dst.autoplay = src->autoplay;
+    dst.toolTip = src->toolTip;     dst.canBeDropped = src->canBeDropped;
+    dst.value = src->value;         dst.intValue = src->intValue;
+    dst.texture = src->texture;     dst.face = src->face;
+    dst.starterTool = src->starterTool; dst.gripPos = src->gripPos;
     dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
     dst.length = src->length;       dst.stiffness = src->stiffness; dst.damping = src->damping;
