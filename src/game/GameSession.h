@@ -63,6 +63,7 @@ private:
     void setupTools();                         // take StarterPack tools out, hand them out
     void giveStarterTools();
     void pickUpTools(const std::vector<TouchEvent>& touches);
+    void reachCheckpoints(const std::vector<TouchEvent>& touches);   // parts called "Checkpoint"
     std::vector<std::unique_ptr<SceneNode>> m_starterPack;   // templates (like Roblox's StarterPack)
     std::unordered_map<uint64_t, double> m_noPickupUntil;    // just dropped: don't grab it straight back
     double       m_time = 0.0;

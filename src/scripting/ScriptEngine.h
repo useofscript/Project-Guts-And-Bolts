@@ -4,6 +4,8 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <nlohmann/json.hpp>
+#include <filesystem>
 #include <unordered_set>
 #include <vector>
 
@@ -47,6 +49,13 @@ public:
     void fireAttributeChanged(uint64_t id, const std::string& name);
     void fireTag(bool added, uint64_t id, const std::string& tag);
     void fireTool(SignalKind kind, uint64_t toolId);   // Activated / Deactivated / Equipped / Unequipped
+    void fireValueChanged(uint64_t valueId);            // an IntValue etc. changed (.Changed)
+    // DataStoreService's saved data for this game (a file in the player's account folder).
+    const nlohmann::json& saveData();
+    void setSaveData(const std::string& store, const std::string& key, const nlohmann::json& value);
+    // Players' objects (outside the world) and what's in their leaderstats folder.
+    uint64_t playerNode(const std::string& name);
+    std::vector<std::pair<std::string, std::string>> leaderstats(const std::string& playerName);
     // Start the scripts inside `root` that haven't run yet (objects that just
     // arrived in the world, like a cloned tool).
     void runScriptsIn(SceneNode* root);
@@ -56,6 +65,7 @@ public:
 
     GuiState& gui() { return m_gui; }
     void setPlayerName(const std::string& n) { m_playerName = n; }
+    const std::string& playerName() const { return m_playerName; }
 
     // Compile without running — used by the script editor for live error checks.
     static bool checkSyntax(const std::string& source, std::string& error, int& line);
@@ -84,6 +94,10 @@ public:
 
 private:
     std::unordered_set<uint64_t> m_started;   // scripts that have run (so nothing runs twice)
+    uint64_t m_playersRoot = 0;               // "Players": one object per player (detached)
+    nlohmann::json m_saveData;                // loaded on first use
+    bool     m_saveLoaded = false;
+    std::filesystem::path saveFile() const;
     struct Waiting {
         int        ref;
         lua_State* co;

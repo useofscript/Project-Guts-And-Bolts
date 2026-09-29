@@ -774,6 +774,12 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     else if (what == "Sound") { m_scene->select(parent); addSound(); }
     else if (what == "Attachment") put(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment));
     else if (what == "ForceField") put(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
+    else if (what == "IntValue" || what == "NumberValue" || what == "StringValue" || what == "BoolValue") {
+        auto v = std::make_unique<SceneNode>(what, NodeKind::Value);
+        v->intValue = what == "IntValue";
+        v->value.type = what == "StringValue" ? Attribute::String : what == "BoolValue" ? Attribute::Bool : Attribute::Number;
+        put(std::move(v));
+    }
     else if (what == "Tool") {
         // A tool with a Handle ready to hold, sitting where you're looking.
         SceneNode* tool = put(std::make_unique<SceneNode>("Tool", NodeKind::Tool));
@@ -808,7 +814,8 @@ void Editor::renderInsertObject() {
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
-        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}};
+        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool},
+        {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;
     for (char& c : f) c = (char)std::tolower((unsigned char)c);

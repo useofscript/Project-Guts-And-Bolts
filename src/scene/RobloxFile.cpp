@@ -700,6 +700,13 @@ struct Converter {
             node->locked = in.flag("Locked", false);
             node->material = materialFromRoblox((int)in.num("Material", 256));
             ++report.parts;
+        } else if (c == "IntValue" || c == "NumberValue" || c == "StringValue" || c == "BoolValue") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Value);
+            node->intValue = c == "IntValue";
+            node->value.type = c == "StringValue" ? Attribute::String : c == "BoolValue" ? Attribute::Bool : Attribute::Number;
+            node->value.n = in.num("Value", 0.0);
+            node->value.b = in.num("Value", 0.0) != 0.0;
+            node->value.s = in.str("Value");
         } else if (c == "Tool" || c == "HopperBin") {
             node = std::make_unique<SceneNode>(name, NodeKind::Tool);
             node->enabled = in.flag("Enabled", true);
@@ -941,6 +948,9 @@ struct XmlWriter {
             case NodeKind::Attachment: cls = "Attachment"; break;
             case NodeKind::ForceField: cls = "ForceField"; break;
             case NodeKind::Tool:       cls = "Tool"; break;
+            case NodeKind::Value:
+                cls = n.value.type == Attribute::Vector3 || n.value.type == Attribute::Color3 ? nullptr : n.valueClass();
+                break;
             case NodeKind::Constraint: {
                 static const char* names[] = {"RopeConstraint", "RodConstraint", "SpringConstraint", "WeldConstraint", "HingeConstraint"};
                 cls = names[(int)n.constraintType];
@@ -951,6 +961,12 @@ struct XmlWriter {
         o << "<Item class=\"" << cls << "\" referent=\"" << ref(n.id) << "\">\n<Properties>\n";
         common(n);
         switch (n.kind) {
+        case NodeKind::Value:
+            if (n.value.type == Attribute::String) str("Value", n.value.s);
+            else if (n.value.type == Attribute::Bool) boolean("Value", n.value.b);
+            else if (n.intValue) o << "<int64 name=\"Value\">" << (long long)n.value.n << "</int64>\n";
+            else o << "<double name=\"Value\">" << n.value.n << "</double>\n";
+            break;
         case NodeKind::Part: {
             glm::mat4 w = n.worldMatrix();
             glm::vec3 size(glm::length(glm::vec3(w[0])), glm::length(glm::vec3(w[1])), glm::length(glm::vec3(w[2])));

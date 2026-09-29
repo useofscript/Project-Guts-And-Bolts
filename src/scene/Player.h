@@ -70,6 +70,8 @@ public:
     void       toggleSlot(int slot);                   // 0-based: equip it, or put it away if held
     SceneNode* drop();                                 // the held tool goes on the ground in front of you
     void       clearTools();                           // everything in the backpack and hand, gone
+    void       setCheckpoint(uint64_t partId) { m_checkpoint = partId; }   // respawn on this part (0 = the spawn)
+    uint64_t   checkpoint() const { return m_checkpoint; }
     void       swingTool() { if (equippedTool()) m_toolSwing = kToolSwingTime; }   // the "use" animation
     // Tool events for scripts (Equipped / Unequipped), and when the world changed.
     std::function<void(uint64_t tool, bool equipped)> onToolEquip;
@@ -127,6 +129,7 @@ private:
     std::vector<uint64_t> m_slots;    // tool ids in hotbar order
     float    m_holdBlend = 0.0f;       // right arm raised to hold a tool
     float    m_toolSwing = 0.0f;       // seconds left of the swing animation
+    uint64_t m_checkpoint = 0;         // RespawnLocation / last Checkpoint touched
     static constexpr float kToolSwingTime = 0.4f;
     bool     m_respawnedFlag = false;
     Scene*   m_scene  = nullptr;

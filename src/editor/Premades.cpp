@@ -330,6 +330,7 @@ SceneNode* makeConstraint(Scene& scene, ConstraintType type, SceneNode* a, const
 const std::vector<PremadeInfo>& premadeList() {
     static const std::vector<PremadeInfo> list = {
         {Premade::SpawnLocation,        "Spawn Location",  "Where the player appears when you press Play"},
+        {Premade::Checkpoint,           "Checkpoint",      "Touch it and you respawn here (for obbies)"},
         {Premade::KillBrick,            "Kill Brick",      "Red neon block - touching it knocks the player out"},
         {Premade::Spinner,              "Spinner",         "A bar that spins around forever"},
         {Premade::JumpPad,              "Jump Pad",        "Launches the player into the air"},
@@ -495,6 +496,10 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
                 }
             break;
         }
+        case Premade::Checkpoint:
+            // Built in: touching a part called "Checkpoint" makes it your respawn point. No script needed.
+            n = addPart(scene, "Checkpoint", Cube, at + glm::vec3(0, 0.1f, 0), {3, 0.2f, 3}, {0.2f, 0.85f, 0.4f}, Material::Neon);
+            break;
         case Premade::Trampoline:
             n = addPart(scene, "Trampoline", PrimitiveType::Cylinder, at + glm::vec3(0, 0.25f, 0), {4, 0.5f, 4}, {0.2f, 0.5f, 1.0f});
             n->elasticity = 1.0f;

@@ -28,6 +28,7 @@ enum class SignalKind : int {
     Deactivated,   // tool.Deactivated                ()
     Equipped,      // tool.Equipped                   ()
     Unequipped,    // tool.Unequipped                 ()
+    Changed,       // value.Changed                   (newValue)
 };
 
 namespace LuaApi {
@@ -53,5 +54,6 @@ SceneNode* checkNode   (lua_State* L, int idx);            // errors if destroye
 void       pushSignal  (lua_State* L, SignalKind kind, uint64_t id);
 void       pushHumanoid(lua_State* L, uint64_t characterRootId);
 void       pushLighting(lua_State* L);
+void       pushValue   (lua_State* L, const SceneNode& valueObject);   // a Value object's .Value
 
 } // namespace LuaApi

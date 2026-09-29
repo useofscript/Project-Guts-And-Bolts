@@ -264,6 +264,9 @@ void ViewportPanel::render(float dt) {
             }
             Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
             if (int slot = Hud::drawHotbar(dl, imgPos, imgMax, *m_scene); slot >= 0 && m_hovered) m_session->selectToolSlot(slot);
+            // The leaderboard, once the game gives the player some leaderstats.
+            if (auto stats = m_session->scripts().leaderstats(m_session->scripts().playerName()); !stats.empty())
+                Hud::drawPlayerList(dl, imgPos, imgMax, {{m_session->scripts().playerName(), false, false, stats}});
             // Green frame = the game is running.
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);
             const char* tip = m_state->simPaused ? "PLAY (paused)  -  F6 resume, F7 step, Shift+F5 stop"

@@ -168,12 +168,25 @@ int drawHotbar(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const ImVec
 
 void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players) {
     if (players.empty()) return;
-    const float rowH = 22.0f, w = 200.0f;
+    // leaderstats columns (like Roblox's leaderboard): every stat name anyone has, in order.
+    std::vector<std::string> cols;
+    for (const auto& p : players)
+        for (const auto& [k, v] : p.stats)
+            if (std::find(cols.begin(), cols.end(), k) == cols.end() && cols.size() < 4) cols.push_back(k);
+    const float rowH = 22.0f, nameW = 170.0f, colW = 64.0f;
+    const float w = nameW + colW * (float)cols.size() + (cols.empty() ? 30.0f : 0.0f);
     float y = min.y + 50;
     float x = max.x - w - 16;
     dl->AddRectFilled(ImVec2(x - 4, y - 4), ImVec2(x + w + 4, y + 24 + players.size() * rowH),
                       IM_COL32(0, 0, 0, 120), 6.0f);
     dl->AddText(ImVec2(x + 4, y), IM_COL32(255, 200, 120, 255), "Players");
+    auto rightText = [&](float colRight, float ty, const std::string& text, ImU32 col) {
+        std::string t = text;
+        while (t.size() > 1 && ImGui::CalcTextSize(t.c_str()).x > colW - 6) t.pop_back();
+        dl->AddText(ImVec2(colRight - ImGui::CalcTextSize(t.c_str()).x, ty), col, t.c_str());
+    };
+    for (size_t c = 0; c < cols.size(); ++c)
+        rightText(x + nameW + colW * (float)(c + 1), y, cols[c], IM_COL32(255, 200, 120, 255));
     y += 24;
     float t = (float)ImGui::GetTime();
     for (size_t i = 0; i < players.size(); ++i) {
@@ -193,6 +206,9 @@ void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<Pl
             float nw = ImGui::CalcTextSize(p.name.c_str()).x;
             Badges::drawCheck(dl, ImVec2(tx + nw + 9, y + ImGui::GetFontSize() * 0.5f + 1), 13.0f);
         }
+        for (size_t c = 0; c < cols.size(); ++c)
+            for (const auto& [k, v] : p.stats)
+                if (k == cols[c]) rightText(x + nameW + colW * (float)(c + 1), y, v, IM_COL32(255, 255, 255, 230));
         y += rowH;
     }
 }

@@ -12,6 +12,7 @@ enum class Premade {
     MovingPlatform, SpeedPad, ClickButton, FallingBall, DayNightCycle, LampPost, DiscoFloor,
     Landmine, SawBlade, SpikeTrap, ExplodingBarrel, Ramp,
     SwingingRope, WreckingBall, Windmill, Seesaw, MotorCart, DominoRun, CratePyramid, Trampoline,
+    Checkpoint,
 };
 
 struct PremadeInfo {

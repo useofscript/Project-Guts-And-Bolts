@@ -131,6 +131,11 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddCircle(c, s * 0.38f, rgb(120, 220, 255), 24, th * 1.4f);
         dl->AddCircleFilled(c, s * 0.3f, rgb(120, 220, 255, 60), 24);
         break;
+    case Id::Value: {   // a little tag with a number on it
+        dl->AddRectFilled(ImVec2(c.x - s * 0.36f, c.y - s * 0.26f), ImVec2(c.x + s * 0.36f, c.y + s * 0.26f), rgb(90, 170, 120), s * 0.08f);
+        dl->AddText(nullptr, s * 0.5f, ImVec2(c.x - s * 0.14f, c.y - s * 0.26f), rgb(255, 255, 255), "1");
+        break;
+    }
     case Id::Tool: {   // a little sword
         ImVec2 tip(c.x + s * 0.38f, c.y - s * 0.38f), guard(c.x - s * 0.12f, c.y + s * 0.12f);
         dl->AddLine(guard, tip, rgb(200, 210, 225), th * 2.0f);
@@ -402,6 +407,7 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Constraint: return Id::Constraint;
         case NodeKind::ForceField: return Id::ForceField;
         case NodeKind::Tool:       return Id::Tool;
+        case NodeKind::Value:      return Id::Value;
         default: break;
     }
     switch (n.primitiveType) {

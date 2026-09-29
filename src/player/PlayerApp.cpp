@@ -1122,7 +1122,8 @@ void PlayerApp::drawGame(float dt) {
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
     if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
-    else Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)}});
+    else Hud::drawPlayerList(dl, pos, max, {{Profile::get().name, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+                                             m_session->scripts().leaderstats(Profile::get().name)}});
     drawChat(pos, max);
 
     // "+5 Bolts for playing!" popup, top middle.

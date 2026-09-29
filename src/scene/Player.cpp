@@ -290,6 +290,7 @@ bool findSpawnLocation(SceneNode* node, glm::vec3& out) {
 } // namespace
 
 void Player::beginPlay() {
+    m_checkpoint = 0;
     m_rest.clear();
     m_debris.clear();
     SceneNode* r = root();
@@ -302,6 +303,7 @@ void Player::beginPlay() {
 }
 
 void Player::endPlay() {
+    m_checkpoint = 0;
     m_dead = false;
     m_debris.clear();
     m_rest.clear();
@@ -316,6 +318,10 @@ void Player::respawn() {
     }
     glm::vec3 spawnAt = m_spawn;
     findSpawnLocation(m_scene->root(), spawnAt);
+    if (SceneNode* cp = m_checkpoint ? m_scene->findById(m_checkpoint) : nullptr) {   // a checkpoint you reached
+        AABB b = Physics::worldBounds(cp);
+        spawnAt = glm::vec3((b.min.x + b.max.x) * 0.5f, b.max.y + 0.05f, (b.min.z + b.max.z) * 0.5f);
+    }
     r->transform = m_rootRest;
     r->transform.position = spawnAt;
 

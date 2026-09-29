@@ -79,6 +79,25 @@ void GameSession::pickUpTools(const std::vector<TouchEvent>& touches) {
     }
 }
 
+void GameSession::reachCheckpoints(const std::vector<TouchEvent>& touches) {
+    Player* p = m_scene->player();
+    SceneNode* me = p ? p->root() : nullptr;
+    if (!me || p->isDead()) return;
+    for (const TouchEvent& t : touches) {
+        SceneNode* part = m_scene->findById(t.partId);
+        SceneNode* other = m_scene->findById(t.otherId);
+        if (!part || !other || part->name != "Checkpoint" || p->checkpoint() == part->id) continue;
+        if (other != me && other->parent != me) continue;
+        p->setCheckpoint(part->id);
+        glm::vec3 at(part->worldMatrix()[3]);
+        Audio::play("coin", 0.5f, 1.4f, false, &at);
+        if (m_scripts.gui().messageTime <= 0.0f) {   // don't talk over the game's own messages
+            m_scripts.gui().message = "Checkpoint!";
+            m_scripts.gui().messageTime = 1.5f;
+        }
+    }
+}
+
 void GameSession::selectToolSlot(int slot) {
     if (!m_running || m_role == Role::Client) return;
     if (Player* p = m_scene->player(); p && !p->isDead()) p->toggleSlot(slot);
@@ -187,6 +206,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
         m_scripts.fireTouched(t.partId, t.otherId);
     }
     pickUpTools(touches);
+    reachCheckpoints(touches);
 }
 
 void GameSession::click(uint64_t partId) {

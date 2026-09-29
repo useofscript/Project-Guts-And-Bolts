@@ -1,4 +1,5 @@
 #include "SceneNode.h"
+#include <cstdio>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 
@@ -16,6 +17,21 @@ glm::mat4 Transform::matrix() const {
     m = glm::rotate(m, glm::radians(rotation.x), {1,0,0});
     m = glm::scale(m, scale);
     return m;
+}
+
+std::string SceneNode::valueText() const {
+    char buf[64];
+    switch (value.type) {
+        case Attribute::Bool:   return value.b ? "true" : "false";
+        case Attribute::String: return value.s;
+        case Attribute::Number:
+            if (intValue || value.n == (double)(long long)value.n) std::snprintf(buf, sizeof(buf), "%lld", (long long)value.n);
+            else std::snprintf(buf, sizeof(buf), "%.2f", value.n);
+            return buf;
+        default:
+            std::snprintf(buf, sizeof(buf), "%.2f, %.2f, %.2f", value.v.x, value.v.y, value.v.z);
+            return buf;
+    }
 }
 
 SceneNode::SceneNode(std::string name, NodeKind kind)

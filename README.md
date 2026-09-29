@@ -311,6 +311,46 @@ Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
 of an online game; people who join someone else's game can't carry tools
 yet.
 
+## Leaderboard, checkpoints and saved data
+
+**Leaderstats**, the Roblox way: put a folder called `leaderstats` inside a
+player, with IntValues (or other values) in it, and they show as columns on
+the player list, for everyone in an online game too.
+
+```lua
+local Players = game:GetService("Players")
+local function setup(player)
+    local stats = Instance.new("Folder")
+    stats.Name = "leaderstats"
+    stats.Parent = player
+    local coins = Instance.new("IntValue")
+    coins.Name = "Coins"
+    coins.Parent = stats
+end
+setup(Players.LocalPlayer)
+Players.PlayerAdded:Connect(setup)          -- people joining an online game
+-- later: player.leaderstats.Coins.Value = player.leaderstats.Coins.Value + 1
+```
+
+Value objects (**IntValue, NumberValue, StringValue, BoolValue**) can also be
+added in Studio (*Insert Object*). Scripts use `.Value` and `.Changed`.
+
+**Checkpoints:** add the ready-made *Checkpoint* pad from the Toolbox (or
+name any part `Checkpoint`). Touching it makes it your respawn point. Scripts
+can also set `player.RespawnLocation = somePart`.
+
+**Saved data** (`DataStoreService`) keeps things between visits:
+
+```lua
+local store = game:GetService("DataStoreService"):GetDataStore("Stats")
+local visits = store:IncrementAsync("visits_" .. player.UserId, 1)
+store:SetAsync("best", { score = 42 })
+print(store:GetAsync("best").score)
+```
+
+It also has `UpdateAsync` and `RemoveAsync`. Data is saved per game, in each
+player's account folder on the computer that runs the game (the host, online).
+
 ## Physics
 
 Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,

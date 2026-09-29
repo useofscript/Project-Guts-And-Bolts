@@ -32,6 +32,7 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Constraint ? "Constraint"
                     : node->kind == NodeKind::ForceField ? "ForceField"
                     : node->kind == NodeKind::Tool       ? "Tool"
+                    : node->kind == NodeKind::Value      ? node->valueClass()
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
@@ -55,6 +56,29 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::TextDisabled("Runs when you press Play.");
         ImGui::TextDisabled("Inside the code, 'script.Parent' is the");
         ImGui::TextDisabled("object this script is inside of.");
+        return;
+    }
+
+    if (node->isValue()) {
+        ImGui::SeparatorText("Value");
+        switch (node->value.type) {
+            case Attribute::Bool:   ImGui::Checkbox("Value", &node->value.b); break;
+            case Attribute::String: ImGui::InputText("Value", &node->value.s); break;
+            case Attribute::Vector3: ImGui::DragFloat3("Value", &node->value.v.x, 0.1f); break;
+            case Attribute::Color3: ImGui::ColorEdit3("Value", &node->value.v.x); break;
+            default:
+                if (node->intValue) {
+                    long long v = (long long)node->value.n;
+                    if (ImGui::InputScalar("Value", ImGuiDataType_S64, &v)) node->value.n = (double)v;
+                } else {
+                    ImGui::InputDouble("Value", &node->value.n);
+                }
+        }
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Scripts read and change it with .Value (and hear about changes with .Changed). "
+                            "Put IntValues in a folder called leaderstats inside a player to show them on the leaderboard.");
+        ImGui::PopTextWrapPos();
         return;
     }
 

@@ -251,10 +251,28 @@ void NetServer::stop() {
     m_session->setRole(GameSession::Role::Solo);
 }
 
+namespace {
+json statsJson(const std::vector<std::pair<std::string, std::string>>& stats) {
+    json a = json::array();
+    for (auto& [k, v] : stats) a.push_back({k, v});
+    return a;
+}
+std::vector<std::pair<std::string, std::string>> statsFrom(const json& j) {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (!j.is_array()) return out;
+    for (const auto& e : j)
+        if (e.is_array() && e.size() == 2 && e[0].is_string() && e[1].is_string() && out.size() < 4)
+            out.push_back({e[0].get<std::string>(), e[1].get<std::string>()});
+    return out;
+}
+} // namespace
+
 std::vector<PlayerEntry> NetServer::players() const {
     std::vector<PlayerEntry> out;
-    out.push_back({Profile::get().name + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)});
-    for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin, c->verified});
+    ScriptEngine& s = m_session->scripts();
+    out.push_back({Profile::get().name + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+                   s.leaderstats(Profile::get().name)});
+    for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin, c->verified, s.leaderstats(c->name)});
     return out;
 }
 
@@ -556,6 +574,7 @@ void NetServer::sendTick() {
             if (ch.id == c->rootId) continue;
             json entry = {{"i", ch.id}, {"n", ch.name}, {"a", ch.admin}, {"v", ch.verified},
                           {"pose", poseJson(Player::capturePose(ch.root))}};
+            if (auto st = m_session->scripts().leaderstats(ch.name); !st.empty()) entry["s"] = statsJson(st);
             if (!c->knownChars.count(ch.id)) {                   // first time: send the whole model
                 entry["rig"] = Serializer::nodeToString(*ch.root);
                 c->knownChars.insert(ch.id);
@@ -563,6 +582,7 @@ void NetServer::sendTick() {
             list.push_back(entry);
         }
         msg["chars"] = list;
+        if (auto mine = m_session->scripts().leaderstats(c->name); !mine.empty()) msg["mys"] = statsJson(mine);
         c->conn->send(msg.dump());
 
         // Things only this player needs to know about their own character.
@@ -766,7 +786,7 @@ void NetClient::handle(const std::string& text) {
         if (m.contains("chars")) {
             m_players.clear();
             m_players.push_back({me && me->root() ? me->root()->name : Profile::get().name, Account::iAmStaff(),
-                                 Badges::iHave(Badges::Id::Verified)});
+                                 Badges::iHave(Badges::Id::Verified), statsFrom(m.value("mys", json::array()))});
             for (const auto& ch : m["chars"]) {
                 uint64_t id = ch.value("i", (uint64_t)0);
                 std::string name = ch.value("n", std::string());
@@ -774,7 +794,7 @@ void NetClient::handle(const std::string& text) {
                 bool admin = id == m_hostRoot ? m_hostAdmin : ch.value("a", false);
                 bool ver = id == m_hostRoot ? m_hostVerified : ch.value("v", false);
                 if (Account::nameIsReserved(name) && !admin) name = "Player";
-                m_players.push_back({name, admin, ver});
+                m_players.push_back({name, admin, ver, statsFrom(ch.value("s", json::array()))});
                 if (id == m_myServerRoot) continue;
                 SceneNode* root = m_scene->findById(id);
                 if (!root && ch.contains("rig")) {

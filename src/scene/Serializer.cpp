@@ -42,6 +42,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint: return "Constraint";
         case NodeKind::Tool:   return "Tool";
+        case NodeKind::Value:  return "Value";
         default:               return "Part";
     }
 }
@@ -54,6 +55,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Attachment") return NodeKind::Attachment;
     if (s == "Constraint") return NodeKind::Constraint;
     if (s == "Tool")   return NodeKind::Tool;
+    if (s == "Value")  return NodeKind::Value;
     return NodeKind::Part;
 }
 
@@ -120,6 +122,16 @@ json toJson(const SceneNode& n) {
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
         j["enabled"] = n.enabled;
+    }
+    if (n.kind == NodeKind::Value) {
+        json v = {{"t", (int)n.value.type}, {"int", n.intValue}};
+        switch (n.value.type) {
+            case Attribute::Bool:   v["v"] = n.value.b; break;
+            case Attribute::Number: v["v"] = n.value.n; break;
+            case Attribute::String: v["v"] = n.value.s; break;
+            default:                v["v"] = vec(n.value.v); break;
+        }
+        j["value"] = v;
     }
     if (n.kind == NodeKind::Tool) {
         j["enabled"] = n.enabled;
@@ -230,6 +242,16 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->brightness = get<float>(j, "brightness", 2.0f);
         n->range      = get<float>(j, "range", 14.0f);
         n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
+    if (n->kind == NodeKind::Value && j.contains("value") && j["value"].is_object()) {
+        const json& vj = j["value"];
+        n->value.type = (Attribute::Type)std::clamp(vj.value("t", 1), 0, 4);
+        n->intValue = vj.value("int", false);
+        const json v = vj.contains("v") ? vj["v"] : json();
+        if (n->value.type == Attribute::Bool && v.is_boolean()) n->value.b = v.get<bool>();
+        else if (n->value.type == Attribute::Number && v.is_number()) n->value.n = v.get<double>();
+        else if (n->value.type == Attribute::String && v.is_string()) n->value.s = v.get<std::string>();
+        else if (v.is_array() && v.size() == 3) n->value.v = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
     }
     if (n->kind == NodeKind::Tool) {
         n->toolTip      = get<std::string>(j, "toolTip", std::string());
@@ -449,6 +471,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.soundId = src->soundId;     dst.volume = src->volume; dst.pitch = src->pitch;
     dst.looped = src->looped;       dst.autoplay = src->autoplay;
     dst.toolTip = src->toolTip;     dst.canBeDropped = src->canBeDropped;
+    dst.value = src->value;         dst.intValue = src->intValue;
     dst.starterTool = src->starterTool; dst.gripPos = src->gripPos;
     dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
