@@ -25,6 +25,18 @@ void GameSession::start() {
         bool in3d = n->parent && n->parent->isPart();
         n->audioHandle = Audio::play(n->soundId, n->volume, n->pitch, n->looped, in3d ? &at : nullptr);
     });
+    // Animations played by scripts pose the character from how it was built
+    // (not mid-step), and leave the walking arms and legs to the walk cycle.
+    Anim::Animator& an = m_scene->animator();
+    an.clear();
+    an.restFor = [this](uint64_t rig) -> const Anim::RestPose* {
+        Player* p = m_scene->player();
+        return p && p->rootId() == rig && !p->restPose().empty() ? &p->restPose() : nullptr;
+    };
+    an.drivenElsewhere = [this](uint64_t rig, const SceneNode* part) {
+        Player* p = m_scene->player();
+        return p && p->rootId() == rig && p->drivesPart(part);
+    };
     if (m_role != Role::Client) setupTools();   // before the scripts, so tools' scripts start with the rest
     if (m_role != Role::Client) m_scripts.start();
 }
@@ -112,6 +124,7 @@ void GameSession::dropTool() {
 
 void GameSession::stop() {
     m_scripts.stop();
+    m_scene->animator().clear();
     if (Player* p = m_scene->player()) p->onToolEquip = nullptr;
     m_starterPack.clear();
     Audio::stopAll();
@@ -170,6 +183,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             if (SceneNode* t = p->equippedTool()) m_scripts.fireTool(SignalKind::Deactivated, t->id);
         }
         p->update(dt, move, jump, m_physics);
+        if (p->isDead()) m_scene->animator().stopRig(p->rootId(), false, *m_scene);   // the body falls apart instead
         if (p->consumeDied()) m_scripts.fireDied(p->rootId());
         if (!client && p->consumeRespawned()) {
             // Like Roblox: you come back with just the StarterPack tools.
@@ -178,6 +192,11 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             giveStarterTools();
         }
     }
+
+    // Animations (after the character has walked, so they win where they pose).
+    m_scene->animator().update(dt, *m_scene);
+    if (!client) m_scripts.fireAnimationEvents();
+    else m_scene->animator().events.clear();
 
     // Sounds inside moving parts follow them.
     m_scene->forEach([](SceneNode* n) {

@@ -91,6 +91,10 @@ public:
     glm::vec3 focusPoint() const;     // where the play camera should look
 
     Humanoid& humanoid() { return m_humanoid; }
+    // How the character's parts were when Play started (animations pose from there).
+    const std::unordered_map<uint64_t, Transform>& restPose() const { return m_rest; }
+    // The parts walking moves every frame (the arms and legs).
+    bool drivesPart(const SceneNode* part) const;
     glm::vec3 velocity() const { return m_velocity; }
     void      launch(const glm::vec3& v) { m_velocity = v; m_grounded = false; }   // jump pads etc.
 

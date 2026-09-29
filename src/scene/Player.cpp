@@ -660,6 +660,11 @@ void Player::footsteps(bool running, const glm::vec3& at) {
     m_stepSound = Audio::play("footsteps", 0.35f, pitch, true, &feet);
 }
 
+bool Player::drivesPart(const SceneNode* p) const {
+    for (const char* n : kLimbs) if (p->name == n) return true;
+    return false;
+}
+
 void Player::animate(float dt, bool moving, bool grounded) {
     m_swing    = approach(m_swing, (moving && grounded) ? 45.0f : 0.0f, 10.0f, dt);
     m_airBlend = approach(m_airBlend, grounded ? 0.0f : 1.0f, 10.0f, dt);

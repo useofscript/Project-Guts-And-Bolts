@@ -10,7 +10,7 @@ namespace Icons {
 enum class Id {
     Select, Move, Scale, Rotate, Transform,
     Part, Sphere, Cylinder, Plane, Model, Folder, Script, ModuleScript, Light, Sound, Attachment, Constraint,
-    ForceField, Workspace, Player, Tool, Value, Decal,
+    ForceField, Workspace, Player, Tool, Value, Decal, Animation, Rig,
     Play, PlayHere, Run, Stop,
     Paste, Copy, Cut, Duplicate, Undo, Redo, Delete,
     Group, Ungroup, Lock, Anchor, Snap, Collide, Align,

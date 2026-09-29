@@ -957,6 +957,7 @@ struct XmlWriter {
             case NodeKind::ForceField: cls = "ForceField"; break;
             case NodeKind::Tool:       cls = "Tool"; break;
             case NodeKind::Decal:      cls = "Decal"; break;
+            case NodeKind::Animation:  cls = nullptr; break;   // (Roblox keeps animations online)
             case NodeKind::Value:
                 cls = n.value.type == Attribute::Vector3 || n.value.type == Attribute::Color3 ? nullptr : n.valueClass();
                 break;

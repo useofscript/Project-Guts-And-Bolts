@@ -29,6 +29,10 @@ enum class SignalKind : int {
     Equipped,      // tool.Equipped                   ()
     Unequipped,    // tool.Unequipped                 ()
     Changed,       // value.Changed                   (newValue)
+    AnimStopped,   // track.Stopped                   ()   (id = track)
+    AnimEnded,     // track.Ended                     ()
+    AnimDidLoop,   // track.DidLoop                   ()
+    KeyframeReached, // track.KeyframeReached         (keyframeName)
 };
 
 namespace LuaApi {

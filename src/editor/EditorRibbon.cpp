@@ -336,6 +336,14 @@ void Editor::renderToolbar() {
             }
         }
         {
+            Group g("Animation");
+            if (bigButton("Rig", Icons::Id::Rig, false, !m_playing, "Insert a dummy character to animate (or use as an NPC)"))
+                insertObject("Rig", nullptr);
+            if (bigButton("Animation Editor", Icons::Id::Animation, m_showPanel[kPanelAnimation], !m_playing,
+                          "Make animations for a rig: pose its parts on a timeline"))
+                openAnimationEditor();
+        }
+        {
             Group g("Align");
             ImGui::BeginGroup();
             static int axis = 0;
@@ -413,7 +421,7 @@ void Editor::renderToolbar() {
                                 {"Toolbox", Icons::Id::Toolbox, kPanelToolbox}, {"Output", Icons::Id::Output, kPanelOutput},
                                 {"Command Bar", Icons::Id::CommandBar, kPanelCommandBar}, {"Script Editor", Icons::Id::Script, kPanelScript},
                                 {"Lighting", Icons::Id::Lighting, kPanelLighting}, {"Player", Icons::Id::Player, kPanelPlayer},
-                                {"Team Chat", Icons::Id::Team, kPanelTeam}};
+                                {"Team Chat", Icons::Id::Team, kPanelTeam}, {"Animation", Icons::Id::Animation, kPanelAnimation}};
             for (const P& p : panels)
                 if (bigButton(p.label, p.icon, m_showPanel[p.panel], true, "Show / hide")) m_showPanel[p.panel] = !m_showPanel[p.panel];
         }

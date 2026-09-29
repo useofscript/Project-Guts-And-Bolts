@@ -762,6 +762,23 @@ void ScriptEngine::runScriptsIn(SceneNode* root) {
 
 void ScriptEngine::fireTool(SignalKind kind, uint64_t toolId) { fire(kind, toolId, nullptr); }
 
+void ScriptEngine::fireAnimationEvents() {
+    std::vector<Anim::Animator::Event> events;
+    events.swap(m_scene->animator().events);
+    for (const auto& e : events) {
+        if (!m_L) return;
+        SignalKind k = e.kind == Anim::Animator::Event::Stopped ? SignalKind::AnimStopped
+                     : e.kind == Anim::Animator::Event::Ended   ? SignalKind::AnimEnded
+                     : e.kind == Anim::Animator::Event::DidLoop ? SignalKind::AnimDidLoop : SignalKind::KeyframeReached;
+        std::string name = e.name;
+        fire(k, (uint64_t)e.track, [k, name](lua_State* co) {
+            if (k != SignalKind::KeyframeReached) return 0;
+            lua_pushstring(co, name.c_str());
+            return 1;
+        });
+    }
+}
+
 void ScriptEngine::fireValueChanged(uint64_t id) {
     fire(SignalKind::Changed, id, [this, id](lua_State* co) {
         SceneNode* n = resolve(id);

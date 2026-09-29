@@ -3,6 +3,7 @@
 #include "Environment.h"
 #include "Player.h"
 #include "Particles.h"
+#include "Animation.h"
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -67,6 +68,7 @@ public:
     GameInfo&      info()        { return m_info; }
     Player*        player()      { return m_player.get(); }
     ParticleSystem& particles()  { return m_particles; }
+    Anim::Animator& animator()   { return m_animator; }   // animations scripts are playing
     // Gore is shown only if the game allows it AND the player hasn't turned it off.
     bool           goreEnabled() const;
     GoreKind       goreKind() const;
@@ -135,6 +137,7 @@ private:
     GameInfo                   m_info;
     std::vector<RemoteCharacter> m_remotes;
     ParticleSystem             m_particles;
+    Anim::Animator             m_animator;
     std::unique_ptr<Player>    m_player;
 
     std::unordered_map<uint64_t, SceneNode*> m_index;

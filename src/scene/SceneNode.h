@@ -24,7 +24,9 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Value      — holds one value (IntValue, NumberValue, StringValue, BoolValue,
 //                Vector3Value, Color3Value); leaderstats are made of these
 //   Decal      — a picture on one side of the part it's inside
-enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal };
+//   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
+//                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
+enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation };
 
 // Sides of a part, in Roblox's NormalId order.
 enum class Face { Right, Top, Back, Left, Bottom, Front };
@@ -86,7 +88,7 @@ public:
     bool     canCollide = true;              // false = things pass through it
     bool     castShadow = true;
 
-    // Script (kind == Script)
+    // Script (kind == Script); an Animation's keyframes (JSON, see Animation.h)
     std::string source;
     bool        enabled = true;           // scripts and lights can be switched off
     bool        isModule = false;         // ModuleScript: only runs when require()d
@@ -155,6 +157,10 @@ public:
     // Runtime-only physics state (not saved).
     glm::vec3   velocity = {0.0f, 0.0f, 0.0f};
 
+    // While Studio's Animation Editor shows this part posed: where it really
+    // is (that's what gets saved, copied and undone). Runtime only.
+    std::shared_ptr<Transform> restPose;
+
     SceneNode*                              parent = nullptr;
     std::vector<std::unique_ptr<SceneNode>> children;
 
@@ -165,6 +171,7 @@ public:
     bool isTool()   const { return kind == NodeKind::Tool; }
     bool isValue()  const { return kind == NodeKind::Value; }
     bool isDecal()  const { return kind == NodeKind::Decal; }
+    bool isAnimation() const { return kind == NodeKind::Animation; }
     // "IntValue", "StringValue"... (kind == Value)
     const char* valueClass() const {
         switch (value.type) {

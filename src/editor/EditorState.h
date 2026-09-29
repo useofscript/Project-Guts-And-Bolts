@@ -37,6 +37,9 @@ struct EditorState {
     unsigned long long connectFirst = 0;
     float connectPoint[3] = {0, 0, 0};
 
+    // Animation Editor: the rig being animated (clicks pick its parts, not the whole model).
+    unsigned long long animRig = 0;
+
     float snapTranslate = 0.5f;     // world units
     float snapRotate    = 15.0f;    // degrees
     float snapScale     = 0.25f;    // factor

@@ -160,6 +160,10 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         }
         if (lo.x <= hi.x) localPivot = glm::vec3(glm::inverse(base) * glm::vec4((lo + hi) * 0.5f, 1.0f));
     }
+    // Posing in the Animation Editor: parts turn about their joint (shoulder, hip, neck).
+    if (m_state->animRig && sel->isPart())
+        if (SceneNode* rig = m_scene->findById(m_state->animRig); rig && rig->isAncestorOf(sel))
+            localPivot = Anim::jointPivot(sel);
     glm::mat4 world = base * glm::translate(glm::mat4(1.0f), localPivot);
     const glm::vec3 pivotBefore(world[3]);
     if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
@@ -395,8 +399,11 @@ void ViewportPanel::render(float dt) {
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd);
                 if (hit && hit->locked) hit = nullptr;            // Locked parts can't be clicked (Alt+L)
                 // Like Roblox: clicking a part inside a Model picks the whole Model
-                // (the top one under the Workspace). Alt+click picks just the part.
-                if (hit && !ImGui::GetIO().KeyAlt && !m_scene->isCharacterPart(hit)) {
+                // (the top one under the Workspace). Alt+click picks just the part,
+                // and so does any click on the rig open in the Animation Editor.
+                SceneNode* animRig = m_state->animRig ? m_scene->findById(m_state->animRig) : nullptr;
+                bool inAnimRig = hit && animRig && animRig->isAncestorOf(hit);
+                if (hit && !inAnimRig && !ImGui::GetIO().KeyAlt && !m_scene->isCharacterPart(hit)) {
                     SceneNode* top = hit;
                     for (SceneNode* p = hit->parent; p && p != m_scene->root(); p = p->parent)
                         if (p->kind == NodeKind::Model) top = p;

@@ -2,6 +2,7 @@
 // Lighting, and the Signal / Connection event objects.
 #include "LuaApi.h"
 #include "ScriptEngine.h"
+#include "../scene/Animation.h"
 #include "../scene/Player.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
@@ -24,6 +25,8 @@ constexpr const char* kSig   = "RBXScriptSignal";
 constexpr const char* kConn  = "RBXScriptConnection";
 constexpr const char* kHum   = "Humanoid";
 constexpr const char* kLight = "Lighting";
+constexpr const char* kTrack = "AnimationTrack";
+constexpr const char* kAnimr = "Animator";
 
 struct InstRef   { uint64_t id; };
 struct SignalRef { SignalKind kind; uint64_t id; };
@@ -72,6 +75,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Tool:       return "Tool";
         case NodeKind::Value:      return n->valueClass();
         case NodeKind::Decal:      return "Decal";
+        case NodeKind::Animation:  return "Animation";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint:
@@ -409,6 +413,9 @@ int m_GetTags(lua_State* L) {
     return 1;
 }
 
+int m_LoadAnimation(lua_State* L);   // (with the animation code below)
+bool parsePriority(const char* s, Anim::Priority& out);
+
 const luaL_Reg kMethods[] = {
     {"FindFirstChild", m_FindFirstChild}, {"FindFirstChildOfClass", m_FindFirstChildOfClass},
     {"WaitForChild", m_WaitForChild}, {"GetChildren", m_GetChildren},
@@ -421,6 +428,7 @@ const luaL_Reg kMethods[] = {
     {"GetAttribute", m_GetAttribute}, {"SetAttribute", m_SetAttribute}, {"GetAttributes", m_GetAttributes},
     {"GetAttributeChangedSignal", m_GetAttributeChangedSignal},
     {"HasTag", m_HasTag}, {"AddTag", m_AddTag}, {"RemoveTag", m_RemoveTag}, {"GetTags", m_GetTags},
+    {"LoadAnimation", m_LoadAnimation},
     {nullptr, nullptr}};
 
 // ===========================================================================
@@ -498,6 +506,13 @@ int inst_index(lua_State* L) {
         if (is(k, "Value"))   { LuaApi::pushValue(L, *n); return 1; }
         if (is(k, "Changed")) { LuaApi::pushSignal(L, SignalKind::Changed, n->id); return 1; }
     }
+    if (n->isAnimation()) {
+        Anim::Clip c = Anim::parse(n->source);
+        if (is(k, "Looped"))      { lua_pushboolean(L, c.loop); return 1; }
+        if (is(k, "Priority"))    { lua_pushstring(L, Anim::kPriorityNames[(int)c.priority]); return 1; }
+        if (is(k, "Length"))      { lua_pushnumber(L, c.length()); return 1; }
+        if (is(k, "AnimationId")) { lua_pushstring(L, ""); return 1; }
+    }
     if (n->isDecal()) {
         if (is(k, "Texture"))      { lua_pushstring(L, n->texture.c_str()); return 1; }
         if (is(k, "Face"))         { lua_pushstring(L, kFaceNames[(int)n->face]); return 1; }
@@ -556,6 +571,17 @@ int inst_newindex(lua_State* L) {
     bool part = n->kind == NodeKind::Part;
     Scene* scene = E(L)->scene();
 
+    if (n->isAnimation() && (is(k, "Looped") || is(k, "Priority"))) {
+        Anim::Clip c = Anim::parse(n->source);
+        if (is(k, "Looped")) c.loop = lua_toboolean(L, 3);
+        else {
+            Anim::Priority pr;
+            if (!parsePriority(luaL_checkstring(L, 3), pr)) return luaL_error(L, "Priority must be Core, Idle, Movement or Action");
+            c.priority = pr;
+        }
+        n->source = Anim::dump(c);
+        return 0;
+    }
     if (n->isAttachment()) {
         if (is(k, "Position"))      { n->transform.position = LuaApi::checkVector3(L, 3); return 0; }
         if (is(k, "WorldPosition")) { setWorldPosition(L, n, LuaApi::checkVector3(L, 3)); return 0; }
@@ -741,6 +767,9 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::ForceField);
     } else if (cls == "Tool") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Tool);
+    } else if (cls == "Animation") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Animation);
+        n->source = Anim::emptyClipText();
     } else if (cls == "Decal") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Decal);
         n->color = {1.0f, 1.0f, 1.0f};
@@ -822,6 +851,177 @@ int conn_index(lua_State* L) {
     return luaL_error(L, "'%s' is not a valid member of a connection", k);
 }
 
+
+// ===========================================================================
+// Animations: Animator (humanoid.Animator / humanoid:LoadAnimation) and
+// AnimationTrack (what LoadAnimation gives: :Play(), :Stop(), .Stopped...)
+// ===========================================================================
+
+struct TrackRef    { int id; };
+struct AnimatorRef { uint64_t rig; };
+
+Anim::Animator& animator(lua_State* L) { return E(L)->scene()->animator(); }
+
+void pushTrack(lua_State* L, int id) {
+    auto* t = static_cast<TrackRef*>(lua_newuserdatauv(L, sizeof(TrackRef), 0));
+    t->id = id;
+    luaL_setmetatable(L, kTrack);
+}
+
+void pushAnimator(lua_State* L, uint64_t rig) {
+    auto* a = static_cast<AnimatorRef*>(lua_newuserdatauv(L, sizeof(AnimatorRef), 0));
+    a->rig = rig;
+    luaL_setmetatable(L, kAnimr);
+}
+
+// Load `animation` (the object at idx) onto a rig and push the track.
+int loadOnto(lua_State* L, uint64_t rig, int idx) {
+    SceneNode* a = LuaApi::checkNode(L, idx);
+    if (!a->isAnimation()) return luaL_error(L, "LoadAnimation needs an Animation object (got %s \"%s\")",
+                                             className(L, a), a->name.c_str());
+    SceneNode* r = E(L)->scene()->findById(rig);
+    if (!r) return luaL_error(L, "LoadAnimation: this character or model isn't in the game");
+    pushTrack(L, animator(L).load(rig, *a));
+    return 1;
+}
+
+int pushPlaying(lua_State* L, uint64_t rig) {
+    lua_newtable(L);
+    int i = 1;
+    for (int id : animator(L).playingOn(rig)) { pushTrack(L, id); lua_rawseti(L, -2, i++); }
+    return 1;
+}
+
+int animr_load(lua_State* L) {
+    auto* a = static_cast<AnimatorRef*>(luaL_checkudata(L, 1, kAnimr));
+    return loadOnto(L, a->rig, 2);
+}
+int animr_playing(lua_State* L) {
+    auto* a = static_cast<AnimatorRef*>(luaL_checkudata(L, 1, kAnimr));
+    return pushPlaying(L, a->rig);
+}
+int animr_isA(lua_State* L) {
+    const char* c = luaL_checkstring(L, 2);
+    lua_pushboolean(L, is(c, "Animator") || is(c, "Instance"));
+    return 1;
+}
+int animr_index(lua_State* L) {
+    auto* a = static_cast<AnimatorRef*>(luaL_checkudata(L, 1, kAnimr));
+    const char* k = luaL_checkstring(L, 2);
+    if (is(k, "LoadAnimation"))             { lua_pushcfunction(L, animr_load); return 1; }
+    if (is(k, "GetPlayingAnimationTracks")) { lua_pushcfunction(L, animr_playing); return 1; }
+    if (is(k, "IsA"))                       { lua_pushcfunction(L, animr_isA); return 1; }
+    if (is(k, "Name") || is(k, "ClassName")) { lua_pushstring(L, "Animator"); return 1; }
+    if (is(k, "Parent")) {
+        if (E(L)->scene()->isCharacterRoot(a->rig)) LuaApi::pushHumanoid(L, a->rig);
+        else LuaApi::pushInstance(L, a->rig);
+        return 1;
+    }
+    return luaL_error(L, "'%s' is not a valid member of Animator", k);
+}
+
+Anim::Animator::Track& track(lua_State* L) {
+    auto* t = static_cast<TrackRef*>(luaL_checkudata(L, 1, kTrack));
+    Anim::Animator::Track* tr = animator(L).track(t->id);
+    if (!tr) luaL_error(L, "This AnimationTrack no longer exists (the game restarted)");
+    return *tr;
+}
+int trackId(lua_State* L) { return static_cast<TrackRef*>(luaL_checkudata(L, 1, kTrack))->id; }
+
+// track:Play(fadeTime = 0.1, weight = 1, speed = 1)
+int track_play(lua_State* L) {
+    track(L);
+    animator(L).play(trackId(L), (float)luaL_optnumber(L, 2, 0.1), (float)luaL_optnumber(L, 3, 1.0),
+                     (float)luaL_optnumber(L, 4, 1.0));
+    return 0;
+}
+int track_stop(lua_State* L) {
+    track(L);
+    animator(L).stop(trackId(L), (float)luaL_optnumber(L, 2, 0.1));
+    return 0;
+}
+int track_adjustSpeed(lua_State* L) {
+    track(L);
+    animator(L).adjustSpeed(trackId(L), (float)luaL_optnumber(L, 2, 1.0));
+    return 0;
+}
+int track_adjustWeight(lua_State* L) {
+    track(L);
+    animator(L).adjustWeight(trackId(L), (float)luaL_optnumber(L, 2, 1.0), (float)luaL_optnumber(L, 3, 0.1));
+    return 0;
+}
+int track_timeOfKeyframe(lua_State* L) {
+    Anim::Animator::Track& t = track(L);
+    std::string name = luaL_checkstring(L, 2);
+    for (const Anim::Keyframe& k : t.clip.keys)
+        if (k.name == name) { lua_pushnumber(L, k.time); return 1; }
+    return luaL_error(L, "GetTimeOfKeyframe: no keyframe called \"%s\"", name.c_str());
+}
+int track_markerSignal(lua_State* L) {   // (all named keyframes; the name is passed to the callback)
+    LuaApi::pushSignal(L, SignalKind::KeyframeReached, (uint64_t)trackId(L));
+    return 1;
+}
+
+bool parsePriority(const char* s, Anim::Priority& out) {
+    for (int i = 0; i < 4; ++i) if (is(s, Anim::kPriorityNames[i])) { out = (Anim::Priority)i; return true; }
+    return false;
+}
+
+int track_index(lua_State* L) {
+    Anim::Animator::Track& t = track(L);
+    uint64_t id = (uint64_t)trackId(L);
+    const char* k = luaL_checkstring(L, 2);
+    if (is(k, "Play"))              { lua_pushcfunction(L, track_play); return 1; }
+    if (is(k, "Stop"))              { lua_pushcfunction(L, track_stop); return 1; }
+    if (is(k, "AdjustSpeed"))       { lua_pushcfunction(L, track_adjustSpeed); return 1; }
+    if (is(k, "AdjustWeight"))      { lua_pushcfunction(L, track_adjustWeight); return 1; }
+    if (is(k, "GetTimeOfKeyframe")) { lua_pushcfunction(L, track_timeOfKeyframe); return 1; }
+    if (is(k, "GetMarkerReachedSignal")) { lua_pushcfunction(L, track_markerSignal); return 1; }
+    if (is(k, "IsPlaying"))    { lua_pushboolean(L, t.playing && t.target > 0.0f); return 1; }
+    if (is(k, "Length"))       { lua_pushnumber(L, t.clip.length()); return 1; }
+    if (is(k, "Looped"))       { lua_pushboolean(L, t.looped); return 1; }
+    if (is(k, "Speed"))        { lua_pushnumber(L, t.speed); return 1; }
+    if (is(k, "TimePosition")) { lua_pushnumber(L, t.time); return 1; }
+    if (is(k, "WeightCurrent")) { lua_pushnumber(L, t.weight); return 1; }
+    if (is(k, "WeightTarget")) { lua_pushnumber(L, t.target); return 1; }
+    if (is(k, "Priority"))     { lua_pushstring(L, Anim::kPriorityNames[(int)t.priority]); return 1; }
+    if (is(k, "Name"))         { lua_pushstring(L, t.name.c_str()); return 1; }
+    if (is(k, "ClassName"))    { lua_pushstring(L, "AnimationTrack"); return 1; }
+    if (is(k, "Animation"))    { LuaApi::pushInstance(L, E(L)->resolve(t.animation) ? t.animation : 0); return 1; }
+    if (is(k, "Stopped"))      { LuaApi::pushSignal(L, SignalKind::AnimStopped, id); return 1; }
+    if (is(k, "Ended"))        { LuaApi::pushSignal(L, SignalKind::AnimEnded, id); return 1; }
+    if (is(k, "DidLoop"))      { LuaApi::pushSignal(L, SignalKind::AnimDidLoop, id); return 1; }
+    if (is(k, "KeyframeReached")) { LuaApi::pushSignal(L, SignalKind::KeyframeReached, id); return 1; }
+    return luaL_error(L, "'%s' is not a valid member of AnimationTrack", k);
+}
+
+int track_newindex(lua_State* L) {
+    Anim::Animator::Track& t = track(L);
+    const char* k = luaL_checkstring(L, 2);
+    if (is(k, "Looped"))            t.looped = lua_toboolean(L, 3);
+    else if (is(k, "TimePosition")) t.time = std::clamp((float)luaL_checknumber(L, 3), 0.0f, t.clip.length());
+    else if (is(k, "Priority")) {
+        if (!parsePriority(luaL_checkstring(L, 3), t.priority))
+            return luaL_error(L, "Priority must be Core, Idle, Movement or Action");
+    }
+    else return luaL_error(L, "'%s' can't be set on AnimationTrack", k);
+    return 0;
+}
+
+int track_eq(lua_State* L) {
+    auto* a = static_cast<TrackRef*>(luaL_testudata(L, 1, kTrack));
+    auto* b = static_cast<TrackRef*>(luaL_testudata(L, 2, kTrack));
+    lua_pushboolean(L, a && b && a->id == b->id);
+    return 1;
+}
+
+// model:LoadAnimation(anim) — any rig (a Model of parts), not just characters.
+int m_LoadAnimation(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (n->kind != NodeKind::Model) return luaL_error(L, "LoadAnimation works on a Model (a rig) or a Humanoid");
+    return loadOnto(L, n->id, 2);
+}
+
 // ===========================================================================
 // Humanoid (the character's health / speed)
 // ===========================================================================
@@ -869,6 +1069,16 @@ int hum_unequipTools(lua_State* L) {
     return 0;
 }
 
+int hum_loadAnimation(lua_State* L) { return loadOnto(L, humRoot(L), 2); }
+int hum_playing(lua_State* L) { return pushPlaying(L, humRoot(L)); }
+// humanoid:WaitForChild("Animator") / FindFirstChildOfClass("Animator"), like Roblox code does.
+int hum_findChild(lua_State* L) {
+    const char* n = luaL_checkstring(L, 2);
+    if (is(n, "Animator")) pushAnimator(L, humRoot(L));
+    else lua_pushnil(L);
+    return 1;
+}
+
 int hum_isA(lua_State* L) {
     const char* c = luaL_checkstring(L, 2);
     lua_pushboolean(L, is(c, "Humanoid") || is(c, "Instance"));
@@ -891,6 +1101,11 @@ int hum_index(lua_State* L) {
     if (is(k, "EquipTool"))   { lua_pushcfunction(L, hum_equipTool); return 1; }
     if (is(k, "UnequipTools")) { lua_pushcfunction(L, hum_unequipTools); return 1; }
     if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
+    if (is(k, "LoadAnimation")) { lua_pushcfunction(L, hum_loadAnimation); return 1; }
+    if (is(k, "GetPlayingAnimationTracks")) { lua_pushcfunction(L, hum_playing); return 1; }
+    if (is(k, "Animator"))   { pushAnimator(L, humRoot(L)); return 1; }
+    if (is(k, "FindFirstChild") || is(k, "FindFirstChildOfClass") || is(k, "WaitForChild"))
+        { lua_pushcfunction(L, hum_findChild); return 1; }
     return luaL_error(L, "'%s' is not a valid member of Humanoid", k);
 }
 
@@ -1036,11 +1251,15 @@ void registerInstance(lua_State* L) {
     static const luaL_Reg connMeta[]  = {{"__index", conn_index},  {nullptr, nullptr}};
     static const luaL_Reg humMeta[]   = {{"__index", hum_index}, {"__newindex", hum_newindex}, {"__eq", hum_eq}, {nullptr, nullptr}};
     static const luaL_Reg lightMeta[] = {{"__index", light_index}, {"__newindex", light_newindex}, {nullptr, nullptr}};
+    static const luaL_Reg trackMeta[] = {{"__index", track_index}, {"__newindex", track_newindex}, {"__eq", track_eq}, {nullptr, nullptr}};
+    static const luaL_Reg animrMeta[] = {{"__index", animr_index}, {nullptr, nullptr}};
     makeMeta(L, kInst, instMeta);
     makeMeta(L, kSig, sigMeta);
     makeMeta(L, kConn, connMeta);
     makeMeta(L, kHum, humMeta);
     makeMeta(L, kLight, lightMeta);
+    makeMeta(L, kTrack, trackMeta);
+    makeMeta(L, kAnimr, animrMeta);
 
     luaL_newlib(L, kMethods);
     lua_setfield(L, LUA_REGISTRYINDEX, "GB.InstanceMethods");

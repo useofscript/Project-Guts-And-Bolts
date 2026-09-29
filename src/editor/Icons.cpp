@@ -144,6 +144,28 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddRect(a, b, rgb(235, 238, 245), s * 0.05f, 0, th * 0.8f);
         break;
     }
+    case Id::Animation: {   // a film strip with a keyframe diamond
+        ImVec2 a(c.x - s * 0.4f, c.y - s * 0.28f), b(c.x + s * 0.4f, c.y + s * 0.28f);
+        dl->AddRectFilled(a, b, rgb(70, 76, 92), s * 0.05f);
+        for (int i = 0; i < 4; ++i) {
+            float x = a.x + s * (0.1f + i * 0.2f);
+            dl->AddRectFilled(ImVec2(x - s * 0.04f, a.y + s * 0.04f), ImVec2(x + s * 0.04f, a.y + s * 0.1f), rgb(220, 224, 232));
+            dl->AddRectFilled(ImVec2(x - s * 0.04f, b.y - s * 0.1f), ImVec2(x + s * 0.04f, b.y - s * 0.04f), rgb(220, 224, 232));
+        }
+        float d = s * 0.13f;
+        dl->AddQuadFilled(ImVec2(c.x, c.y - d), ImVec2(c.x + d, c.y), ImVec2(c.x, c.y + d), ImVec2(c.x - d, c.y), rgb(255, 200, 60));
+        break;
+    }
+    case Id::Rig: {   // a little stick-figure dummy
+        ImU32 col = rgb(160, 200, 255);
+        dl->AddCircleFilled(ImVec2(c.x, c.y - s * 0.3f), s * 0.1f, col, 12);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.13f, c.y - s * 0.18f), ImVec2(c.x + s * 0.13f, c.y + s * 0.08f), col);
+        dl->AddLine(ImVec2(c.x - s * 0.15f, c.y - s * 0.15f), ImVec2(c.x - s * 0.35f, c.y + s * 0.02f), col, th * 1.6f);
+        dl->AddLine(ImVec2(c.x + s * 0.15f, c.y - s * 0.15f), ImVec2(c.x + s * 0.35f, c.y - s * 0.3f), col, th * 1.6f);
+        dl->AddLine(ImVec2(c.x - s * 0.07f, c.y + s * 0.08f), ImVec2(c.x - s * 0.12f, c.y + s * 0.4f), col, th * 1.8f);
+        dl->AddLine(ImVec2(c.x + s * 0.07f, c.y + s * 0.08f), ImVec2(c.x + s * 0.12f, c.y + s * 0.4f), col, th * 1.8f);
+        break;
+    }
     case Id::Tool: {   // a little sword
         ImVec2 tip(c.x + s * 0.38f, c.y - s * 0.38f), guard(c.x - s * 0.12f, c.y + s * 0.12f);
         dl->AddLine(guard, tip, rgb(200, 210, 225), th * 2.0f);
@@ -417,6 +439,7 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Tool:       return Id::Tool;
         case NodeKind::Value:      return Id::Value;
         case NodeKind::Decal:      return Id::Decal;
+        case NodeKind::Animation:  return Id::Animation;
         default: break;
     }
     switch (n.primitiveType) {
