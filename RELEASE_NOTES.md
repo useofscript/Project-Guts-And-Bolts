@@ -11,8 +11,31 @@
   "Best of Guts&Bolts" plus new catalog items on the right.
 - The front page matches.
 
+**The website is open to everyone**
+- Visitors can see every page. When they try to buy something, claim Bolts,
+  save an avatar, add a friend or upload, a "You need to log in" popup appears.
+- **Play** on a game's page opens the Guts&Bolts app on that game. Visitors
+  first pick **Play As Boy** (black cap) or **Play As Girl** and play as a guest.
+- Game cards show visits and how many people are playing right now.
+
+**Configure your games on the website**
+- Create > My Games > **Configure**: name, description, who can play
+  (**Public**, **Friends only** or **Private**), a thumbnail, a square icon, and
+  uploading a new version.
+
+**Email, forgot password and two-step verification**
+- **Settings** on the website: add an email, change your password, and turn on
+  two-step verification (logging in on a new device also needs a code from your
+  email).
+- **Forgot your password?** emails you a code to set a new one.
+- The server needs an email service switched on for this; see the README.
+
+**Fixed:** logging in as an account that never set a password (like Guts) said
+"no account with that username". Now it explains how to set one, and the app's
+home page reminds you.
+
 **Choose Your Character (guests)**
-- "Play as Guest" now asks you to pick **Play As Boy** (red cap) or **Play As
+- "Play as Guest" now asks you to pick **Play As Boy** (black cap) or **Play As
   Girl** (pink ponytail). The "Have an Account?" link takes you to Log In.
 - New hairstyle, **Ponytail**, on the Avatar page (app and website).
 
