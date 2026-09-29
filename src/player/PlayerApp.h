@@ -26,6 +26,7 @@ struct PlayerOptions {
     std::string join;              // --join host[:port]
     bool        host = false;      // --host (with a game file)
     std::string say;               // --say <text>  (tests: chat once joined)
+    bool        guest = false;     // --guest  (tests: press "Play as Guest")
     std::string screenshot;        // --screenshot <out.ppm> (tests)
     int         frames = 120;
     std::string holdKey;

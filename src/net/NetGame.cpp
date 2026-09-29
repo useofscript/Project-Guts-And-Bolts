@@ -11,6 +11,7 @@
 #include "../core/Log.h"
 #include "../core/Audio.h"
 #include "../core/Account.h"
+#include "../online/OnlineClient.h"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -206,6 +207,7 @@ struct NetServer::Client {
     std::string accountId;        // "" if they couldn't prove it
     bool        admin = false;
     bool        verified = false;
+    bool        guest = false;       // no account: can play but not chat
     std::set<uint64_t> knownChars;   // rigs this client already has
 };
 
@@ -270,8 +272,8 @@ std::vector<std::pair<std::string, std::string>> statsFrom(const json& j) {
 std::vector<PlayerEntry> NetServer::players() const {
     std::vector<PlayerEntry> out;
     ScriptEngine& s = m_session->scripts();
-    out.push_back({Profile::get().name + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
-                   s.leaderstats(Profile::get().name)});
+    out.push_back({Online::playerName() + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+                   s.leaderstats(Online::playerName())});
     for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin, c->verified, s.leaderstats(c->name)});
     return out;
 }
@@ -284,9 +286,10 @@ void NetServer::broadcast(const std::string& msg, const Client* except) {
 void NetServer::say(const std::string& text) {
     std::string t = cleanText(text, 200);
     if (t.empty()) return;
+    if (Online::isGuest() && Online::online()) { m_chat.add("", Online::kGuestChatText, true); return; }
     bool admin = Account::iAmStaff(), ver = Badges::iHave(Badges::Id::Verified);
-    m_chat.add(Profile::get().name, t, false, admin, ver);
-    broadcast(json{{"t", "chat"}, {"from", Profile::get().name}, {"text", t}, {"adm", admin}, {"ver", ver}}.dump());
+    m_chat.add(Online::playerName(), t, false, admin, ver);
+    broadcast(json{{"t", "chat"}, {"from", Online::playerName()}, {"text", t}, {"adm", admin}, {"ver", ver}}.dump());
 }
 
 void NetServer::dropClient(size_t index, const char* reason) {
@@ -337,6 +340,7 @@ void NetServer::updateRelay(float dt) {
             // Someone's joining: open a fresh line to the server for them. We only
             // ever talk to the server, so we never learn their address (nor they ours).
             std::string err;
+            if (m.value("guest", false)) m_guestAccounts.insert(m.value("account", std::string()));   // (the server says so)
             if (auto conn = Net::Connection::connectTo(m_relayServer, m_relayPort, err, 3000)) {
                 conn->send(json{{"t", "accept"}, {"ticket", m.value("ticket", std::string())}}.dump());
                 addClient(std::move(conn));
@@ -395,13 +399,14 @@ void NetServer::handle(Client& c, const std::string& text) {
             c.accountId = accountId;
         c.admin = !c.accountId.empty() && Account::isOfficial(c.accountId);
         c.verified = !c.accountId.empty() && Badges::has(c.accountId, grantsFrom(m), Badges::Id::Verified);
+        c.guest = m.value("guest", false) || (!c.accountId.empty() && m_guestAccounts.count(c.accountId));
 
         std::string base = cleanText(m.value("name", std::string("Player")), 20);
         if (base.empty()) base = "Player";
         if (Account::nameIsReserved(base) && !c.admin) base = "Player";   // only the real Guts is Guts
         std::string name = base;
         auto taken = [&](const std::string& n) {
-            if (n == Profile::get().name) return true;
+            if (n == Online::playerName()) return true;
             for (auto& o : m_clients) if (o.get() != &c && o->joined && o->name == n) return true;
             return false;
         };
@@ -482,6 +487,10 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
+        if (c.guest) {   // guests don't chat: tell just them why
+            c.conn->send(json{{"t", "chat"}, {"from", ""}, {"text", Online::kGuestChatText}, {"sys", true}}.dump());
+            return;
+        }
         m_chat.add(c.name, msg, false, c.admin, c.verified);
         broadcast(json{{"t", "chat"}, {"from", c.name}, {"text", msg}, {"adm", c.admin}, {"ver", c.verified}}.dump());
     }
@@ -558,7 +567,7 @@ void NetServer::sendTick() {
     std::vector<Char> chars;
     if (Player* host = m_scene->player())
         if (SceneNode* r = host->root())
-            chars.push_back({r->id, Profile::get().name, r, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)});
+            chars.push_back({r->id, Online::playerName(), r, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified)});
     for (auto& rc : m_scene->remotes())
         if (SceneNode* r = m_scene->findById(rc.rootId)) {
             bool admin = false, ver = false;
@@ -636,6 +645,7 @@ void NetClient::disconnect() {
 void NetClient::say(const std::string& text) {
     std::string t = cleanText(text, 200);
     if (t.empty() || !m_conn) return;
+    if (Online::isGuest() && Online::online()) { m_chat.add("", Online::kGuestChatText, true); return; }
     m_conn->send(json{{"t", "chat"}, {"text", t}}.dump());
 }
 
@@ -689,7 +699,9 @@ void NetClient::handle(const std::string& text) {
     }
     if (t == "challenge") {
         Profile& me = Profile::get();
-        m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", me.name}, {"avatar", avatarJson(me)},
+        const bool guest = Online::isGuest() && Online::online();
+        m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", Online::playerName()},
+                          {"guest", guest}, {"avatar", avatarJson(me)},
                           {"id", Account::id()}, {"sig", Account::sign("gb-join:" + m.value("nonce", std::string()))},
                           {"cnonce", m_nonce}, {"grants", myGrants()}}.dump());
         return;
@@ -715,7 +727,7 @@ void NetClient::handle(const std::string& text) {
             p->setSpawn(spawnPoint(*m_scene));
             p->build();
             Profile::get().applyTo(*p);
-            if (SceneNode* r = p->root()) r->name = m.value("name", Profile::get().name);
+            if (SceneNode* r = p->root()) r->name = m.value("name", Online::playerName());
             if (m.contains("humanoid")) humanoidFrom(p->humanoid(), m["humanoid"]);
         }
         if (hostRoot) {
@@ -785,7 +797,7 @@ void NetClient::handle(const std::string& text) {
         if (m.contains("fx")) replayFx(*m_scene, m["fx"]);
         if (m.contains("chars")) {
             m_players.clear();
-            m_players.push_back({me && me->root() ? me->root()->name : Profile::get().name, Account::iAmStaff(),
+            m_players.push_back({me && me->root() ? me->root()->name : Online::playerName(), Account::iAmStaff(),
                                  Badges::iHave(Badges::Id::Verified), statsFrom(m.value("mys", json::array()))});
             for (const auto& ch : m["chars"]) {
                 uint64_t id = ch.value("i", (uint64_t)0);

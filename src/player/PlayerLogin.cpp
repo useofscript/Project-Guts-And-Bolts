@@ -21,7 +21,8 @@ using json = nlohmann::json;
 
 bool PlayerApp::needsLogin() const {
     if (m_playOffline || m_page == Page::Game) return false;
-    return m_page == Page::Login || (Online::online() && Online::me().value("userId", 0LL) == 0);
+    if (m_page == Page::Login) return true;
+    return Online::online() && Online::me().value("userId", 0LL) == 0 && !Online::isGuest();
 }
 
 void PlayerApp::signUp(const std::string& username, const std::string& password) {
@@ -200,6 +201,18 @@ void PlayerApp::drawLogin() {
         ImGui::PopTextWrapPos();
     }
     ImGui::Spacing();
+    // No account? Play as a guest (games only: no chat, friends or Bolts).
+    if (Online::me().value("userId", 0LL) == 0) {
+        if (Classic::button("Play as Guest", Classic::kBlue, ImVec2(ImGui::GetContentRegionAvail().x, 34))) {
+            Online::setGuest(true);
+            m_page = Page::Home;
+        }
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+        ImGui::TextDisabled("Guests can play every game, alone or with others, without an account. "
+                            "To chat, make friends and get Bolts, sign up (it's free).");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+    }
     if (ImGui::SmallButton("Play offline instead")) { m_playOffline = true; if (m_page == Page::Login) m_page = Page::Home; }
     if (m_page == Page::Login && Online::me().value("userId", 0LL) > 0) {
         ImGui::SameLine();

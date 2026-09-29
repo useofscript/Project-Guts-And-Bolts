@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -57,6 +58,7 @@ private:
     void broadcast(const std::string& msg, const Client* except = nullptr);
     std::string worldMessage(bool full);
 
+    std::set<std::string> m_guestAccounts;   // joiners the server told us have no account (can't chat)
     Scene*       m_scene;
     GameSession* m_session;
     Net::Listener m_listener;

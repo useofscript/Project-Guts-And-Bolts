@@ -663,6 +663,13 @@ make people **Staff**, give or take Bolts, and ban.
 When you connect to a Guts&Bolts server, the site asks you to **Sign Up** or
 **Log In** first (or you can press *Play offline instead*).
 
+**No account? Play as Guest.** Guests get a name like *Guest 4821* and can play
+every game, on their own or in public and private servers with other people.
+They can't chat (the chat box is greyed out: *"Sign up to chat with other
+users!"*), make friends, or buy and earn Bolts. The server tells a game's host
+who's a guest, so a guest's messages never reach anyone. Signing up any time
+keeps playing on the same device.
+
 - **Usernames** are one of a kind and can never be used again, not even after
   someone's banned. They're 3-20 letters and numbers with at most one `_`.
   Online, your name everywhere (games, chat, the site) is your username, so

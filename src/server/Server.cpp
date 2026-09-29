@@ -124,8 +124,10 @@ json GbServer::checkRequest(const json& req, User*& out) {
     if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
+    // Guests can also play: download games, find and join servers (they can't chat in games).
     static const std::set<std::string> kLookOnly = {"list", "profile", "users.search", "groups.list", "groups.get",
-                                                    "servers.list", "stats", "thumb.get"};
+                                                    "servers.list", "stats", "thumb.get",
+                                                    "get", "servers.play", "relay.host", "relay.join"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
         !kLookOnly.count(opName))
         return fail("Sign up or log in first.");

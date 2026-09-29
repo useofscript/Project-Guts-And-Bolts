@@ -29,6 +29,8 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get']);
+// Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
+const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join']);
 
 // --- helpers ---------------------------------------------------------------------
 const now = () => Math.floor(Date.now() / 1000);
@@ -326,7 +328,7 @@ export class GbServerObject extends DurableObject {
     me.lastSeen = t;
     this.saveUser(me);
     if (me.banned && opName !== 'hello') return { bad: fail('This account has been banned from this server.') };
-    if (me.userId === 0 && opName !== 'hello' && opName !== 'ping' && !opName.startsWith('account.') && !LOOK_ONLY.has(opName))
+    if (me.userId === 0 && opName !== 'hello' && opName !== 'ping' && !opName.startsWith('account.') && !GUEST_OK.has(opName))
       return { bad: fail('Sign up or log in first.') };
     return { me, args, opName };
   }
@@ -977,7 +979,7 @@ export class GbServerObject extends DurableObject {
       if (s.players.size + 1 + waiting >= s.max) { reply(fail('That server is full.')); close(); return; }
       c.mode = 'pending'; c.account = me.id; c.session = s.id; c.ticket = randomHex(16); c.since = t;
       const host = this.conns.get(s.control);
-      if (host) this.sendTo(host, { t: 'incoming', ticket: c.ticket, account: me.id, name: me.name });
+      if (host) this.sendTo(host, { t: 'incoming', ticket: c.ticket, account: me.id, name: me.name, guest: me.userId === 0 });
       this.scheduleSweep();
       return;
     }
