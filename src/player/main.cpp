@@ -28,6 +28,8 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--join-code"))      opts.joinCode = next();
         else if (!std::strcmp(argv[i], "--test-signup"))    opts.testSignup = next();
         else if (!std::strcmp(argv[i], "--test-login"))     opts.testLogin = next();
+        else if (!std::strcmp(argv[i], "--test-rename"))    opts.testRename = next();
+        else if (!std::strcmp(argv[i], "--create-tab"))     opts.createTab = std::atoi(next());
         else if (!std::strcmp(argv[i], "--test-tools"))     opts.testTools = next();
         else if (!std::strcmp(argv[i], "--camera-yaw"))     opts.cameraYaw = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--say"))        opts.say        = next();

@@ -274,6 +274,28 @@ A script that loops forever without `wait()` is stopped after 5 seconds with a
 friendly error, so it can't freeze your game. Scripts can't touch files on
 your computer.
 
+## Decals (pictures on parts)
+
+A **Decal** puts a picture on one side of a part. Insert one inside a part
+(*Insert Object > Decal*), then set it up in Properties:
+
+- **Texture:** the picture. It can be a `.png` / `.jpg` in the games folder
+  (like `pics/logo.png`), a full path, or `gb:<id>` for one uploaded on the
+  site's Create page. **Browse...** picks a file.
+- **Face:** which side: Front, Back, Left, Right, Top or Bottom. The picture
+  stretches to fill that side.
+- **Color3** tints it (white shows it as it is), and **Transparency** fades it.
+  See-through parts of a PNG stay see-through.
+
+Scripts can change them too:
+
+```lua
+local d = Instance.new("Decal")
+d.Texture = "gb:decal-1234abcd"
+d.Face = Enum.NormalId.Top
+d.Parent = workspace.Sign
+```
+
 ## Tools (swords, bats, anything you can hold)
 
 A **Tool** is something a character carries, like a Roblox Tool. Insert one
@@ -458,8 +480,32 @@ public half is your **account ID** (safe to share). The secret half stays in
 
 ### Guts&Bolts server (storing things online)
 
-To keep everyone's accounts, Bolts, badges and uploads in one place, run the
-**Guts&Bolts server** on a computer:
+The **official Guts&Bolts server runs on Cloudflare** (with the website), so it's
+online even when nobody's computer is on. The apps start on it:
+`https://project-guts-and-bolts.pizzadoe173.workers.dev`. In the server window
+(the site's **Online/Offline** button, or Studio's **File > Guts&Bolts
+Server...**), **Official server** switches back to it at any time.
+
+How it works:
+
+- `worker/server.js` is the server, rewritten in JavaScript for Cloudflare. It
+  uses the same requests and rules as the C++ server in `src/server`, and keeps
+  its data in a Cloudflare Durable Object's own database.
+- The apps talk to it over **HTTPS** (normal requests) and **secure WebSockets**
+  (multiplayer). They use mbedTLS for that, and trust Mozilla's list of
+  certificate authorities (`assets/certs/cacert.pem`).
+- **Multiplayer** still runs each game on the host player's computer, and
+  Cloudflare only passes messages between players. So no game runs on Cloudflare
+  when nobody's playing, and players never see each other's addresses.
+- **The staff account:** in the Cloudflare dashboard, open
+  **Workers & Pages → project-guts-and-bolts → Settings → Variables and
+  Secrets**, and add `OFFICIAL` = your account ID (the Player's Staff page:
+  **Copy official ID**). That account is then user #1, **Guts**.
+- Everything fits Cloudflare's free plan for a small community: about 100,000
+  requests a day, and 5 GB of storage.
+
+You can still run your own server on a computer instead, for example for LAN
+parties:
 
 1. **Start it.** Double-click `tools/Start Server.bat` (Windows) or
    `tools/Start Server.command` (Mac), or run `python3 install.py --server`.
@@ -489,18 +535,62 @@ On another computer, start the server once with `--official <your account ID>`
 - **Uploads:**
   - hats, shirts and pants (the online **Catalog**);
   - audio (in Studio's **Marketplace**; sounds play as `gb:<id>`);
+  - **decals**, pictures for Decal objects (`.png` or `.jpg`, up to 4 MB;
+    used as `gb:<id>`);
   - **plugins** (Studio's Marketplace);
   - **games** (Studio's **File > Publish to Guts&Bolts**; they show up under
     **Online Games** on the site's home page).
 - **Who owns what.**
 
-On the site, the **Create** page uploads hats, shirts, pants, audio and
-plugins:
+### The website
+
+The site also works in a web browser, hosted free on Cloudflare (see
+`website/README.md`). The front page shows what Guts&Bolts is. **Enter the
+site** (`/app/`) to do what the Player's site pages do:
+
+- sign up and log in (the same accounts as the apps);
+- browse games and see who's playing;
+- buy from the catalog;
+- upload decals, audio, clothes, plugins and games, and rename your games;
+- use friends, people, groups and Bolts;
+- change your **avatar** (colours, hat, and clothes from the catalog). It's saved
+  on the server, so the app and the website always match;
+- **staff:** a Staff page to verify people, make staff, give Bolts and ban.
+
+Games published from Studio get a **picture** (Studio takes it from the spawn
+point when you publish), shown on the website's game cards. A red number on
+**Friends** means friend requests are waiting.
+
+Playing games still happens in the app. Visitors who aren't signed in can look
+around (games, catalog, people, groups) but can't change anything.
+
+The website talks to the Guts&Bolts server on Cloudflare (see below). Your
+password never leaves the browser.
+
+### The Create page
+
+The site's **Create** page has one tab per kind of thing you make:
+
+- **My Games:** every game you made in Studio (on this computer, plus the ones
+  you published). Each has a picture and three buttons:
+  - **Edit name** renames it. A published game gets the new name on the
+    server too.
+  - **Open in Studio** opens it in Studio to keep building.
+  - **Play** plays it.
+  Studio signs a new game with your username when you save it, so it shows up
+  here.
+- **Decals, Audio, Hats, Shirts, Pants, Plugins:** an upload form (with a
+  **Browse...** button to pick the file, and a preview for pictures and
+  clothes), then a list of what you've uploaded. Decals and audio show their
+  `gb:<id>`, with a **Copy ID** button: paste it into a Decal's **Texture** or a
+  Sound's **File** in Studio.
+
+Uploading costs:
 
 - **Verified creators:** free, with no limit. They can set a price, and they
   get 70% of every sale.
-- **Everyone else:** a small fee (10 Bolts for clothes, 20 for audio and
-  plugins), 5 uploads a day, and everything they make is free.
+- **Everyone else:** a small fee (5 Bolts for decals, 10 for clothes, 20 for
+  audio and plugins), 5 uploads a day, and everything they make is free.
 
 The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also

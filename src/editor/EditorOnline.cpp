@@ -1,6 +1,7 @@
 // Studio's online side: connecting to a Guts&Bolts server, publishing the
 // game, and the Marketplace (plugins and audio people uploaded).
 #include "Editor.h"
+#include "panels/ViewportPanel.h"
 #include "Plugins.h"
 #include "../core/Account.h"
 #include "../core/Audio.h"
@@ -61,7 +62,8 @@ void Editor::renderServerDialog() {
     ImGui::SetNextWindowSize(ImVec2(520, 0));
     if (!ImGui::BeginPopupModal("Guts&Bolts Server", nullptr, ImGuiWindowFlags_NoResize)) return;
     ImGui::TextWrapped("A Guts&Bolts server keeps published games, plugins, audio, Bolts and badges for everyone. "
-                       "Run GutsAndBoltsServer on a computer and type its address here (like 192.168.1.20 or "
+                       "The official one runs on Cloudflare, so it's always on. You can also run your own "
+                       "GutsAndBoltsServer on a computer and type its address here (like 192.168.1.20 or "
                        "myserver.com:7780).");
     ImGui::Spacing();
     ImGui::SetNextItemWidth(-1);
@@ -69,7 +71,13 @@ void Editor::renderServerDialog() {
                                           ImGuiInputTextFlags_EnterReturnsTrue);
     if (ImGui::Button("Connect", ImVec2(120, 0)) || enter) { Online::setServerAddress(m_serverInput); m_marketLoaded = false; }
     ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(120, 0))) { m_serverInput.clear(); Online::setServerAddress(""); }
+    if (ImGui::Button("Official server", ImVec2(130, 0))) {
+        m_serverInput = Online::kOfficialServer;
+        Online::setServerAddress(m_serverInput);
+        m_marketLoaded = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Go offline", ImVec2(110, 0))) { m_serverInput.clear(); Online::setServerAddress(""); }
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
     ImGui::Spacing();
@@ -117,15 +125,21 @@ void Editor::renderPublishDialog() {
     const std::string& published = m_scene->info().publishedId;
     auto send = [this](bool update) {
         std::string data = Serializer::saveScene(*m_scene);
+        std::string picture = m_viewport->snapshotPng(480, 270);   // for the game's card on the site
         json args = {{"name", m_publishName}, {"description", m_publishDesc}, {"data", Online::base64Encode(data)}};
         if (update) args["id"] = m_scene->info().publishedId;
         else args["kind"] = "game";
         m_onlineBusy = true;
         m_publishMsg = "Publishing...";
-        Online::request(update ? "update" : "upload", args, [this](const json& r) {
+        Online::request(update ? "update" : "upload", args, [this, picture](const json& r) {
             m_onlineBusy = false;
             if (!r.value("ok", false)) { m_publishMsg = r.value("error", std::string("Publishing didn't work.")); return; }
             m_scene->info().publishedId = r["asset"].value("id", std::string());
+            if (!picture.empty())
+                Online::request("thumb.set", {{"id", m_scene->info().publishedId}, {"data", Online::base64Encode(picture)}},
+                                [](const json& t) {
+                    if (!t.value("ok", false)) Log::warn("The game's picture didn't upload: " + t.value("error", std::string()));
+                }, 60);
             m_scene->info().title = m_publishName;
             m_scene->info().description = m_publishDesc;
             m_publishMsg = "Published! It's on the site's home page now. (Save your game to remember it's published.)";
@@ -311,4 +325,10 @@ void Editor::renderMarketplace() {
         ImGui::EndTabBar();
     }
     ImGui::End();
+}
+
+void Editor::testSnapshot(const std::string& file) {
+    std::string png = m_viewport->snapshotPng(480, 270);
+    std::ofstream(file, std::ios::binary).write(png.data(), (std::streamsize)png.size());
+    Log::system("Snapshot: " + std::to_string(png.size()) + " bytes to " + file);
 }

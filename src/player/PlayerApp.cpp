@@ -128,13 +128,15 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
                 args["to"] = args["grantFor"]; args.erase("grantFor");
                 args["key"] = g.first; args["sig"] = g.second;
             }
+            if (args.contains("id") && args["id"] == "$LAST") args["id"] = m_testLastId;   // the thing uploaded just before
             if (args.contains("fileB64")) {    // upload a file from disk
                 std::ifstream f(args["fileB64"].get<std::string>(), std::ios::binary);
                 std::stringstream buf; buf << f.rdbuf();
                 args["data"] = Online::base64Encode(buf.str());
                 args.erase("fileB64");
             }
-            Online::request(op, args, [op](const nlohmann::json& r) {
+            Online::request(op, args, [this, op](const nlohmann::json& r) {
+                if (r.contains("asset") && r["asset"].is_object()) m_testLastId = r["asset"].value("id", m_testLastId);
                 nlohmann::json shown = r;
                 if (shown.contains("data")) shown["data"] = "(" + std::to_string(shown["data"].get<std::string>().size()) + " base64 chars)";
                 if (shown.contains("me")) shown["me"] = {{"name", r["me"].value("name", "")}, {"bolts", r["me"].value("bolts", 0)},
@@ -169,7 +171,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "settings") m_showSettings = true;
     if (m_opts.page == "catalog") m_page = Page::Catalog;
     if (m_opts.page == "bolts") m_page = Page::Bolts;
-    if (m_opts.page == "create") m_page = Page::Create;
+    if (m_opts.page == "create") { m_page = Page::Create; m_createKind = m_opts.createTab; }
     if (m_opts.page == "people") m_page = Page::People;
     if (m_opts.page == "groups") m_page = Page::Groups;
     if (m_opts.page == "friends") m_page = Page::Friends;
@@ -207,6 +209,16 @@ PlayerApp::~PlayerApp() {
 void PlayerApp::run() {
     while (!m_window->shouldClose()) {
         ++m_frame;
+        // Test helper: rename your first game from the Create page.
+        if (!m_opts.testRename.empty() && m_page == Page::Create && m_frame == 30) {
+            for (GameCard& g : m_games)
+                if (!g.broken && g.info.author != "Guts and Bolts" && g.path.extension() == Paths::kExtension) {
+                    std::printf("RENAME %s -> %s\n", g.info.title.c_str(), m_opts.testRename.c_str());
+                    std::fflush(stdout);
+                    renameGame(g.path, g.info.publishedId, m_opts.testRename);
+                    break;
+                }
+        }
         // Test helper: drive the tool hotbar, one step every 25 frames.
         if (!m_opts.testTools.empty() && m_page == Page::Game && m_frame > 40 && m_frame % 25 == 0) {
             size_t sp = m_opts.testTools.find(' ');
@@ -1003,6 +1015,11 @@ void PlayerApp::drawAvatar(float dt) {
     if (changed && p) {
         me.applyTo(*p);
         me.save();
+        m_avatarPushAt = ImGui::GetTime() + 1.5;   // then save it on the server too (after you stop clicking)
+    }
+    if (m_avatarPushAt > 0.0 && ImGui::GetTime() > m_avatarPushAt) {
+        m_avatarPushAt = 0.0;
+        if (Online::online() && Online::me().value("userId", 0LL) > 0) Online::pushAvatar();
     }
 }
 

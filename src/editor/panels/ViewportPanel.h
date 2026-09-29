@@ -30,6 +30,8 @@ public:
     glm::vec3 cameraPivot() const { return m_camera.pivot; }
     void      frameOn(const glm::vec3& target);   // point the camera at a target
     bool      hovered() const { return m_hovered; }
+    // A picture of the game from its spawn point, as a PNG file (for publishing).
+    std::string snapshotPng(int width, int height);
     bool      gizmoInUse() const;
 
     // While a session is set, the viewport is in Play mode.

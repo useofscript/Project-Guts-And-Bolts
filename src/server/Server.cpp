@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <iterator>
+#include <set>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -121,8 +122,12 @@ json GbServer::checkRequest(const json& req, User*& out) {
     User& me = user(account);
     me.lastSeen = now;
     if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
-    // Everything else needs a signed-up account (hello just says who we are).
-    if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0)
+    // Everything else needs a signed-up account (hello just says who we are),
+    // except looking around: visitors to the website can browse before signing up.
+    static const std::set<std::string> kLookOnly = {"list", "profile", "users.search", "groups.list", "groups.get",
+                                                    "servers.list", "stats", "thumb.get"};
+    if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
+        !kLookOnly.count(opName))
         return fail("Sign up or log in first.");
     out = &me;
     return nullptr;
@@ -204,13 +209,14 @@ json GbServer::meJson(const User& u) const {
     j["uploadsLeft"] = isVerified(u) ? -1
                      : Online::kDailyUploadsUnverified - (u.uploadDay == today ? u.uploadsToday : 0);
     j["owned"] = json(u.owned);
+    j["avatar"] = u.avatar;
     return j;
 }
 
 json GbServer::publicAsset(const Asset& a) const {
     json j = {{"id", a.id}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
-              {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}};
+              {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
@@ -255,6 +261,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay();
         r["user"] = publicUser(*u);
         r["user"]["badges"] = badgesOf(*u);
+        r["user"]["avatar"] = u->avatar;
         json made = json::array();
         for (const auto& [id, a] : m_assets) if (a.creator == u->id) made.push_back(publicAsset(a));
         r["creations"] = made;
@@ -303,6 +310,63 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("friends.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name == "ping") return okay();   // "I'm still here" (for friends' online dots)
+
+    // --- Your look, and pictures of games --------------------------------------
+    if (name == "avatar.set") {
+        // Shared by the website and the apps. Colours are 0-255 whole numbers.
+        const json a = args.contains("avatar") && args["avatar"].is_object() ? args["avatar"] : json();
+        if (a.is_null()) return fail("That avatar looks wrong.");
+        auto rgb = [&](const char* k, bool allowNone, json& out) {
+            if (!a.contains(k) || !a[k].is_array() || a[k].size() != 3) return false;
+            out = json::array();
+            bool none = true;
+            for (const auto& v : a[k]) { if (!v.is_number_integer()) return false; none = none && v.get<long long>() < 0; }
+            for (const auto& v : a[k]) out.push_back(allowNone && none ? -1LL : std::clamp(v.get<long long>(), 0LL, 255LL));
+            return true;
+        };
+        json av = json::object();
+        for (const char* part : {"head", "torso", "leftArm", "rightArm", "leftLeg", "rightLeg"}) {
+            json c;
+            if (!rgb(part, false, c)) return fail("That avatar looks wrong.");
+            av[part] = c;
+        }
+        av["hat"] = a.contains("hat") && a["hat"].is_number_integer() ? std::clamp(a["hat"].get<long long>(), 0LL, 3LL) : 0LL;
+        json hc;
+        av["hatColor"] = rgb("hatColor", true, hc) ? hc : json::array({-1, -1, -1});
+        json wearing = json::array();
+        if (a.contains("wearing") && a["wearing"].is_array())
+            for (const auto& w : a["wearing"])
+                if (w.is_string() && me.owned.count(w.get<std::string>()) && wearing.size() < 8) wearing.push_back(w);
+        av["wearing"] = wearing;
+        av["updated"] = now;
+        me.avatar = av;
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    if (name == "thumb.set") {
+        // A picture of a game (Studio sends one when publishing): a PNG or JPG, up to 400 KB.
+        auto it = m_assets.find(str("id"));
+        if (it == m_assets.end()) return fail("That doesn't exist (any more).");
+        Asset& a = it->second;
+        if (a.creator != me.id && !isStaff(me)) return fail("You can only change pictures of your own things.");
+        std::string data;
+        if (!Online::base64Decode(str("data"), data)) return fail("The picture got scrambled. Try again.");
+        bool png = data.size() > 8 && data.compare(0, 4, "\x89PNG") == 0;
+        bool jpg = data.size() > 3 && (unsigned char)data[0] == 0xFF && (unsigned char)data[1] == 0xD8;
+        if (!png && !jpg) return fail("Pictures must be .png or .jpg.");
+        if (data.size() > 400 * 1024) return fail("That picture is too big (the most is 400 KB).");
+        if (!writeFile(m_opts.data / "files" / ("thumb-" + a.id), data)) return fail("The server couldn't save that picture.");
+        a.thumb = now;
+        saveAssets();
+        json r = okay(); r["asset"] = publicAsset(a); return r;
+    }
+    if (name == "thumb.get") {
+        auto it = m_assets.find(str("id"));
+        std::string data;
+        if (it == m_assets.end() || !it->second.thumb || !readFile(m_opts.data / "files" / ("thumb-" + it->first), data))
+            return fail("No picture.");
+        json r = okay(); r["data"] = Online::base64Encode(data); return r;
+    }
 
     // --- Bolts --------------------------------------------------------------
     if (name == "bolts.history") {
@@ -512,7 +576,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             return fail("Buy it first.");
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
-        if (a.kind == "game") { a.plays++; saveAssets(); }
+        if (a.kind == "game" && a.creator != me.id) { a.plays++; saveAssets(); }   // creators opening their own game don't count
         json r = okay(); r["asset"] = publicAsset(a); r["data"] = Online::base64Encode(data); return r;
     }
     if (name == "buy") {
@@ -541,6 +605,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (it->second.creator != me.id && !isStaff(me)) return fail("You can only delete your own things.");
         std::error_code ec;
         fs::remove(blobPath(it->first), ec);
+        fs::remove(m_opts.data / "files" / ("thumb-" + it->first), ec);
         log(me.name + " deleted " + it->second.kind + " \"" + it->second.name + "\"");
         m_assets.erase(it);
         saveAssets();
@@ -572,7 +637,7 @@ void GbServer::saveUsers() {
                    {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned},
                    {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut},
                    {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
-                   {"keyBlob", u.keyBlob}};
+                   {"keyBlob", u.keyBlob}, {"avatar", u.avatar}};
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -582,7 +647,7 @@ void GbServer::saveAssets() {
     for (const auto& [id, a] : m_assets)
         all[id] = {{"kind", a.kind}, {"name", a.name}, {"description", a.description}, {"creator", a.creator},
                    {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
-                   {"size", a.size}, {"meta", a.meta}};
+                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
     writeFile(m_opts.data / "assets.json", all.dump(1));
 }
 
@@ -616,6 +681,7 @@ void GbServer::load() {
                 u.pwSalt = j.value("pwSalt", std::string());
                 u.pwHash = j.value("pwHash", std::string());
                 u.keyBlob = j.value("keyBlob", std::string());
+                if (j.contains("avatar") && j["avatar"].is_object()) u.avatar = j["avatar"];
                 for (const char* k : {"friends", "friendIn", "friendOut"}) {
                     std::set<std::string>& set = std::string(k) == "friends" ? u.friends : std::string(k) == "friendIn" ? u.friendIn : u.friendOut;
                     if (j.contains(k) && j[k].is_array())
@@ -640,6 +706,7 @@ void GbServer::load() {
                 a.plays = j.value("plays", 0LL);
                 a.size = j.value("size", (size_t)0);
                 if (j.contains("meta")) a.meta = j["meta"];
+                a.thumb = j.value("thumb", 0LL);
                 if (Online::validKind(a.kind)) m_assets[id] = a;
             }
     }

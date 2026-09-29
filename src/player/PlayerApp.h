@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include "../renderer/Camera.h"
@@ -42,6 +43,8 @@ struct PlayerOptions {
     std::string joinCode;              // --join-code <code>: join a private server once online
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
     float       cameraYaw = -1000.0f;  // --camera-yaw <degrees> (tests: look from another side)
+    std::string testRename;            // --test-rename "New name" (tests: rename your first game on the Create page)
+    int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
     std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
 };
 
@@ -90,6 +93,15 @@ private:
     void drawOnlineCatalog();
     void drawOnlineItemDialog();
     void drawCreate();
+    void drawMyGames();
+    void myGameRow(const std::string& key, const std::string& title, const std::string& sub, unsigned thumbTex,
+                   const std::string& cardId, const std::filesystem::path& path, const std::string& publishedId,
+                   const std::function<void()>& play);
+    void drawUploadForm(const std::string& kind);
+    void drawMyUploads(const std::string& kind);
+    static bool renameGameFile(const std::filesystem::path& path, const std::string& title, std::string& error);
+    void renameGame(const std::filesystem::path& path, const std::string& publishedId, const std::string& title);
+    void openInStudio(const std::filesystem::path& path);
     void drawOnlineGames();
     void drawOnlineGameDialog();
     void drawOnlineBolts();
@@ -202,6 +214,12 @@ private:
     int            m_createKind = 0, m_createStyle = 2, m_createPrice = 0, m_giveServerBolts = 100;
     std::string    m_createName, m_createDesc, m_createPath;
     glm::vec3      m_createColor{0.9f, 0.2f, 0.2f};
+    std::string    m_renameKey, m_renameText;      // My Games row being renamed
+    bool           m_renameFocus = false;
+    bool           m_gamesDirty = false;           // a game was renamed: re-read the games list
+    std::set<std::string> m_askedDownloads;        // decal pictures already asked for
+    std::string    m_testLastId;                   // --online-test: id of the last upload ("$LAST")
+    double         m_avatarPushAt = 0.0;           // save the avatar on the server at this time (0 = nothing to save)
     bool           m_busy = false;                 // waiting on the server
     float          m_onlinePlaySeconds = 0.0f;
     std::string    m_loaded;                       // lists already fetched this visit ("catalog games ...")

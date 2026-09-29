@@ -1,4 +1,6 @@
 #include "ViewportPanel.h"
+#include <stb_image_write.h>   // (its code is in renderer/Textures.cpp)
+#include <string>
 #include <vector>
 #include "../EditorState.h"
 #include "../../scene/Scene.h"
@@ -450,4 +452,46 @@ bool ViewportPanel::drawModeMenu(ImVec2 imgPos) {
         ImGui::EndPopup();
     }
     return hover;
+}
+
+// ---------------------------------------------------------------------------
+// A picture of the game for the site (Studio sends it when you publish)
+// ---------------------------------------------------------------------------
+
+std::string ViewportPanel::snapshotPng(int width, int height) {
+    // Look at the spawn point, like the Player's game cards do.
+    Camera cam;
+    cam.resize(width, height);
+    glm::vec3 target(0.0f, 1.0f, 0.0f);
+    if (SceneNode* spawn = m_scene->root()->findChild("SpawnLocation", true))
+        target = glm::vec3(spawn->worldMatrix()[3]) + glm::vec3(0.0f, 1.5f, 0.0f);
+    cam.pivot = target;
+    cam.yaw = 45.0f;
+    cam.pitch = 28.0f;
+    cam.distance = 22.0f;
+
+    // No selection outlines in the picture.
+    std::vector<SceneNode*> selected;
+    m_scene->forEach([&](SceneNode* n) { if (n->selected) { selected.push_back(n); n->selected = false; } });
+    Framebuffer fb;
+    fb.resize(width, height);
+    m_renderer.render(*m_scene, cam, fb, false);
+    for (SceneNode* n : selected) n->selected = true;
+
+    std::vector<unsigned char> px((size_t)width * height * 4);
+    fb.bind();
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    fb.unbind();
+    // OpenGL's rows go bottom-up; pictures go top-down. And no see-through pixels.
+    std::vector<unsigned char> img(px.size());
+    const size_t row = (size_t)width * 4;
+    for (int y = 0; y < height; ++y)
+        std::copy(px.begin() + (size_t)(height - 1 - y) * row, px.begin() + (size_t)(height - y) * row, img.begin() + (size_t)y * row);
+    for (size_t i = 3; i < img.size(); i += 4) img[i] = 255;
+    std::string png;
+    stbi_write_png_to_func([](void* ctx, void* data, int size) {
+        static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
+    }, &png, width, height, 4, img.data(), (int)row);
+    return png;
 }

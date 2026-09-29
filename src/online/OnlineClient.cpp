@@ -8,7 +8,9 @@
 #include <atomic>
 #include <cstdint>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -46,17 +48,28 @@ double clockSeconds() {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
+// "host", "host:port", or a web address: "https://name.workers.dev" (a server on
+// Cloudflare). Web addresses come back as "wss://name" (or "ws://name" for
+// plain http), which Net::Connection understands.
 bool splitAddress(const std::string& address, std::string& host, int& port) {
-    host = address;
-    port = kDefaultPort;
+    std::string a = address;
+    while (!a.empty() && (a.back() == ' ' || a.back() == '/')) a.pop_back();
+    while (!a.empty() && a.front() == ' ') a.erase(a.begin());
+    std::string scheme;
+    for (const char* sc : {"https://", "wss://", "http://", "ws://"})
+        if (a.rfind(sc, 0) == 0) { scheme = sc; a = a.substr(std::strlen(sc)); break; }
+    if (size_t slash = a.find('/'); slash != std::string::npos) a.resize(slash);
+    if (scheme.empty() && a.find(".workers.dev") != std::string::npos) scheme = "https://";
+    const bool web = !scheme.empty(), secure = scheme == "https://" || scheme == "wss://";
+    host = a;
+    port = web ? (secure ? 443 : 80) : kDefaultPort;
     // "[::1]:7780" isn't supported; "host:port" and plain "host" are.
-    auto colon = address.rfind(':');
-    if (colon != std::string::npos && address.find(':') == colon) {
-        host = address.substr(0, colon);
-        port = std::atoi(address.c_str() + colon + 1);
+    auto colon = a.rfind(':');
+    if (colon != std::string::npos && a.find(':') == colon) {
+        host = a.substr(0, colon);
+        port = std::atoi(a.c_str() + colon + 1);
     }
-    while (!host.empty() && host.back() == ' ') host.pop_back();
-    while (!host.empty() && host.front() == ' ') host.erase(host.begin());
+    if (web && !host.empty()) host = (secure ? "wss://" : "ws://") + host;
     return !host.empty() && port > 0 && port < 65536;
 }
 
@@ -101,6 +114,8 @@ bool owns(const std::string& id) {
     return false;
 }
 
+static bool isServerItem(const std::string& id);
+
 void takeMe(const json& reply) {
     if (!reply.contains("me") || !reply["me"].is_object()) return;
     S().me = reply["me"];
@@ -123,6 +138,69 @@ void takeMe(const json& reply) {
         }
         if (changed) p.save();
     }
+    // An avatar saved on the server more recently than ours (on the website, or
+    // another device) replaces ours.
+    if (S().me.contains("avatar") && S().me["avatar"].is_object()) {
+        const json& a = S().me["avatar"];
+        Profile& p = Profile::get();
+        long long updated = a.value("updated", 0LL);
+        if (updated > p.avatarUpdated) {
+            auto color = [&](const char* k, glm::vec3 fallback) {
+                if (!a.contains(k) || !a[k].is_array() || a[k].size() != 3) return fallback;
+                if (a[k][0].get<double>() < 0) return glm::vec3(-1.0f);
+                return glm::vec3(a[k][0].get<float>(), a[k][1].get<float>(), a[k][2].get<float>()) / 255.0f;
+            };
+            p.colors.head = color("head", p.colors.head);
+            p.colors.torso = color("torso", p.colors.torso);
+            p.colors.leftArm = color("leftArm", p.colors.leftArm);
+            p.colors.rightArm = color("rightArm", p.colors.rightArm);
+            p.colors.leftLeg = color("leftLeg", p.colors.leftLeg);
+            p.colors.rightLeg = color("rightLeg", p.colors.rightLeg);
+            p.hat = (HatStyle)std::clamp(a.value("hat", 0), 0, 3);
+            p.hatColor = color("hatColor", glm::vec3(-1.0f));
+            if (a.contains("wearing") && a["wearing"].is_array()) {
+                // Keep things worn from the built-in catalog; take the server's list for the rest.
+                std::vector<std::string> keep;
+                for (const auto& w : p.wearing) if (!isServerItem(w)) keep.push_back(w);
+                for (const auto& w : a["wearing"]) if (w.is_string()) keep.push_back(w.get<std::string>());
+                p.wearing = keep;
+            }
+            p.avatarUpdated = updated;
+            p.save();
+        }
+    }
+}
+
+// "hat-1a2b3c4d5e": clothes from the server's catalog (the built-in catalog's ids look different).
+static bool isServerItem(const std::string& id) {
+    for (const char* k : {"hat-", "shirt-", "pants-"}) {
+        size_t n = std::strlen(k);
+        if (id.size() == n + 10 && id.compare(0, n, k) == 0 &&
+            std::all_of(id.begin() + (long)n, id.end(), [](char c) { return std::isxdigit((unsigned char)c); }))
+            return true;
+    }
+    return false;
+}
+
+void pushAvatar() {
+    const Profile& p = Profile::get();
+    auto rgb = [](const glm::vec3& c) {
+        if (c.x < 0.0f) return json::array({-1, -1, -1});
+        return json::array({(int)std::lround(std::clamp(c.x, 0.0f, 1.0f) * 255.0f), (int)std::lround(std::clamp(c.y, 0.0f, 1.0f) * 255.0f),
+                            (int)std::lround(std::clamp(c.z, 0.0f, 1.0f) * 255.0f)});
+    };
+    json wearing = json::array();
+    for (const auto& w : p.wearing) if (isServerItem(w)) wearing.push_back(w);   // server items only
+    json avatar = {{"head", rgb(p.colors.head)}, {"torso", rgb(p.colors.torso)}, {"leftArm", rgb(p.colors.leftArm)},
+                   {"rightArm", rgb(p.colors.rightArm)}, {"leftLeg", rgb(p.colors.leftLeg)}, {"rightLeg", rgb(p.colors.rightLeg)},
+                   {"hat", (int)p.hat}, {"hatColor", rgb(p.hatColor)}, {"wearing", wearing}};
+    request("avatar.set", {{"avatar", avatar}}, [](const json& r) {
+        if (r.value("ok", false) && r.contains("me") && r["me"].contains("avatar") && r["me"]["avatar"].is_object()) {
+            Profile& p = Profile::get();
+            p.avatarUpdated = r["me"]["avatar"].value("updated", p.avatarUpdated);
+            p.save();
+        }
+    });
 }
 
 void request(const std::string& op, const json& args, Reply done, int timeoutSeconds) {
@@ -140,6 +218,15 @@ void request(const std::string& op, const json& args, Reply done, int timeoutSec
         int port = 0;
         if (!splitAddress(address, host, port)) {
             reply = {{"ok", false}, {"error", "That server address doesn't look right (use host or host:port)."}};
+        } else if (Net::isWebAddress(host)) {
+            // A server on the web (Cloudflare): one HTTPS request to its /api.
+            std::string answer;
+            if (Net::httpPost(host, port, "/api", text, answer, err, timeoutSeconds * 1000)) {
+                reply = json::parse(answer, nullptr, false);
+                if (!reply.is_object()) reply = {{"ok", false}, {"error", "The server sent back something odd."}};
+            } else {
+                reply = {{"ok", false}, {"error", "Couldn't reach the server at " + address + " (" + err + ")."}};
+            }
         } else if (auto conn = Net::Connection::connectTo(host, port, err, 5000)) {
             conn->send(text);
             auto until = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);
@@ -187,6 +274,12 @@ void connect() {
         if (r.value("ok", false)) {
             takeMe(r);
             if (r.contains("server")) S().server = r["server"];
+            // The server says which account is its staff account (Guts). Believe it, so
+            // that account can sign up as Guts and see the staff pages, even in a
+            // downloaded app that doesn't have the staff key built in.
+            std::string official = S().server.value("official", std::string());
+            if (official.size() == 64 && official.find_first_not_of("0123456789abcdef") == std::string::npos)
+                Account::setOfficialId(official);
             S().status = Status::Online;
             S().statusText = "Online: " + S().server.value("name", std::string("Guts&Bolts"));
         } else {

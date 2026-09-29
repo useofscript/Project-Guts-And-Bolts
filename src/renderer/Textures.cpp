@@ -3,6 +3,8 @@
 #include "../core/Log.h"
 #include "../core/Paths.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>   // (Studio saves game pictures as PNG with it)
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_PSD
 #define STBI_NO_HDR

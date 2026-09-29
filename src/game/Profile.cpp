@@ -1,6 +1,7 @@
 #include "Profile.h"
 #include "../core/Paths.h"
 #include "../core/Account.h"
+#include "../online/Protocol.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -20,7 +21,7 @@ Profile& Profile::get() {
 
 void Profile::load() {
     std::ifstream f(Paths::file("profile.json"));
-    if (!f) return;
+    if (!f) { server = Online::kOfficialServer; return; }   // a new player: straight onto the official server
     nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) return;
     if (j.contains("name") && j["name"].is_string()) name = j["name"].get<std::string>();
@@ -37,7 +38,11 @@ void Profile::load() {
     };
     strings("inventory", inventory);
     if (j.contains("server") && j["server"].is_string()) server = j["server"].get<std::string>();
+    // Before the official server existed, "no server" was everyone's starting point: move
+    // those players onto it once (choosing "Go offline" afterwards sticks).
+    if (!j.value("serverChecked", false) && server.empty()) server = Online::kOfficialServer;
     strings("wearing", wearing);
+    avatarUpdated = j.value("avatarUpdated", 0LL);
     // Nobody else gets to be called Guts, even by editing profile.json.
     if (Account::nameIsReserved(name) && !Account::iAmStaff()) name = "Player";
     hatColor        = vec(j, "hatColor", hatColor);
@@ -55,7 +60,8 @@ void Profile::save() const {
         {"head", vec(colors.head)}, {"torso", vec(colors.torso)},
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
-        {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server},
+        {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server}, {"serverChecked", true},
+        {"avatarUpdated", avatarUpdated},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

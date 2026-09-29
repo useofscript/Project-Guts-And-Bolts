@@ -40,6 +40,9 @@ void connect();
 void update();
 // Keep me() up to date from a reply that carries "me".
 void takeMe(const nlohmann::json& reply);
+// Save your avatar (Profile) on the server, so the website and your other devices
+// show it too. (The server's copy comes back by itself: see takeMe.)
+void pushAvatar();
 // Requests still waiting for an answer (for "Working..." spinners).
 int  pending();
 

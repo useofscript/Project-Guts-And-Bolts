@@ -333,6 +333,28 @@ if(GB_MOBILE)
 else()
     target_sources(gb_engine PRIVATE src/core/AppWindow.cpp)
 endif()
+# mbedTLS: secure connections (https:// and wss://) to a Guts&Bolts server on
+# Cloudflare. Only the apps need it; the C++ server speaks plain TCP.
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    mbedtls
+    URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.2/mbedtls-3.6.2.tar.bz2
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(mbedtls)
+foreach(t mbedtls mbedx509 mbedcrypto)
+    if(TARGET ${t})
+        set_target_properties(${t} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+endforeach()
+# The trusted certificate authorities (Mozilla's list, from https://curl.se/ca/cacert.pem).
+gb_embed("${CMAKE_SOURCE_DIR}/assets/certs/cacert.pem" kCaCerts "${GB_GENERATED}/CaCerts.h")
+target_compile_definitions(gb_engine PRIVATE GB_WEBSOCKETS)
+
 target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR} ${GB_GENERATED} ${stb_SOURCE_DIR} ${pfd_SOURCE_DIR})
 add_dependencies(gb_engine gb_version)
 find_package(Threads REQUIRED)
@@ -347,6 +369,7 @@ target_link_libraries(gb_engine PUBLIC
     nlohmann_json::nlohmann_json
     monocypher
     gb_zstd
+    mbedtls mbedx509 mbedcrypto
 )
 if(NOT GB_MOBILE)
     target_link_libraries(gb_engine PUBLIC glfw GLEW::GLEW OpenGL::GL)

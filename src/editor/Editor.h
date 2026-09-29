@@ -35,6 +35,7 @@ public:
     void testAddPart(const std::string& name);
     void testPremades(const std::string& list);
     void testSelect(const std::string& names);
+    void testSnapshot(const std::string& file);   // --test-snapshot
     void testExportRoblox(const std::string& path);
     void testMesh(const std::string& steps);    // --test-mesh "enter,face,top,extrude"
     void setMode(StudioMode mode);               // Build / Modeling / Simulate / Play
