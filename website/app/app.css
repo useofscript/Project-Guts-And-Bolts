@@ -127,3 +127,28 @@ label { display: block; margin: 10px 0 4px; font-weight: bold; font-size: 13px; 
 .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #e23b3b; color: #fff;
   font-size: 11px; line-height: 18px; text-align: center; margin-left: 3px; }
 .nav a[hidden] { display: none; }
+
+/* Profiles (like a classic Roblox profile) */
+.profile-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.profile-head h1 { margin: 0; }
+.presence { font-size: 13px; color: var(--muted); }
+.presence.on { color: var(--green); font-weight: bold; }
+.profile { display: grid; grid-template-columns: 290px 1fr; gap: 14px; align-items: start; }
+@media (max-width: 720px) { .profile { grid-template-columns: 1fr; } }
+.profile .box { margin: 0 0 12px; }
+.boxhead { margin: -12px -14px 10px; padding: 7px 12px; border: 0; border-radius: 6px 6px 0 0; font-size: 14px;
+  background: linear-gradient(#3a8cf0, var(--blue)); color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.3); }
+.boxhead a { color: #fff; text-decoration: underline; }
+.avatar-box { text-align: center; background: linear-gradient(#f4f8fd, #dfe8f3); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .avatar-box { background: linear-gradient(#2a3342, #1e2530); } }
+.avatar-box canvas, .avatar-box svg { display: block; margin: 0 auto; }
+.wearing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.wearing .pic { aspect-ratio: 1; }
+.stats { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stats td { padding: 4px 2px; border-bottom: 1px solid var(--line); }
+.stats td:first-child { color: var(--muted); }
+.badge-pill { display: inline-block; padding: 3px 9px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); font-size: 12px; }
+.friends-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.friend { display: block; text-align: center; color: inherit; overflow-wrap: anywhere; }
+.friend-pic { height: 78px; display: flex; align-items: center; justify-content: center; }
+.friend-pic img, .friend-pic svg { max-height: 78px; width: auto; }

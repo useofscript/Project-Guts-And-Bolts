@@ -148,6 +148,8 @@ private:
     void sendChat(const std::string& text);
     void leaveGame();
     void buildAvatarStage();
+    // The 3D avatar on someone's profile (their colours, hat and clothes).
+    void buildProfileStage(const nlohmann::json& avatar, const nlohmann::json& wearing);
 
     PlayerOptions                  m_opts;
     std::unique_ptr<AppWindow>     m_window;
@@ -155,6 +157,10 @@ private:
     std::unique_ptr<Scene>         m_scene;        // the game being played
     std::unique_ptr<GameSession>   m_session;
     std::unique_ptr<Scene>         m_avatarScene;  // preview on the Avatar page
+    std::unique_ptr<Scene>         m_profileScene; // the avatar on the Profile page
+    std::string                    m_profileSceneFor;
+    Camera                         m_profileCam;
+    Framebuffer                    m_profileView;
 
     Page        m_page = Page::Home;
     std::vector<GameCard> m_games;

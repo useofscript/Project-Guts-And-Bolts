@@ -275,6 +275,28 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         r["friendCount"] = u->friends.size();
         r["friendship"] = u->id == me.id ? "self" : me.friends.count(u->id) ? "friends"
                         : me.friendOut.count(u->id) ? "sent" : me.friendIn.count(u->id) ? "received" : "none";
+        // Like a Roblox profile: what they're wearing, some friends, visits to their games.
+        json wearing = json::array();
+        if (u->avatar.is_object() && u->avatar.contains("wearing") && u->avatar["wearing"].is_array())
+            for (const auto& id : u->avatar["wearing"])
+                if (id.is_string())
+                    if (auto it = m_assets.find(id.get<std::string>()); it != m_assets.end()) wearing.push_back(publicAsset(it->second));
+        r["wearing"] = wearing;
+        json friends = json::array();
+        for (const std::string& fid : u->friends) {
+            if (friends.size() >= 9) break;
+            auto it = m_users.find(fid);
+            if (it == m_users.end()) continue;
+            json f = publicUser(it->second);
+            f["avatar"] = it->second.avatar;
+            f["online"] = isOnline(it->second);
+            friends.push_back(f);
+        }
+        r["friends"] = friends;
+        r["online"] = isOnline(*u);
+        long long visits = 0;
+        for (const auto& [id, a] : m_assets) if (a.creator == u->id && a.kind == "game") visits += a.plays;
+        r["placeVisits"] = visits;
         return r;
     }
     if (name == "users.search") {

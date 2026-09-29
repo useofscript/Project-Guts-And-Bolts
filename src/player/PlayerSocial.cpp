@@ -7,6 +7,8 @@
 #include "../game/Bolts.h"
 #include "../online/OnlineClient.h"
 #include "../online/Protocol.h"
+#include "../renderer/SceneRenderer.h"
+#include "../scene/Scene.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -153,6 +155,60 @@ void PlayerApp::drawPeople() {
     }
 }
 
+void PlayerApp::buildProfileStage(const json& av, const json& wearing) {
+    m_profileScene = std::make_unique<Scene>();
+    std::vector<SceneNode*> remove;
+    for (auto& c : m_profileScene->root()->children)
+        if (c->name != "Baseplate" && !m_profileScene->isProtected(c.get())) remove.push_back(c.get());
+    for (auto* r : remove) m_profileScene->removeNode(r);
+    Player* p = m_profileScene->player();
+    if (!p) return;
+    p->setSpawn({0, 0, 0});
+    p->build();
+    // Their colours (0-255 on the server), then the clothes they wear on top.
+    BodyColors bc = Player::colorPresets()[0].second;
+    auto color = [&](const char* k, glm::vec3& out) {
+        if (!av.is_object() || !av.contains(k) || !av[k].is_array() || av[k].size() != 3) return;
+        if (av[k][0].get<double>() < 0) return;
+        out = glm::vec3(av[k][0].get<float>(), av[k][1].get<float>(), av[k][2].get<float>()) / 255.0f;
+    };
+    color("head", bc.head); color("torso", bc.torso); color("leftArm", bc.leftArm);
+    color("rightArm", bc.rightArm); color("leftLeg", bc.leftLeg); color("rightLeg", bc.rightLeg);
+    HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, 3) : HatStyle::None;
+    glm::vec3 hatTint(-1.0f);
+    color("hatColor", hatTint);
+    if (wearing.is_array())
+        for (const auto& a : wearing) {
+            Catalog::Item it = Catalog::fromServer(a);
+            if (it.type == Catalog::Type::Shirt) bc.torso = bc.leftArm = bc.rightArm = it.color;
+            else if (it.type == Catalog::Type::Pants) bc.leftLeg = bc.rightLeg = it.color;
+            else if (it.type == Catalog::Type::Hat) { hat = it.hat; hatTint = it.color; }
+        }
+    p->setBodyColors(bc);
+    p->setHat(hat, hatTint);
+    Environment& e = m_profileScene->environment();
+    e.fogEnabled = false;
+    e.sunAzimuth = 70.0f;
+    e.sunElevation = 40.0f;
+    m_profileCam.pivot = {0, 1.4f, 0};
+    m_profileCam.yaw = 70.0f;
+    m_profileCam.pitch = 8.0f;
+    m_profileCam.distance = 6.2f;
+    m_profileCam.fov = 45.0f;
+}
+
+namespace {
+// A box with a blue title bar, like the classic Roblox profile.
+void boxTitle(const char* title) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetTextLineHeight() + 10.0f;
+    dl->AddRectFilledMultiColor(p, ImVec2(p.x + w, p.y + h), Classic::kNavTop, Classic::kNavTop, Classic::kNavBottom, Classic::kNavBottom);
+    dl->AddText(ImVec2(p.x + 8, p.y + 5), IM_COL32(255, 255, 255, 255), title);
+    ImGui::Dummy(ImVec2(w, h + 4));
+}
+} // namespace
+
 void PlayerApp::drawProfile() {
     if (backLink()) m_page = Page::People;
     if (needsServer("Profiles")) return;
@@ -160,68 +216,174 @@ void PlayerApp::drawProfile() {
     if (!m_profile.contains("user")) { ImGui::TextDisabled("%s", m_socialMsg.empty() ? "Loading..." : m_socialMsg.c_str()); return; }
     const json& u = m_profile["user"];
     std::string id = u.value("id", std::string()), name = u.value("name", std::string());
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    avatarCircle(dl, ImVec2(p.x + 50, p.y + 50), 46, id, name);
-    ImGui::SetCursorScreenPos(ImVec2(p.x + 112, p.y + 8));
-    ImGui::BeginGroup();
+    const json avatar = u.contains("avatar") ? u["avatar"] : json();
+    const json wearing = m_profile.contains("wearing") && m_profile["wearing"].is_array() ? m_profile["wearing"] : json::array();
+    const json& made = m_profile.contains("creations") ? m_profile["creations"] : json::array();
+    long long visits = m_profile.value("placeVisits", 0LL);
+    int gamesMade = 0;
+    for (const auto& a : made) if (a.value("kind", std::string()) == "game") ++gamesMade;
+
+    // Header: name, online, friend button.
     ImGui::SetWindowFontScale(1.6f);
     ImGui::TextUnformatted(name.c_str());
     ImGui::SetWindowFontScale(1.0f);
     if (u.value("verified", false)) { ImGui::SameLine(0, 6); Badges::check(22.0f); }
+    if (m_profile.contains("online")) {
+        ImGui::SameLine(0, 12);
+        bool on = m_profile.value("online", false);
+        if (on) ImGui::TextColored(ImVec4(0.1f, 0.6f, 0.25f, 1), "[ Online ]");
+        else ImGui::TextDisabled("[ Offline ]");
+    }
+    std::string fs = m_profile.value("friendship", std::string("none"));
+    if (fs != "self") { ImGui::SameLine(0, 16); friendButton(id, fs); }
     if (u.value("official", false)) ImGui::TextColored(ImVec4(0.8f, 0.15f, 0.15f, 1), "Guts&Bolts staff");
     else if (u.value("staff", false)) ImGui::TextColored(ImVec4(0.15f, 0.3f, 0.6f, 1), "Staff");
-    long long created = u.value("created", 0LL);
-    std::time_t tt = (std::time_t)created;
-    char since[32];
-    std::strftime(since, sizeof(since), "%b %d, %Y", std::localtime(&tt));
-    ImGui::TextDisabled("@%s  -  User #%lld  -  Joined %s", u.value("username", std::string()).c_str(),
-                        u.value("userId", 0LL), since);
     if (u.value("banned", false)) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "This account is banned.");
-    ImGui::EndGroup();
-    ImGui::SetCursorScreenPos(ImVec2(p.x, std::max(p.y + 104, ImGui::GetItemRectMax().y + 8)));
-    ImGui::Dummy(ImVec2(0, 0));
-    {
-        std::string fs = m_profile.value("friendship", std::string("none"));
-        long long count = m_profile.value("friendCount", 0LL);
-        if (fs != "self") { friendButton(id, fs); ImGui::SameLine(0, 16); }
-        ImGui::TextDisabled("%lld friend%s", count, count == 1 ? "" : "s");
-    }
+    ImGui::Spacing();
 
-    // Badges
-    ImGui::SeparatorText("Badges");
+    const bool tall = portraitScreen();
+    const float leftW = tall ? ImGui::GetContentRegionAvail().x : 300.0f;
+    ImGui::BeginGroup();
+    ImGui::BeginChild("##profileLeft", ImVec2(leftW, 0), ImGuiChildFlags_AutoResizeY);
+
+    // The avatar in 3D (drag to turn).
+    std::string key = id + avatar.dump() + wearing.dump();
+    if (m_profileSceneFor != key || !m_profileScene) { buildProfileStage(avatar, wearing); m_profileSceneFor = key; }
+    {
+        ImVec2 size(ImGui::GetContentRegionAvail().x, tall ? 240.0f : 330.0f);
+        const float fb = ImGui::GetIO().DisplayFramebufferScale.x;
+        m_profileView.resize((int)(size.x * fb), (int)(size.y * fb));
+        m_profileCam.resize((int)(size.x * fb), (int)(size.y * fb));
+        m_renderer->render(*m_profileScene, m_profileCam, m_profileView, false);
+        ImGui::Image((ImTextureID)(intptr_t)m_profileView.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            m_profileCam.yaw += ImGui::GetIO().MouseDelta.x * 0.5f;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag to turn");
+    }
+    ImGui::Spacing();
+
+    boxTitle("Currently Wearing");
+    if (wearing.empty()) ImGui::TextDisabled("Nothing from the catalog.");
+    {
+        const float tile = (ImGui::GetContentRegionAvail().x - 16) / 3.0f;
+        for (size_t i = 0; i < wearing.size(); ++i) {
+            Catalog::Item it = Catalog::fromServer(wearing[i]);
+            if (i % 3 != 0) ImGui::SameLine(0, 8);
+            ImGui::BeginGroup();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
+            dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(170, 175, 185, 255));
+            drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+            ImGui::Dummy(ImVec2(tile, tile));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+            ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+        }
+    }
+    ImGui::Spacing();
+
+    boxTitle("Statistics");
+    {
+        long long created = u.value("created", 0LL);
+        std::time_t tt = (std::time_t)created;
+        char since[32];
+        std::strftime(since, sizeof(since), "%b %d, %Y", std::localtime(&tt));
+        auto row = [](const char* k, const std::string& v) {
+            ImGui::TextDisabled("%s", k);
+            ImGui::SameLine(120);
+            ImGui::TextUnformatted(v.c_str());
+        };
+        row("Joined", since);
+        row("Username", "@" + u.value("username", std::string()));
+        row("User number", "#" + std::to_string(u.value("userId", 0LL)));
+        row("Friends", std::to_string(m_profile.value("friendCount", 0LL)));
+        if (m_profile.contains("placeVisits")) row("Place visits", std::to_string(visits));
+        row("Games made", std::to_string(gamesMade));
+    }
+    ImGui::Spacing();
+
+    boxTitle("Badges");
     int shown = 0;
     if (u.contains("badges"))
         for (const auto& k : u["badges"]) {
             Badges::Id bid;
             if (!k.is_string() || !Badges::fromKey(k.get<std::string>(), bid)) continue;
-            if (shown++) ImGui::SameLine(0, 14);
+            if (shown++ % 3) ImGui::SameLine(0, 14);
             ImGui::BeginGroup();
             Badges::icon(bid, 48.0f);
             ImGui::TextDisabled("%s", Badges::info(bid).name);
             ImGui::EndGroup();
         }
     if (!shown) ImGui::TextDisabled("No badges yet.");
+    ImGui::EndChild();
+    ImGui::EndGroup();
+    if (!tall) ImGui::SameLine(0, 18);
 
-    // Groups
-    ImGui::SeparatorText("Groups");
+    ImGui::BeginChild("##profileRight", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
+    {
+        std::string t = "Friends (" + std::to_string(m_profile.value("friendCount", 0LL)) + ")";
+        boxTitle(t.c_str());
+        const json& friends = m_profile.contains("friends") && m_profile["friends"].is_array() ? m_profile["friends"] : json::array();
+        if (friends.empty()) ImGui::TextDisabled("No friends yet.");
+        const float cw = 96.0f, ch = 110.0f;
+        int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 10) / (cw + 10)));
+        for (size_t i = 0; i < friends.size(); ++i) {
+            const json& f = friends[i];
+            if (i % perRow != 0) ImGui::SameLine(0, 10);
+            ImGui::PushID((int)i);
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("##f", ImVec2(cw, ch))) openProfile(f.value("id", std::string()));
+            bool hover = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            if (hover) dl->AddRectFilled(p, ImVec2(p.x + cw, p.y + ch), IM_COL32(40, 120, 230, 30), 6);
+            std::string fname = f.value("name", std::string());
+            avatarCircle(dl, ImVec2(p.x + cw * 0.5f, p.y + 40), 32, f.value("id", std::string()), fname);
+            ImU32 dot = f.value("online", false) ? IM_COL32(34, 179, 94, 255) : IM_COL32(170, 170, 170, 255);
+            dl->AddCircleFilled(ImVec2(p.x + cw * 0.5f + 24, p.y + 64), 6, dot);
+            ImVec2 ts = ImGui::CalcTextSize(fname.c_str());
+            dl->AddText(ImVec2(p.x + std::max(0.0f, (cw - ts.x) * 0.5f), p.y + 82),
+                        ImGui::ColorConvertFloat4ToU32(Classic::kLink), fname.c_str());
+            ImGui::PopID();
+        }
+    }
+    ImGui::Spacing();
+    boxTitle("Games");
+    {
+        int n = 0;
+        for (const auto& a : made) {
+            if (a.value("kind", std::string()) != "game") continue;
+            ++n;
+            ImGui::BulletText("%s", a.value("name", std::string()).c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%lld plays", a.value("plays", 0LL));
+        }
+        if (!n) ImGui::TextDisabled("None yet.");
+    }
+    ImGui::Spacing();
+    boxTitle("Creations");
+    {
+        int n = 0;
+        for (const auto& a : made) {
+            std::string kind = a.value("kind", std::string());
+            if (kind == "game") continue;
+            ++n;
+            ImGui::BulletText("%s", a.value("name", std::string()).c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", Online::kindTitle(kind));
+            long long price = a.value("price", 0LL);
+            if (price > 0) { ImGui::SameLine(); Bolts::amount(price); }
+        }
+        if (!n) ImGui::TextDisabled("Nothing published yet.");
+    }
+    ImGui::Spacing();
+    boxTitle("Groups");
     const json& groups = m_profile.contains("groups") ? m_profile["groups"] : json::array();
     if (groups.empty()) ImGui::TextDisabled("Not in any groups.");
     for (size_t i = 0; i < groups.size(); ++i)
         if (groupRow(groups[i], (int)i)) openGroup(groups[i].value("id", std::string()));
-
-    // Creations
-    ImGui::SeparatorText("Creations");
-    const json& made = m_profile.contains("creations") ? m_profile["creations"] : json::array();
-    if (made.empty()) ImGui::TextDisabled("Nothing published yet.");
-    for (size_t i = 0; i < made.size(); ++i) {
-        const json& a = made[i];
-        ImGui::BulletText("%s", a.value("name", std::string()).c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", Online::kindTitle(a.value("kind", std::string())));
-        long long price = a.value("price", 0LL);
-        if (price > 0) { ImGui::SameLine(); Bolts::amount(price); }
-    }
+    ImGui::EndChild();
 }
 
 // ---------------------------------------------------------------------------

@@ -370,7 +370,14 @@ export class GbServerObject extends DurableObject {
       const groups = this.groupsOf(u.id).map((g) => Object.assign(this.publicGroup(g), { role: g.members[u.id] }));
       const friendship = u.id === me.id ? 'self' : me.friends.includes(u.id) ? 'friends'
         : me.friendOut.includes(u.id) ? 'sent' : me.friendIn.includes(u.id) ? 'received' : 'none';
-      return okay({ user, creations, groups, friendCount: u.friends.length, friendship });
+      // Like a Roblox profile: what they're wearing, some friends, visits to their games.
+      const wornIds = u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
+      const wearing = wornIds.map((id) => this.assets.get(id)).filter(Boolean).map((a) => this.publicAsset(a));
+      const friends = u.friends.slice(0, 9).map((id) => this.users.get(id)).filter(Boolean)
+        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.isOnline(f) }));
+      const placeVisits = creations.filter((a) => a.kind === 'game').reduce((n, a) => n + (a.plays || 0), 0);
+      return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
+        online: this.isOnline(u), placeVisits });
     }
     if (name === 'users.search') {
       let q = lower(cleanText(str(args, 'query'), 64));
