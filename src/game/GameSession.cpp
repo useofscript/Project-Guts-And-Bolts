@@ -40,6 +40,7 @@ void GameSession::start() {
         if (p && p->rootId() == rig) return p->drivesPart(part);
         return m_scene->npcs().find(rig) && Player::isLimb(part);
     };
+    m_scene->water().begin(*m_scene);   // (everyone runs the waves; the host runs floating)
     // Character-shaped models become NPCs (before the scripts, so they can steer them).
     if (m_role != Role::Client) m_scene->npcs().begin(*m_scene);
     if (m_role != Role::Client) setupTools();   // before the scripts, so tools' scripts start with the rest
@@ -130,6 +131,7 @@ void GameSession::dropTool() {
 void GameSession::stop() {
     m_scripts.stop();
     m_scene->npcs().end();
+    m_scene->water().end();
     m_scene->animator().clear();
     if (Player* p = m_scene->player()) p->onToolEquip = nullptr;
     m_starterPack.clear();
@@ -211,6 +213,9 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
         npcs.died.clear();
         npcs.finished.clear();
     }
+
+    // Waves, ripples and splashes.
+    m_scene->water().update(dt, *m_scene);
 
     // Animations (after the character has walked, so they win where they pose).
     m_scene->animator().update(dt, *m_scene);

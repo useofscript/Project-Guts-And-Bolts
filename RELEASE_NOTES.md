@@ -11,13 +11,21 @@
   `button.MouseButton1Click`.
 - They work in multiplayer, and in Roblox files (import and export).
 
+**Real water**
+- Water now has moving waves and ripples that bounce off the pool's sides.
+- Loose parts float or sink by material (wood floats, metal sinks), tip over
+  realistically and bob on the waves.
+- Splashes with spray and a sound when things fall in; swimmers leave a wake.
+- New water attributes: `Waves` (ocean swell) and `Flow` (currents that carry
+  you and floating things along).
+
 **NPCs and zombies**
 - Any character-shaped Model is now an NPC: it walks, jumps, and dies like a
   player. Scripts steer it with `humanoid:MoveTo()`, `MoveToFinished`,
   `humanoid:Move()` and `humanoid.Jump`.
 - New **PathfindingService**: works out a route around walls and up ledges.
 - New ready-made **Zombie** in the Toolbox: it chases the nearest player and bites.
-- Studio's Command Bar runs inside the game while you're playing.
+- Studio's Command Bar runs inside the game while you're playing, and can use `wait()`.
 
 **Climbing and swimming**
 - Walk into a **TrussPart** or a ladder to climb it. Parts called **Water** are

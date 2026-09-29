@@ -11,6 +11,7 @@
 #include "Physics.h"
 #include "Scene.h"
 #include "SceneNode.h"
+#include "Water.h"
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/euler_angles.hpp>
@@ -240,6 +241,71 @@ bool hasDynamicAncestorPart(const SceneNode* n) {
     return false;
 }
 
+// --- water ------------------------------------------------------------------------
+
+// How heavy water is compared to Plastic (1.0). Wood, ice, plastic and neon
+// float; glass, concrete and metal sink.
+constexpr float kWaterDensity = 1.3f;
+constexpr float kWaterDrag    = 1.6f;   // how much water slows things moving through it
+
+// Floating: the body is checked at 27 points spread through it. Each point
+// under the surface is pushed up by the weight of the water it pushes aside
+// (Archimedes!) and slowed by the water. Because the pushes happen at the
+// points, a lopsided object tips over until it floats the right way up, and
+// waves rock boats.
+void floatIn(Body& b, WaterSystem& water, float g, float h, Scene& scene) {
+    bool near = false;
+    for (const auto& w : water.bodies())
+        if (b.aabbMax.x > w.min.x && b.aabbMin.x < w.max.x && b.aabbMax.z > w.min.z && b.aabbMin.z < w.max.z &&
+            b.aabbMin.y < w.max.y + w.swell + 2.5f && b.aabbMax.y > w.min.y) { near = true; break; }
+    if (!near) return;
+
+    constexpr int N = 3;
+    glm::vec3 pts[N * N * N];
+    int count = 0;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+            for (int k = 0; k < N; ++k) {
+                glm::vec3 f = (glm::vec3((float)i, (float)j, (float)k) + 0.5f) / (float)N * 2.0f - 1.0f;
+                if (b.sphere) {
+                    if (glm::length(f) > 1.0f) continue;
+                    pts[count++] = f * b.radius;
+                } else {
+                    pts[count++] = f * b.half;
+                }
+            }
+    const float volume = b.sphere ? 4.18879f * b.radius * b.radius * b.radius : 8.0f * b.half.x * b.half.y * b.half.z;
+    const float mass = 1.0f / b.invMass;
+    const float layer = std::max(0.05f, (b.aabbMax.y - b.aabbMin.y) / N);   // how thick each point's slice is
+    const glm::mat3 R = b.R();
+    float submerged = 0.0f;
+    for (int n = 0; n < count; ++n) {
+        glm::vec3 p = b.pos + R * pts[n];
+        float surface;
+        glm::vec3 flow;
+        if (!water.at(p - glm::vec3(0.0f, layer * 0.5f, 0.0f), &surface, &flow)) continue;
+        float frac = std::clamp((surface - p.y) / layer + 0.5f, 0.0f, 1.0f);
+        if (frac <= 0.0f) continue;
+        float share = frac / count;
+        float waterMass = kWaterDensity * volume * share;
+        glm::vec3 imp(0.0f, waterMass * g * h, 0.0f);
+        glm::vec3 vrel = b.velocityAt(p) - flow;
+        imp -= vrel * std::min(kWaterDrag * h * waterMass, 0.5f * mass / count);
+        applyImpulse(b, p - b.pos, imp);
+        submerged += share;
+    }
+    if (submerged <= 0.0f) return;
+    b.awake = true;
+    b.w *= std::max(0.0f, 1.0f - 1.2f * h * submerged);
+    glm::vec3 ext = b.aabbMax - b.aabbMin;
+    water.touching(scene, b.node->id, b.pos, -b.v.y, std::cbrt(ext.x * ext.y * ext.z));
+    // Bobbing at the surface, or moving along it, makes ripples.
+    if (submerged < 0.95f) {
+        float push = -b.v.y * h * 0.25f + glm::length(glm::vec2(b.v.x, b.v.z)) * h * 0.05f;
+        if (std::abs(push) > 1e-4f) water.disturb(b.pos, std::clamp(push, -0.05f, 0.05f), std::max(ext.x, ext.z) * 0.6f);
+    }
+}
+
 // --- joints ------------------------------------------------------------------------
 
 struct Joint {
@@ -348,6 +414,10 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
 
     for (int step = 0; step < substeps; ++step) {
         // ---- 3. Gravity + springs ----------------------------------------------
+        // Water first: it wakes up what's in it, so gravity below pulls those too.
+        if (scene.water().active())
+            for (auto& b : bodies)
+                if (b.dynamic) floatIn(b, scene.water(), g, h, scene);
         for (auto& b : bodies)
             if (b.dynamic && b.awake) {
                 b.v.y -= g * h;

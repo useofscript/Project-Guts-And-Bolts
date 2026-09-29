@@ -209,6 +209,16 @@ void main() {
         rough = 0.95;
     }
     else if (uMaterial == 6) { rough = 0.08; albedo = mix(albedo, vec3(0.8, 0.9, 1.0), 0.2); }
+    else if (uMaterial == 7) {                                    // water: little moving ripples on top
+        rough = 0.02;
+        if (N.y > 0.3) {
+            vec2 p = vWorldPos.xz;
+            float t = uTime;
+            vec2 slope = vec2(sin(p.x * 3.1 + t * 1.9) + sin(p.x * 1.3 + p.y * 2.3 + t * 1.3) + 0.5 * sin(p.x * 7.0 - p.y * 5.0 + t * 3.1),
+                              cos(p.y * 2.7 - t * 1.6) + cos(p.x * 2.1 - p.y * 1.4 + t * 1.1) + 0.5 * cos(p.y * 6.3 + p.x * 4.1 - t * 2.7));
+            N = normalize(N + vec3(slope.x, 0.0, slope.y) * 0.035 * (0.3 + 0.7 * detail));
+        }
+    }
 
     vec3 color;
     float alpha = uAlpha * decalAlpha;
@@ -250,11 +260,11 @@ void main() {
         vec3  env = lin(skyGradient(R, uZenith, uHorizon, uGround));
         vec3  avg = lin((uZenith + uHorizon + uGround) / 3.0);
         env = mix(env, avg, rough);
-        color += env * F * uReflections * (1.0 - rough * 0.7);
+        color += env * F * (uMaterial == 7 ? max(uReflections, 0.8) : uReflections) * (1.0 - rough * 0.7);
 
         // Glass & ice get more opaque at glancing angles.
-        if (uMaterial == 4 || uMaterial == 6)
-            alpha = mix(alpha, 1.0, pow(1.0 - NoV, 3.0) * 0.7);
+        if (uMaterial == 4 || uMaterial == 6 || uMaterial == 7)
+            alpha = mix(alpha, 1.0, pow(1.0 - NoV, 3.0) * (uMaterial == 7 ? 0.85 : 0.7));
     }
 
     if (uSelected) {

@@ -507,6 +507,27 @@ Swap in your own .wav files with the same names and rebuild.
 - Scripts can check with `humanoid:GetState()`, which returns "Climbing",
   "Swimming", "Freefall", "Running" or "Dead".
 
+### Real water
+
+Water isn't just a see-through box you can swim in. While the game runs:
+
+- **Waves and ripples.** The surface moves. Drop something in and rings of
+  ripples spread out and bounce off the sides of the pool. Swimming or walking
+  through it leaves a wake.
+- **Floating and sinking.** Loose (unanchored) parts float or sink depending on
+  their material, like real life: **Wood**, **Ice**, **Plastic** and **Neon**
+  float (wood highest), while **Metal**, **Glass** and **Concrete** sink. Set a
+  part's Density to choose exactly. A long plank tips over and floats flat, and
+  boats rock on the waves.
+- **Splashes.** Things (and people) that fall in throw up spray, make a splash
+  sound and a dip in the water.
+- **Ocean swell.** Give a water part a number attribute called `Waves` (like
+  `0.5`) for big rolling waves that lift everything floating on them.
+- **Currents.** Give it a Vector3 attribute called `Flow` (like `4, 0, 0`) and
+  it carries swimmers and floating things along: rivers, rapids, lazy rivers.
+
+Scripts can make, move or resize water while playing (a rising flood works).
+
 ## NPCs (zombies and other characters)
 
 Any Model built like a character (with a **HumanoidRootPart**, **Torso** and

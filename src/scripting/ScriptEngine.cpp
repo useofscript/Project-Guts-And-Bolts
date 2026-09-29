@@ -704,6 +704,14 @@ bool ScriptEngine::runCommand(const std::string& code, std::string& error) {
             return false;
         }
     }
+    if (!expr) {
+        // Statements run like a script's body, so wait() works in them (errors go to Output).
+        lua_State* co = lua_newthread(L);
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        lua_xmove(L, co, 1);
+        resume(co, ref, 0, L);
+        return true;
+    }
     m_resumeStart = nowSeconds();
     ++m_depth;
     int top = lua_gettop(L) - 1;

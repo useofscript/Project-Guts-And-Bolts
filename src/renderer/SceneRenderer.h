@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include "ShadowMap.h"
 
@@ -8,6 +9,7 @@ class SceneNode;
 class Shader;
 class Camera;
 class Framebuffer;
+class Mesh;
 
 // Draws a Scene into a framebuffer: sun shadows, sky with clouds and stars,
 // physically-based lit parts, point / spot lights, fog, then post-processing
@@ -54,4 +56,5 @@ private:
     unsigned int m_emptyVao = 0;
     int          m_gridVertexCount = 0;
     double       m_startTime = 0.0;
+    std::unordered_map<uint64_t, std::unique_ptr<Mesh>> m_waterMeshes;   // wavy surfaces while playing
 };

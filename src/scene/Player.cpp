@@ -663,6 +663,8 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     const glm::vec3 ahead = moving ? glm::normalize(glm::vec3(horiz.x, 0.0f, horiz.z)) : facing;
     bool truss = false, water = false;
     float waterTop = -1e9f;
+    glm::vec3 current(0.0f);   // water flowing along (a "Flow" attribute)
+    WaterSystem& waves = m_scene->water();
     m_climbCooldown = std::max(0.0f, m_climbCooldown - dt);
     m_scene->forEach([&](SceneNode* n) {
         if (!n->isPart() || m_scene->isCharacterPart(n)) return;
@@ -672,7 +674,17 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         if (climbable && !truss)
             for (float h : {0.4f, 1.3f, 2.2f})
                 if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
-        if (wet && insideBox(b, pos + glm::vec3(0.0f, 1.2f, 0.0f))) { water = true; waterTop = std::max(waterTop, b.max.y); }
+        if (!wet) return;
+        // While playing, the surface moves with the waves.
+        const glm::vec3 chest = pos + glm::vec3(0.0f, 1.2f, 0.0f);
+        const float top = waves.active() ? waves.surfaceOf(n, chest.x, chest.z) : b.max.y;
+        AABB wetBox = b;
+        wetBox.max.y = top;
+        if (insideBox(wetBox, chest)) {
+            water = true;
+            waterTop = std::max(waterTop, top);
+            if (const WaterSystem::Body* wb = waves.find(n->id)) current = wb->flow;
+        }
     });
     // Climb when walking into a truss (or when already on one and still touching it).
     const bool wasClimbing = m_climbing;
@@ -709,7 +721,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     }
 
     // Walking plus any leftover push (from jump pads, etc.), which fades out.
-    glm::vec3 delta = horiz * speed * dt;
+    glm::vec3 delta = horiz * speed * dt + current * (m_swimming ? dt : 0.0f);
     delta.x += m_velocity.x * dt;
     delta.z += m_velocity.z * dt;
     delta.y = m_velocity.y * dt;

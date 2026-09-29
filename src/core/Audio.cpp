@@ -124,6 +124,16 @@ std::map<std::string, Samples> synthesize() {
     {   Samples s = make(0.7f);
         for (int i = 0; i < 6; ++i) tone(s, i * 0.07f, 0.3f, 600.0f * std::pow(1.26f, (float)i), 600.0f * std::pow(1.26f, (float)i), 0, 0.35f);
         out["spawn"] = s; }
+    {   // Splash: a whoosh of water plus a few bubbly plops.
+        Samples s = make(0.8f);
+        rumble(s, 0, 0.45f, 6000, 700, 1.0f);
+        rumble(s, 0.03f, 0.7f, 1400, 250, 0.5f);
+        for (int i = 0; i < 7; ++i) {
+            float at = 0.08f + i * 0.07f + noise() * 0.02f, f = 500.0f + (noise() * 0.5f + 0.5f) * 700.0f;
+            tone(s, at, 0.07f, f, f * 1.8f, 0, 0.22f);
+        }
+        normalize(s, 0.75f);
+        out["splash"] = s; }
     return out;
 }
 
@@ -174,7 +184,7 @@ Instance* find(int handle) {
 
 const std::vector<std::string>& builtinNames() {
     static const std::vector<std::string> names = {
-        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn", "respawn", "footsteps"};
+        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn", "respawn", "footsteps", "splash"};
     return names;
 }
 

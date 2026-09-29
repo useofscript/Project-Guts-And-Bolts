@@ -3,6 +3,7 @@
 #include "Environment.h"
 #include "Player.h"
 #include "Npc.h"
+#include "Water.h"
 #include "Particles.h"
 #include "Animation.h"
 #include <functional>
@@ -109,6 +110,8 @@ public:
     Humanoid*        humanoidOf(uint64_t rootId);   // local, remote or NPC; null if none
     // Computer-controlled characters (zombies etc.) while the game runs.
     NpcSystem&       npcs() { return m_npcs; }
+    // Moving water (waves, floating, splashes) while the game runs.
+    WaterSystem&     water() { return m_water; }
     bool             isCharacterRoot(uint64_t id) const;
     // Kill any character; `force` 0..1 = how violently.
     void             killCharacter(uint64_t rootId, float force, const glm::vec3& impulse);
@@ -140,6 +143,7 @@ private:
     GameInfo                   m_info;
     std::vector<RemoteCharacter> m_remotes;
     NpcSystem                  m_npcs;
+    WaterSystem                m_water;
     ParticleSystem             m_particles;
     Anim::Animator             m_animator;
     std::unique_ptr<Player>    m_player;

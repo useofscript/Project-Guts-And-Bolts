@@ -474,7 +474,56 @@ glm::mat4 SceneRenderer::decalMatrix(const SceneNode& d) {
     return d.parent->worldMatrix() * local;
 }
 
+namespace {
+
+// The shape of a water part while its waves move: the wavy top, plus the sides
+// down to the bottom (so a pool looks full from the side too). World space.
+void buildWaterMesh(const WaterSystem& ws, const WaterSystem::Body& b, std::vector<Vertex>& verts,
+                    std::vector<uint32_t>& idx) {
+    verts.clear();
+    idx.clear();
+    const int nx = b.nx, nz = b.nz;
+    auto X = [&](int i) { return std::min(b.min.x + i * b.cell, b.max.x); };
+    auto Z = [&](int k) { return std::min(b.min.z + k * b.cell, b.max.z); };
+    std::vector<float> top((size_t)nx * nz);
+    for (int k = 0; k < nz; ++k)
+        for (int i = 0; i < nx; ++i) top[(size_t)k * nx + i] = ws.surface(b, X(i), Z(k));
+    auto T = [&](int i, int k) { return top[(size_t)std::clamp(k, 0, nz - 1) * nx + std::clamp(i, 0, nx - 1)]; };
+    const glm::vec3 size = b.max - b.min;
+    for (int k = 0; k < nz; ++k)
+        for (int i = 0; i < nx; ++i) {
+            glm::vec3 n(-(T(i + 1, k) - T(i - 1, k)) / (2.0f * b.cell), 1.0f, -(T(i, k + 1) - T(i, k - 1)) / (2.0f * b.cell));
+            verts.push_back({{X(i), T(i, k), Z(k)}, glm::normalize(n), {(X(i) - b.min.x) / size.x, (Z(k) - b.min.z) / size.z}});
+        }
+    for (int k = 0; k + 1 < nz; ++k)
+        for (int i = 0; i + 1 < nx; ++i) {
+            uint32_t a = (uint32_t)(k * nx + i), c = a + (uint32_t)nx;
+            idx.insert(idx.end(), {a, c, a + 1, a + 1, c, c + 1});
+        }
+    // Sides: a strip along each edge from the bottom up to the waves.
+    auto side = [&](int count, auto pointAt, glm::vec3 normal) {
+        uint32_t base = (uint32_t)verts.size();
+        for (int s = 0; s < count; ++s) {
+            glm::vec3 p = pointAt(s);
+            verts.push_back({{p.x, b.min.y, p.z}, normal, {0, 0}});
+            verts.push_back({p, normal, {0, 1}});
+        }
+        for (int s = 0; s + 1 < count; ++s) {
+            uint32_t a = base + 2 * s;
+            idx.insert(idx.end(), {a, a + 2, a + 1, a + 1, a + 2, a + 3});
+        }
+    };
+    side(nx, [&](int i) { return glm::vec3(X(i), T(i, 0), b.min.z); }, {0, 0, -1});
+    side(nx, [&](int i) { return glm::vec3(X(i), T(i, nz - 1), b.max.z); }, {0, 0, 1});
+    side(nz, [&](int k) { return glm::vec3(b.min.x, T(0, k), Z(k)); }, {-1, 0, 0});
+    side(nz, [&](int k) { return glm::vec3(b.max.x, T(nx - 1, k), Z(k)); }, {1, 0, 0});
+}
+
+} // namespace
+
 void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editing) {
+    const WaterSystem& waves = scene.water();
+    if (!waves.active()) m_waterMeshes.clear();
     struct Item { SceneNode* node; glm::mat4 model; float dist; };
     std::vector<Item> opaque, transparent, shielded, decals;
     glm::vec3 camPos = camera.position();
@@ -503,16 +552,32 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
     // Transparent things are drawn last, far to near, so blending looks right.
     std::sort(transparent.begin(), transparent.end(), [](auto& a, auto& b) { return a.dist > b.dist; });
 
+    std::vector<Vertex> waterVerts;
+    std::vector<uint32_t> waterIdx;
     auto draw = [&](const Item& it) {
         SceneNode* node = it.node;
-        glm::mat3 nrm = glm::transpose(glm::inverse(glm::mat3(it.model)));
-        m_lit->setMat4("uModel", it.model);
+        // Water gets the water look; while playing, its surface is the moving waves.
+        const bool water = Player::isWater(node);
+        const WaterSystem::Body* wb = water ? waves.find(node->id) : nullptr;
+        glm::mat4 model = wb ? glm::mat4(1.0f) : it.model;
+        glm::mat3 nrm = glm::transpose(glm::inverse(glm::mat3(model)));
+        m_lit->setMat4("uModel", model);
         m_lit->setMat3("uNormalMat", nrm);
         m_lit->setVec3("uColor", node->color);
         m_lit->setBool("uSelected", node->selected);
-        m_lit->setInt("uMaterial", (int)node->material);
+        m_lit->setInt("uMaterial", water ? 7 : (int)node->material);
         m_lit->setFloat("uAlpha", 1.0f - node->transparency);
-        node->mesh->draw();
+        if (water) glDisable(GL_CULL_FACE);   // seen from underwater too
+        if (wb) {
+            auto& mesh = m_waterMeshes[node->id];
+            if (!mesh) mesh = std::make_unique<Mesh>();
+            buildWaterMesh(waves, *wb, waterVerts, waterIdx);
+            mesh->update(waterVerts, waterIdx);
+            mesh->draw();
+        } else {
+            node->mesh->draw();
+        }
+        if (water) glEnable(GL_CULL_FACE);
     };
 
     glDisable(GL_BLEND);
@@ -542,7 +607,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
             (p.kind == Particle::Bolt || p.kind == Particle::Splat ? cyl : cube)->draw();
         };
         for (const Particle& p : parts) {
-            bool fade = p.kind == Particle::Smoke || (p.kind == Particle::Splat && p.life < 1.0f);
+            bool fade = p.kind == Particle::Smoke || p.kind == Particle::Spray || (p.kind == Particle::Splat && p.life < 1.0f);
             if (fade) fading.push_back(&p);
             else      drawParticle(p, 1.0f);
         }
@@ -550,6 +615,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         glDepthMask(GL_FALSE);
         for (const Particle* p : fading) {
             float a = p->kind == Particle::Smoke ? 0.55f * std::min(1.0f, p->life / p->maxLife * 2.0f)
+                    : p->kind == Particle::Spray ? 0.8f * std::min(1.0f, p->life / p->maxLife * 3.0f)
                                                  : std::max(0.0f, p->life);
             drawParticle(*p, a);
         }

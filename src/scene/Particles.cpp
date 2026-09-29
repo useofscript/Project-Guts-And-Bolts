@@ -47,6 +47,23 @@ void ParticleSystem::spray(GoreKind kind, const glm::vec3& pos, const glm::vec3&
     }
 }
 
+void ParticleSystem::waterSpray(const glm::vec3& pos, int count, float speed, const glm::vec3& color, float radius) {
+    for (int i = 0; i < count; ++i) {
+        Particle p;
+        p.kind  = Particle::Spray;
+        glm::vec3 d = rndDir();
+        d.y = std::abs(d.y) * 1.5f + 0.8f;   // mostly up, fanning out
+        glm::vec2 out = glm::normalize(glm::vec2(d.x, d.z) + glm::vec2(1e-4f));
+        p.pos   = pos + glm::vec3(out.x, 0.05f, out.y) * radius * rnd(0.9f, 1.2f);
+        d.x = out.x * std::abs(d.x) + d.x * 0.3f; d.z = out.y * std::abs(d.z) + d.z * 0.3f;   // thrown outwards
+        p.vel   = glm::normalize(d) * speed * rnd(0.5f, 1.1f);
+        p.color = glm::mix(color, glm::vec3(0.92f, 0.96f, 1.0f), rnd(0.5f, 0.9f));
+        p.size  = glm::vec3(rnd(0.1f, 0.24f));
+        p.life  = p.maxLife = rnd(0.6f, 1.2f);
+        add(p);
+    }
+}
+
 void ParticleSystem::gibs(GoreKind kind, const glm::vec3& pos, const glm::vec3& vel, int count) {
     for (int i = 0; i < count; ++i) {
         Particle p;
@@ -130,6 +147,7 @@ void ParticleSystem::update(float dt, float gravity, const Physics& physics) {
         }
         p.pos += p.vel * dt;
         p.rot += p.spin * dt;
+        if (p.kind == Particle::Spray) { if (physics.solidAt(p.pos)) p.life = 0.0f; continue; }   // lands: gone
         if (p.kind == Particle::Fire || p.kind == Particle::Smoke || p.kind == Particle::Spark) continue;
 
         // Hitting something solid.

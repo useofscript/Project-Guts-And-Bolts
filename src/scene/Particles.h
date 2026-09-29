@@ -8,7 +8,7 @@ class Physics;
 // and stick where they land, meat chunks, bolts, sparks, fire and smoke.
 // Runtime only — never saved, cleared when Play stops.
 struct Particle {
-    enum Kind { Drop, Chunk, Bolt, Spark, Fire, Smoke, Splat };
+    enum Kind { Drop, Chunk, Bolt, Spark, Fire, Smoke, Splat, Spray };   // Spray: water droplets
     Kind      kind = Drop;
     glm::vec3 pos{0.0f}, vel{0.0f};
     glm::vec3 color{1.0f};
@@ -33,6 +33,8 @@ public:
     void gibs(GoreKind kind, const glm::vec3& pos, const glm::vec3& vel, int count);
     void sparks(const glm::vec3& pos, int count);
     void explosion(const glm::vec3& pos, float radius);
+    // Water thrown up by a splash (droplets that vanish when they land).
+    void waterSpray(const glm::vec3& pos, int count, float speed, const glm::vec3& color, float radius = 0.3f);   // radius: a ring around what fell in
 
     static constexpr int kMaxParticles = 2500;
     static constexpr int kMaxSplats    = 700;
