@@ -1,5 +1,6 @@
 #include "PlayerApp.h"
 #include "SiteUi.h"
+#include "LaunchLink.h"
 #include "../core/AppWindow.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
@@ -166,6 +167,8 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     std::fflush(stdout);
 
     if (m_opts.guest) Online::setGuest(true);   // tests: "Play as Guest"
+    if (!m_opts.launchUrl.empty()) takeLink(m_opts.launchUrl);
+    if (m_opts.screenshot.empty()) LaunchLink::registerScheme();   // the website's Play button opens us (not in tests)
     if (m_opts.page == "avatar") m_page = Page::Avatar;
     if (m_opts.page == "games") m_page = Page::Games;
     if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
@@ -427,6 +430,13 @@ void PlayerApp::frame(float dt) {
         if (signup) { m_loginUser = user; signUp(user, pass); }
         else        { m_loginUser = user; m_loginTab = 1; logIn(user, pass); }
     }
+#ifdef GB_MOBILE
+    if (ImGui::GetTime() >= m_linkPollAt) {   // Android: a website Play link opened (or re-opened) the app
+        m_linkPollAt = ImGui::GetTime() + 0.5;
+        if (std::string link = LaunchLink::poll(); !link.empty()) takeLink(link);
+    }
+#endif
+    followLink();
     if (!m_autoStarted && Online::online()) {   // test options that need the server first
         if (m_opts.onlinePlay && !m_opts.game.empty()) {
             m_autoStarted = true;

@@ -47,6 +47,7 @@ struct PlayerOptions {
     std::string testRename;            // --test-rename "New name" (tests: rename your first game on the Create page)
     int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
     std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
+    std::string launchUrl;             // gutsandbolts://play/<game>?guest=boy (the website's Play button)
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,
@@ -170,6 +171,12 @@ private:
     Framebuffer                    m_charView[2];
     Camera                         m_charCam;
     void drawCharacterPicker();
+    void applyGuestLook(int which);    // 0 = boy (black cap), 1 = girl (ponytail)
+    // A gutsandbolts:// link to act on once we're online (the website's Play button).
+    std::string                    m_linkGame, m_linkGuest;
+    double                         m_linkPollAt = 0.0;
+    void takeLink(const std::string& url);
+    void followLink();
 
     Page        m_page = Page::Home;
     std::vector<GameCard> m_games;

@@ -166,6 +166,62 @@ function itemCard(a) {
     <div class="by">${a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
 }
 
+// A classic white popup over a dark page. `body` is html``; returns the box.
+function popup(body, cls = '') {
+  document.querySelectorAll('.modal').forEach((m) => m.remove());
+  const box = document.createElement('div');
+  box.className = 'modal';
+  box.innerHTML = html`<div class="popup ${cls}"><button class="popup-x" data-act="closeModal" aria-label="Close">&times;</button>${body}</div>`.s;
+  box.addEventListener('click', (e) => { if (e.target === box) box.remove(); });
+  document.body.appendChild(box);
+  return box;
+}
+
+// The two guest looks (the app has the same): black clothes, and a black cap or a ponytail.
+const GUEST_LOOKS = {
+  boy: { head: [240, 240, 235], torso: [27, 27, 30], leftArm: [27, 27, 30], rightArm: [27, 27, 30], leftLeg: [27, 27, 30],
+    rightLeg: [27, 27, 30], hat: 2, hatColor: [25, 25, 28], wearing: [] },
+  girl: { head: [240, 240, 235], torso: [27, 27, 30], leftArm: [27, 27, 30], rightArm: [27, 27, 30], leftLeg: [27, 27, 30],
+    rightLeg: [27, 27, 30], hat: 4, hatColor: [-1, -1, -1], wearing: [] },
+};
+function guestPicker(id, name) {
+  const pick = (guest, label) => html`<a href="#" class="charpick-one" data-act="pickGuest" data-guest="${guest}" data-id="${id}" data-name="${name}">
+      <span class="charpick-pic" data-guest-pic="${guest}">${avatarSvg(GUEST_LOOKS[guest], 120)}</span><b>${label}</b></a>`;
+  popup(html`<h1 class="popup-title">Choose Your Character:</h1>
+    <div class="charpick">${pick('boy', 'Play As Boy')}${pick('girl', 'Play As Girl')}</div>
+    <p><a class="charpick-account" href="#/login">Have an Account?</a></p>`, 'wide');
+  for (const g of ['boy', 'girl'])
+    avatarPicture(GUEST_LOOKS[g], [], 150).then((url) => {
+      const el = document.querySelector(`[data-guest-pic="${g}"]`);
+      if (url && el) el.innerHTML = html`<img src="${url}" alt="" width="150" height="188">`.s;
+    }).catch(() => {});
+}
+// Open the app on this game (if it's installed), with a way to get it if not.
+function launchGame(id, name, guest) {
+  const url = 'gutsandbolts://play/' + encodeURIComponent(id) + (guest ? '?guest=' + guest : '');
+  popup(html`<h1 class="popup-title">Starting Guts&amp;Bolts...</h1>
+    <div class="launch-spin" aria-hidden="true"></div>
+    <p>Opening <b>${name}</b> in the Guts&amp;Bolts app${guest ? ' as a guest' : ''}.</p>
+    <p class="small muted">If your browser asks, choose <b>Open Guts&amp;Bolts</b>.</p>
+    <p class="popup-buttons"><a class="btn green" href="${url}">Try again</a> <a class="btn" href="../#download">Download the app</a></p>
+    <p class="small muted">Don't have it yet? Download it (Windows, Mac, Linux or Android), open it once, then press Play again.</p>`);
+  location.href = url;
+}
+
+// Visitors can look at everything; doing things needs an account.
+function loginPopup(what) {
+  popup(html`<h1 class="popup-title">You need to log in</h1>
+    <p>Log in or sign up (it's free!) to ${what}.</p>
+    <p class="popup-buttons"><a class="btn green big" href="#/signup">Sign Up</a> <a class="btn blue big" href="#/login">Log In</a></p>
+    <p><a href="#" data-act="closeModal">Not now</a></p>`);
+}
+// Which clicks and forms need an account, and what to say.
+const NEEDS_ACCOUNT = {
+  buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
+  friend: 'add friends', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
+  groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
+};
+
 function needSignIn(what) {
   return html`<div class="box info">You need to be signed in to ${what}.
     <a class="btn blue small" href="#/login">Log in</a> <a class="btn green small" href="#/signup">Sign up</a></div>`;
@@ -307,7 +363,7 @@ pages.game = async (id) => {
       <div><h1>${g.name}</h1>
         <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
         <p class="muted">${g.plays || 0} plays · published ${ago(g.created)}</p>
-        <button class="btn green big" data-act="play" data-name="${g.name}">Play</button>
+        <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     <h2>Servers</h2>
@@ -340,8 +396,7 @@ pages.item = async (id) => {
       <div><h1>${a.name}</h1><p>${KINDS[a.kind]} by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</p>
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
         ${owned ? html`<p class="ok"><b>You own this.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
-          : signedIn() ? html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`
-            : needSignIn('buy things')}
+          : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
         <p style="white-space:pre-wrap">${a.description}</p></div></div>`);
 };
 
@@ -364,12 +419,13 @@ async function decalPicture(img) {
 pages.create = async (tab = 'games') => {
   const tabs = [['games', 'My Games'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['shirt', 'Shirts'], ['pants', 'Pants'], ['plugin', 'Plugins']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
-  if (!signedIn()) { show(html`${head}${needSignIn('upload things')}`); return; }
-  const r = await pageCall('list', { creator: me.id, limit: 100 });
+  const r = signedIn() ? await pageCall('list', { creator: me.id, limit: 100 }) : { ok: true, assets: [] };
   const mine = r.ok ? r.assets : [];
   const kind = tab === 'games' ? 'game' : tab;
   const list = mine.filter((a) => a.kind === kind);
-  const costs = me.verified ? html`<b>You're Verified!</b> Uploading is free, with no daily limit, and you can sell what you make.`
+  const costs = !signedIn() ? html`Make games in <b>Studio</b> and publish them here, and upload decals, audio, clothes and plugins.
+      <a href="#/signup">Sign up</a> or <a href="#/login">log in</a> to start.`
+    : me.verified ? html`<b>You're Verified!</b> Uploading is free, with no daily limit, and you can sell what you make.`
     : html`Uploading costs a few Bolts (decals 5, clothes 10, audio 20, plugins 20; games are free).
       <span class="muted">${me.uploadsLeft} uploads left today.</span>`;
   const clothing = ['hat', 'shirt', 'pants'].includes(kind);
@@ -400,7 +456,8 @@ pages.create = async (tab = 'games') => {
       <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`;
   show(html`${head}<div class="box">${costs}</div>
     ${kind === 'game' ? html`<h2>My published games</h2>` : html`<h2>My ${KINDS[kind]}${kind === 'pants' ? '' : 's'}</h2>`}
-    ${list.length ? html`<div class="list">${list.map(row)}</div>` : html`<p class="muted">Nothing yet.</p>`}
+    ${list.length ? html`<div class="list">${list.map(row)}</div>`
+      : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see what you\'ve made.'}</p>`}
     ${form}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
   const file = view.querySelector('input[type=file]'), prev = $('#preview');
@@ -422,7 +479,7 @@ pages.user = async (id) => {
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
   const f = r.friendship;
-  const friendBtn = !signedIn() || f === 'self' ? ''
+  const friendBtn = f === 'self' ? '' : !signedIn() ? html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`
     : f === 'friends' ? html`<button class="btn small" data-act="friend" data-op="friends.remove" data-user="${u.id}">Unfriend</button>`
       : f === 'sent' ? html`<button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${u.id}">Cancel request</button>`
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
@@ -484,8 +541,7 @@ pages.user = async (id) => {
 };
 
 pages.friends = async () => {
-  if (!signedIn()) { show(html`<h1>Friends</h1>${needSignIn('have friends')}`); return; }
-  const r = await pageCall('friends.list', {});
+  const r = signedIn() ? await pageCall('friends.list', {}) : { ok: true, friends: [], incoming: [], outgoing: [] };
   if (!r.ok) { show(html`<h1>Friends</h1><p class="error">${r.error}</p>`); return; }
   const person = (p) => html`<a class="grow" href="#/user/${p.id}"><b>${p.name}</b></a>${verified(p.verified)}`;
   show(html`<h1>Friends</h1>
@@ -496,7 +552,9 @@ pages.friends = async () => {
     ${r.friends.length ? html`<div class="list">${r.friends.map((p) => html`<div><span class="dot ${p.online ? 'on' : ''}"></span>${person(p)}
       <span class="muted small">${p.playing ? 'Playing ' + p.playing.title : p.online ? 'Online' : 'Offline'}</span>
       <button class="btn small" data-act="friend" data-op="friends.remove" data-user="${p.id}">Unfriend</button></div>`)}</div>`
-      : html`<p class="muted">No friends yet. Find people on the <a href="#/people">People</a> page!</p>`}
+      : signedIn() ? html`<p class="muted">No friends yet. Find people on the <a href="#/people">People</a> page!</p>`
+        : html`<p class="muted">Your friends show up here once you <a href="#/login">log in</a>.
+          Meanwhile, look around the <a href="#/people">People</a> page!</p>`}
     ${r.outgoing.length ? html`<h2>Waiting for them</h2><div class="list">${r.outgoing.map((p) => html`<div>${person(p)}
       <button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${p.id}">Cancel</button></div>`)}</div>` : ''}`);
 };
@@ -518,7 +576,9 @@ pages.groups = async () => {
       <label>Description</label><textarea name="description" maxlength="1000"></textarea>
       <label>Colour</label><input type="color" name="color" value="#3a7bd5">
       <label><input type="checkbox" name="open" checked> Anyone can join (untick: people ask to join)</label>
-      <p><button class="btn green">Make it${me.verified ? ' (free)' : ' for 50 Bolts'}</button></p></form>` : needSignIn('make a group')}`);
+      <p><button class="btn green">Make it${me.verified ? ' (free)' : ' for 50 Bolts'}</button></p></form>` : html`<form class="form" data-form="groupCreate">
+      <label>Name</label><input type="text" name="name" maxlength="40">
+      <p><button class="btn green">Make a group</button></p></form>`}`);
 };
 
 pages.group = async (id) => {
@@ -526,7 +586,7 @@ pages.group = async (id) => {
   if (!r.ok) { show(html`<h1>Group not found</h1><p class="muted">${r.error}</p>`); return; }
   const g = r.group, role = r.myRole, manage = role === 'Owner' || role === 'Admin';
   const color = '#' + Number(g.color).toString(16).padStart(6, '0');
-  const join = !signedIn() ? '' : role ? (role === 'Owner' ? '' : html`<button class="btn small" data-act="group" data-op="groups.leave" data-id="${g.id}">Leave</button>`)
+  const join = !signedIn() ? html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>` : role ? (role === 'Owner' ? '' : html`<button class="btn small" data-act="group" data-op="groups.leave" data-id="${g.id}">Leave</button>`)
     : r.requested ? html`<span class="muted">You asked to join.</span>`
       : html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>`;
   show(html`<p><a href="#/groups">&lt; Groups</a></p>
@@ -569,8 +629,7 @@ pages.group = async (id) => {
 let avatarDraft = null;   // the avatar being edited (saved with the Save button)
 
 pages.avatar = async () => {
-  if (!signedIn()) { show(html`<h1>Avatar</h1>${needSignIn('change your avatar')}`); return; }
-  const r = await pageCall('list', { kind: 'clothing', limit: 100 });
+  const r = signedIn() ? await pageCall('list', { kind: 'clothing', limit: 100 }) : { ok: true, assets: [] };
   const owned = (r.ok ? r.assets : []).filter((a) => (me.owned || []).includes(a.id));
   if (!avatarDraft) avatarDraft = Object.assign(defaultAvatar(), JSON.parse(JSON.stringify(me.avatar || {})));
   const a = avatarDraft;
@@ -581,7 +640,8 @@ pages.avatar = async () => {
         <div class="small muted">Drag to turn</div>
         <p><button class="btn green" data-act="saveAvatar">Save</button>
           <button class="btn" data-act="resetAvatar">Undo changes</button></p>
-        <p class="small muted" style="max-width:200px">Your avatar is the same in the app and on the website.</p></div>
+        <p class="small muted" style="max-width:200px">${signedIn() ? 'Your avatar is the same in the app and on the website.'
+          : 'Try things on! Log in to save your avatar.'}</p></div>
       <div class="grow">
         <h2 style="margin-top:0">Colours</h2>
         <div class="row">${PRESETS.map(([name], i) => html`<button class="btn small" data-act="avatarPreset" data-i="${i}">${name}</button>`)}</div>
@@ -640,18 +700,17 @@ pages.staff = async () => {
 };
 
 pages.bolts = async () => {
-  if (!signedIn()) { show(html`<h1>Bolts</h1>${needSignIn('have Bolts')}`); return; }
-  const r = await pageCall('bolts.history', {});
+  const r = signedIn() ? await pageCall('bolts.history', {}) : { ok: true, history: [] };
   show(html`<h1>Bolts</h1>
-    <div class="box row"><div class="grow" style="font-size:24px">${bolts(me.bolts)}</div>
-      ${me.canDaily ? html`<button class="btn green" data-act="daily">Claim today's 25 Bolts</button>` : html`<span class="muted">Daily Bolts claimed. Come back tomorrow!</span>`}</div>
+    <div class="box row"><div class="grow" style="font-size:24px">${bolts(signedIn() ? me.bolts : 0)}</div>
+      ${!signedIn() || me.canDaily ? html`<button class="btn green" data-act="daily">Claim today's 25 Bolts</button>` : html`<span class="muted">Daily Bolts claimed. Come back tomorrow!</span>`}</div>
     <p class="muted">Earn Bolts every day, by playing games in the app (5 every 5 minutes, up to 50 a day) and by selling things you make.</p>
     <h2>Redeem a code</h2><form class="row" data-form="redeem"><input type="text" name="code" placeholder="BOLTS-..." style="max-width:360px">
       <button class="btn blue">Redeem</button></form>
     <h2>History</h2>
     <div class="list">${r.ok && r.history.length ? r.history.slice().reverse().map((h) => html`<div><span class="grow">${h.reason}</span>
       <span class="${h.amount >= 0 ? 'ok' : 'error'}">${h.amount >= 0 ? '+' : ''}${h.amount}</span><span class="small muted">${ago(h.time)}</span></div>`)
-      : html`<p class="muted">Nothing yet.</p>`}</div>`);
+      : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see your Bolts. New accounts start with 100!'}</p>`}</div>`);
 };
 
 pages.login = async () => loginPage(false);
@@ -705,17 +764,13 @@ const actions = {
     toast(r.ok ? 'You got 25 Bolts!' : r.error);
     render();
   },
+  // Play: games run in the Guts&Bolts app, so the website opens it with a
+  // gutsandbolts:// link. Visitors pick a guest character first, like the old sites.
   play(d) {
-    const box = document.createElement('div');
-    box.className = 'modal';
-    box.innerHTML = html`<div><h1>Play ${d.name}</h1>
-      <p>Games run in the <b>Guts&amp;Bolts app</b>:</p>
-      <ol><li><a href="../#download">Download it</a> (Windows, Mac, Linux or Android) and open <b>Guts&amp;Bolts Player</b>.</li>
-        <li>Click <b>Offline</b> in its menu bar and connect to the same server as this website.</li>
-        <li>Log in with the same username and password, and find <b>${d.name}</b> under <b>Online Games</b>.</li></ol>
-      <p><button class="btn blue" data-act="closeModal">OK</button></p></div>`.s;
-    document.body.appendChild(box);
+    if (!signedIn()) { guestPicker(d.id, d.name); return; }
+    launchGame(d.id, d.name, '');
   },
+  pickGuest(d) { launchGame(d.id, d.name, d.guest); },
   closeModal(d, el) { el.closest('.modal').remove(); },
   async buy(d) {
     const r = await call('buy', { id: d.id });
@@ -890,6 +945,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
   if (!el || !actions[el.dataset.act]) return;
   e.preventDefault();
+  if (!signedIn() && NEEDS_ACCOUNT[el.dataset.act]) { loginPopup(NEEDS_ACCOUNT[el.dataset.act]); return; }
   if (el.disabled) return;
   el.disabled = true;
   try { await actions[el.dataset.act](el.dataset, el); } finally { el.disabled = false; }
@@ -899,6 +955,7 @@ document.addEventListener('submit', async (e) => {
   const f = e.target;
   if (!f.dataset.form || !forms[f.dataset.form]) return;
   e.preventDefault();
+  if (!signedIn() && NEEDS_ACCOUNT[f.dataset.form]) { loginPopup(NEEDS_ACCOUNT[f.dataset.form]); return; }
   const btn = f.querySelector('button:not([type=button])');
   if (btn) btn.disabled = true;
   try { await forms[f.dataset.form](f); } finally { if (btn) btn.disabled = false; }

@@ -12,6 +12,7 @@
 #include "../online/Protocol.h"
 #include "../renderer/SceneRenderer.h"
 #include "../scene/Scene.h"
+#include "LaunchLink.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -225,7 +226,8 @@ void PlayerApp::drawLogin() {
 // Guests pick who to play as, like the old sites did: two characters in green
 // frames, and a link for people who already have an account.
 namespace {
-// The two guest looks: white head, black clothes, and a red cap or pink hair.
+// The two guest looks: white head, black clothes, and a black cap or a ponytail.
+glm::vec3 guestHatColor(int which) { return which == 0 ? glm::vec3(0.1f, 0.1f, 0.11f) : glm::vec3(-1.0f); }
 void dressGuest(Player& p, int which) {
     BodyColors bc = Player::colorPresets()[0].second;
     const glm::vec3 skin{0.94f, 0.94f, 0.92f}, black{0.1f, 0.1f, 0.12f};
@@ -233,9 +235,53 @@ void dressGuest(Player& p, int which) {
     bc.torso = bc.leftArm = bc.rightArm = black;
     bc.leftLeg = bc.rightLeg = black;
     p.setBodyColors(bc);
-    p.setHat(which == 0 ? HatStyle::Cap : HatStyle::Ponytail);
+    p.setHat(which == 0 ? HatStyle::Cap : HatStyle::Ponytail, guestHatColor(which));   // (same as applyGuestLook)
 }
 } // namespace
+
+// Play as a guest character: this device's look while it's a guest.
+void PlayerApp::applyGuestLook(int which) {
+    Profile& me = Profile::get();
+    BodyColors bc = Player::colorPresets()[0].second;
+    const glm::vec3 skin{0.94f, 0.94f, 0.92f}, black{0.1f, 0.1f, 0.12f};
+    bc.head = skin;
+    bc.torso = bc.leftArm = bc.rightArm = black;
+    bc.leftLeg = bc.rightLeg = black;
+    me.colors = bc;
+    me.hat = which == 0 ? HatStyle::Cap : HatStyle::Ponytail;
+    me.hatColor = guestHatColor(which);
+    me.wearing.clear();
+    me.save();
+    if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+}
+
+// The website's Play button opened us with gutsandbolts://play/<game>[?guest=boy|girl].
+void PlayerApp::takeLink(const std::string& url) {
+    LaunchLink::Link link;
+    if (!LaunchLink::parse(url, link)) return;
+    m_linkGame = link.game;
+    m_linkGuest = link.guest;
+}
+
+void PlayerApp::followLink() {
+    if (m_linkGame.empty()) return;
+    if (!Online::online()) {   // not connected yet: wait (a server that's switched off never answers)
+        if (!Online::configured()) { m_status = "Connect to a Guts&Bolts server to play games from the website."; m_linkGame.clear(); }
+        return;
+    }
+    if (m_busy) return;
+    const std::string id = m_linkGame;
+    m_linkGame.clear();
+    if (m_page == Page::Game) leaveGame();
+    if (Online::me().value("userId", 0LL) == 0) {   // not signed up on this device: play as a guest
+        if (!m_linkGuest.empty()) applyGuestLook(m_linkGuest == "girl" ? 1 : 0);
+        Online::setGuest(true);
+    }
+    std::string title;
+    for (const auto& g : m_onlineGames) if (g.value("id", std::string()) == id) title = g.value("name", std::string());
+    m_page = Page::Home;
+    playGame(id, title, onlineStarter(id));
+}
 
 void PlayerApp::drawCharacterPicker() {
     if (!m_charPickOpen) return;
@@ -350,14 +396,7 @@ void PlayerApp::drawCharacterPicker() {
 
         const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
         if (picked >= 0) {
-            // Play as them: this device's guest look.
-            Profile& me = Profile::get();
-            if (Player* p = m_charScene[picked]->player()) { me.colors = p->bodyColors(); }
-            me.hat = picked == 0 ? HatStyle::Cap : HatStyle::Ponytail;
-            me.hatColor = glm::vec3(-1.0f);
-            me.wearing.clear();
-            me.save();
-            if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+            applyGuestLook(picked);
             Online::setGuest(true);
             m_page = Page::Home;
         } else if (haveAccount) {
