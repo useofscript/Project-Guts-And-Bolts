@@ -625,6 +625,16 @@ Constraints join parts together through **Attachments** (little points on a part
 - **Moving platforms:** they carry you, spinning ones turn you with them, and
   jumping off keeps their speed.
 
+### The play camera
+
+Like Roblox, the camera orbits your character's **head**. Right-drag to look
+around and use the mouse wheel to zoom. As the camera comes close your
+character fades away so it doesn't block the view. Scroll all the way in for
+**first person**: the camera sits in your head, your body is invisible (you
+still see the tool you're holding), your character turns to face where you
+look, and the mouse looks around by itself with a dot in the middle of the
+screen. Scroll out to go back. On phones, pinch to zoom in and out.
+
 ## Death, ragdolls and gore
 
 Each game picks its own rules in the Player panel (**Death & Gore**):

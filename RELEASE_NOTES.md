@@ -18,6 +18,8 @@
 - Loose parts knock you back; spinning platforms carry and turn you; jumping
   off a moving platform keeps its speed.
 - Scripts: `math.atan2`, `math.pow` and `math.log10` work like in Roblox.
+- The camera follows your head. Scroll all the way in for first person: your
+  character fades out as the camera gets close, and the mouse looks around.
 
 **Real water**
 - Water now has moving waves and ripples that bounce off the pool's sides.

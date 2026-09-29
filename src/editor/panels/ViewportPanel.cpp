@@ -9,6 +9,9 @@
 #include "../../scene/Physics.h"
 #include "../../scene/EditMesh.h"
 #include "../../game/GameSession.h"
+#include "../../game/PlayCamera.h"
+#include "../../core/AppWindow.h"
+#include "../../scene/Player.h"
 #include "../../game/Hud.h"
 #include "../../core/Audio.h"
 #include "../TeamCreate.h"
@@ -120,6 +123,11 @@ void ViewportPanel::stopAtCollisions(Scene& scene, const std::vector<SceneNode*>
 
 void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; }
 
+void ViewportPanel::followPlayer(Player& p, float dt) {
+    PlayCamera::follow(m_camera, p, dt);
+    PlayCamera::fade(*m_scene, p, m_camera);
+}
+
 bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing(); }
 
 bool ViewportPanel::focusSelected() {
@@ -159,9 +167,18 @@ void ViewportPanel::handleInput(float dt) {
 
     if (playing) {
         if (!m_hovered) return;
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+        if (PlayCamera::firstPerson(m_camera) && !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+            // First person: the hidden mouse looks around (Esc / F5 stops playing as usual).
+            ImVec2 mid(m_viewMin.x + (m_viewMax.x - m_viewMin.x) * 0.5f, m_viewMin.y + (m_viewMax.y - m_viewMin.y) * 0.5f);
+            AppWindow::lockMouse(mid.x, mid.y);
+            m_camera.orbit(AppWindow::mouseLookX(), AppWindow::mouseLookY());
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
+            fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+        } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
             m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
-        if (io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
+        }
+        PlayCamera::zoom(m_camera, io.MouseWheel);
         return;
     }
 
@@ -340,12 +357,14 @@ void ViewportPanel::render(float dt) {
         bool playing = m_session != nullptr;
         m_renderer.setGridSpacing(m_state->snapEnabled && m_state->snapTranslate >= 0.25f ? m_state->snapTranslate : 1.0f);
         m_renderer.render(*m_scene, m_camera, m_fbo, m_state->showGrid && (!playing || m_session->runOnly()));
-        Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
+        Audio::setListener(m_camera.position(), m_camera.forward());
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();
         // Flip V so the framebuffer texture is the right way up in ImGui.
         ImGui::Image((ImTextureID)(intptr_t)m_fbo.colorTexture(),
                      avail, ImVec2(0, 1), ImVec2(1, 0));
+        m_viewMin = imgPos;
+        m_viewMax = ImVec2(imgPos.x + avail.x, imgPos.y + avail.y);
         if (drawModeMenu(imgPos)) m_hovered = false;   // clicks on the menu aren't clicks in the world
 
         glm::mat4 view = m_camera.view();

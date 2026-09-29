@@ -131,7 +131,7 @@ void Editor::render(float dt) {
         m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true);
         m_state.simStep = false;
         Player* p = m_scene->player();
-        if (p && !m_session->runOnly()) m_viewport->frameOn(p->focusPoint());   // Run: the camera stays free
+        if (p && !m_session->runOnly()) m_viewport->followPlayer(*p, dt);   // Run: the camera stays free
     }
     buildDockspace();
     if (!m_playing) m_animEditor->update(dt, m_viewport->gizmoInUse());   // show the rig posed

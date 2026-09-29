@@ -90,7 +90,8 @@ public:
     void      setSpawn(const glm::vec3& p) { m_spawn = p; }
     glm::vec3 spawn() const { return m_spawn; }
     glm::vec3 position() const;
-    glm::vec3 focusPoint() const;     // where the play camera should look
+    glm::vec3 focusPoint() const;     // where the play camera should look (the head)
+    void      faceYaw(float degrees) { m_faceLock = true; m_faceYaw = degrees; }   // first person: turn to the camera
 
     Humanoid& humanoid() { return m_humanoid; }
     // How the character's parts were when Play started (animations pose from there).
@@ -176,6 +177,8 @@ private:
     float m_swing     = 0.0f;   // current limb swing amplitude (degrees)
     float m_airBlend  = 0.0f;   // 0 = on ground, 1 = jump pose
     float m_groundSpeed = 0.0f; // how fast we're really moving along the ground (smoothed)
+    bool  m_faceLock = false;   // first person: face m_faceYaw next step
+    float m_faceYaw = 0.0f;
     // Climbing trusses / ladders, and swimming in water.
     bool  m_climbing = false, m_swimming = false;
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;

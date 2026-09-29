@@ -17,6 +17,7 @@ class Scene;
 class GameSession;
 class TeamCreate;
 class SceneNode;
+class Player;
 struct Transform;
 
 // 3D viewport: renders the scene to an off-screen framebuffer and displays it
@@ -34,6 +35,7 @@ public:
     float     cameraYaw() const;                  // for camera-relative controls
     glm::vec3 cameraPivot() const { return m_camera.pivot; }
     void      frameOn(const glm::vec3& target);   // point the camera at a target
+    void      followPlayer(Player& p, float dt);   // Play: the camera follows the head (first person too)
     bool      hovered() const { return m_hovered; }
     // A picture of the game from its spawn point, as a PNG file (for publishing).
     std::string snapshotPng(int width, int height);
@@ -97,4 +99,5 @@ private:
     bool      m_meshDragging = false;
     bool      m_boxing = false;
     ImVec2    m_boxStart{0, 0};
+    ImVec2    m_viewMin{0, 0}, m_viewMax{0, 0};   // where the 3D view was drawn last frame
 };

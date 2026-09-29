@@ -583,12 +583,12 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         if (!node->visible) continue;
         ff = ff || node->hasForceField();
         for (auto& c : node->children) stack.push_back({c.get(), ff});
-        if (node->isDecal() && !node->texture.empty() && node->transparency < 0.99f &&
+        if (node->isDecal() && !node->texture.empty() && node->shownTransparency() < 0.99f &&
             node->parent && node->parent->kind == NodeKind::Part)
             decals.push_back({node, decalMatrix(*node), 0.0f});
         if (!node->mesh || node->kind != NodeKind::Part) continue;
-        if (ff && !node->internal && node->transparency < 0.99f) shielded.push_back({node, node->worldMatrix(), 0.0f});
-        float alpha = 1.0f - node->transparency;
+        if (ff && !node->internal && node->shownTransparency() < 0.99f) shielded.push_back({node, node->worldMatrix(), 0.0f});
+        float alpha = 1.0f - node->shownTransparency();
         if (alpha <= 0.001f) continue;   // fully transparent — nothing to draw
         glm::mat4 model = node->worldMatrix();
         float dist = glm::length(glm::vec3(model[3]) - camPos);
@@ -612,7 +612,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         m_lit->setVec3("uColor", node->color);
         m_lit->setBool("uSelected", node->selected);
         m_lit->setInt("uMaterial", water ? 7 : (int)node->material);
-        m_lit->setFloat("uAlpha", 1.0f - node->transparency);
+        m_lit->setFloat("uAlpha", 1.0f - node->shownTransparency());
         if (water) glDisable(GL_CULL_FACE);   // seen from underwater too
         if (wb) {
             auto& mesh = m_waterMeshes[node->id];
@@ -690,7 +690,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
             m_lit->setVec3("uColor", it.node->color);
             m_lit->setBool("uSelected", it.node->selected || it.node->parent->selected);
             m_lit->setInt("uMaterial", (int)Material::Plastic);
-            m_lit->setFloat("uAlpha", 1.0f - it.node->transparency);
+            m_lit->setFloat("uAlpha", 1.0f - it.node->shownTransparency());
             plane->draw();
         }
         m_lit->setBool("uUseDecal", false);

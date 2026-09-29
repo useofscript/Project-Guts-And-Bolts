@@ -17,6 +17,7 @@ public:
     glm::mat4 view()       const;
     glm::mat4 projection() const;
     glm::vec3 position()   const;
+    glm::vec3 forward()    const;   // the way the camera looks
 
     float yaw      = 45.0f;
     float pitch    = 25.0f;

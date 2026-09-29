@@ -97,6 +97,34 @@ bool AppWindow::shouldClose() const { return glfwWindowShouldClose(m_window); }
 void AppWindow::close() { glfwSetWindowShouldClose(m_window, GLFW_TRUE); }
 void AppWindow::setTitle(const std::string& t) { glfwSetWindowTitle(m_window, t.c_str()); }
 
+namespace {
+struct MouseLock { bool want = false, active = false; double x = 0, y = 0; float dx = 0, dy = 0; };
+MouseLock g_lock;
+
+// Keep the hidden pointer where it was asked to be, and measure how far it moved.
+void updateMouseLock(GLFWwindow* w) {
+    const bool want = g_lock.want && glfwGetWindowAttrib(w, GLFW_FOCUSED);
+    g_lock.want = false;   // asked for again every frame it's wanted
+    g_lock.dx = g_lock.dy = 0.0f;
+    if (!want) {
+        if (g_lock.active) glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        g_lock.active = false;
+        return;
+    }
+    double cx, cy;
+    glfwGetCursorPos(w, &cx, &cy);
+    if (g_lock.active) { g_lock.dx = (float)(cx - g_lock.x); g_lock.dy = (float)(cy - g_lock.y); }
+    else glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+    glfwSetCursorPos(w, g_lock.x, g_lock.y);
+    g_lock.active = true;
+}
+} // namespace
+
+void  AppWindow::lockMouse(float x, float y) { g_lock.want = true; g_lock.x = x; g_lock.y = y; }
+float AppWindow::mouseLookX() { return g_lock.dx; }
+float AppWindow::mouseLookY() { return g_lock.dy; }
+bool  AppWindow::mouseLocked() { return g_lock.active; }
+
 float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     const GraphicsSettings& gs = GraphicsSettings::get();
     int wantVsync = (gs.vsync && !m_fixedDt) ? 1 : 0;
@@ -108,6 +136,7 @@ float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
 
     glfwPollEvents();
     Audio::update();
+    updateMouseLock(m_window);
 
     int w, h;
     glfwGetFramebufferSize(m_window, &w, &h);

@@ -178,7 +178,15 @@ glm::vec3 Player::focusPoint() const {
     if (m_dead && m_ragdoll.active()) return m_ragdoll.center();
     if (m_dead)
         if (SceneNode* t = part("Torso")) return glm::vec3(t->worldMatrix()[3]);
-    return position() + glm::vec3(0.0f, 1.6f, 0.0f);
+    // Like Roblox, the camera looks at (and in first person, sits in) the head.
+    // (Where the head is on the body, not how it bobs, so the view stays steady.)
+    if (SceneNode* r = root())
+        if (SceneNode* h = part("Head")) {
+            auto it = m_rest.find(h->id);
+            glm::vec3 local = it != m_rest.end() ? it->second.position : h->transform.position;
+            return glm::vec3(r->worldMatrix() * glm::vec4(local, 1.0f));
+        }
+    return position() + glm::vec3(0.0f, 2.3f, 0.0f);
 }
 
 // ---------------------------------------------------------------------------
@@ -652,7 +660,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (moving) {
         horiz /= len;
         float amount = std::min(1.0f, len);   // a half-pushed thumbstick walks slower
-        if (m_humanoid.autoRotate) {
+        if (m_humanoid.autoRotate && !m_faceLock) {
             // Turn smoothly towards the direction of travel (shortest way round).
             float target = glm::degrees(std::atan2(horiz.x, horiz.z));
             float cur    = r->transform.rotation.y;
@@ -661,6 +669,9 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         }
         horiz *= amount;
     }
+
+    // First person: the body faces wherever the camera looks.
+    if (m_faceLock) { r->transform.rotation.y = m_faceYaw; m_faceLock = false; }
 
     // Trusses / ladders in front of us, and water around us.
     const float yaw = glm::radians(r->transform.rotation.y);

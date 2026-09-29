@@ -69,7 +69,8 @@ void Application::run() {
         }
     }
     // Test helper: mouse actions, one every 8 frames from frame 60.
-    struct MouseAct { bool shift = false; float x0, y0, x1, y1; };
+    // "click:x:y", "shift:x:y", "drag:x0:y0:x1:y1", "wheel:x:y:amount" (+ = in).
+    struct MouseAct { bool shift = false; float x0, y0, x1, y1; float wheel = 0.0f; };
     std::vector<MouseAct> mouse;
     {
         std::stringstream ss(m_opts.testMouse);
@@ -82,6 +83,7 @@ void Application::run() {
             std::stringstream ps(w.substr(kind.size()));
             for (float& f : v) ps >> f;
             a.shift = kind == "shift";
+            if (kind == "wheel") a.wheel = v[2];
             a.x0 = v[0]; a.y0 = v[1];
             a.x1 = kind == "drag" ? v[2] : v[0];
             a.y1 = kind == "drag" ? v[3] : v[1];
@@ -105,9 +107,10 @@ void Application::run() {
                 io.AddKeyEvent(ImGuiMod_Shift, a.shift && k < 7);
                 io.AddKeyEvent(ImGuiKey_LeftShift, a.shift && k < 7);
                 if (k == 0) io.AddMousePosEvent(a.x0, a.y0);
-                if (k == 1) io.AddMouseButtonEvent(0, true);
+                if (a.wheel != 0.0f) { if (k == 1) io.AddMouseWheelEvent(0.0f, a.wheel); }
+                else if (k == 1) io.AddMouseButtonEvent(0, true);
                 if (k >= 2 && k <= 4) io.AddMousePosEvent(a.x0 + (a.x1 - a.x0) * (k - 1) / 3.0f, a.y0 + (a.y1 - a.y0) * (k - 1) / 3.0f);
-                if (k == 5) io.AddMouseButtonEvent(0, false);
+                if (k == 5 && a.wheel == 0.0f) io.AddMouseButtonEvent(0, false);
             }
             // Test helper: press one chord every 6 frames, starting at frame 20.
             int step = frame - 20;

@@ -234,6 +234,12 @@ void AppWindow::injectTouch(long long id, float x, float y, bool down) {
     SDL_PushEvent(&m);
 }
 
+// Phones have no mouse to lock (dragging a finger looks around instead).
+void  AppWindow::lockMouse(float, float) {}
+float AppWindow::mouseLookX() { return 0.0f; }
+float AppWindow::mouseLookY() { return 0.0f; }
+bool  AppWindow::mouseLocked() { return false; }
+
 float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     const GraphicsSettings& gs = GraphicsSettings::get();
     int wantVsync = (gs.vsync && !m_fixedDt) ? 1 : 0;

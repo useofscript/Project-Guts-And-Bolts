@@ -4,6 +4,7 @@
 #include "../game/GameGui.h"
 #include "../renderer/Textures.h"
 #include "../core/AppWindow.h"
+#include "../game/PlayCamera.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
 #include "../core/Settings.h"
@@ -1157,17 +1158,28 @@ void PlayerApp::drawGame(float dt) {
         }
     }
 
-    // Camera: follow the character; right-drag to look around, wheel to zoom.
+    // Camera: follow the character's head; right-drag to look around, wheel to
+    // zoom, all the way in for first person (where the mouse looks around by itself).
     bool hovered = ImGui::IsWindowHovered();
+    const bool firstPerson = PlayCamera::firstPerson(m_camera);
     if (acceptInput && hovered) {
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+        if (firstPerson && !m_paused && !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+            ImVec2 c = ImGui::GetCursorScreenPos();
+            ImVec2 mid(c.x + size.x * 0.5f, c.y + size.y * 0.5f);
+            AppWindow::lockMouse(mid.x, mid.y);
+            m_camera.orbit(AppWindow::mouseLookX(), AppWindow::mouseLookY());
+            // The pointer is hidden: a little dot in the middle shows what you'd click.
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
+            fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+        } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
             m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
-        if (io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
-        m_camera.distance = std::clamp(m_camera.distance, 2.0f, 60.0f);
+        }
+        PlayCamera::zoom(m_camera, io.MouseWheel);
     }
     if (Player* p = m_scene->player()) {
-        glm::vec3 target = p->focusPoint();
-        m_camera.pivot += (target - m_camera.pivot) * std::min(1.0f, dt * 12.0f);
+        PlayCamera::follow(m_camera, *p, dt);
+        PlayCamera::fade(*m_scene, *p, m_camera);
     }
 
 #ifdef GB_MOBILE
@@ -1179,7 +1191,7 @@ void PlayerApp::drawGame(float dt) {
     m_view.resize((int)px.x, (int)px.y);
     m_camera.resize((int)px.x, (int)px.y);
     m_renderer->render(*m_scene, m_camera, m_view, false);
-    Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
+    Audio::setListener(m_camera.position(), m_camera.forward());
     ImGui::Image((ImTextureID)(intptr_t)m_view.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
 
     // Clicking parts (for part.Clicked in scripts). With touch controls, a tap does it.
@@ -1546,7 +1558,7 @@ void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
     m_session->setTouchInput(m_touch.move(), m_touch.jump());
     ImVec2 look = m_touch.look();
     if (look.x != 0.0f || look.y != 0.0f) m_camera.orbit(look.x, look.y);
-    if (m_touch.zoom() != 0.0f) m_camera.zoom(m_touch.zoom());
+    if (m_touch.zoom() != 0.0f) PlayCamera::zoom(m_camera, m_touch.zoom());
     if (m_touch.chatPressed()) m_chatOpen = true;
     if (m_touch.menuPressed()) m_paused = true;
 }

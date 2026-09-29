@@ -123,6 +123,10 @@ public:
 
     // Appearance
     float    transparency = 0.0f;            // 0 = opaque, 1 = invisible
+    // Extra see-through-ness only this screen uses (Roblox's LocalTransparencyModifier):
+    // your own character fades as the camera comes close. Never saved or sent.
+    float    localTransparency = 0.0f;
+    float    shownTransparency() const { return 1.0f - (1.0f - transparency) * (1.0f - localTransparency); }
     Material material      = Material::Plastic;
 
     // Behaviour
