@@ -901,6 +901,23 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         mp->transform.scale = glm::vec3(2.0f);
         setMode(StudioMode::Modeling);
     }
+    else if (what == "TrussPart") {   // walk into it to climb
+        SceneNode* t = part("TrussPart", PrimitiveType::Cube);
+        t->transform.scale = {2, 10, 2};
+        t->transform.position.y += 4.5f;
+        t->color = {0.6f, 0.62f, 0.66f};
+        t->material = Material::Metal;
+    }
+    else if (what == "Water") {   // swim in it
+        SceneNode* w = part("Water", PrimitiveType::Cube);
+        w->transform.scale = {16, 6, 16};
+        w->transform.position.y += 2.5f;
+        w->color = {0.2f, 0.5f, 0.95f};
+        w->transparency = 0.45f;
+        w->material = Material::Glass;
+        w->canCollide = false;
+        w->castShadow = false;
+    }
     else if (what == "SpawnLocation") {
         SceneNode* sp = part("SpawnLocation", PrimitiveType::Cube);
         sp->transform.scale = {3, 0.2f, 3};
@@ -1006,7 +1023,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},

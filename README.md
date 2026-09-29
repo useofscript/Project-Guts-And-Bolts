@@ -496,6 +496,17 @@ Most built-in sounds are made in code, but a few are recordings in
 
 Swap in your own .wav files with the same names and rebuild.
 
+### Climbing and swimming
+
+- **Climb:** walk into a **TrussPart** (Insert > TrussPart), or any part called
+  *Ladder*, or one with the tag or attribute `Climbable`. You go up hand over
+  hand. Let go of the keys to hang on, and press jump to leap off.
+- **Swim:** a part called **Water** (Insert > Water: see-through, CanCollide
+  off), or one with the tag or attribute `Water`. You float, move a bit slower,
+  and hold jump to swim up. No fall damage when you land in water.
+- Scripts can check with `humanoid:GetState()`, which returns "Climbing",
+  "Swimming", "Freefall", "Running" or "Dead".
+
 ## Physics
 
 Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,

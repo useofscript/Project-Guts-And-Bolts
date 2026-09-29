@@ -11,6 +11,10 @@
   `button.MouseButton1Click`.
 - They work in multiplayer, and in Roblox files (import and export).
 
+**Climbing and swimming**
+- Walk into a **TrussPart** or a ladder to climb it. Parts called **Water** are
+  swimmable. Both are in the Insert menu.
+
 **The website looks like it's from 2011**
 - A dark blue top bar with the logo, a game search box and your account. Below it
   is a shiny tab row and a gray row with Avatar, Friends, Groups and Bolts.

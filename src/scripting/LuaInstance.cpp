@@ -1239,6 +1239,19 @@ int hum_isA(lua_State* L) {
     return 1;
 }
 
+// humanoid:GetState() -> "Climbing", "Swimming", "Freefall", "Running", "Dead" (Enum.HumanoidStateType names)
+int hum_getState(lua_State* L) {
+    Player* p = E(L)->scene()->player();
+    const bool mine = p && p->rootId() == humRoot(L);
+    const char* st = "Running";
+    if (hum(L).health <= 0.0f) st = "Dead";
+    else if (mine && p->climbing()) st = "Climbing";
+    else if (mine && p->swimming()) st = "Swimming";
+    else if (mine && !p->grounded()) st = "Freefall";
+    lua_pushstring(L, st);
+    return 1;
+}
+
 int hum_index(lua_State* L) {
     const char* k = luaL_checkstring(L, 2);
     Humanoid& h = hum(L);
@@ -1256,6 +1269,7 @@ int hum_index(lua_State* L) {
     if (is(k, "UnequipTools")) { lua_pushcfunction(L, hum_unequipTools); return 1; }
     if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
     if (is(k, "LoadAnimation")) { lua_pushcfunction(L, hum_loadAnimation); return 1; }
+    if (is(k, "GetState"))   { lua_pushcfunction(L, hum_getState); return 1; }
     if (is(k, "GetPlayingAnimationTracks")) { lua_pushcfunction(L, hum_playing); return 1; }
     if (is(k, "Animator"))   { pushAnimator(L, humRoot(L)); return 1; }
     if (is(k, "FindFirstChild") || is(k, "FindFirstChildOfClass") || is(k, "WaitForChild"))

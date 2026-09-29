@@ -588,6 +588,26 @@ bool Player::consumeDied() {
     return d;
 }
 
+namespace {
+bool flagged(const SceneNode* n, const char* what) {
+    if (std::find(n->tags.begin(), n->tags.end(), what) != n->tags.end()) return true;
+    const Attribute* a = n->findAttribute(what);
+    return a && ((a->type == Attribute::Bool && a->b) || (a->type == Attribute::Number && a->n != 0));
+}
+bool nameHas(const SceneNode* n, const char* word) { return n->name.find(word) != std::string::npos; }
+bool insideBox(const AABB& b, const glm::vec3& p, float pad = 0.0f) {
+    return p.x >= b.min.x - pad && p.x <= b.max.x + pad && p.y >= b.min.y - pad && p.y <= b.max.y + pad &&
+           p.z >= b.min.z - pad && p.z <= b.max.z + pad;
+}
+} // namespace
+
+bool Player::isClimbable(const SceneNode* n) {
+    return n->isPart() && n->canCollide && (nameHas(n, "Truss") || nameHas(n, "Ladder") || flagged(n, "Climbable"));
+}
+bool Player::isWater(const SceneNode* n) {
+    return n->isPart() && !n->canCollide && (n->name == "Water" || nameHas(n, "Water") || flagged(n, "Water"));
+}
+
 void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics) {
     SceneNode* r = root();
     if (!r) return;
@@ -637,17 +657,59 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         horiz *= amount;
     }
 
+    // Trusses / ladders in front of us, and water around us.
+    const float yaw = glm::radians(r->transform.rotation.y);
+    const glm::vec3 facing(std::sin(yaw), 0.0f, std::cos(yaw));
+    const glm::vec3 ahead = moving ? glm::normalize(glm::vec3(horiz.x, 0.0f, horiz.z)) : facing;
+    bool truss = false, water = false;
+    float waterTop = -1e9f;
+    m_climbCooldown = std::max(0.0f, m_climbCooldown - dt);
+    m_scene->forEach([&](SceneNode* n) {
+        if (!n->isPart() || m_scene->isCharacterPart(n)) return;
+        const bool climbable = m_climbCooldown <= 0.0f && isClimbable(n), wet = isWater(n);
+        if (!climbable && !wet) return;
+        AABB b = Physics::worldBounds(n);
+        if (climbable && !truss)
+            for (float h : {0.4f, 1.3f, 2.2f})
+                if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
+        if (wet && insideBox(b, pos + glm::vec3(0.0f, 1.2f, 0.0f))) { water = true; waterTop = std::max(waterTop, b.max.y); }
+    });
+    // Climb when walking into a truss (or when already on one and still touching it).
+    const bool wasClimbing = m_climbing;
+    m_climbing = truss && (moving || (m_climbing && !m_grounded));
+    m_swimming = water && !m_climbing;
+    float speed = m_humanoid.walkSpeed * (m_swimming ? 0.75f : 1.0f);
+
     // Gravity + jumping.
-    if (m_grounded && jump) {
-        m_velocity.y = m_humanoid.jumpPower;
-        m_grounded = false;
-        glm::vec3 at = pos + glm::vec3(0, 1, 0);
-        Audio::play("jump", 0.35f, 1.0f, false, &at);
+    if (m_climbing) {
+        if (jump && wasClimbing && !m_grounded) {   // leap off backwards
+            m_climbing = false;
+            m_climbCooldown = 0.35f;
+            m_velocity = -ahead * 10.0f + glm::vec3(0.0f, m_humanoid.jumpPower * 0.7f, 0.0f);
+        } else {
+            m_velocity.y = moving ? m_humanoid.walkSpeed * 0.9f : 0.0f;   // stop pushing = hang on
+            m_climbPhase += dt * (moving ? 9.0f : 0.0f);
+            horiz *= 0.3f;   // (the truss is in the way anyway)
+        }
+    } else if (m_swimming) {
+        const float g = m_scene->world().gravity;
+        m_velocity.y -= g * 0.12f * dt;                       // almost floating
+        if (pos.y + 1.6f < waterTop) m_velocity.y += 5.0f * dt;   // deep: drift up
+        if (jump) m_velocity.y = std::min(m_velocity.y + 45.0f * dt, 9.0f);   // swim up (and jump out at the top)
+        m_velocity.y *= std::max(0.0f, 1.0f - 2.5f * dt);     // water slows everything
+        m_climbPhase += dt * 6.0f;
+    } else {
+        if (m_grounded && jump) {
+            m_velocity.y = m_humanoid.jumpPower;
+            m_grounded = false;
+            glm::vec3 at = pos + glm::vec3(0, 1, 0);
+            Audio::play("jump", 0.35f, 1.0f, false, &at);
+        }
+        m_velocity.y -= m_scene->world().gravity * dt;
     }
-    m_velocity.y -= m_scene->world().gravity * dt;
 
     // Walking plus any leftover push (from jump pads, etc.), which fades out.
-    glm::vec3 delta = horiz * m_humanoid.walkSpeed * dt;
+    glm::vec3 delta = horiz * speed * dt;
     delta.x += m_velocity.x * dt;
     delta.z += m_velocity.z * dt;
     delta.y = m_velocity.y * dt;
@@ -667,7 +729,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     const WorldSettings& world = m_scene->world();
     float impact = -m_velocity.y;
     if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed &&
-        !hasForceField()) {
+        !hasForceField() && !m_swimming) {
         float over = impact - world.fallDamageSpeed;
         float damage = over * 7.0f;
         m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
@@ -688,7 +750,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
     animate(dt, moving, m_grounded);
-    footsteps(moving && m_grounded, res.position);
+    footsteps(moving && m_grounded && !m_swimming && !m_climbing, res.position);
     updateGrip();
 }
 
@@ -737,6 +799,15 @@ void Player::animate(float dt, bool moving, bool grounded) {
         -s * (1 - m_airBlend) + (  12.0f) * m_airBlend,   // Left Leg
         s  * (1 - m_airBlend) + ( -12.0f) * m_airBlend,   // Right Leg
     };
+    // Climbing: hand over hand, knees up. Swimming: big arm strokes, kicking legs.
+    m_climbBlend = approach(m_climbBlend, m_climbing ? 1.0f : 0.0f, 12.0f, dt);
+    m_swimBlend = approach(m_swimBlend, m_swimming ? 1.0f : 0.0f, 8.0f, dt);
+    const float c = std::sin(m_climbPhase);
+    const float climb[4] = {-150.0f + 30.0f * c, -150.0f - 30.0f * c, -35.0f - 25.0f * c, -35.0f + 25.0f * c};
+    const float swim[4] = {-90.0f + 85.0f * c, -90.0f - 85.0f * c, 20.0f * std::sin(m_climbPhase * 2.0f),
+                           -20.0f * std::sin(m_climbPhase * 2.0f)};
+    for (int i = 0; i < 4; ++i)
+        angles[i] = angles[i] * (1.0f - m_climbBlend - m_swimBlend) + climb[i] * m_climbBlend + swim[i] * m_swimBlend;
 
     for (int i = 0; i < 4; ++i) {
         SceneNode* limb = part(kLimbs[i]);

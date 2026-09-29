@@ -139,6 +139,15 @@ private:
     float    m_toolSwing = 0.0f;       // seconds left of the swing animation
     uint64_t m_checkpoint = 0;         // RespawnLocation / last Checkpoint touched
     static constexpr float kToolSwingTime = 0.4f;
+public:
+    bool climbing() const { return m_climbing; }
+    bool grounded() const { return m_grounded; }
+    bool swimming() const { return m_swimming; }
+    // Parts you climb (TrussPart, anything called Ladder, or tagged / attributed "Climbable")
+    // and swim in (called Water, or tagged / attributed "Water").
+    static bool isClimbable(const SceneNode* n);
+    static bool isWater(const SceneNode* n);
+private:
     bool     m_respawnedFlag = false;
     Scene*   m_scene  = nullptr;
     uint64_t m_rootId = 0;
@@ -158,6 +167,11 @@ private:
     float m_walkPhase = 0.0f;
     float m_swing     = 0.0f;   // current limb swing amplitude (degrees)
     float m_airBlend  = 0.0f;   // 0 = on ground, 1 = jump pose
+    // Climbing trusses / ladders, and swimming in water.
+    bool  m_climbing = false, m_swimming = false;
+    float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
+    float m_climbPhase = 0.0f;
+    float m_climbCooldown = 0.0f;   // just jumped off: don't grab straight back on
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 
     // Rest pose captured when Play starts (local transforms by node id).
