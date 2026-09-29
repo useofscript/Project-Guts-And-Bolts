@@ -23,7 +23,12 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //                container whose part named "Handle" goes in the character's hand
 //   Value      — holds one value (IntValue, NumberValue, StringValue, BoolValue,
 //                Vector3Value, Color3Value); leaderstats are made of these
-enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value };
+//   Decal      — a picture on one side of the part it's inside
+enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal };
+
+// Sides of a part, in Roblox's NormalId order.
+enum class Face { Right, Top, Back, Left, Bottom, Front };
+inline const char* const kFaceNames[6] = {"Right", "Top", "Back", "Left", "Bottom", "Front"};
 
 enum class ConstraintType { Rope, Rod, Spring, Weld, Hinge };
 inline const char* const kConstraintNames[5] = {"Rope", "Rod", "Spring", "Weld", "Hinge"};
@@ -125,6 +130,11 @@ public:
     float       motorTorque = 0.0f;        // hinge motor strength (0 = no motor)
     float       thickness   = 0.1f;        // how thick the rope / rod looks
 
+    // Decal (kind == Decal): which picture, on which side. `color` tints it
+    // (white = as it is), `transparency` fades it.
+    std::string texture;                   // "gb:<id>", a file in the games folder, or a path
+    Face        face = Face::Front;
+
     // Value (kind == Value): its type and contents (the name inside isn't used).
     Attribute   value;
     bool        intValue = false;          // an IntValue (Number, whole numbers only)
@@ -154,6 +164,7 @@ public:
     bool isSound()  const { return kind == NodeKind::Sound; }
     bool isTool()   const { return kind == NodeKind::Tool; }
     bool isValue()  const { return kind == NodeKind::Value; }
+    bool isDecal()  const { return kind == NodeKind::Decal; }
     // "IntValue", "StringValue"... (kind == Value)
     const char* valueClass() const {
         switch (value.type) {

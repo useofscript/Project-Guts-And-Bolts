@@ -71,6 +71,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Tool:       return "Tool";
         case NodeKind::Value:      return n->valueClass();
+        case NodeKind::Decal:      return "Decal";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint:
@@ -96,6 +97,7 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Constraint && cls == "Constraint") return true;
     if (n->kind == NodeKind::Tool && cls == "BackpackItem") return true;
     if (n->kind == NodeKind::Value && cls == "ValueBase") return true;
+    if (n->kind == NodeKind::Decal && cls == "FaceInstance") return true;
     return false;
 }
 
@@ -496,6 +498,12 @@ int inst_index(lua_State* L) {
         if (is(k, "Value"))   { LuaApi::pushValue(L, *n); return 1; }
         if (is(k, "Changed")) { LuaApi::pushSignal(L, SignalKind::Changed, n->id); return 1; }
     }
+    if (n->isDecal()) {
+        if (is(k, "Texture"))      { lua_pushstring(L, n->texture.c_str()); return 1; }
+        if (is(k, "Face"))         { lua_pushstring(L, kFaceNames[(int)n->face]); return 1; }
+        if (is(k, "Color3"))       { LuaApi::pushColor3(L, n->color); return 1; }
+        if (is(k, "Transparency")) { lua_pushnumber(L, n->transparency); return 1; }
+    }
     if (n->isTool()) {
         if (is(k, "Enabled"))        { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "ToolTip"))        { lua_pushstring(L, n->toolTip.c_str()); return 1; }
@@ -657,6 +665,16 @@ int inst_newindex(lua_State* L) {
         LuaApi::engine(L)->fireValueChanged(n->id);
         return 0;
     }
+    if (n->isDecal()) {
+        if (is(k, "Texture"))      { n->texture = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "Color3"))       { n->color = LuaApi::checkColor3(L, 3); return 0; }
+        if (is(k, "Transparency")) { n->transparency = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "Face")) {
+            std::string f = luaL_checkstring(L, 3);   // Enum.NormalId.Top -> "Top"
+            for (int i = 0; i < 6; ++i) if (f == kFaceNames[i]) n->face = (Face)i;
+            return 0;
+        }
+    }
     if (n->isTool()) {
         if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return 0; }
         if (is(k, "ToolTip"))      { n->toolTip = luaL_checkstring(L, 3); return 0; }
@@ -723,6 +741,9 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::ForceField);
     } else if (cls == "Tool") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Tool);
+    } else if (cls == "Decal") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Decal);
+        n->color = {1.0f, 1.0f, 1.0f};
     } else if (cls == "IntValue" || cls == "NumberValue" || cls == "StringValue" || cls == "BoolValue" ||
                cls == "Vector3Value" || cls == "Color3Value") {
         n = std::make_unique<SceneNode>("Value", NodeKind::Value);

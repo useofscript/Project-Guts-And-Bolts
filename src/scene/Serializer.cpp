@@ -43,6 +43,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Constraint: return "Constraint";
         case NodeKind::Tool:   return "Tool";
         case NodeKind::Value:  return "Value";
+        case NodeKind::Decal:  return "Decal";
         default:               return "Part";
     }
 }
@@ -56,6 +57,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Constraint") return NodeKind::Constraint;
     if (s == "Tool")   return NodeKind::Tool;
     if (s == "Value")  return NodeKind::Value;
+    if (s == "Decal")  return NodeKind::Decal;
     return NodeKind::Part;
 }
 
@@ -122,6 +124,12 @@ json toJson(const SceneNode& n) {
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
         j["enabled"] = n.enabled;
+    }
+    if (n.kind == NodeKind::Decal) {
+        j["texture"] = n.texture;
+        j["face"] = kFaceNames[(int)n.face];
+        j["color"] = vec(n.color);
+        j["transparency"] = n.transparency;
     }
     if (n.kind == NodeKind::Value) {
         json v = {{"t", (int)n.value.type}, {"int", n.intValue}};
@@ -242,6 +250,13 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->brightness = get<float>(j, "brightness", 2.0f);
         n->range      = get<float>(j, "range", 14.0f);
         n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
+    if (n->kind == NodeKind::Decal) {
+        n->texture = get<std::string>(j, "texture", std::string());
+        std::string f = get<std::string>(j, "face", std::string("Front"));
+        for (int i = 0; i < 6; ++i) if (f == kFaceNames[i]) n->face = (Face)i;
+        n->color = vec(j, "color", {1, 1, 1});
+        n->transparency = get<float>(j, "transparency", 0.0f);
     }
     if (n->kind == NodeKind::Value && j.contains("value") && j["value"].is_object()) {
         const json& vj = j["value"];
@@ -472,6 +487,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.looped = src->looped;       dst.autoplay = src->autoplay;
     dst.toolTip = src->toolTip;     dst.canBeDropped = src->canBeDropped;
     dst.value = src->value;         dst.intValue = src->intValue;
+    dst.texture = src->texture;     dst.face = src->face;
     dst.starterTool = src->starterTool; dst.gripPos = src->gripPos;
     dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;

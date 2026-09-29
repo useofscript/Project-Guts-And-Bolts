@@ -136,6 +136,14 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddText(nullptr, s * 0.5f, ImVec2(c.x - s * 0.14f, c.y - s * 0.26f), rgb(255, 255, 255), "1");
         break;
     }
+    case Id::Decal: {   // a little picture: sky, sun and a hill
+        ImVec2 a(c.x - s * 0.38f, c.y - s * 0.3f), b(c.x + s * 0.38f, c.y + s * 0.3f);
+        dl->AddRectFilled(a, b, rgb(120, 180, 240), s * 0.05f);
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.18f, c.y - s * 0.1f), s * 0.08f, rgb(255, 220, 90), 12);
+        dl->AddTriangleFilled(ImVec2(a.x, b.y), ImVec2(c.x - s * 0.08f, c.y - s * 0.06f), ImVec2(c.x + s * 0.2f, b.y), rgb(80, 170, 90));
+        dl->AddRect(a, b, rgb(235, 238, 245), s * 0.05f, 0, th * 0.8f);
+        break;
+    }
     case Id::Tool: {   // a little sword
         ImVec2 tip(c.x + s * 0.38f, c.y - s * 0.38f), guard(c.x - s * 0.12f, c.y + s * 0.12f);
         dl->AddLine(guard, tip, rgb(200, 210, 225), th * 2.0f);
@@ -408,6 +416,7 @@ Id forNode(const SceneNode& n) {
         case NodeKind::ForceField: return Id::ForceField;
         case NodeKind::Tool:       return Id::Tool;
         case NodeKind::Value:      return Id::Value;
+        case NodeKind::Decal:      return Id::Decal;
         default: break;
     }
     switch (n.primitiveType) {

@@ -283,6 +283,7 @@ add_library(gb_engine STATIC
     src/core/Log.cpp
     src/core/Settings.cpp
     src/core/Paths.cpp
+    src/core/FileDialog.cpp
     src/core/Audio.cpp
     src/core/UpdateChecker.cpp
     src/core/Account.cpp
@@ -290,6 +291,7 @@ add_library(gb_engine STATIC
     src/scene/PlayerModel.cpp
     src/renderer/Shader.cpp
     src/renderer/Mesh.cpp
+    src/renderer/Textures.cpp
     src/renderer/Camera.cpp
     src/renderer/Framebuffer.cpp
     src/renderer/ShadowMap.cpp

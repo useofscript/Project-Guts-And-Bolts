@@ -780,6 +780,11 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         v->value.type = what == "StringValue" ? Attribute::String : what == "BoolValue" ? Attribute::Bool : Attribute::Number;
         put(std::move(v));
     }
+    else if (what == "Decal") {
+        auto d = std::make_unique<SceneNode>("Decal", NodeKind::Decal);
+        d->color = {1.0f, 1.0f, 1.0f};
+        put(std::move(d));
+    }
     else if (what == "Tool") {
         // A tool with a Handle ready to hold, sitting where you're looking.
         SceneNode* tool = put(std::make_unique<SceneNode>("Tool", NodeKind::Tool));
@@ -814,7 +819,7 @@ void Editor::renderInsertObject() {
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
-        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool},
+        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;

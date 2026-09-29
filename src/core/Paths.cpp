@@ -109,6 +109,15 @@ std::filesystem::path gamesFolder() {
     return p;
 }
 
+std::string relativeToGames(const std::filesystem::path& file) {
+    std::error_code ec;
+    auto games = std::filesystem::weakly_canonical(gamesFolder(), ec);
+    auto full  = std::filesystem::weakly_canonical(file, ec);
+    auto rel   = full.lexically_relative(games);
+    if (!rel.empty() && *rel.begin() != "..") return rel.generic_string();
+    return file.string();
+}
+
 std::vector<std::filesystem::path> listGames() {
     std::vector<std::filesystem::path> out;
     std::error_code ec;

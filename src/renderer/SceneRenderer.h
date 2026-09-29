@@ -4,6 +4,7 @@
 #include "ShadowMap.h"
 
 class Scene;
+class SceneNode;
 class Shader;
 class Camera;
 class Framebuffer;
@@ -28,6 +29,7 @@ public:
 private:
     void renderShadowPass(Scene& scene, const glm::mat4& lightSpace);
     void drawGeometry(Scene& scene, const Camera& camera, bool editing);
+    static glm::mat4 decalMatrix(const SceneNode& decal);
     void drawConstraints(Scene& scene, bool editing);
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
     void ensureTargets(int w, int h);

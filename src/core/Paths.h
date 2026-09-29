@@ -21,6 +21,10 @@ std::filesystem::path file(const char* name);   // appFolder() / name
 
 inline constexpr const char* kExtension = ".gbscene";
 
+// A file inside the games folder as a short "pics/logo.png" path (so the game
+// still finds it on another computer); anything else stays a full path.
+std::string relativeToGames(const std::filesystem::path& file);
+
 // All game files in the games folder, sorted by name.
 std::vector<std::filesystem::path> listGames();
 
