@@ -457,17 +457,20 @@ void PlayerApp::frame(float dt) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilledMultiColor(pos, ImVec2(pos.x + size.x, pos.y + size.y),
                                     Classic::kSkyTop, Classic::kSkyTop, Classic::kSkyBottom, Classic::kSkyBottom);
-        float width = std::min(1000.0f, size.x - 32.0f);
-        ImVec2 col(pos.x + (size.x - width) * 0.5f, pos.y + 10.0f);
+        // Phones: thin margins, so the page gets as much of the small screen as it can.
+        const bool smallScreen = size.x < 700.0f || size.y < 520.0f;
+        const float gutter = smallScreen ? 6.0f : 16.0f;
+        float width = std::min(1000.0f, size.x - gutter * 2.0f);
+        ImVec2 col(pos.x + (size.x - width) * 0.5f, pos.y + (smallScreen ? 4.0f : 10.0f));
         drawTopBar(col, width);
 
         float top = ImGui::GetCursorScreenPos().y;
         ImGui::SetCursorScreenPos(ImVec2(col.x, top));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18, 14));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, smallScreen ? ImVec2(10, 8) : ImVec2(18, 14));
         ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.88f, 0.9f, 0.93f, 1));
         ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.62f, 0.66f, 0.72f, 1));
         ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.5f, 0.56f, 0.66f, 1));
-        ImGui::BeginChild("##content", ImVec2(width, pos.y + size.y - top - 10), ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::BeginChild("##content", ImVec2(width, pos.y + size.y - top - (smallScreen ? 4 : 10)), ImGuiChildFlags_AlwaysUseWindowPadding);
         ImVec2 cpos = ImGui::GetWindowPos(), csize = ImGui::GetWindowSize();
         Classic::stripes(ImGui::GetWindowDrawList(), cpos, ImVec2(cpos.x + csize.x, cpos.y + csize.y));
         Classic::pushLight();
@@ -475,6 +478,7 @@ void PlayerApp::frame(float dt) {
         if (m_page != Page::Home && !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
             ImGui::IsKeyPressed(ImGuiKey_Escape, false))
             m_page = Page::Home;
+        ImGui::PushTextWrapPos(0.0f);   // long lines wrap at the page edge (small phone screens)
         if (needsLogin()) drawLogin();   // online but not signed up: that comes first
         else switch (m_page) {
             case Page::Home:     drawHome(); break;
@@ -493,6 +497,7 @@ void PlayerApp::frame(float dt) {
             case Page::Login:    drawLogin(); break;
             default: break;
         }
+        ImGui::PopTextWrapPos();
         Classic::popLight();
         ImGui::EndChild();
         ImGui::PopStyleColor(3);
@@ -501,7 +506,20 @@ void PlayerApp::frame(float dt) {
 
     ImGui::End();
     if (m_page != Page::Game) touchScroll();
-    SettingsWindow::draw(&m_showSettings);
+    if (m_showSettings) {   // dressed like the rest of the site: white box, blue title bar
+        Classic::pushLight();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.97f, 0.97f, 0.98f, 1));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.06f, 0.38f, 0.73f, 1));
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.10f, 0.45f, 0.82f, 1));
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.86f, 0.91f, 0.98f, 1));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.80f, 0.88f, 0.98f, 1));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab, Classic::kBlue);
+        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, Classic::kLink);
+        SettingsWindow::draw(&m_showSettings);
+        ImGui::PopStyleColor(8);
+        Classic::popLight();
+    }
     drawJoinDialog();
     drawServersDialog();
     drawItemDialog();
@@ -542,13 +560,15 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     Profile& me = Profile::get();
 
     // --- Banner: your avatar standing in the sky, with the logo ---
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const bool portrait = screen.y > screen.x;
+    const bool shortScreen = screen.y < 520.0f;   // a phone on its side: every pixel of height counts
 #ifdef GB_MOBILE
-    const bool portrait = ImGui::GetIO().DisplaySize.y > ImGui::GetIO().DisplaySize.x;
-    const float bannerH = portrait ? 64.0f : 72.0f;   // phones are short: keep the banner slim
-    const float logoSize = portrait ? 24.0f : 40.0f;
+    const float bannerH = portrait ? 64.0f : (shortScreen ? 54.0f : 72.0f);   // phones: keep the banner slim
+    const float logoSize = portrait ? 24.0f : (shortScreen ? 30.0f : 40.0f);
 #else
-    const float bannerH = 118.0f;
-    const float logoSize = 64.0f;
+    const float bannerH = shortScreen ? 60.0f : 118.0f;
+    const float logoSize = shortScreen ? 34.0f : 64.0f;
 #endif
     const float fb = ImGui::GetIO().DisplayFramebufferScale.x;   // > 1 on phones: draw with every real pixel
     m_bannerView.resize((int)(width * fb), (int)(bannerH * fb));
@@ -579,7 +599,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     float boltsW = 18 + 4 + ImGui::CalcTextSize(boltsText.c_str()).x;
     float line2 = boltsW + 14 + ImGui::CalcTextSize(Online::online() && Online::isGuest() ? "Sign up" : "Edit avatar").x;
     float boxW = std::max(ts.x + badgeW, line2) + 24;
-    ImVec2 a(b1.x - boxW - 10, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
+    const float boxY = pos.y + std::min(10.0f, std::max(2.0f, (bannerH - 50.0f) * 0.5f));
+    ImVec2 a(b1.x - boxW - (shortScreen ? 6 : 10), boxY), c(b1.x - (shortScreen ? 6 : 10), boxY + 50);
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
     dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
     if (staff) Badges::drawIcon(dl, ImVec2(a.x + 22, a.y + 15), 20.0f, Badges::Id::Administrator);
@@ -607,7 +628,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     ImGui::PopStyleColor(3);
 
     // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
-    const float navH = 34.0f;
+    const float navH = shortScreen ? 28.0f : 34.0f;
+    const float navGap = portrait ? 16.0f : (shortScreen ? 20.0f : 26.0f);
     struct Item { const char* label; int action; };
     // "Friends (2)" when friend requests are waiting.
     static std::string friendsLabel;
@@ -626,12 +648,12 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // Lay the items out in rows first, so the bar knows how tall to be.
     std::vector<ImVec2> at;
     {
-        float x = pos.x + 14, row = 0;
+        float x = pos.x + (portrait ? 10 : 14), row = 0;
         for (const Item& it : items) {
             float w = ImGui::CalcTextSize(it.action == 3 ? friendsLabel.c_str() : it.label).x;
-            if (x + w + 8 > pos.x + width && x > pos.x + 14) { x = pos.x + 14; row += navH; }
+            if (x + w + 4 > pos.x + width && x > pos.x + 14) { x = pos.x + (portrait ? 10 : 14); row += navH; }
             at.push_back(ImVec2(x, row));
-            x += w + 26;
+            x += w + navGap;
         }
     }
     float rows = (at.empty() ? 0 : at.back().y) + navH;
@@ -644,7 +666,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
         float x = at[k].x;
         float rowY = n0.y + at[k].y;
         ImVec2 sz = ImGui::CalcTextSize(it.label);
-        ImVec2 p0(x - 8, rowY), p1(x + sz.x + 8, rowY + navH);
+        ImVec2 p0(x - navGap * 0.3f, rowY), p1(x + sz.x + navGap * 0.3f, rowY + navH);
         ImGui::SetCursorScreenPos(p0);
         ImGui::PushID(it.action);
         bool clicked = ImGui::InvisibleButton("##nav", ImVec2(p1.x - p0.x, navH));
@@ -808,10 +830,11 @@ void PlayerApp::drawGames() {
     ImGui::SetWindowFontScale(1.35f);
     ImGui::TextUnformatted(titles[cur]);
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::SetNextItemWidth(170);
+    const float refreshW = ImGui::CalcTextSize("Refresh").x + ImGui::GetStyle().FramePadding.x * 2 + ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetNextItemWidth(std::min(170.0f, ImGui::GetContentRegionAvail().x));
     if (ImGui::Combo("##cat", &cur, titles, 4)) m_category = names[cur];
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(260);
+    if (!portraitScreen()) ImGui::SameLine();   // phones: search goes on its own line
+    ImGui::SetNextItemWidth(std::max(80.0f, std::min(260.0f, ImGui::GetContentRegionAvail().x - refreshW)));
     ImGui::InputTextWithHint("##search", "Search", &m_search);
     ImGui::SameLine();
     if (ImGui::Button("Refresh")) refreshGames();
@@ -965,7 +988,7 @@ void PlayerApp::drawAvatar(float dt) {
         ImGui::TextDisabled("(your username)");
     }
     if (!signedUp) {   // playing offline: call yourself what you like
-        ImGui::SetNextItemWidth(260);
+        ImGui::SetNextItemWidth(std::min(260.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Display name").x - ImGui::GetStyle().ItemInnerSpacing.x));
         if (!ImGui::IsAnyItemActive() && m_nameEdit != me.name && m_nameError.empty()) m_nameEdit = me.name;
         if (ImGui::InputText("Display name", &m_nameEdit) && m_nameEdit.size() > 20) m_nameEdit.resize(20);
         if (ImGui::IsItemDeactivatedAfterEdit()) {

@@ -13,9 +13,9 @@
 namespace Hud {
 
 namespace {
-void shadowText(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 col, const char* text) {
-    dl->AddText(font, size, ImVec2(pos.x + 2, pos.y + 2), IM_COL32(0, 0, 0, 160), text);
-    dl->AddText(font, size, pos, col, text);
+void shadowText(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 col, const char* text, float wrap = 0.0f) {
+    dl->AddText(font, size, ImVec2(pos.x + 2, pos.y + 2), IM_COL32(0, 0, 0, 160), text, nullptr, wrap);
+    dl->AddText(font, size, pos, col, text, nullptr, wrap);
 }
 } // namespace
 
@@ -64,14 +64,18 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& 
 
     // --- Big message (centre) ---
     if (!gui.message.empty()) {
+        // Big, but never wider than the screen: long messages wrap onto more
+        // lines, and very long ones get smaller (phones held sideways are narrow).
+        const float wrap = std::max(120.0f, (max.x - min.x) - 80.0f);
         float big = base * 2.0f;
-        ImVec2 s = font->CalcTextSizeA(big, FLT_MAX, 0, gui.message.c_str());
+        ImVec2 s = font->CalcTextSizeA(big, FLT_MAX, wrap, gui.message.c_str());
+        if (s.y > big * 2.6f) { big = base * 1.4f; s = font->CalcTextSizeA(big, FLT_MAX, wrap, gui.message.c_str()); }
         // Touch screens: a bit lower, clear of the buttons and the player list.
         ImVec2 c((min.x + max.x) * 0.5f, min.y + (max.y - min.y) * (topOffset > 0.0f ? 0.34f : 0.22f));
         dl->AddRectFilled(ImVec2(c.x - s.x * 0.5f - 18, c.y - s.y * 0.5f - 10),
                           ImVec2(c.x + s.x * 0.5f + 18, c.y + s.y * 0.5f + 10), IM_COL32(0, 0, 0, 140), 8);
         shadowText(dl, font, big, ImVec2(c.x - s.x * 0.5f, c.y - s.y * 0.5f), IM_COL32(255, 255, 255, 255),
-                   gui.message.c_str());
+                   gui.message.c_str(), wrap);
     }
 }
 
