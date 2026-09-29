@@ -22,3 +22,9 @@ From then on, every change to `website/` merged into `main` goes live on its own
 
 - Text: edit `index.html`.
 - Pictures: replace the files in `img/` (keep the same names, or update `index.html`).
+
+## Hosted as a Cloudflare Worker instead?
+
+If the repo was connected under **Workers** (not Pages), Cloudflare reads
+`wrangler.jsonc` in the repo root, which tells it to serve this folder. Nothing
+else to set: the default build (`npx wrangler deploy`) works.

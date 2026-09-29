@@ -1,0 +1,9 @@
+// Cloudflare settings for the Guts&Bolts website (the website/ folder).
+// Cloudflare builds from this repo and serves those files as they are.
+{
+  "name": "project-guts-and-bolts",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./website"
+  }
+}
