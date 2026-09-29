@@ -193,10 +193,10 @@ function setMe(m) {
   if (staffLink) staffLink.hidden = !(signedIn() && me.staff);
   const box = $('#me');
   if (signedIn()) {
-    box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}<br>
-      <a href="#/bolts">${bolts(me.bolts)}</a> · <a href="#" data-act="logout">Log out</a>`.s;
+    box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}
+      | <a href="#/bolts">${bolts(me.bolts)}</a> | <a href="#" data-act="logout">Logout</a>`.s;
   } else {
-    box.innerHTML = html`<a href="#/login">Log in</a> · <a href="#/signup"><b>Sign up</b></a>`.s;
+    box.innerHTML = html`<a href="#/signup">Sign Up</a> | <a href="#/login">Login</a>`.s;
   }
 }
 
@@ -234,27 +234,51 @@ async function hello() {
 const pages = {};
 
 pages.home = async () => {
-  const games = await pageCall('list', { kind: 'game', sort: 'popular', limit: 12 });
-  const items = await pageCall('list', { kind: 'clothing', limit: 6 });
-  let top = '';
-  if (signedIn()) {
-    top = html`<h1>Welcome back, ${me.username}!</h1>
-      ${me.canDaily ? html`<div class="box gold row"><div class="grow"><b>Your daily Bolts are ready!</b><br>
-        <span class="small">Claim 25 Bolts every day. Spend them in the Catalog.</span></div>
-        <button class="btn green" data-act="daily">Claim</button></div>` : ''}`;
-  } else {
-    top = html`<h1>Welcome to Guts&amp;Bolts!</h1>
-      <div class="box info row"><div class="grow">Build games, play them with friends and fall apart spectacularly.
-        Sign up to get <b>100 Bolts</b>, make friends and upload your own stuff.</div>
-        <a class="btn green" href="#/signup">Sign up</a><a class="btn" href="#/login">Log in</a></div>`;
-  }
-  show(html`${top}
-    <h2>Popular games <a class="btn blue small" href="#/games" style="float:right">See all</a></h2>
-    ${games.ok && games.assets.length ? html`<div class="grid">${games.assets.map(gameCard)}</div>`
-      : html`<p class="muted">${games.ok ? 'No games published yet. Publish one from Studio!' : games.error}</p>`}
-    <h2>New in the catalog <a class="btn blue small" href="#/catalog" style="float:right">See all</a></h2>
+  const [games, items, fr] = await Promise.all([
+    pageCall('list', { kind: 'game', sort: 'popular', limit: 8 }),
+    pageCall('list', { kind: 'clothing', limit: 6 }),
+    signedIn() ? pageCall('friends.list', {}) : Promise.resolve({ ok: false }),
+  ]);
+  const gameBox = (title, r, more) => html`<div class="box"><h2 class="boxhead">${title}
+      <a href="${more}" style="float:right">See more &raquo;</a></h2>
+    ${r.ok && r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
+      : html`<p class="muted small">${r.ok ? 'No games published yet. Publish one from Studio!' : r.error}</p>`}</div>`;
+  const shopBox = html`<div class="box"><h2 class="boxhead">New in the Catalog
+      <a href="#/catalog" style="float:right">See more &raquo;</a></h2>
     ${items.ok && items.assets.length ? html`<div class="grid">${items.assets.map(itemCard)}</div>`
-      : html`<p class="muted">Nothing here yet.</p>`}`);
+      : html`<p class="muted small">Nothing here yet.</p>`}</div>`;
+  if (!signedIn()) {
+    show(html`<div class="welcome">
+        <div><h1>Welcome to Guts&amp;Bolts!</h1>
+          <p>Build games, play them with your friends and fall apart spectacularly.
+            Sign up to get <b>100 Bolts</b>, dress up your character, make friends and upload your own stuff.</p>
+          <p><a class="btn green big" href="#/signup">Sign Up and Play</a>
+            <a class="btn" href="#/login">Login</a></p></div>
+        <div class="welcome-guy" id="homeAvatar">${avatarSvg(defaultAvatar(), 150)}</div></div>
+      ${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}`);
+    mountAvatar($('#homeAvatar'), defaultAvatar(), [], { width: 170 }).catch(() => {});
+    return;
+  }
+  const friends = fr.ok ? fr.friends || [] : [];
+  const onlineFriends = friends.filter((p) => p.online);
+  show(html`<div class="home">
+      <div class="home-left">
+        <div class="box avatar-box"><h2 class="boxhead">Hi, ${me.username}!</h2>
+          <div id="homeAvatar">${avatarSvg(me.avatar || defaultAvatar(), 150)}</div>
+          <p class="small"><a href="#/avatar">Change your avatar</a> | <a href="#/user/${me.userId}">Profile</a></p></div>
+        <div class="box"><h2 class="boxhead">Your Bolts</h2>
+          <div style="font-size:18px">${bolts(me.bolts)}</div>
+          ${me.canDaily ? html`<p class="small">Your daily Bolts are ready!</p>
+              <button class="btn green" data-act="daily">Claim 25 Bolts</button>`
+            : html`<p class="small muted">Come back tomorrow for 25 more.</p>`}</div>
+        <div class="box"><h2 class="boxhead">Friends online (${onlineFriends.length})</h2>
+          ${onlineFriends.length ? html`<div class="list">${onlineFriends.slice(0, 8).map((p) => html`<div>
+              <span class="dot on"></span><a class="grow" href="#/user/${p.userId}">${p.username || p.name}</a></div>`)}</div>`
+            : html`<p class="small muted">${friends.length ? 'None of your friends are on right now.' : html`No friends yet. <a href="#/people">Find some!</a>`}</p>`}</div>
+      </div>
+      <div class="home-right">${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
+    </div>`);
+  mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), [], { width: 170 }).catch(() => {});
 };
 
 pages.games = async () => {
@@ -785,6 +809,7 @@ const actions = {
 };
 
 const forms = {
+  topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
   gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   peopleSearch(f) { location.hash = '#/people?' + new URLSearchParams({ q: f.q.value }); },

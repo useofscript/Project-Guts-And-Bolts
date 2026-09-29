@@ -9,28 +9,46 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div class="page">
-  <header class="banner">
-    <a class="logo" href="#/">GUTS&amp;BOLTS</a>
-    <span class="status" id="status"><i></i><b>Connecting...</b></span>
-    <div class="me" id="me"></div>
-  </header>
-  <nav class="nav" id="nav">
-    <a href="#/" data-page="home">Home</a>
-    <a href="#/games" data-page="games">Games</a>
-    <a href="#/catalog" data-page="catalog">Catalog</a>
-    <a href="#/create" data-page="create">Create</a>
-    <a href="#/friends" data-page="friends">Friends</a>
-    <a href="#/people" data-page="people">People</a>
-    <a href="#/groups" data-page="groups">Groups</a>
-    <a href="#/bolts" data-page="bolts">Bolts</a>
-    <a href="#/avatar" data-page="avatar">Avatar</a>
-    <a href="#/staff" data-page="staff" hidden>Staff</a>
-    <a href="../#download" class="right">Download</a>
+<header id="nav">
+  <div class="topbar">
+    <div class="wrap">
+      <a class="logo" href="#/">GUTS&amp;BOLTS</a>
+      <form class="topsearch" data-form="topSearch" role="search">
+        <input type="search" name="q" placeholder="Search games" aria-label="Search games">
+        <button class="btn small">Search</button>
+      </form>
+      <div class="me" id="me"></div>
+    </div>
+  </div>
+  <nav class="nav">
+    <div class="wrap">
+      <a href="#/" data-page="home">Home</a>
+      <a href="#/games" data-page="games">Games</a>
+      <a href="#/catalog" data-page="catalog">Catalog</a>
+      <a href="#/people" data-page="people">People</a>
+      <a href="#/create" data-page="create">Create</a>
+      <a href="../#download">Download</a>
+      <span class="status" id="status"><i></i><b>Connecting...</b></span>
+    </div>
   </nav>
+  <nav class="subnav">
+    <div class="wrap">
+      <a href="#/avatar" data-page="avatar">Avatar</a>
+      <a href="#/friends" data-page="friends">Friends</a>
+      <a href="#/groups" data-page="groups">Groups</a>
+      <a href="#/bolts" data-page="bolts">Bolts</a>
+      <a href="#/staff" data-page="staff" hidden>Staff</a>
+    </div>
+  </nav>
+</header>
+<div class="page">
   <main class="content" id="view"><p class="muted">Loading...</p></main>
-  <footer class="foot">Guts&amp;Bolts is a fan-made game engine. Not affiliated with Roblox. <a href="../">About</a></footer>
 </div>
+<footer class="foot">
+  <div class="links"><a href="#/">Home</a> | <a href="#/games">Games</a> | <a href="#/catalog">Catalog</a> |
+    <a href="#/create">Create</a> | <a href="../#download">Download</a> | <a href="../">About</a></div>
+  <p>Guts&amp;Bolts is a fan-made game engine. Not affiliated with Roblox.</p>
+</footer>
 <div class="toast" id="toast" hidden></div>
 <script type="module" src="app.js"></script>
 </body>
