@@ -171,3 +171,26 @@ jobs:
           files: out/*
           prerelease: true
           body_path: RELEASE_NOTES.md
+      # Tell Discord (see devlog.yml; releases made here don't start other workflows).
+      - name: Announce on Discord
+        if: success()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TAG: ${{ steps.rel.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "No DISCORD_WEBHOOK secret: skipping."; exit 0; fi
+          python3 - <<'PY'
+          import json, os, urllib.request
+          tag, repo = os.environ["TAG"], os.environ["REPO"]
+          url = f"https://github.com/{repo}/releases/tag/{tag}"
+          notes = open("RELEASE_NOTES.md", encoding="utf-8").read()
+          notes = notes if len(notes) <= 3500 else notes[:3499] + "…"
+          embed = {"title": f"📦 New release: Guts&Bolts {tag}", "url": url, "color": 0x16A34A,
+                   "description": notes + f"\n\n**[Download it here]({url})** · [Website](https://project-guts-and-bolts.pizzadoe173.workers.dev)"}
+          body = json.dumps({"username": "Guts&Bolts Dev Log", "embeds": [embed]}).encode()
+          req = urllib.request.Request(os.environ["WEBHOOK"], data=body,
+                                       headers={"Content-Type": "application/json", "User-Agent": "GutsAndBolts-DevLog"})
+          urllib.request.urlopen(req, timeout=20)
+          print("Announced", tag)
+          PY

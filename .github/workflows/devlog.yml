@@ -1,0 +1,78 @@
+# Posts a dev log to Discord: what changed every time work lands on main, and
+# an announcement for every new release.
+#
+# Setup (once): in Discord, Server Settings > Integrations > Webhooks > New
+# Webhook, pick the channel, and Copy Webhook URL. Then on GitHub: the repo's
+# Settings > Secrets and variables > Actions > New repository secret, named
+# DISCORD_WEBHOOK, with that URL. Without the secret this does nothing.
+name: Dev log
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          EVENT: ${{ toJSON(github.event) }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "No DISCORD_WEBHOOK secret: skipping."; exit 0; fi
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+
+          event = json.loads(os.environ["EVENT"])
+          repo = os.environ["REPO"]
+          site = "https://project-guts-and-bolts.pizzadoe173.workers.dev"
+
+          def cut(text, n):
+              return text if len(text) <= n else text[: n - 1] + "…"
+
+          if os.environ["EVENT_NAME"] == "release":
+              rel = event["release"]
+              notes = rel.get("body") or ""
+              embed = {
+                  "title": f"📦 New release: {rel.get('name') or rel['tag_name']}",
+                  "url": rel["html_url"],
+                  "description": cut(notes, 3500) + f"\n\n**[Download it here]({rel['html_url']})** · [Website]({site})",
+                  "color": 0x16A34A,
+              }
+          else:
+              lines = []
+              for c in event.get("commits", []):
+                  msg = c.get("message", "").strip().splitlines()
+                  if not msg:
+                      continue
+                  title = msg[0]
+                  # A merged pull request: its title is the interesting part.
+                  if title.startswith("Merge pull request"):
+                      rest = [l for l in msg[1:] if l.strip()]
+                      title = rest[0] if rest else title
+                  elif title.startswith("Merge "):
+                      continue
+                  title = re.sub(r"\s*\[release v[^\]]*\]", "", title)
+                  lines.append(f"• [{cut(title, 180)}]({c['url']})")
+              if not lines:
+                  raise SystemExit(0)
+              who = event.get("pusher", {}).get("name", "someone")
+              embed = {
+                  "title": f"🛠️ Dev log: {len(lines)} update{'s' if len(lines) != 1 else ''}",
+                  "url": event.get("compare") or f"https://github.com/{repo}/commits/main",
+                  "description": cut("\n".join(lines), 3800),
+                  "color": 0x1D6FD8,
+                  "footer": {"text": f"Pushed by {who} · Guts&Bolts"},
+              }
+
+          body = json.dumps({"username": "Guts&Bolts Dev Log", "embeds": [embed]}).encode()
+          req = urllib.request.Request(os.environ["WEBHOOK"], data=body,
+                                       headers={"Content-Type": "application/json", "User-Agent": "GutsAndBolts-DevLog"})
+          urllib.request.urlopen(req, timeout=20)
+          print("Posted:", embed["title"])
+          PY
