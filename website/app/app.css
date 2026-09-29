@@ -221,3 +221,19 @@ label { display: block; margin: 10px 0 4px; font-weight: bold; font-size: 12px; 
   animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 640px) { .charpick { gap: 16px; } .charpick-pic { width: 130px; height: 130px; } .popup-x { right: -6px; top: -6px; } }
+
+/* Game icons and the Configure page */
+.game-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid #9aa1ab;
+  border-radius: 8px; object-fit: cover; color: #fff; font-weight: bold; font-size: 18px; text-shadow: 0 1px 2px rgba(0,0,0,.5);
+  vertical-align: middle; background: #fff; }
+.game-title { display: flex; align-items: center; gap: 10px; }
+.configure { max-width: 760px; }
+.configure .box { margin: 0 0 12px; }
+.configure input[type=text], .configure textarea { max-width: none; }
+.choice { display: block; font-weight: normal; margin: 6px 0; cursor: pointer; }
+.pics { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .pics { grid-template-columns: 1fr; } }
+.thumb-prev .pic, .thumb-prev img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid #9aa1ab; display: flex;
+  align-items: center; justify-content: center; color: #fff; font-weight: bold; }
+.icon-prev img, .icon-prev .game-icon { width: 128px; height: 128px; object-fit: cover; border-radius: 16px; font-size: 44px; }
+.pics input[type=file] { margin-top: 8px; }

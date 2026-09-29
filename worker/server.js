@@ -29,6 +29,8 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get']);
+// Who can play a game: everyone, the creator's friends, or only the creator.
+const ACCESS = ['public', 'friends', 'private'];
 // Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
 const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join']);
 
@@ -292,7 +294,19 @@ export class GbServerObject extends DurableObject {
     const c = this.users.get(a.creator);
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
-      creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), thumb: a.thumb || 0 };
+      creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), thumb: a.thumb || 0,
+      icon: a.icon || 0, access: a.kind === 'game' ? (a.access || 'public') : undefined };
+  }
+  // Can `me` see and play this game? (Other kinds of things are always visible.)
+  canPlay(a, me) {
+    if (a.kind !== 'game' || !a.access || a.access === 'public') return true;
+    if (a.creator === me.id || this.isStaff(me)) return true;
+    if (a.access === 'friends') return me.friends.includes(a.creator);
+    return false;
+  }
+  noPlay(a) {
+    const c = this.users.get(a.creator);
+    return a.access === 'friends' ? 'Only ' + (c ? c.name : 'the creator') + '\'s friends can play this game.' : 'This game is private.';
   }
   publicGroup(g) {
     const o = this.users.get(g.owner);
@@ -368,7 +382,7 @@ export class GbServerObject extends DurableObject {
       const u = want && want.length < 12 && /^[0-9]+$/.test(want) ? this.findUserId(Number(want)) : this.findUser(want);
       if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
       const user = Object.assign(this.publicUser(u), { badges: this.badgesOf(u), avatar: u.avatar || null });
-      const creations = [...this.assets.values()].filter((a) => a.creator === u.id).map((a) => this.publicAsset(a));
+      const creations = [...this.assets.values()].filter((a) => a.creator === u.id && this.canPlay(a, me)).map((a) => this.publicAsset(a));
       const groups = this.groupsOf(u.id).map((g) => Object.assign(this.publicGroup(g), { role: g.members[u.id] }));
       const friendship = u.id === me.id ? 'self' : me.friends.includes(u.id) ? 'friends'
         : me.friendOut.includes(u.id) ? 'sent' : me.friendIn.includes(u.id) ? 'received' : 'none';
@@ -437,6 +451,42 @@ export class GbServerObject extends DurableObject {
       if (data.length > 400 * 1024) return fail('That picture is too big (the most is 400 KB).');
       this.writeFile('thumb:' + a.id, data);
       a.thumb = t;
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a) });
+    }
+    if (name === 'icon.set') {
+      // A game's icon: a small square picture (PNG or JPG, up to 200 KB).
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change your own games.');
+      let data;
+      try { data = b64ToBytes(str(args, 'data')); } catch { return fail('The picture got scrambled. Try again.'); }
+      const png = data.length > 8 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => data[i] === v);
+      const jpg = data.length > 3 && data[0] === 0xff && data[1] === 0xd8;
+      if (!png && !jpg) return fail('Icons must be .png or .jpg.');
+      if (data.length > 200 * 1024) return fail('That icon is too big (the most is 200 KB).');
+      this.writeFile('icon:' + a.id, data);
+      a.icon = t;
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a) });
+    }
+    if (name === 'game.settings') {
+      // Configure a game from the website: name, description and who can play it.
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change your own games.');
+      if ('name' in args) {
+        const title = cleanText(str(args, 'name'), 50);
+        if (!title) return fail('Give it a name.');
+        if (nameIsReserved(title) && !this.isOfficial(me)) return fail('That name belongs to Guts&Bolts.');
+        a.name = title;
+      }
+      if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
+      if ('access' in args) {
+        const access = str(args, 'access');
+        if (!ACCESS.includes(access)) return fail('Pick public, friends or private.');
+        a.access = access;
+      }
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a) });
     }
@@ -595,7 +645,7 @@ export class GbServerObject extends DurableObject {
       const sort = str(args, 'sort');
       const found = [...this.assets.values()].filter((a) =>
         (!kind || a.kind === kind || (kind === 'clothing' && isClothing(a.kind))) &&
-        (!creator || a.creator === creator) && (!q || lower(a.name).includes(q)));
+        (!creator || a.creator === creator) && (!q || lower(a.name).includes(q)) && this.canPlay(a, me));
       found.sort((x, y) => (sort === 'popular' ? (y.plays + y.sales) - (x.plays + x.sales) : y.created - x.created));
       const offset = Math.max(0, num(args, 'offset'));
       const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
@@ -606,6 +656,7 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       const mine = me.owned.includes(a.id) || a.creator === me.id;
       if (a.price > 0 && !mine && !this.isStaff(me) && (a.kind === 'plugin' || a.kind === 'audio')) return fail('Buy it first.');
+      if (!this.canPlay(a, me)) return fail(this.noPlay(a));
       const data = this.readFile(a.id);
       if (!data) return fail('The server lost that file.');
       if (a.kind === 'game' && a.creator !== me.id) { a.plays++; this.saveAsset(a); }
@@ -633,7 +684,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only delete your own things.');
-      this.sql.exec('DELETE FROM files WHERE id = ? OR id = ?', a.id, 'thumb:' + a.id);
+      this.sql.exec('DELETE FROM files WHERE id = ? OR id = ? OR id = ?', a.id, 'thumb:' + a.id, 'icon:' + a.id);
       this.assets.delete(a.id);
       this.dirty.assets.add(a.id);
       return okay();
@@ -910,6 +961,8 @@ export class GbServerObject extends DurableObject {
   }
   serverOp(name, me, args) {
     const game = cleanText(typeof args.game === 'string' ? args.game : '', 80);
+    const asset = this.assets.get(game);
+    if (asset && !this.canPlay(asset, me)) return fail(this.noPlay(asset));
     if (name === 'servers.play') {
       let best = null;
       for (const s of this.sessions.values()) {
@@ -1096,11 +1149,12 @@ export class GbServerObject extends DurableObject {
       this.scheduleSweep();
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
-    // GET /thumb/<asset id>: a game's picture (public, so pages can show it directly).
-    if (url.pathname.startsWith('/thumb/')) {
-      const id = decodeURIComponent(url.pathname.slice(7));
+    // GET /thumb/<asset id> and /icon/<asset id>: a game's picture and icon (public, so pages can show them directly).
+    if (url.pathname.startsWith('/thumb/') || url.pathname.startsWith('/icon/')) {
+      const icon = url.pathname.startsWith('/icon/');
+      const id = decodeURIComponent(url.pathname.slice(icon ? 6 : 7));
       const a = this.assets.get(id);
-      const data = a && a.thumb ? this.readFile('thumb:' + id) : null;
+      const data = a && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + id) : null;
       if (!data) return new Response('No picture.', { status: 404 });
       const jpg = data[0] === 0xff && data[1] === 0xd8;
       return new Response(data, { headers: { 'content-type': jpg ? 'image/jpeg' : 'image/png', 'cache-control': 'public, max-age=86400' } });

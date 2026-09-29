@@ -95,6 +95,33 @@ function gamePic(g, cls = 'pic') {
   return html`<div class="${cls}" style="background:${raw(gameColors(g.id))}">${g.name}</div>`;
 }
 
+// A game's icon (a small square picture), or its first letter on its colours.
+function gameIcon(g, size = 48) {
+  if (g.icon) return html`<img class="game-icon" src="/icon/${encodeURIComponent(g.id)}?v=${g.icon}" alt="" width="${size}" height="${size}">`;
+  return html`<span class="game-icon" style="width:${size}px;height:${size}px;background:${raw(gameColors(g.id))}">${(g.name || '?').slice(0, 1)}</span>`;
+}
+const ACCESS_NAMES = { public: 'Public', friends: 'Friends only', private: 'Private' };
+
+// Shrink a picture the visitor picked to w x h (cropping to fit), as JPEG base64.
+function pictureBase64(file, w, h) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const k = Math.max(w / img.width, h / img.height);
+      const dw = img.width * k, dh = img.height * k;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+      g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL('image/jpeg', 0.88).split(',')[1]);
+    };
+    img.onerror = () => reject(new Error('That file isn\'t a picture.'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 // --- avatars ---
 // The same colours and hats as the Player (Player::colorPresets, HatStyle).
 const PRESETS = [
@@ -356,14 +383,17 @@ pages.games = async () => {
 pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id);
-  if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted.' : r.error}</p>`); return; }
+  if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
+  const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
   show(html`<p><a href="#/games">&lt; Games</a></p>
     <div class="hero">${gamePic(g)}
-      <div><h1>${g.name}</h1>
+      <div><h1 class="game-title">${gameIcon(g, 40)} ${g.name}</h1>
+        ${g.access && g.access !== 'public' ? html`<p><span class="badge-pill">${ACCESS_NAMES[g.access]}</span></p>` : ''}
         <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
         <p class="muted">${g.plays || 0} plays · published ${ago(g.created)}</p>
         <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
+        ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     <h2>Servers</h2>
@@ -445,14 +475,15 @@ pages.create = async (tab = 'games') => {
       <p><button class="btn green">${FEES[kind] && !me.verified ? 'Upload for ' + FEES[kind] + ' Bolts' : 'Upload (free)'}</button>
         <span id="uploadMsg"></span></p></form>`;
   const row = (a) => html`<div>
+      ${a.kind === 'game' ? gameIcon(a, 48) : ''}
       ${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="">` : ''}
       ${clothing ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
       <div class="grow"><b>${a.name}</b><br><span class="small muted">
-        ${a.kind === 'game' ? html`${a.plays} plays` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
+        ${a.kind === 'game' ? html`${a.plays} plays · ${ACCESS_NAMES[a.access || 'public']}` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
         ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID gb:${a.id}` : ''}</span></div>
       ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button>` : ''}
       ${a.kind === 'game' ? html`<a class="btn small" href="#/game/${a.id}">View</a>
-        <button class="btn small" data-act="renameGame" data-id="${a.id}" data-name="${a.name}">Edit name</button>` : ''}
+        <a class="btn small blue" href="#/configure/${a.id}">Configure</a>` : ''}
       <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`;
   show(html`${head}<div class="box">${costs}</div>
     ${kind === 'game' ? html`<h2>My published games</h2>` : html`<h2>My ${KINDS[kind]}${kind === 'pants' ? '' : 's'}</h2>`}
@@ -462,6 +493,53 @@ pages.create = async (tab = 'games') => {
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
   const file = view.querySelector('input[type=file]'), prev = $('#preview');
   if (file && prev) file.addEventListener('change', () => { if (file.files[0]) { prev.src = URL.createObjectURL(file.files[0]); prev.hidden = false; } });
+};
+
+// Configure a game: name, description, who can play, thumbnail, icon, new version.
+pages.configure = async (id) => {
+  if (!signedIn()) { show(html`<h1>Configure game</h1>${needSignIn('change your games')}`); return; }
+  const r = await pageCall('list', { creator: me.id, kind: 'game', limit: 100 });
+  const g = r.ok && r.assets.find((a) => a.id === id);
+  if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
+  const access = g.access || 'public';
+  const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
+    <b>${label}</b> <span class="muted small">${note}</span></label>`;
+  show(html`<p><a href="#/create/games">&lt; My Games</a></p>
+    <h1>Configure: ${g.name}</h1>
+    <form class="configure" data-form="configure"><input type="hidden" name="id" value="${g.id}">
+      <div class="box"><h2 class="boxhead">Basic settings</h2>
+        <label>Name</label><input type="text" name="name" maxlength="50" value="${g.name}" required>
+        <label>Description</label><textarea name="description" maxlength="1000" rows="5">${g.description || ''}</textarea></div>
+      <div class="box"><h2 class="boxhead">Who can play</h2>
+        ${choice('public', 'Public', 'Everyone can find and play it.')}
+        ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
+        ${choice('private', 'Private', 'Only you can see and play it.')}</div>
+      <div class="box"><h2 class="boxhead">Pictures</h2>
+        <div class="pics">
+          <div><label>Thumbnail <span class="muted small">(shown on the game's page and in lists)</span></label>
+            <div class="thumb-prev">${gamePic(g, 'pic')}</div>
+            <input type="file" name="thumb" accept="image/png,image/jpeg" data-preview="thumb">
+            <p class="small muted">Any picture; it's cropped to 16:9.</p></div>
+          <div><label>Icon <span class="muted small">(a small square)</span></label>
+            <div class="icon-prev">${gameIcon(g, 128)}</div>
+            <input type="file" name="icon" accept="image/png,image/jpeg" data-preview="icon">
+            <p class="small muted">Any picture; it's cropped to a square.</p></div>
+        </div></div>
+      <div class="box"><h2 class="boxhead">Update the game</h2>
+        <label>New version <span class="muted small">(optional)</span></label>
+        <input type="file" name="file" accept=".gbscene">
+        <p class="small muted">A .gbscene saved from Studio. Players get it the next time they join.</p></div>
+      <p><button class="btn green big">Save</button> <a class="btn" href="#/game/${g.id}">View game</a>
+        <button type="button" class="btn red" data-act="deleteAsset" data-id="${g.id}" data-name="${g.name}" style="float:right">Delete game</button>
+        <span id="configMsg"></span></p>
+    </form>`);
+  // Show a picked picture straight away.
+  view.querySelectorAll('input[data-preview]').forEach((inp) => inp.addEventListener('change', () => {
+    const file = inp.files[0];
+    if (!file) return;
+    const box = view.querySelector(inp.dataset.preview === 'icon' ? '.icon-prev' : '.thumb-prev');
+    box.innerHTML = html`<img src="${URL.createObjectURL(file)}" alt="">`.s;
+  }));
 };
 
 pages.people = async () => {
@@ -865,6 +943,30 @@ const actions = {
 };
 
 const forms = {
+  async configure(f) {
+    const msg = $('#configMsg'), say = (t, cls = 'muted') => { msg.className = cls; msg.textContent = ' ' + t; };
+    const id = f.id.value;
+    say('Saving...');
+    try {
+      let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value });
+      if (!r.ok) { say(r.error, 'error'); return; }
+      if (f.thumb.files[0]) {
+        r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });
+        if (!r.ok) { say('Thumbnail: ' + r.error, 'error'); return; }
+      }
+      if (f.icon.files[0]) {
+        r = await call('icon.set', { id, data: await pictureBase64(f.icon.files[0], 256, 256) });
+        if (!r.ok) { say('Icon: ' + r.error, 'error'); return; }
+      }
+      if (f.file.files[0]) {
+        say('Uploading the new version...');
+        r = await call('update', { id, data: await gb.fileBase64(f.file.files[0]) });
+        if (!r.ok) { say('New version: ' + r.error, 'error'); return; }
+      }
+    } catch (err) { say(String(err.message || err), 'error'); return; }
+    toast('Saved!');
+    render();
+  },
   topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
   gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
