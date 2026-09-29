@@ -43,9 +43,10 @@ home page reminds you.
 - Everyone has the classic smile now: two small oval eyes and a round smile.
   Characters saved with the old block face get the new one automatically.
 
-**Loading screen**
-- Starting or joining a game shows the game's name, who made it, a spinner and
-  the logo. It fades out when the game is ready.
+**Connecting to server screen**
+- Pressing Play shows the game's icon and name (and who made it), a spinning
+  circle with "Connecting to server...", and the Guts&Bolts logo under it,
+  until the game is ready. Then it fades away.
 
 ## Fixed (Android)
 - The app now sizes things using Android's own screen density, so buttons are

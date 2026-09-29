@@ -70,6 +70,7 @@ PlayerApp::Starter PlayerApp::onlineStarter(const std::string& id) {
 
 void PlayerApp::playGame(const std::string& key, const std::string& title, Starter start) {
     if (!Online::online()) { start(HostMode::Solo); return; }   // no server: just play
+    startLoadingScreen(key, title);
     m_busy = true;
     m_playMsg = "Finding a server...";
     Online::request("servers.play", {{"game", key}}, [this, title, start](const json& r) {
@@ -96,7 +97,7 @@ void PlayerApp::joinRelay(const std::string& session, const std::string& code, c
         return;
     }
     m_currentTitle = title.empty() ? std::string("Joining...") : "Joining " + title + "...";
-    m_currentAuthor.clear();
+    if (!m_connectScreen) { m_currentAuthor.clear(); m_loadingGameId.clear(); m_loadingIcon.clear(); m_loadingTitle.clear(); m_loadingAuthor.clear(); }   // (keep what Play knew)
     m_loadingT = 0.9f;
     m_joinedOnce = false;
     m_paused = false;

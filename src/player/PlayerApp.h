@@ -84,6 +84,13 @@ private:
     void drawGame(float dt);
     // The classic loading screen: the game's name, who made it and a spinner.
     void drawLoading(ImVec2 pos, ImVec2 size, float alpha, const char* status);
+    // From pressing Play until the game shows: the connecting screen over everything.
+    bool        m_connectScreen = false;
+    std::string m_loadingGameId;                   // server game id (for its icon), or ""
+    std::string m_loadingIcon;                     // the icon file, once downloaded
+    std::string m_loadingTitle, m_loadingAuthor;   // the game's name and creator on the server
+    void startLoadingScreen(const std::string& gameId, const std::string& title);
+    void drawConnectScreen();
     void drawPauseMenu();
     void drawCatalog();
     void drawItemDialog();

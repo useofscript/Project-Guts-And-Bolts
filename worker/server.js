@@ -28,7 +28,7 @@ const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCool
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get']);
+const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get']);
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
 const isEmail = (e) => typeof e === 'string' && e.length <= 254 && /^[^\s@<>"]{1,64}@[^\s@<>"]{1,190}\.[^\s@<>"]{2,}$/.test(e);
@@ -567,6 +567,15 @@ export class GbServerObject extends DurableObject {
       }
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a) });
+    }
+    if (name === 'icon.get') {
+      // A game's icon (the app shows it while you connect).
+      const a = this.assets.get(str(args, 'id'));
+      if (a && !this.canPlay(a, me)) return fail(this.noPlay(a));
+      if (!a) return fail('That game doesn\'t exist (any more).');
+      const c = this.users.get(a.creator);
+      const data = a.icon ? this.readFile('icon:' + a.id) : null;
+      return okay({ data: data ? bytesToB64(data) : '', icon: data ? a.icon : 0, name: a.name, creatorName: c ? c.name : '' });
     }
     if (name === 'thumb.get') {
       const a = this.assets.get(str(args, 'id'));
