@@ -1,4 +1,6 @@
 #pragma once
+#include "../../game/GameGui.h"
+#include "../../scene/SceneNode.h"
 #include <functional>
 #include <cstdint>
 #include <vector>
@@ -77,6 +79,12 @@ private:
 
     int  m_viewW = 0, m_viewH = 0;
     bool m_hovered = false;
+    // Game UI: pointer state in Play, and dragging a UI object while building.
+    GameGui::Input m_guiInput;
+    int       m_guiDrag = 0;                  // 1 = moving, 2 = resizing
+    uint64_t  m_guiDragId = 0;
+    ImVec2    m_guiDragFrom{0, 0};
+    UDim2     m_guiDragStart;
     bool m_wantFocus = false;
 
     // F "zoom to": the camera glides from -> to over a moment.

@@ -1,4 +1,6 @@
 #include "Editor.h"
+#include <sstream>
+#include "../scene/Guis.h"
 #include "../game/Profile.h"
 #include "../scene/EditMesh.h"
 #include "../online/OnlineClient.h"
@@ -321,6 +323,12 @@ void Editor::startTeamCreate(bool host, const std::string& address) {
     std::string err;
     bool ok = host ? m_team->host(kTeamCreatePort, err) : m_team->join(address, err);
     if (!ok) Log::error("Team Create: " + err);
+}
+
+void Editor::testInsert(const std::string& names) {
+    std::stringstream ss(names);
+    std::string w;
+    while (ss >> w) insertObject(w, m_scene->selected());
 }
 
 void Editor::testAddPart(const std::string& name) {
@@ -931,6 +939,37 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         if (parent && parent != m_scene->root()) m_scene->reparent(rig, parent);
         m_scene->select(rig);
     }
+    else if (GuiType gt; Guis::typeFromName(what, gt)) {
+        // Game UI: a ScreenGui goes in the StarterGui folder; the rest go inside
+        // the selected UI object (or a new ScreenGui if nothing like that is picked).
+        auto uiFolder = [&]() {
+            SceneNode* f = m_scene->root()->findChild("StarterGui");
+            if (!f || f->kind != NodeKind::Model)
+                f = m_scene->insert(std::make_unique<SceneNode>("StarterGui", NodeKind::Model), m_scene->root());
+            return f;
+        };
+        auto make = [&](GuiType t) {
+            auto n = std::make_unique<SceneNode>(kGuiClassNames[(int)t], NodeKind::Gui);
+            n->gui.type = t;
+            Guis::setDefaults(*n);
+            return n;
+        };
+        if (gt == GuiType::ScreenGui) {
+            if (!parent || parent == m_scene->root()) parent = uiFolder();
+        } else if (!parent || !parent->isGui() || parent->gui.type == GuiType::UICorner || parent->gui.type == GuiType::UIStroke) {
+            if (gt == GuiType::UICorner || gt == GuiType::UIStroke) { Log::warn("Put a " + what + " inside a Frame, label or button."); return; }
+            SceneNode* screen = nullptr;   // reuse the first ScreenGui, or make one
+            for (auto& c : uiFolder()->children) if (c->isGui() && c->gui.type == GuiType::ScreenGui) { screen = c.get(); break; }
+            if (!screen) screen = m_scene->insert(make(GuiType::ScreenGui), uiFolder());
+            parent = screen;
+        }
+        auto n = make(gt);
+        if (gt != GuiType::ScreenGui && gt != GuiType::UICorner && gt != GuiType::UIStroke && parent->gui.type == GuiType::ScreenGui) {
+            n->gui.pos = {0.5f, 0, 0.5f, 0};   // in the middle of the screen, so you see it
+            n->gui.anchor = {0.5f, 0.5f};
+        }
+        put(std::move(n));
+    }
     else if (what == "Decal") {
         auto d = std::make_unique<SceneNode>("Decal", NodeKind::Decal);
         d->color = {1.0f, 1.0f, 1.0f};
@@ -972,6 +1011,9 @@ void Editor::renderInsertObject() {
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
         {"Animation", Icons::Id::Animation}, {"Rig", Icons::Id::Rig},
+        {"ScreenGui", Icons::Id::ScreenGui}, {"Frame", Icons::Id::GuiFrame}, {"TextLabel", Icons::Id::GuiText},
+        {"TextButton", Icons::Id::GuiButton}, {"ImageLabel", Icons::Id::GuiImage}, {"ImageButton", Icons::Id::GuiButton},
+        {"UICorner", Icons::Id::GuiCorner}, {"UIStroke", Icons::Id::GuiCorner},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;

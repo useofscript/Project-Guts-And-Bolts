@@ -35,8 +35,22 @@ wait, spawn, delay = task.wait, task.spawn, task.delay
 -- Players are tables with an object behind them (__node), so `player.leaderstats`
 -- and `folder.Parent = player` work like Roblox.
 local playerNode, setRespawn = __gb_playerNode, __gb_setRespawn
+-- Game UI lives in a folder called StarterGui (game.StarterGui, player.PlayerGui).
+local function uiFolder()
+    local f = workspace:FindFirstChild("StarterGui")
+    if not f then
+        f = Instance.new("Folder")
+        f.Name = "StarterGui"
+        f.Parent = workspace
+    end
+    return f
+end
+__gb_uiFolder = uiFolder
 local playerMeta = {
-    __index = function(t, k) return rawget(t, "__node")[k] end,
+    __index = function(t, k)
+        if k == "PlayerGui" then return uiFolder() end
+        return rawget(t, "__node")[k]
+    end,
     __newindex = function(t, k, v)
         if k == "RespawnLocation" and rawget(t, "__local") then setRespawn(v) end
         rawset(t, k, v)
@@ -171,8 +185,12 @@ DataStoreService.GetOrderedDataStore = DataStoreService.GetDataStore
 local services = { Workspace = workspace, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService }
-game = setmetatable({}, { __index = function(_, name) return services[name] end })
+game = setmetatable({}, { __index = function(_, name)
+    if name == "StarterGui" then return __gb_uiFolder() end
+    return services[name]
+end })
 function game:GetService(name)
+    if name == "StarterGui" then return __gb_uiFolder() end
     local s = services[name]
     if s == nil then
         error("'" .. tostring(name) .. "' is not a service Guts and Bolts knows about", 2)
@@ -761,6 +779,7 @@ void ScriptEngine::runScriptsIn(SceneNode* root) {
 }
 
 void ScriptEngine::fireTool(SignalKind kind, uint64_t toolId) { fire(kind, toolId, nullptr); }
+void ScriptEngine::fireGui(SignalKind kind, uint64_t id) { fire(kind, id, nullptr); }
 
 void ScriptEngine::fireAnimationEvents() {
     std::vector<Anim::Animator::Event> events;

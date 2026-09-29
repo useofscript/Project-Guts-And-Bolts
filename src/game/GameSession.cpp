@@ -228,6 +228,19 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
     reachCheckpoints(touches);
 }
 
+void GameSession::guiEvents(const std::vector<GameGui::Event>& events) {
+    if (!m_running) return;
+    for (const GameGui::Event& e : events) {
+        if (m_role == Role::Client) {   // the host runs the scripts: tell it about clicks
+            if (e.kind == GameGui::EventKind::Click && onGuiClick) onGuiClick(e.id);
+            continue;
+        }
+        SignalKind kind = e.kind == GameGui::EventKind::Click ? SignalKind::GuiClick
+                        : e.kind == GameGui::EventKind::Enter ? SignalKind::GuiEnter : SignalKind::GuiLeave;
+        m_scripts.fireGui(kind, e.id);
+    }
+}
+
 void GameSession::click(uint64_t partId) {
     if (!m_running) return;
     if (m_role == Role::Client) { if (onClick && partId) onClick(partId); return; }

@@ -144,6 +144,48 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddRect(a, b, rgb(235, 238, 245), s * 0.05f, 0, th * 0.8f);
         break;
     }
+    case Id::ScreenGui: {   // a screen with a little window on it
+        ImVec2 a(c.x - s * 0.42f, c.y - s * 0.32f), b(c.x + s * 0.42f, c.y + s * 0.26f);
+        dl->AddRectFilled(a, b, rgb(52, 60, 78), s * 0.05f);
+        dl->AddRect(a, b, rgb(150, 190, 240), s * 0.05f, 0, th);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.22f, c.y - s * 0.16f), ImVec2(c.x + s * 0.22f, c.y + s * 0.1f), rgb(110, 170, 250), s * 0.03f);
+        dl->AddLine(ImVec2(c.x - s * 0.15f, b.y + s * 0.1f), ImVec2(c.x + s * 0.15f, b.y + s * 0.1f), rgb(150, 190, 240), th);
+        break;
+    }
+    case Id::GuiFrame: {   // a box with a title bar
+        ImVec2 a(c.x - s * 0.38f, c.y - s * 0.3f), b(c.x + s * 0.38f, c.y + s * 0.3f);
+        dl->AddRectFilled(a, b, rgb(230, 234, 242), s * 0.04f);
+        dl->AddRectFilled(a, ImVec2(b.x, a.y + s * 0.16f), rgb(90, 150, 230), s * 0.04f, ImDrawFlags_RoundCornersTop);
+        dl->AddRect(a, b, rgb(90, 150, 230), s * 0.04f, 0, th * 0.8f);
+        break;
+    }
+    case Id::GuiText: {   // a big "T"
+        ImU32 col = rgb(235, 238, 245);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.3f, c.y - s * 0.32f), ImVec2(c.x + s * 0.3f, c.y - s * 0.2f), col);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.07f, c.y - s * 0.32f), ImVec2(c.x + s * 0.07f, c.y + s * 0.34f), col);
+        break;
+    }
+    case Id::GuiButton: {   // a rounded button with a pointer
+        ImVec2 a(c.x - s * 0.4f, c.y - s * 0.2f), b(c.x + s * 0.4f, c.y + s * 0.14f);
+        dl->AddRectFilled(a, b, rgb(70, 180, 100), s * 0.12f);
+        ImVec2 p(c.x + s * 0.05f, c.y);
+        dl->AddTriangleFilled(p, ImVec2(p.x, p.y + s * 0.38f), ImVec2(p.x + s * 0.26f, p.y + s * 0.26f), rgb(255, 255, 255));
+        break;
+    }
+    case Id::GuiImage: {   // a framed picture
+        ImVec2 a(c.x - s * 0.36f, c.y - s * 0.3f), b(c.x + s * 0.36f, c.y + s * 0.3f);
+        dl->AddRectFilled(a, b, rgb(250, 190, 70), s * 0.03f);
+        dl->AddTriangleFilled(ImVec2(a.x, b.y), ImVec2(c.x - s * 0.05f, c.y - s * 0.08f), ImVec2(c.x + s * 0.22f, b.y), rgb(200, 90, 50));
+        dl->AddRect(a, b, rgb(235, 238, 245), s * 0.03f, 0, th);
+        break;
+    }
+    case Id::GuiCorner: {   // a rounded corner
+        dl->PathArcTo(ImVec2(c.x + s * 0.12f, c.y + s * 0.12f), s * 0.36f, 3.14159f, 4.71239f, 12);
+        dl->PathStroke(rgb(150, 190, 240), 0, th * 1.6f);
+        dl->AddLine(ImVec2(c.x - s * 0.24f, c.y + s * 0.12f), ImVec2(c.x - s * 0.24f, c.y + s * 0.38f), rgb(150, 190, 240), th * 1.6f);
+        dl->AddLine(ImVec2(c.x + s * 0.12f, c.y - s * 0.24f), ImVec2(c.x + s * 0.38f, c.y - s * 0.24f), rgb(150, 190, 240), th * 1.6f);
+        break;
+    }
     case Id::Animation: {   // a film strip with a keyframe diamond
         ImVec2 a(c.x - s * 0.4f, c.y - s * 0.28f), b(c.x + s * 0.4f, c.y + s * 0.28f);
         dl->AddRectFilled(a, b, rgb(70, 76, 92), s * 0.05f);
@@ -440,6 +482,15 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Value:      return Id::Value;
         case NodeKind::Decal:      return Id::Decal;
         case NodeKind::Animation:  return Id::Animation;
+        case NodeKind::Gui:
+            switch (n.gui.type) {
+                case GuiType::ScreenGui:  return Id::ScreenGui;
+                case GuiType::TextLabel:  return Id::GuiText;
+                case GuiType::TextButton: case GuiType::ImageButton: return Id::GuiButton;
+                case GuiType::ImageLabel: return Id::GuiImage;
+                case GuiType::UICorner: case GuiType::UIStroke: return Id::GuiCorner;
+                default:                  return Id::GuiFrame;
+            }
         default: break;
     }
     switch (n.primitiveType) {

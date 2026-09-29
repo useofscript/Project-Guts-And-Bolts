@@ -135,6 +135,7 @@ void Application::run() {
         if (m_opts.testAnim) m_editor->testAnimation(frame);
         if (m_opts.testCollide && frame == 5) m_editor->testCollisions();
         if (!m_opts.testCommand.empty() && frame == 12) m_editor->runCommand(m_opts.testCommand);
+        if (!m_opts.testInsert.empty() && frame == 8) m_editor->testInsert(m_opts.testInsert);
         if (!m_opts.exportRoblox.empty() && frame == 2) m_editor->testExportRoblox(m_opts.exportRoblox);
         if (!m_opts.testSnapshot.empty() && frame == 3) m_editor->testSnapshot(m_opts.testSnapshot);
 

@@ -1,10 +1,12 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <nlohmann/json.hpp>
 
 class Scene;
 class SceneNode;
 struct Environment;
+struct GuiProps;
 
 // Turns scenes and objects into JSON text and back. Used for:
 //  * File > Save / Open (".gbscene" files)
@@ -17,6 +19,9 @@ std::string saveScene(Scene& scene, bool pretty = false);
 bool        loadScene(Scene& scene, const std::string& text, std::string* error = nullptr);
 
 std::string                nodeToString(const SceneNode& node);
+// Game UI properties as JSON (saving, and multiplayer updates).
+nlohmann::json             guiToJson(const GuiProps& g);
+void                       guiFromJson(GuiProps& g, const nlohmann::json& j);
 // freshIds = true gives every object a brand-new id (needed for copies).
 std::unique_ptr<SceneNode> nodeFromString(const std::string& text, bool freshIds);
 std::unique_ptr<SceneNode> clone(const SceneNode& node);

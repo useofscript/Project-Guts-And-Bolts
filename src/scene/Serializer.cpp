@@ -45,6 +45,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Value:  return "Value";
         case NodeKind::Decal:  return "Decal";
         case NodeKind::Animation: return "Animation";
+        case NodeKind::Gui:    return "Gui";
         default:               return "Part";
     }
 }
@@ -60,6 +61,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Value")  return NodeKind::Value;
     if (s == "Decal")  return NodeKind::Decal;
     if (s == "Animation") return NodeKind::Animation;
+    if (s == "Gui")    return NodeKind::Gui;
     return NodeKind::Part;
 }
 
@@ -86,6 +88,74 @@ Material materialFrom(const std::string& s) {
     for (int i = 0; i < kMaterialCount; ++i) if (s == kMaterialNames[i]) return (Material)i;
     return Material::Plastic;
 }
+
+} // namespace
+
+namespace Serializer {
+// Game UI properties (also sent to other players when they change).
+nlohmann::json guiToJson(const GuiProps& g) {
+    auto ud = [](const UDim2& u) { return json::array({u.xs, u.xo, u.ys, u.yo}); };
+    json j = {{"class", kGuiClassNames[(int)g.type]}, {"pos", ud(g.pos)}, {"size", ud(g.size)},
+              {"anchor", json::array({g.anchor.x, g.anchor.y})}, {"bg", vec(g.bg)}, {"bgT", g.bgTransparency},
+              {"borderColor", vec(g.borderColor)}, {"border", g.border}, {"z", g.zIndex}, {"clips", g.clips}};
+    if (g.type == GuiType::TextLabel || g.type == GuiType::TextButton) {
+        j["text"] = g.text; j["textColor"] = vec(g.textColor); j["textSize"] = g.textSize;
+        j["scaled"] = g.textScaled; j["wrapped"] = g.textWrapped; j["bold"] = g.bold;
+        j["xAlign"] = g.xAlign; j["yAlign"] = g.yAlign; j["textT"] = g.textTransparency;
+        j["strokeColor"] = vec(g.strokeColor); j["strokeT"] = g.strokeTransparency;
+    }
+    if (g.type == GuiType::ImageLabel || g.type == GuiType::ImageButton) {
+        j["image"] = g.image; j["imageColor"] = vec(g.imageColor); j["imageT"] = g.imageTransparency;
+    }
+    if (g.type == GuiType::TextButton || g.type == GuiType::ImageButton) j["autoColor"] = g.autoButtonColor;
+    if (g.type == GuiType::ScreenGui) j["order"] = g.displayOrder;
+    if (g.type == GuiType::UICorner) j["corner"] = ud(g.corner);
+    if (g.type == GuiType::UIStroke) j["thickness"] = g.thickness;
+    return j;
+}
+
+void guiFromJson(GuiProps& g, const nlohmann::json& j) {
+    auto ud = [&](const char* k, UDim2 d) {
+        if (!j.contains(k) || !j[k].is_array() || j[k].size() != 4) return d;
+        try { return UDim2{j[k][0].get<float>(), j[k][1].get<float>(), j[k][2].get<float>(), j[k][3].get<float>()}; }
+        catch (...) { return d; }
+    };
+    std::string cls = get<std::string>(j, "class", std::string("Frame"));
+    for (int i = 0; i < kGuiTypeCount; ++i) if (cls == kGuiClassNames[i]) g.type = (GuiType)i;
+    g.pos = ud("pos", g.pos);
+    g.size = ud("size", g.size);
+    if (j.contains("anchor") && j["anchor"].is_array() && j["anchor"].size() == 2)
+        try { g.anchor = {j["anchor"][0].get<float>(), j["anchor"][1].get<float>()}; } catch (...) {}
+    g.bg = vec(j, "bg", g.bg);
+    g.bgTransparency = get<float>(j, "bgT", g.bgTransparency);
+    g.borderColor = vec(j, "borderColor", g.borderColor);
+    g.border = get<int>(j, "border", g.border);
+    g.zIndex = get<int>(j, "z", g.zIndex);
+    g.clips = get<bool>(j, "clips", g.clips);
+    g.text = get<std::string>(j, "text", g.text);
+    g.textColor = vec(j, "textColor", g.textColor);
+    g.textSize = get<float>(j, "textSize", g.textSize);
+    g.textScaled = get<bool>(j, "scaled", g.textScaled);
+    g.textWrapped = get<bool>(j, "wrapped", g.textWrapped);
+    g.bold = get<bool>(j, "bold", g.bold);
+    g.xAlign = std::clamp(get<int>(j, "xAlign", g.xAlign), 0, 2);
+    g.yAlign = std::clamp(get<int>(j, "yAlign", g.yAlign), 0, 2);
+    g.textTransparency = get<float>(j, "textT", g.textTransparency);
+    g.strokeColor = vec(j, "strokeColor", g.strokeColor);
+    g.strokeTransparency = get<float>(j, "strokeT", g.strokeTransparency);
+    g.image = get<std::string>(j, "image", g.image);
+    g.imageColor = vec(j, "imageColor", g.imageColor);
+    g.imageTransparency = get<float>(j, "imageT", g.imageTransparency);
+    g.autoButtonColor = get<bool>(j, "autoColor", g.autoButtonColor);
+    g.displayOrder = get<int>(j, "order", g.displayOrder);
+    g.corner = ud("corner", g.corner);
+    g.thickness = get<float>(j, "thickness", g.thickness);
+}
+} // namespace Serializer
+
+namespace {
+using Serializer::guiToJson;
+using Serializer::guiFromJson;
 
 json toJson(const SceneNode& n) {
     json j;
@@ -127,6 +197,10 @@ json toJson(const SceneNode& n) {
     if (n.kind == NodeKind::Animation) j["source"] = n.source;
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
+        j["enabled"] = n.enabled;
+    }
+    if (n.kind == NodeKind::Gui) {
+        j["gui"] = guiToJson(n.gui);
         j["enabled"] = n.enabled;
     }
     if (n.kind == NodeKind::Decal) {
@@ -254,6 +328,10 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->brightness = get<float>(j, "brightness", 2.0f);
         n->range      = get<float>(j, "range", 14.0f);
         n->spotAngle  = get<float>(j, "spotAngle", 60.0f);
+    }
+    if (n->kind == NodeKind::Gui) {
+        if (j.contains("gui") && j["gui"].is_object()) guiFromJson(n->gui, j["gui"]);
+        n->enabled = get<bool>(j, "enabled", true);
     }
     if (n->kind == NodeKind::Decal) {
         n->texture = get<std::string>(j, "texture", std::string());

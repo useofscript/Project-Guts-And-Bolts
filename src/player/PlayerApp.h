@@ -1,4 +1,5 @@
 #pragma once
+#include "../game/GameGui.h"
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -47,6 +48,7 @@ struct PlayerOptions {
     std::string testRename;            // --test-rename "New name" (tests: rename your first game on the Create page)
     int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
     std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
+    std::string testClick;             // --test-click "x,y" (tests: click there 3 times, 0..1 of the window)
     std::string launchUrl;             // gutsandbolts://play/<game>?guest=boy (the website's Play button)
 };
 
@@ -86,6 +88,7 @@ private:
     void drawLoading(ImVec2 pos, ImVec2 size, float alpha, const char* status);
     // From pressing Play until the game shows: the connecting screen over everything.
     bool        m_connectScreen = false;
+    GameGui::Input m_guiInput;                     // the game's own UI: which button is pointed at / pressed
     std::string m_loadingGameId;                   // server game id (for its icon), or ""
     std::string m_loadingIcon;                     // the icon file, once downloaded
     std::string m_loadingTitle, m_loadingAuthor;   // the game's name and creator on the server

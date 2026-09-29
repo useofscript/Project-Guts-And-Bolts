@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
+#include "GameGui.h"
 
 class Scene;
 
@@ -30,6 +31,7 @@ public:
     // Client mode: where touches and clicks get sent (to the host).
     std::function<void(uint64_t part, const std::string& limb)> onTouch;
     std::function<void(uint64_t part)>                          onClick;
+    std::function<void(uint64_t button)>                        onGuiClick;   // a game UI button
 
     void start();
     void stop();
@@ -39,6 +41,8 @@ public:
     // `acceptInput` = false ignores the keyboard (e.g. while typing).
     void update(float dt, float cameraYaw, bool acceptInput);
     void click(uint64_t partId);                 // left-click in the 3D view
+    // Game UI: pointer events from GameGui (clicks go to the host in multiplayer).
+    void guiEvents(const std::vector<GameGui::Event>& events);
     // On-screen joystick (x = right, y = forward) and jump button, for touch screens.
     void setTouchInput(glm::vec2 move, bool jump) { m_touchMove = move; m_touchJump = jump; }
 

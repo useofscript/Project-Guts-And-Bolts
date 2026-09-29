@@ -1,6 +1,7 @@
 #include "PlayerApp.h"
 #include "SiteUi.h"
 #include "LaunchLink.h"
+#include "../game/GameGui.h"
 #include "../renderer/Textures.h"
 #include "../core/AppWindow.h"
 #include "../core/Log.h"
@@ -244,6 +245,14 @@ void PlayerApp::run() {
             }
         }
         float dt = m_window->beginFrame([&] {
+            float cx, cy;   // tests: three mouse clicks at a spot (down, then up two frames later)
+            if (!m_opts.testClick.empty() && std::sscanf(m_opts.testClick.c_str(), "%f,%f", &cx, &cy) == 2) {
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(cx * io.DisplaySize.x, cy * io.DisplaySize.y);
+                int t = m_frame - 50;
+                if (t >= 0 && t < 30 && t % 10 == 0) io.AddMouseButtonEvent(0, true);
+                if (t >= 0 && t < 30 && t % 10 == 2) io.AddMouseButtonEvent(0, false);
+            }
             if (!m_opts.holdKey.empty() && m_frame > 3) {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
                            : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
@@ -1178,7 +1187,13 @@ void PlayerApp::drawGame(float dt) {
     bool tapped = touch && m_touch.tapped(tapAt);
     ImVec2 pointer = tapped ? tapAt : ImGui::GetMousePos();
     const bool onHotbar = Hud::overHotbar(pos, max, *m_scene, pointer);   // picking a tool isn't swinging it
-    if (acceptInput && !onHotbar && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
+    // The game's own UI (buttons...) gets the pointer first.
+    std::vector<GameGui::Event> guiEvents;
+    const bool onGui = GameGui::handle(*m_scene, pos, max, pointer, acceptInput && (hovered || tapped) && !onHotbar,
+                                       !touch && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                                       !touch && ImGui::IsMouseReleased(ImGuiMouseButton_Left), tapped, m_guiInput, guiEvents);
+    m_session->guiEvents(guiEvents);
+    if (acceptInput && !onHotbar && !onGui && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
         ImVec2 m = pointer;
         float nx = (m.x - pos.x) / size.x * 2.0f - 1.0f;
         float ny = 1.0f - (m.y - pos.y) / size.y * 2.0f;
@@ -1196,6 +1211,7 @@ void PlayerApp::drawGame(float dt) {
         bool chatShowing = m_chatOpen || ImGui::GetTime() < m_chatShowUntil;
         labelsAt = chatShowing ? (m_chatOpen ? 216.0f : 156.0f) : 58.0f;   // under the chat box when it's up
     }
+    GameGui::draw(dl, pos, max, *m_scene, &m_guiInput);
     Hud::draw(dl, pos, max, *m_scene, m_session->gui(), labelsAt);
     if (int slot = Hud::drawHotbar(dl, pos, max, *m_scene, tapped && onHotbar ? &tapAt : nullptr); slot >= 0 && acceptInput)
         m_session->selectToolSlot(slot);

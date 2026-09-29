@@ -343,6 +343,54 @@ Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
 of an online game; people who join someone else's game can't carry tools
 yet.
 
+## Game UI (ScreenGui, buttons, labels)
+
+Games can have their own on-screen UI, like Roblox's: menus, shop buttons, coin
+counters and title screens.
+
+- **Insert** (Ctrl+I) a **ScreenGui**. It goes in the **StarterGui** folder.
+  Then insert **Frame**, **TextLabel**, **TextButton**, **ImageLabel** or
+  **ImageButton** into it. Put a **UICorner** inside one to round its corners,
+  or a **UIStroke** to give it an outline.
+- The UI shows in the viewport while you build. Click it to pick it, drag it to
+  move it, and drag the blue corner to resize it. Everything else is in
+  **Properties**.
+- Sizes and positions are **UDim2**, like Roblox: a fraction of the parent plus
+  pixels. `UDim2.new(0.5, 0, 1, -60)` means "halfway across, 60 pixels up from
+  the bottom". **AnchorPoint** picks which point of it sits there (0.5, 0.5 is
+  the middle).
+
+Scripts use the same names as Roblox:
+
+```lua
+local gui = Instance.new("ScreenGui")
+gui.Parent = game:GetService("StarterGui")
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.fromOffset(200, 50)
+button.Position = UDim2.new(0.5, 0, 1, -40)
+button.AnchorPoint = Vector2.new(0.5, 1)
+button.Text = "Clicks: 0"
+button.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+button.Parent = gui
+Instance.new("UICorner", button)
+
+local clicks = 0
+button.MouseButton1Click:Connect(function()
+    clicks = clicks + 1
+    button.Text = "Clicks: " .. clicks
+end)
+```
+
+Buttons have `MouseButton1Click` (also called `Activated`), `MouseEnter` and
+`MouseLeave`. Text has `TextScaled`, `TextWrapped`, alignment, an outline
+(`TextStrokeTransparency`) and bold fonts (`Enum.Font.SourceSansBold`).
+`player.PlayerGui` and `game.StarterGui` are the same folder.
+
+In multiplayer, everyone sees the same UI. When anyone clicks a button, the
+host's scripts hear about it. Roblox files keep their UI: ScreenGuis in a
+place's StarterGui are imported, and exported back to Roblox.
+
 ## Animations (the Animation Editor)
 
 Like Roblox's: make an animation in Studio, then play it from a script.

@@ -1,4 +1,5 @@
 #include "NetGame.h"
+#include "../scripting/LuaApi.h"   // SignalKind (UI clicks)
 #include "../scene/PlayerModel.h"
 #include "../game/Badges.h"
 #include "../game/GameSession.h"
@@ -108,14 +109,17 @@ std::string nodeState(const SceneNode* n) {
         t.scale.x, t.scale.y, t.scale.z, n->color.r, n->color.g, n->color.b, n->transparency,
         (int)n->visible, (int)n->canCollide, (int)n->enabled, (int)n->material, (int)n->primitiveType,
         n->brightness, n->range, n->spotAngle);
+    if (n->isGui()) return std::string(buf) + Serializer::guiToJson(n->gui).dump();   // text, colours, sizes...
     return buf;
 }
 
 json nodeUpdate(const SceneNode* n) {
-    return {{"i", n->id}, {"t", transformJson(n->transform)}, {"c", vec3(n->color)},
+    json u = {{"i", n->id}, {"t", transformJson(n->transform)}, {"c", vec3(n->color)},
             {"a", n->transparency}, {"v", n->visible}, {"cc", n->canCollide}, {"e", n->enabled},
             {"m", (int)n->material}, {"sh", (int)n->primitiveType}, {"b", n->brightness},
             {"rg", n->range}, {"sa", n->spotAngle}};
+    if (n->isGui()) u["gui"] = Serializer::guiToJson(n->gui);
+    return u;
 }
 
 void applyUpdate(SceneNode* n, const json& u) {
@@ -134,6 +138,11 @@ void applyUpdate(SceneNode* n, const json& u) {
     n->brightness   = u.value("b", n->brightness);
     n->range        = u.value("rg", n->range);
     n->spotAngle    = u.value("sa", n->spotAngle);
+    if (n->isGui() && u.contains("gui") && u["gui"].is_object()) {
+        const glm::vec2 absPos = n->gui.absPos, absSize = n->gui.absSize;   // (worked out here, not sent)
+        Serializer::guiFromJson(n->gui, u["gui"]);
+        n->gui.absPos = absPos; n->gui.absSize = absSize;
+    }
 }
 
 glm::vec3 spawnPoint(Scene& scene) {
@@ -484,6 +493,9 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "click") {
         uint64_t part = m.value("part", (uint64_t)0);
         if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
+    } else if (t == "guiclick") {
+        uint64_t id = m.value("id", (uint64_t)0);
+        if (SceneNode* b = m_scene->findById(id); b && b->isGuiButton()) m_session->scripts().fireGui(SignalKind::GuiClick, id);
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
@@ -637,6 +649,7 @@ void NetClient::disconnect() {
         m_session->setRole(GameSession::Role::Solo);
         m_session->onTouch = nullptr;
         m_session->onClick = nullptr;
+        m_session->onGuiClick = nullptr;
         m_scene->remotes().clear();
     }
     m_state = State::Idle;
@@ -752,6 +765,9 @@ void NetClient::handle(const std::string& text) {
         m_session->setRole(GameSession::Role::Client);
         m_session->onTouch = [this](uint64_t part, const std::string& limb) { reportTouch(part, limb); };
         m_session->onClick = [this](uint64_t part) { reportClick(part); };
+        m_session->onGuiClick = [this](uint64_t button) {   // a game UI button: the host's scripts hear it
+            if (m_conn && button < kLocalIdBase) m_conn->send(json{{"t", "guiclick"}, {"id", button}}.dump());
+        };
         m_session->start();
         m_state = State::Joined;
         m_chat.add("", "Joined " + m_title + " as " + m.value("name", std::string("Player")), true);

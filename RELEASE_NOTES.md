@@ -2,6 +2,15 @@
 
 ## New
 
+**Game UI, like Roblox's**
+- New objects: **ScreenGui**, **Frame**, **TextLabel**, **TextButton**,
+  **ImageLabel**, **ImageButton**, **UICorner** and **UIStroke**. Games can have
+  menus, shop buttons, coin counters and title screens.
+- Build them in Studio: insert them, then click, drag and resize them right in
+  the viewport. Or make them in a script with `UDim2`, `Vector2` and
+  `button.MouseButton1Click`.
+- They work in multiplayer, and in Roblox files (import and export).
+
 **The website looks like it's from 2011**
 - A dark blue top bar with the logo, a game search box and your account. Below it
   is a shiny tab row and a gray row with Avatar, Friends, Groups and Bolts.

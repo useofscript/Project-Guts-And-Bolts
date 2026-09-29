@@ -7,6 +7,8 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../scene/Serializer.h"
+#include "../scene/Guis.h"
+#include "../game/GameGui.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Audio.h"
 
@@ -76,6 +78,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Value:      return n->valueClass();
         case NodeKind::Decal:      return "Decal";
         case NodeKind::Animation:  return "Animation";
+        case NodeKind::Gui:        return kGuiClassNames[(int)n->gui.type];
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint:
@@ -102,6 +105,13 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Tool && cls == "BackpackItem") return true;
     if (n->kind == NodeKind::Value && cls == "ValueBase") return true;
     if (n->kind == NodeKind::Decal && cls == "FaceInstance") return true;
+    if (n->isGui()) {
+        if (cls == "GuiBase" || (n->gui.type != GuiType::UICorner && n->gui.type != GuiType::UIStroke && cls == "GuiBase2d")) return true;
+        if (n->gui.type == GuiType::ScreenGui && (cls == "LayerCollector" || cls == "BasePlayerGui")) return true;
+        if (n->isGuiObject() && cls == "GuiObject") return true;
+        if (n->isGuiButton() && cls == "GuiButton") return true;
+        if ((n->gui.type == GuiType::UICorner || n->gui.type == GuiType::UIStroke) && cls == "UIComponent") return true;
+    }
     return false;
 }
 
@@ -435,6 +445,144 @@ const luaL_Reg kMethods[] = {
 // Instance properties
 // ===========================================================================
 
+// --- Game UI properties (ScreenGui, Frame, TextLabel, TextButton, ImageLabel...) ---
+
+const char* alignName(int a, bool x) { return a == 0 ? (x ? "Left" : "Top") : a == 2 ? (x ? "Right" : "Bottom") : "Center"; }
+int parseAlign(const char* s) {
+    if (is(s, "Left") || is(s, "Top")) return 0;
+    if (is(s, "Right") || is(s, "Bottom")) return 2;
+    return 1;
+}
+bool hasText(const SceneNode* n) { return n->gui.type == GuiType::TextLabel || n->gui.type == GuiType::TextButton; }
+bool hasImage(const SceneNode* n) { return n->gui.type == GuiType::ImageLabel || n->gui.type == GuiType::ImageButton; }
+
+// Push a UI property; false if `k` isn't one.
+bool guiIndex(lua_State* L, SceneNode* n, const char* k) {
+    const GuiProps& g = n->gui;
+    if (is(k, "AbsoluteSize") || is(k, "AbsolutePosition")) GameGui::refresh(*E(L)->scene());
+    if (g.type == GuiType::ScreenGui) {
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
+        if (is(k, "DisplayOrder")) { lua_pushinteger(L, g.displayOrder); return true; }
+        if (is(k, "ResetOnSpawn") || is(k, "IgnoreGuiInset")) { lua_pushboolean(L, false); return true; }
+        if (is(k, "AbsoluteSize")) { LuaApi::pushVector2(L, g.absSize); return true; }
+        if (is(k, "AbsolutePosition")) { LuaApi::pushVector2(L, g.absPos); return true; }
+        return false;
+    }
+    if (g.type == GuiType::UICorner) {
+        if (is(k, "CornerRadius")) { LuaApi::pushUDim(L, g.corner.xs, g.corner.xo); return true; }
+        return false;
+    }
+    if (g.type == GuiType::UIStroke) {
+        if (is(k, "Color"))        { LuaApi::pushColor3(L, g.borderColor); return true; }
+        if (is(k, "Thickness"))    { lua_pushnumber(L, g.thickness); return true; }
+        if (is(k, "Transparency")) { lua_pushnumber(L, g.bgTransparency); return true; }
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
+        return false;
+    }
+    if (is(k, "Position"))         { LuaApi::pushUDim2(L, g.pos); return true; }
+    if (is(k, "Size"))             { LuaApi::pushUDim2(L, g.size); return true; }
+    if (is(k, "AnchorPoint"))      { LuaApi::pushVector2(L, g.anchor); return true; }
+    if (is(k, "AbsolutePosition")) { LuaApi::pushVector2(L, g.absPos); return true; }
+    if (is(k, "AbsoluteSize"))     { LuaApi::pushVector2(L, g.absSize); return true; }
+    if (is(k, "Visible"))          { lua_pushboolean(L, n->visible); return true; }
+    if (is(k, "BackgroundColor3")) { LuaApi::pushColor3(L, g.bg); return true; }
+    if (is(k, "BackgroundTransparency")) { lua_pushnumber(L, g.bgTransparency); return true; }
+    if (is(k, "BorderColor3"))     { LuaApi::pushColor3(L, g.borderColor); return true; }
+    if (is(k, "BorderSizePixel"))  { lua_pushinteger(L, g.border); return true; }
+    if (is(k, "ZIndex"))           { lua_pushinteger(L, g.zIndex); return true; }
+    if (is(k, "ClipsDescendants")) { lua_pushboolean(L, g.clips); return true; }
+    if (is(k, "Active"))           { lua_pushboolean(L, n->isGuiButton()); return true; }
+    if (is(k, "MouseEnter"))       { LuaApi::pushSignal(L, SignalKind::GuiEnter, n->id); return true; }
+    if (is(k, "MouseLeave"))       { LuaApi::pushSignal(L, SignalKind::GuiLeave, n->id); return true; }
+    if (hasText(n)) {
+        if (is(k, "Text"))             { lua_pushstring(L, g.text.c_str()); return true; }
+        if (is(k, "TextColor3"))       { LuaApi::pushColor3(L, g.textColor); return true; }
+        if (is(k, "TextSize") || is(k, "FontSize")) { lua_pushnumber(L, g.textSize); return true; }
+        if (is(k, "TextScaled"))       { lua_pushboolean(L, g.textScaled); return true; }
+        if (is(k, "TextWrapped"))      { lua_pushboolean(L, g.textWrapped); return true; }
+        if (is(k, "TextXAlignment"))   { lua_pushstring(L, alignName(g.xAlign, true)); return true; }
+        if (is(k, "TextYAlignment"))   { lua_pushstring(L, alignName(g.yAlign, false)); return true; }
+        if (is(k, "TextTransparency")) { lua_pushnumber(L, g.textTransparency); return true; }
+        if (is(k, "TextStrokeColor3")) { LuaApi::pushColor3(L, g.strokeColor); return true; }
+        if (is(k, "TextStrokeTransparency")) { lua_pushnumber(L, g.strokeTransparency); return true; }
+        if (is(k, "Font"))             { lua_pushstring(L, g.bold ? "SourceSansBold" : "SourceSans"); return true; }
+        if (is(k, "ContentText"))      { lua_pushstring(L, g.text.c_str()); return true; }
+    }
+    if (hasImage(n)) {
+        if (is(k, "Image"))             { lua_pushstring(L, g.image.c_str()); return true; }
+        if (is(k, "ImageColor3"))       { LuaApi::pushColor3(L, g.imageColor); return true; }
+        if (is(k, "ImageTransparency")) { lua_pushnumber(L, g.imageTransparency); return true; }
+    }
+    if (n->isGuiButton()) {
+        if (is(k, "MouseButton1Click") || is(k, "Activated")) { LuaApi::pushSignal(L, SignalKind::GuiClick, n->id); return true; }
+        if (is(k, "AutoButtonColor")) { lua_pushboolean(L, g.autoButtonColor); return true; }
+    }
+    return false;
+}
+
+// Set a UI property; false if `k` isn't one.
+bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
+    GuiProps& g = n->gui;
+    auto num = [&]() { return (float)luaL_checknumber(L, 3); };
+    auto t01 = [&]() { return std::clamp(num(), 0.0f, 1.0f); };
+    if (g.type == GuiType::ScreenGui) {
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
+        if (is(k, "DisplayOrder")) { g.displayOrder = (int)luaL_checkinteger(L, 3); return true; }
+        if (is(k, "ResetOnSpawn") || is(k, "IgnoreGuiInset") || is(k, "ZIndexBehavior")) return true;   // (accepted, no effect)
+        return false;
+    }
+    if (g.type == GuiType::UICorner) {
+        if (is(k, "CornerRadius")) { glm::vec2 u = LuaApi::checkUDim(L, 3); g.corner = {u.x, u.y, 0, 0}; return true; }
+        return false;
+    }
+    if (g.type == GuiType::UIStroke) {
+        if (is(k, "Color"))        { g.borderColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "Thickness"))    { g.thickness = std::max(0.0f, num()); return true; }
+        if (is(k, "Transparency")) { g.bgTransparency = t01(); return true; }
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
+        if (is(k, "ApplyStrokeMode") || is(k, "LineJoinMode")) return true;
+        return false;
+    }
+    if (is(k, "Position"))         { g.pos = LuaApi::checkUDim2(L, 3); return true; }
+    if (is(k, "Size"))             { g.size = LuaApi::checkUDim2(L, 3); return true; }
+    if (is(k, "AnchorPoint"))      { g.anchor = LuaApi::checkVector2(L, 3); return true; }
+    if (is(k, "Visible"))          { n->visible = lua_toboolean(L, 3); return true; }
+    if (is(k, "BackgroundColor3")) { g.bg = LuaApi::checkColor3(L, 3); return true; }
+    if (is(k, "BackgroundTransparency")) { g.bgTransparency = t01(); return true; }
+    if (is(k, "BorderColor3"))     { g.borderColor = LuaApi::checkColor3(L, 3); return true; }
+    if (is(k, "BorderSizePixel"))  { g.border = std::max(0, (int)luaL_checkinteger(L, 3)); return true; }
+    if (is(k, "ZIndex"))           { g.zIndex = (int)luaL_checkinteger(L, 3); return true; }
+    if (is(k, "ClipsDescendants")) { g.clips = lua_toboolean(L, 3); return true; }
+    if (is(k, "Active") || is(k, "Selectable")) return true;
+    if (hasText(n)) {
+        if (is(k, "Text"))             { g.text = luaL_tolstring(L, 3, nullptr); lua_pop(L, 1); return true; }
+        if (is(k, "TextColor3"))       { g.textColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "TextSize"))         { g.textSize = std::clamp(num(), 1.0f, 200.0f); return true; }
+        if (is(k, "TextScaled"))       { g.textScaled = lua_toboolean(L, 3); return true; }
+        if (is(k, "TextWrapped"))      { g.textWrapped = lua_toboolean(L, 3); return true; }
+        if (is(k, "TextXAlignment"))   { g.xAlign = parseAlign(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "TextYAlignment"))   { g.yAlign = parseAlign(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "TextTransparency")) { g.textTransparency = t01(); return true; }
+        if (is(k, "TextStrokeColor3")) { g.strokeColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "TextStrokeTransparency")) { g.strokeTransparency = t01(); return true; }
+        if (is(k, "Font")) {   // Enum.Font.SourceSansBold -> bold; every font looks the same otherwise
+            std::string f = luaL_tolstring(L, 3, nullptr);
+            lua_pop(L, 1);
+            g.bold = f.find("Bold") != std::string::npos || f.find("Black") != std::string::npos || f == "Arcade" ||
+                     f == "FredokaOne" || f == "LuckiestGuy";
+            return true;
+        }
+    }
+    if (hasImage(n)) {
+        if (is(k, "Image"))             { g.image = luaL_checkstring(L, 3); return true; }
+        if (is(k, "ImageColor3"))       { g.imageColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "ImageTransparency")) { g.imageTransparency = t01(); return true; }
+        if (is(k, "ScaleType")) return true;
+    }
+    if (n->isGuiButton() && is(k, "AutoButtonColor")) { g.autoButtonColor = lua_toboolean(L, 3); return true; }
+    return false;
+}
+
 int inst_index(lua_State* L) {
     auto* ref = static_cast<InstRef*>(luaL_checkudata(L, 1, kInst));
     const char* k = luaL_checkstring(L, 2);
@@ -458,6 +606,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Position"))      { LuaApi::pushVector3(L, n->transform.position); return 1; }
         if (is(k, "WorldPosition")) { LuaApi::pushVector3(L, worldPosition(n)); return 1; }
     }
+    if (n->isGui() && guiIndex(L, n, k)) return 1;
     if (n->isConstraint()) {
         bool weld = n->constraintType == ConstraintType::Weld;
         if ((!weld && is(k, "Attachment0")) || (weld && is(k, "Part0"))) { LuaApi::pushInstance(L, n->ref0); return 1; }
@@ -586,6 +735,7 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Position"))      { n->transform.position = LuaApi::checkVector3(L, 3); return 0; }
         if (is(k, "WorldPosition")) { setWorldPosition(L, n, LuaApi::checkVector3(L, 3)); return 0; }
     }
+    if (n->isGui() && guiNewIndex(L, n, k)) return 0;
     if (n->isConstraint()) {
         bool weld = n->constraintType == ConstraintType::Weld;
         auto ref = [&](uint64_t& r) {
@@ -770,6 +920,10 @@ int inst_new(lua_State* L) {
     } else if (cls == "Animation") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Animation);
         n->source = Anim::emptyClipText();
+    } else if (std::find(std::begin(kGuiClassNames), std::end(kGuiClassNames), cls) != std::end(kGuiClassNames)) {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Gui);
+        for (int i = 0; i < kGuiTypeCount; ++i) if (cls == kGuiClassNames[i]) n->gui.type = (GuiType)i;
+        Guis::setDefaults(*n);
     } else if (cls == "Decal") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Decal);
         n->color = {1.0f, 1.0f, 1.0f};

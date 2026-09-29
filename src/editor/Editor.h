@@ -34,6 +34,7 @@ public:
     // Test / command-line helpers.
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);
+    void testInsert(const std::string& names);   // Insert Object, each one into the one before
     void testPremades(const std::string& list);
     void testSelect(const std::string& names);
     void testSnapshot(const std::string& file);   // --test-snapshot
