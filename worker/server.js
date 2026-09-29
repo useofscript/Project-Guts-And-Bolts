@@ -675,12 +675,16 @@ export class GbServerObject extends DurableObject {
       return okay({ me: this.meJson(me) });
     }
     const u = this.findUsername(username);
+    // An account made on a device that never set a password can't be logged into anywhere else yet.
+    const noLogin = (acc) => (!acc ? 'There\'s no account with that username.'
+      : 'That account hasn\'t set a password yet, so it only works on the device it was made on. On that device, open the '
+        + 'Guts&Bolts Player, go to Avatar > Your account and press "Set a password". Then you can log in here.');
     if (name === 'account.salt') {
-      if (!u || !u.keyBlob) return fail('There\'s no account with that username.');
+      if (!u || !u.keyBlob) return fail(noLogin(u));
       return okay({ salt: u.pwSalt });
     }
     if (name === 'account.login') {
-      if (!u || !u.keyBlob) return fail('There\'s no account with that username.');
+      if (!u || !u.keyBlob) return fail(noLogin(u));
       if (u.banned) return fail('That account has been banned from this server.');
       const t = now(), key = lower(username);
       const fails = (this.failedLogins.get(key) || []).filter((x) => t - x <= kLockoutSeconds);

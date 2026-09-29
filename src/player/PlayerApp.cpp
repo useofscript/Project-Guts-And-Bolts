@@ -772,6 +772,23 @@ void PlayerApp::drawHome() {
         ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_status.c_str());
         ImGui::Spacing();
     }
+    // Signed up but no password yet (like an account made before passwords existed):
+    // you can't log in anywhere else, including the website, until you set one.
+    if (Online::online() && Online::me().value("userId", 0LL) > 0 && !Online::me().value("hasPassword", true)) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1.0f, 0.95f, 0.8f, 1));
+        ImGui::BeginChild("##nopw", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+        ImGui::TextColored(ImVec4(0.55f, 0.35f, 0.0f, 1), "Your account has no password yet.");
+        ImGui::TextWrapped("Set one so you can log in on the website and other devices as @%s.",
+                           Online::me().value("username", std::string()).c_str());
+        if (Classic::button("Set a password", Classic::kBlue)) {
+            m_page = Page::Login;
+            m_loginTab = 0;
+            m_loginUser = Online::me().value("username", std::string());
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    }
     // Online: games people published.
     drawOnlineGames();
     // Daily Bolts waiting for you?
