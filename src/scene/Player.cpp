@@ -299,7 +299,7 @@ void Player::beginPlay() {
         for (auto& c : r->children) m_rest[c->id] = c->transform;
     }
     m_dead = m_diedFlag = false;
-    respawn();
+    respawn(true);
 }
 
 void Player::endPlay() {
@@ -309,7 +309,7 @@ void Player::endPlay() {
     m_rest.clear();
 }
 
-void Player::respawn() {
+void Player::respawn(bool firstSpawn) {
     SceneNode* r = root();
     if (!r) return;
     for (auto& c : r->children) {
@@ -327,6 +327,10 @@ void Player::respawn() {
 
     m_humanoid.health = m_humanoid.maxHealth;
     m_respawnedFlag = true;
+    {   // a splat when you arrive in the game, a bass hit when you come back to life
+        glm::vec3 at = r->transform.position + glm::vec3(0, 2, 0);
+        Audio::play(firstSpawn ? "spawn" : "respawn", 0.7f, 1.0f, false, &at);
+    }
     m_velocity  = glm::vec3(0.0f);
     m_grounded  = false;
     m_groundId  = 0;

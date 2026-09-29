@@ -124,7 +124,7 @@ private:
     void startDeath();
     void bleed(float damage);
     void updateDeath(float dt, Physics& physics);
-    void respawn();
+    void respawn(bool firstSpawn = false);   // firstSpawn: arriving in the game (a different sound)
 
     std::vector<uint64_t> m_slots;    // tool ids in hotbar order
     float    m_holdBlend = 0.0f;       // right arm raised to hold a tool

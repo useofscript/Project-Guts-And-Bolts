@@ -3,6 +3,9 @@
 #include <miniaudio.h>
 
 #include "Audio.h"
+#include "SoundJump.h"      // generated from assets/sounds
+#include "SoundRespawn.h"
+#include "SoundSpawn.h"
 #include "Paths.h"
 #include "Log.h"
 
@@ -136,6 +139,24 @@ bool                                    g_ready = false;
 ma_engine                               g_engine;
 std::map<std::string, Samples>          g_builtin;
 std::map<int, std::unique_ptr<Instance>> g_playing;
+
+// Recorded effects baked into the program (assets/sounds): decoded once at start.
+Samples decode(const unsigned char* data, size_t size) {
+    Samples out;
+    ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 1, kRate);
+    ma_decoder dec;
+    if (ma_decoder_init_memory(data, size, &cfg, &dec) != MA_SUCCESS) return out;
+    float chunk[4096];
+    ma_uint64 got = 0;
+    while (ma_decoder_read_pcm_frames(&dec, chunk, 4096, &got) == MA_SUCCESS && got > 0)
+        out.insert(out.end(), chunk, chunk + got);
+    ma_decoder_uninit(&dec);
+    // Even out the loudness (so a quiet recording isn't lost next to the made-up sounds).
+    float peak = 0.0f;
+    for (float v : out) peak = std::max(peak, std::fabs(v));
+    if (peak > 0.01f) for (float& v : out) v *= 0.8f / peak;
+    return out;
+}
 int                                     g_next = 1;
 
 void destroy(Instance& in) {
@@ -152,7 +173,7 @@ Instance* find(int handle) {
 
 const std::vector<std::string>& builtinNames() {
     static const std::vector<std::string> names = {
-        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn"};
+        "jump", "coin", "oof", "explosion", "splat", "click", "hit", "win", "boing", "spawn", "respawn"};
     return names;
 }
 
@@ -164,6 +185,12 @@ void init() {
         return;
     }
     g_builtin = synthesize();
+    // The recorded ones win over the made-up ones with the same name.
+    struct Recorded { const char* name; const unsigned char* data; size_t size; };
+    for (const Recorded& r : {Recorded{"jump", kSoundJump, kSoundJumpSize},
+                              Recorded{"respawn", kSoundRespawn, kSoundRespawnSize},
+                              Recorded{"spawn", kSoundSpawn, kSoundSpawnSize}})
+        if (Samples s = decode(r.data, r.size); !s.empty()) g_builtin[r.name] = std::move(s);
     g_ready = true;
 }
 

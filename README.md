@@ -351,6 +351,19 @@ print(store:GetAsync("best").score)
 It also has `UpdateAsync` and `RemoveAsync`. Data is saved per game, in each
 player's account folder on the computer that runs the game (the host, online).
 
+### Sound effects
+
+Most built-in sounds are made in code, but a few are recordings in
+`assets/sounds` (built into the apps):
+
+| File | Name in scripts | When it plays |
+| --- | --- | --- |
+| `jump.wav` | `"jump"` | the character jumps |
+| `spawn.wav` | `"spawn"` | you arrive in a game (a splat) |
+| `respawn.wav` | `"respawn"` | you come back after dying |
+
+Swap in your own .wav files with the same names and rebuild.
+
 ## Physics
 
 Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,
