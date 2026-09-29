@@ -170,6 +170,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "games") m_page = Page::Games;
     if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
     if (m_opts.page == "settings") m_showSettings = true;
+    if (m_opts.page == "character") m_charPickOpen = true;   // test: the guest "Choose Your Character" box
     if (m_opts.page == "catalog") m_page = Page::Catalog;
     if (m_opts.page == "bolts") m_page = Page::Bolts;
     if (m_opts.page == "create") { m_page = Page::Create; m_createKind = m_opts.createTab; }
@@ -318,6 +319,8 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     *m_soloChat = ChatLog{};
 
     m_currentTitle = m_scene->info().title;
+    m_currentAuthor = m_scene->info().author;
+    m_loadingT = 1.4f;
     m_window->setTitle(m_currentTitle + " - Guts&Bolts Player");
     frameSpawn(*m_scene, m_camera);
     m_camera.distance = 12.0f;
@@ -370,6 +373,8 @@ void PlayerApp::joinServer(const std::string& address) {
         return;
     }
     m_currentTitle = "Joining " + address + "...";
+    m_currentAuthor.clear();
+    m_loadingT = 0.9f;
     m_joinedOnce = false;
     m_paused = false;
     m_status.clear();
@@ -504,6 +509,7 @@ void PlayerApp::frame(float dt) {
         ImGui::PopStyleVar();
     }
 
+    drawCharacterPicker();
     ImGui::End();
     if (m_page != Page::Game) touchScroll();
     if (m_showSettings) {   // dressed like the rest of the site: white box, blue title bar
@@ -1019,7 +1025,7 @@ void PlayerApp::drawAvatar(float dt) {
     changed |= ImGui::ColorEdit3("Right Leg", &me.colors.rightLeg.x, cf);
 
     ImGui::SeparatorText("Hat");
-    for (int h = 0; h < 4; ++h) {
+    for (int h = 0; h < kHatStyleCount; ++h) {
         bool on = (int)me.hat == h;
         float rowW = ImGui::GetWindowContentRegionMax().x - ImGui::GetWindowContentRegionMin().x;
         float hw = std::min(95.0f, (rowW - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
@@ -1030,9 +1036,8 @@ void PlayerApp::drawAvatar(float dt) {
             me.hatColor = glm::vec3(-1.0f);   // back to its normal colours
             changed = true;
         }
-        ImGui::SameLine();
+        if (h % 4 != 3 && h + 1 < kHatStyleCount) ImGui::SameLine();   // four to a row
     }
-    ImGui::NewLine();
 
     drawAccount();
 
@@ -1081,11 +1086,7 @@ void PlayerApp::drawGame(float dt) {
 
     bool connecting = m_client && m_client->state() != NetClient::State::Joined;
     if (connecting) {
-        ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(20, 22, 28, 255));
-        const char* t = "Joining game...";
-        ImVec2 ts = ImGui::CalcTextSize(t);
-        ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x + (size.x - ts.x) * 0.5f, pos.y + size.y * 0.45f),
-                                            IM_COL32(255, 255, 255, 255), t);
+        drawLoading(pos, size, 1.0f, "Joining server");
         if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) leaveGame();
         return;
     }
@@ -1169,7 +1170,7 @@ void PlayerApp::drawGame(float dt) {
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
     else Hud::drawPlayerList(dl, pos, max, {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
                                              m_session->scripts().leaderstats(Online::playerName())}});
-    drawChat(pos, max);
+    if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
 
     // "+5 Bolts for playing!" popup, top middle.
     if (ImGui::GetTime() < m_boltsToastUntil) {
@@ -1194,7 +1195,64 @@ void PlayerApp::drawGame(float dt) {
         dl->AddText(ImVec2(max.x - 80, max.y - 26), IM_COL32(255, 255, 255, 160), fps);
     }
 
+    if (m_loadingT > 0.0f) {   // the loading screen fades away as the game appears
+        m_loadingT -= dt;
+        drawLoading(pos, size, std::clamp(m_loadingT / 0.6f, 0.0f, 1.0f), "Starting");
+    }
+
     if (m_paused) drawPauseMenu();
+}
+
+void PlayerApp::drawLoading(ImVec2 pos, ImVec2 size, float alpha, const char* status) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImFont* font = ImGui::GetFont();
+    const float base = ImGui::GetFontSize();
+    const int a = (int)(255 * alpha);
+    auto col = [a](int r, int g, int b, float k = 1.0f) { return IM_COL32(r, g, b, (int)(a * k)); };
+    ImVec2 max(pos.x + size.x, pos.y + size.y);
+    // Dark gray, a little lighter in the middle, like the old loading screens.
+    dl->AddRectFilledMultiColor(pos, max, col(34, 36, 42), col(34, 36, 42), col(14, 15, 18), col(14, 15, 18));
+
+    std::string title = m_currentTitle;
+    if (title.rfind("Joining ", 0) == 0) title = title.substr(8);
+    if (title.size() > 3 && title.compare(title.size() - 3, 3, "...") == 0) title.resize(title.size() - 3);
+    if (title.empty()) title = "Guts&Bolts";
+    const float wrap = std::max(120.0f, size.x - 60.0f);
+    float big = base * 2.2f;
+    ImVec2 ts = font->CalcTextSizeA(big, FLT_MAX, wrap, title.c_str());
+    if (ts.x > wrap * 0.98f) { big = base * 1.6f; ts = font->CalcTextSizeA(big, FLT_MAX, wrap, title.c_str()); }
+    float y = pos.y + size.y * 0.36f - ts.y * 0.5f;
+    dl->AddText(font, big, ImVec2(pos.x + (size.x - ts.x) * 0.5f + 2, y + 2), col(0, 0, 0, 0.6f), title.c_str(), nullptr, wrap);
+    dl->AddText(font, big, ImVec2(pos.x + (size.x - ts.x) * 0.5f, y), col(255, 255, 255), title.c_str(), nullptr, wrap);
+    y += ts.y + 6;
+    if (!m_currentAuthor.empty()) {
+        std::string by = "By " + m_currentAuthor;
+        ImVec2 bs = ImGui::CalcTextSize(by.c_str());
+        dl->AddText(ImVec2(pos.x + (size.x - bs.x) * 0.5f, y), col(170, 176, 190), by.c_str());
+        y += bs.y;
+    }
+
+    // The spinner: a ring of dots chasing each other round a Bolts coin.
+    ImVec2 c(pos.x + size.x * 0.5f, y + 50);
+    const float t = (float)ImGui::GetTime();
+    const int dots = 10;
+    for (int i = 0; i < dots; ++i) {
+        float ang = (float)i / dots * 6.2831853f;
+        float lag = std::fmod(t * 1.4f - (float)i / dots + 10.0f, 1.0f);   // 0 = the lead dot
+        dl->AddCircleFilled(ImVec2(c.x + std::cos(ang) * 26, c.y + std::sin(ang) * 26), 4.0f,
+                            col(255, 255, 255, 0.2f + 0.8f * (1.0f - lag)));
+    }
+    if (alpha > 0.5f) Bolts::drawIcon(dl, c, 26.0f);
+    char line[64];
+    std::snprintf(line, sizeof(line), "%s%.*s", status, 1 + (int)(t * 3.0f) % 3, "...");
+    ImVec2 ls = ImGui::CalcTextSize(status);
+    dl->AddText(ImVec2(pos.x + (size.x - ls.x) * 0.5f, c.y + 40), col(220, 224, 232), line);
+
+    // The logo in the corner.
+    const float logoSize = std::min(34.0f, size.y * 0.08f);
+    const ImVec2 lsz = font->CalcTextSizeA(logoSize, FLT_MAX, 0.0f, "GUTS&BOLTS");
+    if (alpha > 0.99f) Classic::logo(dl, ImVec2(max.x - lsz.x - 22, max.y - lsz.y - 18), logoSize, "GUTS&BOLTS");
+    else dl->AddText(font, logoSize, ImVec2(max.x - lsz.x - 22, max.y - lsz.y - 18), col(222, 34, 28), "GUTS&BOLTS");
 }
 
 void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {

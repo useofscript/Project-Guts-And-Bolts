@@ -81,6 +81,8 @@ private:
     bool drawTile(int index);
     void drawAvatar(float dt);
     void drawGame(float dt);
+    // The classic loading screen: the game's name, who made it and a spinner.
+    void drawLoading(ImVec2 pos, ImVec2 size, float alpha, const char* status);
     void drawPauseMenu();
     void drawCatalog();
     void drawItemDialog();
@@ -162,12 +164,20 @@ private:
     std::string                    m_profileSceneFor;
     Camera                         m_profileCam;
     Framebuffer                    m_profileView;
+    // "Choose Your Character" (guests): a boy and a girl to play as.
+    bool                           m_charPickOpen = false;
+    std::unique_ptr<Scene>         m_charScene[2];
+    Framebuffer                    m_charView[2];
+    Camera                         m_charCam;
+    void drawCharacterPicker();
 
     Page        m_page = Page::Home;
     std::vector<GameCard> m_games;
     std::string m_search;
     std::string m_status;                          // "Couldn't load ..." etc.
     std::string m_currentTitle;
+    std::string m_currentAuthor;                   // for the loading screen
+    float       m_loadingT = 0.0f;                 // seconds of loading screen left (fades out)
 
     Camera      m_camera;
     Framebuffer m_view;

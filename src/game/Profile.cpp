@@ -25,7 +25,7 @@ void Profile::load() {
     nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) return;
     if (j.contains("name") && j["name"].is_string()) name = j["name"].get<std::string>();
-    if (j.contains("hat") && j["hat"].is_number_integer()) hat = (HatStyle)j["hat"].get<int>();
+    if (j.contains("hat") && j["hat"].is_number_integer()) hat = (HatStyle)std::clamp(j["hat"].get<int>(), 0, kHatStyleCount - 1);
     if (j.contains("recent") && j["recent"].is_array())
         for (auto& r : j["recent"]) if (r.is_string()) recent.push_back(r.get<std::string>());
     if (j.contains("grants") && j["grants"].is_array())

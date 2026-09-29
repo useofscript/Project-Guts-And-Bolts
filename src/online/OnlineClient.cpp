@@ -173,7 +173,7 @@ void takeMe(const json& reply) {
             p.colors.rightArm = color("rightArm", p.colors.rightArm);
             p.colors.leftLeg = color("leftLeg", p.colors.leftLeg);
             p.colors.rightLeg = color("rightLeg", p.colors.rightLeg);
-            p.hat = (HatStyle)std::clamp(a.value("hat", 0), 0, 3);
+            p.hat = (HatStyle)std::clamp(a.value("hat", 0), 0, kHatStyleCount - 1);
             p.hatColor = color("hatColor", glm::vec3(-1.0f));
             if (a.contains("wearing") && a["wearing"].is_array()) {
                 // Keep things worn from the built-in catalog; take the server's list for the rest.

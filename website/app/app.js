@@ -108,8 +108,8 @@ const PRESETS = [
 ];
 const PARTS = ['head', 'torso', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
 const PART_NAMES = { head: 'Head', torso: 'Torso', leftArm: 'Left Arm', rightArm: 'Right Arm', leftLeg: 'Left Leg', rightLeg: 'Right Leg' };
-const HATS = ['None', 'Top Hat', 'Cap', 'Crown'];
-const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40] };   // a hat's normal colours
+const HATS = ['None', 'Top Hat', 'Cap', 'Crown', 'Ponytail'];
+const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40], 4: [219, 51, 158] };   // a hat's normal colours
 
 function defaultAvatar() {
   const a = { hat: 0, hatColor: [-1, -1, -1], wearing: [] };
@@ -137,11 +137,12 @@ function avatarSvg(av, size = 160, items = []) {
     1: `<rect x="37" y="-6" width="26" height="22" rx="2" fill="${hatCol}"/><rect x="30" y="13" width="40" height="5" rx="2" fill="${hatCol}"/><rect x="37" y="9" width="26" height="4" fill="rgba(0,0,0,.25)"/>`,
     2: `<path d="M34 17 Q35 3 50 3 Q65 3 66 17 Z" fill="${hatCol}"/><path d="M50 15 L76 15 Q76 19 70 19 L50 19 Z" fill="${hatCol}"/>`,
     3: `<path d="M35 16 L36 2 L43 9 L50 0 L57 9 L64 2 L65 16 Z" fill="${hatCol}"/><rect x="35" y="13" width="30" height="4" fill="rgba(0,0,0,.2)"/>`,
+    4: `<path d="M35 20 Q35 9 50 9 Q65 9 65 20 Q58 14 50 15 Q42 14 35 20 Z" fill="${hatCol}"/><circle cx="50" cy="6" r="6" fill="${hatCol}"/>`,
   };
   const svg = `<svg viewBox="0 -8 100 128" width="${size}" height="${size * 1.28}" role="img" aria-label="Avatar">
     <rect x="37" y="12" width="26" height="22" rx="4" fill="${col.head}" stroke="rgba(0,0,0,.25)"/>
-    <circle cx="45" cy="21" r="1.8" fill="#222"/><circle cx="55" cy="21" r="1.8" fill="#222"/>
-    <path d="M44 27 Q50 31 56 27" stroke="#222" stroke-width="1.6" fill="none"/>
+    <ellipse cx="47.5" cy="19.5" rx="1.3" ry="2.4" fill="#111"/><ellipse cx="52.5" cy="19.5" rx="1.3" ry="2.4" fill="#111"/>
+    <path d="M44.5 24.5 Q46 30.5 50 30.5 Q54 30.5 55.5 24.5" stroke="#111" stroke-width="1.8" fill="none" stroke-linecap="round"/>
     <rect x="30" y="35" width="40" height="38" fill="${col.torso}" stroke="rgba(0,0,0,.25)"/>
     <rect x="12" y="35" width="17" height="38" fill="${col.rightArm}" stroke="rgba(0,0,0,.25)"/>
     <rect x="71" y="35" width="17" height="38" fill="${col.leftArm}" stroke="rgba(0,0,0,.25)"/>

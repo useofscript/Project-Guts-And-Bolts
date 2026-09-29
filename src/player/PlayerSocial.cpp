@@ -174,7 +174,7 @@ void PlayerApp::buildProfileStage(const json& av, const json& wearing) {
     };
     color("head", bc.head); color("torso", bc.torso); color("leftArm", bc.leftArm);
     color("rightArm", bc.rightArm); color("leftLeg", bc.leftLeg); color("rightLeg", bc.rightLeg);
-    HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, 3) : HatStyle::None;
+    HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, kHatStyleCount - 1) : HatStyle::None;
     glm::vec3 hatTint(-1.0f);
     color("hatColor", hatTint);
     if (wearing.is_array())

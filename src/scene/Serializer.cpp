@@ -407,6 +407,7 @@ void applySettings(Scene& scene, const json& j) {
             const json& pj = j["player"];
             p->setRootId(get<uint64_t>(pj, "rootId", 0));
             Player::upgradeRig(p->root());   // saved with the old blocky character?
+            p->upgradeFace();
             p->setSpawn(vec(pj, "spawn", {0, 0, 0}));
             p->rememberHat((HatStyle)get<int>(pj, "hat", 0));
             if (pj.contains("humanoid")) {

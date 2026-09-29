@@ -1,3 +1,40 @@
+# Guts&Bolts 0.5.3: the 2011 look
+
+## New
+
+**The website looks like it's from 2011**
+- A dark blue top bar with the logo, a game search box and your account. Below it
+  is a shiny tab row and a gray row with Avatar, Friends, Groups and Bolts.
+- The page is white on a gray background. Boxes have title bars, and the
+  buttons are glossy.
+- New home page: your 3D avatar, Bolts and online friends on the left, and
+  "Best of Guts&Bolts" plus new catalog items on the right.
+- The front page matches.
+
+**Choose Your Character (guests)**
+- "Play as Guest" now asks you to pick **Play As Boy** (red cap) or **Play As
+  Girl** (pink ponytail). The "Have an Account?" link takes you to Log In.
+- New hairstyle, **Ponytail**, on the Avatar page (app and website).
+
+**A new face**
+- Everyone has the classic smile now: two small oval eyes and a round smile.
+  Characters saved with the old block face get the new one automatically.
+
+**Loading screen**
+- Starting or joining a game shows the game's name, who made it, a spinner and
+  the logo. It fades out when the game is ready.
+
+## Fixed (Android)
+- The app now sizes things using Android's own screen density, so buttons are
+  the size you'd expect.
+- On a phone held sideways, the header is slimmer and the margins are thinner,
+  so there's more room for the page.
+- Upright phones: long text wraps. The search box, catalog tabs and the Display
+  name box fit on the screen.
+- Settings fits on the screen (it scrolls) and matches the site's look.
+- Messages in games wrap instead of running off the screen.
+- The version number in Settings was stuck on 0.4.0.
+
 # Guts&Bolts 0.5.2: animations, guests and 3D avatars
 
 **Fixed:** "couldn't make a secure connection ... (SSL - Internal error)" when

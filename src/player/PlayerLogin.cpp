@@ -10,6 +10,8 @@
 #include "../game/Profile.h"
 #include "../online/OnlineClient.h"
 #include "../online/Protocol.h"
+#include "../renderer/SceneRenderer.h"
+#include "../scene/Scene.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -203,10 +205,8 @@ void PlayerApp::drawLogin() {
     ImGui::Spacing();
     // No account? Play as a guest (games only: no chat, friends or Bolts).
     if (Online::me().value("userId", 0LL) == 0) {
-        if (Classic::button("Play as Guest", Classic::kBlue, ImVec2(ImGui::GetContentRegionAvail().x, 34))) {
-            Online::setGuest(true);
-            m_page = Page::Home;
-        }
+        if (Classic::button("Play as Guest", Classic::kBlue, ImVec2(ImGui::GetContentRegionAvail().x, 34)))
+            m_charPickOpen = true;   // pick a boy or a girl first (drawCharacterPicker)
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
         ImGui::TextDisabled("Guests can play every game, alone or with others, without an account. "
                             "To chat, make friends and get Bolts, sign up (it's free).");
@@ -219,4 +219,157 @@ void PlayerApp::drawLogin() {
         if (ImGui::SmallButton("Back")) m_page = Page::Home;
     }
     ImGui::EndGroup();
+}
+
+// --- "Choose Your Character:" -------------------------------------------------
+// Guests pick who to play as, like the old sites did: two characters in green
+// frames, and a link for people who already have an account.
+namespace {
+// The two guest looks: white head, black clothes, and a red cap or pink hair.
+void dressGuest(Player& p, int which) {
+    BodyColors bc = Player::colorPresets()[0].second;
+    const glm::vec3 skin{0.94f, 0.94f, 0.92f}, black{0.1f, 0.1f, 0.12f};
+    bc.head = skin;
+    bc.torso = bc.leftArm = bc.rightArm = black;
+    bc.leftLeg = bc.rightLeg = black;
+    p.setBodyColors(bc);
+    p.setHat(which == 0 ? HatStyle::Cap : HatStyle::Ponytail);
+}
+} // namespace
+
+void PlayerApp::drawCharacterPicker() {
+    if (!m_charPickOpen) return;
+    if (!ImGui::IsPopupOpen("##charpick")) ImGui::OpenPopup("##charpick");
+
+    // A little stage for each character (made once).
+    for (int i = 0; i < 2; ++i) {
+        if (m_charScene[i]) continue;
+        m_charScene[i] = std::make_unique<Scene>();
+        Scene& sc = *m_charScene[i];
+        std::vector<SceneNode*> remove;
+        for (auto& c : sc.root()->children)
+            if (!sc.isProtected(c.get())) remove.push_back(c.get());   // no floor: just the character on white
+        for (auto* r : remove) sc.removeNode(r);
+        if (Player* p = sc.player()) { p->setSpawn({0, 0, 0}); p->build(); dressGuest(*p, i); }
+        Environment& e = sc.environment();
+        e.fogEnabled = false;
+        e.sunAzimuth = 60.0f;
+        e.sunElevation = 35.0f;
+        e.skyZenith = e.skyHorizon = e.skyGround = glm::vec3(1.0f);   // plain white behind them
+        e.clouds = false;
+        e.stars = false;
+    }
+
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const float w = std::min(560.0f, screen.x - 24.0f);
+    ImGui::SetNextWindowSize(ImVec2(w, 0));
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0, 0, 0, 0.6f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.08f, 0.08f, 0.1f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.5f, 0.5f, 0.5f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 18));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    if (ImGui::BeginPopupModal("##charpick", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImFont* font = ImGui::GetFont();
+        const float base = ImGui::GetFontSize();
+        const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+        const float inner = ImGui::GetContentRegionAvail().x;
+        int picked = -1;
+
+        // The round close button in the top-right corner.
+        const ImVec2 xc(wp.x + ws.x - 20, wp.y + 20);
+        ImGui::SetCursorScreenPos(ImVec2(xc.x - 14, xc.y - 14));
+        const bool closeHit = ImGui::InvisibleButton("##close", ImVec2(28, 28));
+        const bool closeHover = ImGui::IsItemHovered();
+        dl->AddCircleFilled(xc, 13, closeHover ? IM_COL32(90, 90, 96, 255) : IM_COL32(60, 60, 66, 255));
+        dl->AddCircle(xc, 13, IM_COL32(255, 255, 255, 255), 0, 2.0f);
+        dl->AddLine(ImVec2(xc.x - 5, xc.y - 5), ImVec2(xc.x + 5, xc.y + 5), IM_COL32(255, 255, 255, 255), 2.5f);
+        dl->AddLine(ImVec2(xc.x + 5, xc.y - 5), ImVec2(xc.x - 5, xc.y + 5), IM_COL32(255, 255, 255, 255), 2.5f);
+        ImGui::SetCursorScreenPos(ImVec2(wp.x + 20, wp.y + 18));
+
+        // Title, big and bold (drawn twice, a pixel apart, for the bold look).
+        const char* title = "Choose Your Character:";
+        const float titleSize = base * (inner < 360 ? 1.45f : 1.8f);
+        ImVec2 ts = font->CalcTextSizeA(titleSize, FLT_MAX, 0.0f, title);
+        ImVec2 tp(wp.x + (ws.x - ts.x) * 0.5f, ImGui::GetCursorScreenPos().y + 10);
+        dl->AddText(font, titleSize, tp, IM_COL32(15, 15, 18, 255), title);
+        dl->AddText(font, titleSize, ImVec2(tp.x + 1, tp.y), IM_COL32(15, 15, 18, 255), title);
+        ImGui::Dummy(ImVec2(inner, ts.y + 30));
+
+        // The two characters.
+        const float gap = std::min(80.0f, inner * 0.12f);
+        const float box = std::min(200.0f, (inner - gap) * 0.5f);
+        const float startX = wp.x + (ws.x - (box * 2 + gap)) * 0.5f;
+        const float y0 = ImGui::GetCursorScreenPos().y;
+        const float fb = ImGui::GetIO().DisplayFramebufferScale.x;
+        const char* labels[2] = {"Play As Boy", "Play As Girl"};
+        for (int i = 0; i < 2; ++i) {
+            ImVec2 p0(startX + i * (box + gap), y0), p1(p0.x + box, p0.y + box);
+            ImGui::SetCursorScreenPos(p0);
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("##pick", ImVec2(box, box + base * 1.8f))) picked = i;
+            const bool hover = ImGui::IsItemHovered();
+            ImGui::PopID();
+            int px = (int)((box - 8) * fb);
+            m_charView[i].resize(px, px);
+            m_charCam.resize(px, px);
+            m_charCam.pivot = {0, 1.45f, 0};
+            m_charCam.yaw = 58.0f + (hover ? std::sin((float)ImGui::GetTime() * 2.0f) * 25.0f : 0.0f);
+            m_charCam.pitch = 6.0f;
+            m_charCam.distance = 4.9f;
+            m_charCam.fov = 42.0f;
+            m_renderer->render(*m_charScene[i], m_charCam, m_charView[i], false);
+            dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, 255));
+            dl->AddImage((ImTextureID)(intptr_t)m_charView[i].colorTexture(), ImVec2(p0.x + 4, p0.y + 4),
+                         ImVec2(p1.x - 4, p1.y - 4), ImVec2(0, 1), ImVec2(1, 0));
+            const ImU32 green = hover ? IM_COL32(40, 170, 40, 255) : IM_COL32(20, 130, 20, 255);
+            dl->AddRect(p0, p1, green, 0.0f, 0, 4.0f);
+            const float ls = base * 1.25f;
+            ImVec2 lt = font->CalcTextSizeA(ls, FLT_MAX, 0.0f, labels[i]);
+            ImVec2 lp(p0.x + (box - lt.x) * 0.5f, p1.y + 4);
+            dl->AddText(font, ls, lp, IM_COL32(20, 20, 24, 255), labels[i]);
+            dl->AddText(font, ls, ImVec2(lp.x + 1, lp.y), IM_COL32(20, 20, 24, 255), labels[i]);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(wp.x + 20, y0 + box + base * 1.8f + 36));
+
+        // "Have an Account?"
+        const char* link = "Have an Account?";
+        const float ls = base * 1.2f;
+        ImVec2 lt = font->CalcTextSizeA(ls, FLT_MAX, 0.0f, link);
+        ImVec2 lp(wp.x + (ws.x - lt.x) * 0.5f, ImGui::GetCursorScreenPos().y);
+        ImGui::SetCursorScreenPos(lp);
+        const bool haveAccount = ImGui::InvisibleButton("##have", lt);
+        const bool linkHover = ImGui::IsItemHovered();
+        dl->AddText(font, ls, lp, IM_COL32(20, 140, 40, 255), link);
+        dl->AddText(font, ls, ImVec2(lp.x + 1, lp.y), IM_COL32(20, 140, 40, 255), link);
+        if (linkHover) dl->AddLine(ImVec2(lp.x, lp.y + lt.y), ImVec2(lp.x + lt.x, lp.y + lt.y), IM_COL32(20, 140, 40, 255), 1.5f);
+        ImGui::Dummy(ImVec2(inner, 14));
+
+        const bool esc = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+        if (picked >= 0) {
+            // Play as them: this device's guest look.
+            Profile& me = Profile::get();
+            if (Player* p = m_charScene[picked]->player()) { me.colors = p->bodyColors(); }
+            me.hat = picked == 0 ? HatStyle::Cap : HatStyle::Ponytail;
+            me.hatColor = glm::vec3(-1.0f);
+            me.wearing.clear();
+            me.save();
+            if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+            Online::setGuest(true);
+            m_page = Page::Home;
+        } else if (haveAccount) {
+            m_page = Page::Login;
+            m_loginTab = 1;
+        }
+        if (picked >= 0 || haveAccount || closeHit || esc) {
+            m_charPickOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
 }

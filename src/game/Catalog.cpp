@@ -42,7 +42,7 @@ bool parse(const json& j, Item& it) {
     std::string t = j.value("type", std::string());
     it.type = Type::Count;
     for (int i = 0; i < (int)Type::Count; ++i) if (t == typeName((Type)i)) it.type = (Type)i;
-    it.hat = (HatStyle)std::clamp(j.value("hat", 0), 0, 3);
+    it.hat = (HatStyle)std::clamp(j.value("hat", 0), 0, kHatStyleCount - 1);
     if (j.contains("color") && j["color"].is_array() && j["color"].size() == 3)
         it.color = {j["color"][0].get<int>() / 255.0f, j["color"][1].get<int>() / 255.0f, j["color"][2].get<int>() / 255.0f};
     it.created = j.value("created", 0LL);

@@ -96,6 +96,8 @@ void PlayerApp::joinRelay(const std::string& session, const std::string& code, c
         return;
     }
     m_currentTitle = title.empty() ? std::string("Joining...") : "Joining " + title + "...";
+    m_currentAuthor.clear();
+    m_loadingT = 0.9f;
     m_joinedOnce = false;
     m_paused = false;
     m_status.clear();

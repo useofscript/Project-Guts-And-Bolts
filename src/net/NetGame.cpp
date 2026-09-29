@@ -422,7 +422,7 @@ void NetServer::handle(Client& c, const std::string& text) {
                            vec3(a.value("leftLeg", json())), vec3(a.value("rightLeg", json()))};
             Player::applyColors(rig, col);
             glm::vec3 tint = a.contains("hatColor") ? vec3(a["hatColor"]) : glm::vec3(-1.0f);
-            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, 3), tint);
+            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, kHatStyleCount - 1), tint);
         }
         c.rootId = rig->id;
         RemoteCharacter rc;

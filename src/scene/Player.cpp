@@ -96,21 +96,60 @@ SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::ve
     // Then give them the default character model's shapes (assets/models/player.obj).
     for (auto& c : r->children) usePlayerModel(*c);
 
-    // --- Smiley face on the front (+Z) of the head, in head-local space ---
-    addPart(head, "Eye.L", Cube, {-0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
-    addPart(head, "Eye.R", Cube, { 0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
-
-    // Smile: small cubes along an upward-opening curve.
-    const float sx[5] = {-0.24f, -0.12f, 0.0f, 0.12f, 0.24f};
-    for (int i = 0; i < 5; ++i) {
-        float x = sx[i];
-        float y = -0.20f + 0.10f * (x / 0.24f) * (x / 0.24f);   // middle lowest
-        // Follow the curve of the cylinder so the smile sits on the surface.
-        float z = std::sqrt(std::max(0.0f, 0.25f - x * x)) + 0.01f;
-        addPart(head, "Smile", Cube, {x, y, z}, {0.08f, 0.09f, 0.06f}, kBlack, true);
-    }
+    addFace(head);
     scene.markDirty();
     return r;
+}
+
+// The classic smiley on the front (+Z) of the head, in head-local space:
+// two small oval eyes and a smooth U-shaped smile.
+void Player::addFace(SceneNode* head) {
+    auto add = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale, glm::vec3 rotDeg) {
+        auto n = std::make_unique<SceneNode>(name);
+        n->primitiveType      = shape;
+        n->mesh               = MeshLibrary::get(shape);
+        n->transform.position = pos;
+        n->transform.scale    = scale;
+        n->transform.rotation = rotDeg;
+        n->color    = kBlack;
+        n->internal = true;
+        head->addChild(std::move(n));
+    };
+    // Sit on the round head: z follows the cylinder, and each piece turns to face out.
+    auto surfaceZ = [](float x) { return std::sqrt(std::max(0.0f, 0.25f - x * x)) - 0.005f; };
+    auto yawAt = [](float x) { return glm::degrees(std::asin(std::clamp(x / 0.5f, -1.0f, 1.0f))); };
+    for (float x : {-0.1f, 0.1f})
+        add(x < 0 ? "Eye.L" : "Eye.R", PrimitiveType::Sphere, {x, 0.16f, surfaceZ(x)}, {0.065f, 0.13f, 0.05f}, {0, yawAt(x), 0});
+    // The smile: short bars along the curve, each turned along it (ends high, round at the bottom).
+    auto curve = [](float x) { float t = std::abs(x) / 0.2f; return -0.27f + 0.22f * std::pow(t, 1.7f); };
+    const int n = 10;
+    for (int i = 0; i < n; ++i) {
+        float x0 = -0.2f + 0.4f * i / n, x1 = -0.2f + 0.4f * (i + 1) / n;
+        float y0 = curve(x0), y1 = curve(x1);
+        float xm = (x0 + x1) * 0.5f, ym = (y0 + y1) * 0.5f;
+        float len = std::hypot(x1 - x0, y1 - y0) + 0.035f;   // overlap a little so there are no gaps
+        float roll = glm::degrees(std::atan2(y1 - y0, x1 - x0));
+        add("Smile", PrimitiveType::Cube, {xm, ym, surfaceZ(xm)}, {len, 0.055f, 0.05f}, {0, yawAt(xm), roll});
+    }
+}
+
+void Player::upgradeFace() {
+    // Characters saved with the old block face (5 smile blocks): swap in the new one.
+    SceneNode* r = root();
+    SceneNode* head = nullptr;
+    if (r) for (auto& c : r->children) if (c->name == "Head") head = c.get();
+    if (!head) return;
+    int smiles = 0;
+    std::vector<SceneNode*> old;
+    for (auto& c : head->children)
+        if (c->name == "Smile" || c->name == "Eye.L" || c->name == "Eye.R") {
+            old.push_back(c.get());
+            if (c->name == "Smile") ++smiles;
+        }
+    if (smiles != 5) return;   // already the new face (or a custom one)
+    for (SceneNode* o : old) m_scene->removeNode(o);
+    addFace(head);
+    m_scene->markDirty();
 }
 
 bool Player::usePlayerModel(SceneNode& part) {
@@ -188,6 +227,7 @@ const char* Player::hatName(HatStyle s) {
         case HatStyle::TopHat: return "Top Hat";
         case HatStyle::Cap:    return "Cap";
         case HatStyle::Crown:  return "Crown";
+        case HatStyle::Ponytail: return "Ponytail";
         default:               return "None";
     }
 }
@@ -241,6 +281,14 @@ void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style, glm::vec3 tint
             addW("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, main({1.0f, 0.78f, 0.2f}), Material::Metal);
             addW("Hat Jewel", PrimitiveType::Cube, {0, top + 0.14f, 0.37f}, {0.12f, 0.12f, 0.05f}, {0.9f, 0.1f, 0.2f}, Material::Neon);
             break;
+        case HatStyle::Ponytail: {   // hair: a cap over the top and back of the head, a bun and a tail
+            const glm::vec3 hair = main({0.86f, 0.2f, 0.62f});
+            addW("Hat",       PrimitiveType::Sphere, {0, top - 0.1f, -0.05f}, {0.8f, 0.46f, 0.82f}, hair);
+            addW("Hat Back",  PrimitiveType::Cube,   {0, top - 0.3f, -0.3f}, {0.74f, 0.42f, 0.16f}, hair);
+            addW("Hat Bun",   PrimitiveType::Sphere, {0, top + 0.12f, -0.3f}, {0.36f, 0.34f, 0.36f}, hair);
+            addW("Hat Tail",  PrimitiveType::Sphere, {0, top - 0.14f, -0.5f}, {0.26f, 0.56f, 0.26f}, hair);
+            break;
+        }
         default: break;
     }
     scene.markDirty();

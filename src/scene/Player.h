@@ -25,7 +25,8 @@ struct BodyColors {
     glm::vec3 head, torso, leftArm, rightArm, leftLeg, rightLeg;
 };
 
-enum class HatStyle { None, TopHat, Cap, Crown };
+enum class HatStyle { None, TopHat, Cap, Crown, Ponytail };   // Ponytail: hair, not a hat, but worn the same way
+inline constexpr int kHatStyleCount = 5;
 
 // A character's pose, sent over the network in multiplayer: where the model
 // is, and where each body part is (this covers walking, jumping and ragdolls).
@@ -113,6 +114,8 @@ public:
     static bool usePlayerModel(SceneNode& part);
     // A character saved before that model: give it the model's parts.
     static void upgradeRig(SceneNode* rig);
+    static void addFace(SceneNode* head);   // the default smiley (eyes + smile) on a head
+    void        upgradeFace();              // old saved characters: new face
     static void       applyColors(SceneNode* root, const BodyColors& c);
     // `tint` recolours the hat (catalog hats); negative = its normal colours.
     static void       applyHat(Scene& scene, SceneNode* root, HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));

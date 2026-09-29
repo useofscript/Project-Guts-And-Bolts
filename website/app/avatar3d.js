@@ -7,7 +7,7 @@
 
 const SCALE = 0.5;   // the model is Roblox-sized; characters in the game are half that
 const PART_OF = { Torso: 'torso', Head: 'head', Left_Arm: 'leftArm', Right_Arm: 'rightArm', Left_Leg: 'leftLeg', Right_Leg: 'rightLeg' };
-const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40] };
+const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40], 4: [219, 51, 158] };
 
 // --- the body model --------------------------------------------------------------
 
@@ -117,12 +117,16 @@ function pieces(model, av, items) {
   const onHead = (p, s, c) => out.push({ shape: 'cube', at: [hc[0] + p[0] * hs[0], hc[1] + p[1] * hs[1], hc[2] + p[2] * hs[2]],
     size: [s[0] * hs[0], s[1] * hs[1], s[2] * hs[2]], color: c });
   const black = [0.06, 0.06, 0.07];
-  onHead([-0.18, 0.12, 0.5], [0.13, 0.16, 0.06], black);
-  onHead([0.18, 0.12, 0.5], [0.13, 0.16, 0.06], black);
-  for (const x of [-0.24, -0.12, 0, 0.12, 0.24]) {
-    const y = -0.2 + 0.1 * (x / 0.24) * (x / 0.24);
-    const z = Math.sqrt(Math.max(0, 0.25 - x * x)) + 0.01;
-    onHead([x, y, z], [0.08, 0.09, 0.06], black);
+  // Two small oval eyes and a smooth U-shaped smile (Player::addFace).
+  const surfaceZ = (x) => Math.sqrt(Math.max(0, 0.25 - x * x)) - 0.005;
+  for (const x of [-0.1, 0.1]) out.push({ shape: 'sphere', at: [hc[0] + x * hs[0], hc[1] + 0.16 * hs[1], hc[2] + surfaceZ(x) * hs[2]],
+    size: [0.065 * hs[0], 0.13 * hs[1], 0.05 * hs[2]], color: black });
+  const curve = (x) => -0.27 + 0.22 * Math.pow(Math.abs(x) / 0.2, 1.7);
+  for (let i = 0; i < 10; i++) {
+    const x0 = -0.2 + 0.04 * i, x1 = x0 + 0.04, xm = (x0 + x1) / 2;
+    const dx = (x1 - x0) * hs[0], dy = (curve(x1) - curve(x0)) * hs[1];
+    out.push({ shape: 'cube', at: [hc[0] + xm * hs[0], hc[1] + (curve(x0) + curve(x1)) / 2 * hs[1], hc[2] + surfaceZ(xm) * hs[2]],
+      size: [Math.hypot(dx, dy) + 0.035 * hs[0], 0.055 * hs[1], 0.05 * hs[2]], roll: Math.atan2(dy, dx), color: black });
   }
   // The hat (Player::applyHat).
   const top = hc[1] + hs[1] * 0.5, w = hs[0] / 0.72;
@@ -139,6 +143,12 @@ function pieces(model, av, items) {
   } else if (hat === 3) {
     H('cylinder', [0, top + 0.14, 0], [0.74, 0.28, 0.74], main([1.0, 0.78, 0.2]), { shine: 1 });
     H('cube', [0, top + 0.14, 0.37], [0.12, 0.12, 0.05], [0.9, 0.1, 0.2], { glow: 1 });
+  } else if (hat === 4) {   // hair (Player::applyHat, Ponytail)
+    const hair = main([0.86, 0.2, 0.62]);
+    H('sphere', [0, top - 0.1, -0.05], [0.8, 0.46, 0.82], hair);
+    H('cube', [0, top - 0.3, -0.3], [0.74, 0.42, 0.16], hair);
+    H('sphere', [0, top + 0.12, -0.3], [0.36, 0.34, 0.36], hair);
+    H('sphere', [0, top - 0.14, -0.5], [0.26, 0.56, 0.26], hair);
   }
   return out;
 }
@@ -149,12 +159,16 @@ function build(list) {
   for (const p of list) {
     const src = p.mesh || SHAPES[p.shape];
     const at = p.at || [0, 0, 0], size = p.size || [1, 1, 1];
+    const rc = Math.cos(p.roll || 0), rs = Math.sin(p.roll || 0);   // turned about Z (the smile's pieces)
     for (let i = 0; i < src.pos.length; i += 3) {
-      const x = p.mesh ? src.pos[i] : at[0] + src.pos[i] * size[0];
-      const y = p.mesh ? src.pos[i + 1] : at[1] + src.pos[i + 1] * size[1];
+      let lx = src.pos[i] * size[0], ly = src.pos[i + 1] * size[1];
+      if (p.roll) [lx, ly] = [lx * rc - ly * rs, lx * rs + ly * rc];
+      const x = p.mesh ? src.pos[i] : at[0] + lx;
+      const y = p.mesh ? src.pos[i + 1] : at[1] + ly;
       const z = p.mesh ? src.pos[i + 2] : at[2] + src.pos[i + 2] * size[2];
       let nx = src.nrm[i], ny = src.nrm[i + 1], nz = src.nrm[i + 2];
       if (!p.mesh) { nx /= size[0]; ny /= size[1]; nz /= size[2]; }
+      if (p.roll) [nx, ny] = [nx * rc - ny * rs, nx * rs + ny * rc];
       const l = Math.hypot(nx, ny, nz) || 1;
       data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.glow ? 2 : p.shine ? 1 : 0);
     }

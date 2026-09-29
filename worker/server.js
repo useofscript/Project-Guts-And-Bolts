@@ -417,7 +417,7 @@ export class GbServerObject extends DurableObject {
         colors[part] = rgb(a[part]);
         if (!colors[part]) return fail('That avatar looks wrong.');
       }
-      const hat = Number.isInteger(a.hat) ? clamp(a.hat, 0, 3) : 0;
+      const hat = Number.isInteger(a.hat) ? clamp(a.hat, 0, 4) : 0;
       const hatColor = rgb(a.hatColor, true) || [-1, -1, -1];
       const wearing = Array.isArray(a.wearing) ? a.wearing.filter((w) => typeof w === 'string' && me.owned.includes(w)).slice(0, 8) : [];
       me.avatar = Object.assign(colors, { hat, hatColor, wearing, updated: t });
