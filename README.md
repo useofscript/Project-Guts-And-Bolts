@@ -528,6 +528,22 @@ Water isn't just a see-through box you can swim in. While the game runs:
 
 Scripts can make, move or resize water while playing (a rising flood works).
 
+### Flowing water (WaterSource)
+
+Insert > **WaterSource** makes a spout that pours water while the game runs.
+The water really flows: it runs downhill, spreads across the floor, fills
+holes and pools, piles up behind walls and pours over the edges when they're
+full. You can swim in it, things float on it, and fast-moving water carries
+you along.
+
+- **Rate** attribute: how much water it pours each second (default 8). Set it
+  to 0 from a script to turn the tap off, and back up to turn it on.
+- **FloodSize** attribute: how big an area the water can spread over (default
+  80 units, up to 200). Water that runs past the edge is gone.
+- Any part called WaterSource works, or give one the tag `WaterSource`.
+
+Try a flooding-room obby, a dam you blow up, or a sinking ship.
+
 ## NPCs (zombies and other characters)
 
 Any Model built like a character (with a **HumanoidRootPart**, **Torso** and

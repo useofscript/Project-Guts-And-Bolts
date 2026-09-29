@@ -57,4 +57,5 @@ private:
     int          m_gridVertexCount = 0;
     double       m_startTime = 0.0;
     std::unordered_map<uint64_t, std::unique_ptr<Mesh>> m_waterMeshes;   // wavy surfaces while playing
+    std::unique_ptr<Mesh> m_floodMesh;                                    // flowing water
 };

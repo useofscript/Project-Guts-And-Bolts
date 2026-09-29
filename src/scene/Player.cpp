@@ -686,6 +686,12 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             if (const WaterSystem::Body* wb = waves.find(n->id)) current = wb->flow;
         }
     });
+    // Flowing water from a WaterSource (floods, rivers).
+    if (!water && waves.active()) {
+        float top;
+        glm::vec3 flow;
+        if (waves.at(pos + glm::vec3(0.0f, 1.2f, 0.0f), &top, &flow)) { water = true; waterTop = top; current = flow; }
+    }
     // Climb when walking into a truss (or when already on one and still touching it).
     const bool wasClimbing = m_climbing;
     m_climbing = truss && (moving || (m_climbing && !m_grounded));

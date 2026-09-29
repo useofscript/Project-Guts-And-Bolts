@@ -519,6 +519,52 @@ void buildWaterMesh(const WaterSystem& ws, const WaterSystem::Body& b, std::vect
     side(nz, [&](int k) { return glm::vec3(b.max.x, T(nx - 1, k), Z(k)); }, {1, 0, 0});
 }
 
+// Flowing water: one vertex per square at the water's surface. Dry squares next
+// to wet ones dip just under the floor, so the water's edge meets the ground.
+bool buildFloodMesh(const WaterSystem::Flood& f, std::vector<Vertex>& verts, std::vector<uint32_t>& idx) {
+    verts.clear();
+    idx.clear();
+    const int n = f.n;
+    const float wet = 0.03f;
+    std::vector<float> H((size_t)n * n, 0.0f);
+    std::vector<char> use((size_t)n * n, 0);
+    for (int k = 0; k < n; ++k)
+        for (int i = 0; i < n; ++i) {
+            size_t id = f.idx(i, k);
+            if (f.depth[id] > wet) { H[id] = f.ground[id] + f.depth[id]; use[id] = 1; continue; }
+            float sum = 0.0f; int cnt = 0;
+            for (auto [di, dk] : {std::pair{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                int ni = i + di, nk = k + dk;
+                if (ni < 0 || nk < 0 || ni >= n || nk >= n) continue;
+                size_t nid = f.idx(ni, nk);
+                if (f.depth[nid] > wet) { sum += f.ground[nid] + f.depth[nid]; ++cnt; }
+            }
+            if (!cnt) continue;
+            float avg = sum / cnt;
+            H[id] = f.ground[id] < -1000.0f ? avg - 0.5f : std::min(f.ground[id] - 0.02f, avg);
+            use[id] = 2;
+        }
+    std::vector<uint32_t> vid((size_t)n * n, UINT32_MAX);
+    for (int k = 0; k < n; ++k)
+        for (int i = 0; i < n; ++i) {
+            size_t id = f.idx(i, k);
+            if (!use[id]) continue;
+            float hc = H[id];
+            auto side = [&](int ni, int nk) { size_t nid = f.idx(std::clamp(ni, 0, n - 1), std::clamp(nk, 0, n - 1)); return use[nid] ? H[nid] : hc; };
+            glm::vec3 nrm(-(side(i + 1, k) - side(i - 1, k)) / (2.0f * f.cell), 1.0f, -(side(i, k + 1) - side(i, k - 1)) / (2.0f * f.cell));
+            vid[id] = (uint32_t)verts.size();
+            verts.push_back({{f.origin.x + (i + 0.5f) * f.cell, hc, f.origin.y + (k + 0.5f) * f.cell}, glm::normalize(nrm), {0, 0}});
+        }
+    for (int k = 0; k + 1 < n; ++k)
+        for (int i = 0; i + 1 < n; ++i) {
+            size_t a = f.idx(i, k), b = f.idx(i + 1, k), c = f.idx(i, k + 1), d = f.idx(i + 1, k + 1);
+            if (vid[a] == UINT32_MAX || vid[b] == UINT32_MAX || vid[c] == UINT32_MAX || vid[d] == UINT32_MAX) continue;
+            if (use[a] != 1 && use[b] != 1 && use[c] != 1 && use[d] != 1) continue;   // all edge: nothing wet here
+            idx.insert(idx.end(), {vid[a], vid[c], vid[b], vid[b], vid[c], vid[d]});
+        }
+    return !idx.empty();
+}
+
 } // namespace
 
 void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editing) {
@@ -654,6 +700,23 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
     }
 
     for (auto& it : transparent) draw(it);
+
+    // Flowing water from WaterSources.
+    if (const WaterSystem::Flood* fl = waves.flood()) {
+        if (buildFloodMesh(*fl, waterVerts, waterIdx)) {
+            if (!m_floodMesh) m_floodMesh = std::make_unique<Mesh>();
+            m_floodMesh->update(waterVerts, waterIdx);
+            m_lit->setMat4("uModel", glm::mat4(1.0f));
+            m_lit->setMat3("uNormalMat", glm::mat3(1.0f));
+            m_lit->setVec3("uColor", fl->color);
+            m_lit->setBool("uSelected", false);
+            m_lit->setInt("uMaterial", 7);
+            m_lit->setFloat("uAlpha", 1.0f - fl->transparency);
+            glDisable(GL_CULL_FACE);
+            m_floodMesh->draw();
+            glEnable(GL_CULL_FACE);
+        }
+    }
 
     // --- ForceFields: a glowing neon shell cycling through the rainbow ---
     if (!shielded.empty()) {

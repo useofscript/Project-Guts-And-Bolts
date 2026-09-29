@@ -18,6 +18,8 @@
 - Splashes with spray and a sound when things fall in; swimmers leave a wake.
 - New water attributes: `Waves` (ocean swell) and `Flow` (currents that carry
   you and floating things along).
+- New **WaterSource** (Insert menu): pours water that flows downhill, fills
+  pits and pools, and spills over walls. Swim in it and float things on it.
 
 **NPCs and zombies**
 - Any character-shaped Model is now an NPC: it walks, jumps, and dies like a

@@ -304,6 +304,7 @@ add_library(gb_engine STATIC
     src/scene/Pathfinding.cpp
     src/scene/Npc.cpp
     src/scene/Water.cpp
+    src/scene/Flood.cpp
     src/scene/RigidBodies.cpp
     src/scene/Particles.cpp
     src/scene/Animation.cpp

@@ -25,6 +25,7 @@ void WaterSystem::begin(Scene& scene) {
     end();
     m_active = true;
     scan(scene);
+    scanSources(scene);
 }
 
 // Find the water parts. Also picks up water scripts make, move (rising tides!) or remove.
@@ -62,6 +63,8 @@ void WaterSystem::scan(Scene& scene) {
 
 void WaterSystem::end() {
     m_bodies.clear();
+    m_flood = Flood{};
+    m_sources.clear();
     m_lastWet.clear();
     m_charPrev.clear();
     m_charWet.clear();
@@ -112,9 +115,9 @@ float WaterSystem::surfaceOf(const SceneNode* water, float x, float z) const {
 
 bool WaterSystem::at(const glm::vec3& p, float* surface, glm::vec3* flow) const {
     const Body* b = bodyAt(p);
-    if (!b) return false;
+    if (!b) return floodAt(p, surface, flow);
     float s = b->max.y + heightAt(*b, p.x, p.z) + swellAt(*b, p.x, p.z);
-    if (p.y > s) return false;
+    if (p.y > s) return floodAt(p, surface, flow);
     if (surface) *surface = s;
     if (flow) *flow = b->flow;
     return true;
@@ -140,11 +143,11 @@ void WaterSystem::disturb(const glm::vec3& p, float amount, float radius) {
 
 void WaterSystem::splash(Scene& scene, const glm::vec3& p, float speed, float size) {
     const Body* b = bodyAt(p, 0.5f);
-    if (!b) return;
+    if (!b && !floodAt(p - glm::vec3(0.0f, 0.05f, 0.0f), nullptr, nullptr)) return;
     size = std::clamp(size, 0.2f, 4.0f);
-    disturb(p, std::min(0.6f, speed * 0.02f * size), 0.5f + size * 0.7f);
+    if (b) disturb(p, std::min(0.6f, speed * 0.02f * size), 0.5f + size * 0.7f);
     int count = (int)std::clamp(speed * size * 4.0f, 8.0f, 90.0f);
-    scene.particles().waterSpray(p, count, std::clamp(speed * 0.45f, 2.0f, 10.0f), b->color, size * 0.6f);
+    scene.particles().waterSpray(p, count, std::clamp(speed * 0.45f, 2.0f, 10.0f), b ? b->color : m_flood.color, size * 0.6f);
     if (m_splashSound <= 0.0f) {
         Audio::play("splash", std::clamp(speed * size / 12.0f, 0.15f, 1.0f), std::clamp(1.3f - size * 0.15f, 0.7f, 1.3f), false, &p);
         m_splashSound = 0.08f;
@@ -157,16 +160,22 @@ void WaterSystem::touching(Scene& scene, uint64_t id, const glm::vec3& p, float 
     const bool wasWet = it != m_lastWet.end() && m_time - it->second < 0.4f;
     m_lastWet[id] = m_time;
     if (wasWet || downSpeed < 2.5f) return;
-    const Body* b = bodyAt(p);
-    if (!b) return;
-    splash(scene, glm::vec3(p.x, b->max.y + heightAt(*b, p.x, p.z), p.z), downSpeed, size);
+    if (const Body* b = bodyAt(p)) {
+        splash(scene, glm::vec3(p.x, b->max.y + heightAt(*b, p.x, p.z), p.z), downSpeed, size);
+        return;
+    }
+    // Flowing water: find its surface under the thing.
+    float s;
+    for (float drop : {0.0f, 1.0f, 2.0f, 3.0f})
+        if (floodAt(p - glm::vec3(0.0f, drop, 0.0f), &s, nullptr)) { splash(scene, glm::vec3(p.x, s, p.z), downSpeed, size); return; }
 }
 
 void WaterSystem::update(float dt, Scene& scene) {
     if (!m_active) return;
     m_time += dt;
     m_splashSound -= dt;
-    if ((m_scanTime -= dt) <= 0.0f) { m_scanTime = 0.25f; scan(scene); }
+    if ((m_scanTime -= dt) <= 0.0f) { m_scanTime = 0.25f; scan(scene); scanSources(scene); }
+    stepFlood(dt, scene);
 
     // People (the player and NPCs) splash when they jump in, and leave a wake.
     std::vector<std::pair<uint64_t, glm::vec3>> people;

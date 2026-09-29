@@ -254,11 +254,7 @@ constexpr float kWaterDrag    = 1.6f;   // how much water slows things moving th
 // points, a lopsided object tips over until it floats the right way up, and
 // waves rock boats.
 void floatIn(Body& b, WaterSystem& water, float g, float h, Scene& scene) {
-    bool near = false;
-    for (const auto& w : water.bodies())
-        if (b.aabbMax.x > w.min.x && b.aabbMin.x < w.max.x && b.aabbMax.z > w.min.z && b.aabbMin.z < w.max.z &&
-            b.aabbMin.y < w.max.y + w.swell + 2.5f && b.aabbMax.y > w.min.y) { near = true; break; }
-    if (!near) return;
+    if (!water.maybeWet(b.aabbMin, b.aabbMax)) return;
 
     constexpr int N = 3;
     glm::vec3 pts[N * N * N];
