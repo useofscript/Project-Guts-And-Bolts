@@ -1,3 +1,9 @@
+# Guts&Bolts 0.5.1
+
+**Fixed:** the apps sometimes couldn't connect to the online server, with "SSL -
+Internal error". When the app sent several requests at once, their secure
+connections could get in each other's way. Now they take turns.
+
 # Guts&Bolts 0.5.0: always online
 
 Guts&Bolts now has its own **online server in the cloud**, so your account,
@@ -70,7 +76,3 @@ from an unknown developer.
 - The Android app is tested in "phone mode" on Linux and built for real phones,
   but hasn't been tried on many devices yet. If something looks wrong, please
   open an issue.
-
-## Download
-
-Pick your system below: Android (APK), Windows, macOS or Linux.

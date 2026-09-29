@@ -157,6 +157,17 @@ std::string webHostName(const std::string& host, bool& tls) {
     return host.substr(tls ? 6 : 5);
 }
 
+#ifdef GB_WEBSOCKETS
+// mbedTLS is built without thread support, and TLS 1.3 keeps its keys in one
+// shared store, so two connections on different threads (the app sends each
+// request on its own thread) can break each other's handshake. Only one
+// thread uses it at a time; each call is short (the sockets don't block).
+std::mutex& tlsMutex() {
+    static std::mutex m;
+    return m;
+}
+#endif
+
 } // namespace
 
 bool isWebAddress(const std::string& host) { return host.rfind("wss://", 0) == 0 || host.rfind("ws://", 0) == 0; }
@@ -177,6 +188,7 @@ struct Connection::Web {
     ~Web() {
 #ifdef GB_WEBSOCKETS
         if (sslReady) {
+            std::lock_guard<std::mutex> lock(tlsMutex());
             mbedtls_ssl_free(&ssl);
             mbedtls_ssl_config_free(&conf);
             mbedtls_ctr_drbg_free(&drbg);
@@ -239,6 +251,7 @@ std::string tlsError(int code) {
 int Connection::Web::write(const char* data, size_t n) {
 #ifdef GB_WEBSOCKETS
     if (tls) {
+        std::lock_guard<std::mutex> lock(tlsMutex());
         int r = mbedtls_ssl_write(&ssl, (const unsigned char*)data, n);
         if (r >= 0) return r;
         return r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE ? 0 : -1;
@@ -253,6 +266,7 @@ int Connection::Web::write(const char* data, size_t n) {
 int Connection::Web::read(char* data, size_t n) {
 #ifdef GB_WEBSOCKETS
     if (tls) {
+        std::lock_guard<std::mutex> lock(tlsMutex());
         int r = mbedtls_ssl_read(&ssl, (unsigned char*)data, n);
         if (r > 0) return r;
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) return 0;
@@ -273,6 +287,7 @@ bool Connection::Web::startTls(const std::string& hostName, std::string& error, 
 #ifdef GB_WEBSOCKETS
     mbedtls_x509_crt* certs = trustedCerts(error);
     if (!certs) return false;
+    std::unique_lock<std::mutex> lock(tlsMutex());
     mbedtls_ssl_init(&ssl);
     mbedtls_ssl_config_init(&conf);
     mbedtls_entropy_init(&entropy);
@@ -297,7 +312,10 @@ bool Connection::Web::startTls(const std::string& hostName, std::string& error, 
         int r = mbedtls_ssl_handshake(&ssl);
         if (r == 0) return true;
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            if (!waitFor(sock, r == MBEDTLS_ERR_SSL_WANT_WRITE, deadline)) { error = hostName + " didn't answer in time."; return false; }
+            lock.unlock();   // let other connections go while this one waits
+            bool ready = waitFor(sock, r == MBEDTLS_ERR_SSL_WANT_WRITE, deadline);
+            lock.lock();
+            if (!ready) { error = hostName + " didn't answer in time."; return false; }
             continue;
         }
         uint32_t flags = mbedtls_ssl_get_verify_result(&ssl);
