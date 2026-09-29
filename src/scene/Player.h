@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <functional>
 #include <cstdint>
 #include <string>
@@ -97,6 +98,10 @@ public:
     // The parts walking moves every frame (the arms and legs).
     bool drivesPart(const SceneNode* part) const;
     static bool isLimb(const SceneNode* part);   // an arm or a leg (walking swings these)
+    // The walk cycle follows how fast the body really moves over the ground (like
+    // Roblox's Animate script): faster = quicker, longer strides. `speed` in units / s.
+    static float strideRate(float speed)  { return speed * 1.8f; }                        // radians of the cycle per second
+    static float strideSwing(float speed) { return speed < 0.05f ? 0.0f : std::min(62.0f, 18.0f + speed * 4.4f); }   // degrees
     glm::vec3 velocity() const { return m_velocity; }
     void      launch(const glm::vec3& v) { m_velocity = v; m_grounded = false; }   // jump pads etc.
 
@@ -126,7 +131,7 @@ public:
 
 private:
     SceneNode* part(const char* name) const;
-    void animate(float dt, bool moving, bool grounded);
+    void animate(float dt, float groundSpeed, bool grounded);
     void footsteps(bool running, const glm::vec3& at);   // loop the running sound while on the ground
     void updateGrip();                // put the held tool's Handle in the right hand
     void syncSlots();
@@ -162,12 +167,15 @@ private:
 
     // Moving platforms carry the character.
     uint64_t  m_groundId = 0;
-    glm::vec3 m_groundPrev{0.0f};
+    glm::mat4 m_groundPrevM{1.0f};   // where the part we stand on was last frame
+    glm::vec3 m_platformVel{0.0f};   // how fast it's carrying us
+    static constexpr float kBodyMass = 2.0f;   // for being knocked around by loose parts
 
     // Walk-cycle animation.
     float m_walkPhase = 0.0f;
     float m_swing     = 0.0f;   // current limb swing amplitude (degrees)
     float m_airBlend  = 0.0f;   // 0 = on ground, 1 = jump pose
+    float m_groundSpeed = 0.0f; // how fast we're really moving along the ground (smoothed)
     // Climbing trusses / ladders, and swimming in water.
     bool  m_climbing = false, m_swimming = false;
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;

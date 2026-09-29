@@ -231,6 +231,9 @@ end
 Workspace = workspace
 
 -- Handy extras that Roblox's Luau also has.
+math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+math.pow = math.pow or function(x, y) return x ^ y end
+math.log10 = math.log10 or function(x) return math.log(x, 10) end
 function math.clamp(x, lo, hi) if x < lo then return lo elseif x > hi then return hi end return x end
 function math.sign(x) if x > 0 then return 1 elseif x < 0 then return -1 end return 0 end
 function math.round(x) return math.floor(x + 0.5) end

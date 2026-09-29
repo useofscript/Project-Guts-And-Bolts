@@ -632,11 +632,16 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
 
     glm::vec3 pos = r->transform.position;
 
-    // Ride moving platforms: follow whatever we stood on last frame.
+    // Ride moving platforms: whatever we stood on last frame carries us, sliding
+    // and spinning (a turntable turns you with it), and we keep its speed.
+    m_platformVel = glm::vec3(0.0f);
     if (m_groundId) {
         if (SceneNode* g = m_scene->findById(m_groundId)) {
-            glm::vec3 now = glm::vec3(g->worldMatrix()[3]);
-            pos += now - m_groundPrev;
+            glm::mat4 change = g->worldMatrix() * glm::inverse(m_groundPrevM);
+            glm::vec3 carried = glm::vec3(change * glm::vec4(pos, 1.0f));
+            if (dt > 0.0f) m_platformVel = (carried - pos) / dt;
+            pos = carried;
+            r->transform.rotation.y += glm::degrees(std::atan2(change[2][0], change[2][2]));
         }
     }
 
@@ -718,7 +723,10 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         m_climbPhase += dt * 6.0f;
     } else {
         if (m_grounded && jump) {
-            m_velocity.y = m_humanoid.jumpPower;
+            // Jumping off something moving keeps its speed (off a train, you fly forward).
+            m_velocity.x += m_platformVel.x;
+            m_velocity.z += m_platformVel.z;
+            m_velocity.y = m_humanoid.jumpPower + std::max(0.0f, m_platformVel.y);
             m_grounded = false;
             glm::vec3 at = pos + glm::vec3(0, 1, 0);
             Audio::play("jump", 0.35f, 1.0f, false, &at);
@@ -735,7 +743,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_velocity.x *= drag;
     m_velocity.z *= drag;
 
-    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded);
+    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded, r->transform.rotation.y);
     // Walking into loose parts pushes them (heavier = harder, handled by the solver).
     for (auto& [node, dir] : res.pushed) {
         glm::vec3 want = dir * m_humanoid.walkSpeed * 0.9f;
@@ -760,15 +768,35 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_groundId = res.groundId;
     if (m_groundId)
         if (SceneNode* g = m_scene->findById(m_groundId))
-            m_groundPrev = glm::vec3(g->worldMatrix()[3]);
+            m_groundPrevM = g->worldMatrix();
+
+    // Loose parts that crash into us knock us back (a rolling boulder, a swinging
+    // wrecking ball), harder the heavier and faster they are.
+    for (const Physics::Shove& s : physics.shoves(res.position, r->transform.rotation.y, kBodyMass)) {
+        glm::vec3 dir(s.dir.x, 0.0f, s.dir.z);
+        float l = glm::length(dir);
+        if (l < 1e-3f) continue;
+        dir /= l;
+        float have = glm::dot(glm::vec3(m_velocity.x, 0.0f, m_velocity.z), dir);
+        if (s.speed > have) m_velocity += dir * (s.speed - have);
+        if (s.speed > 6.0f && !m_climbing) {   // a big hit throws you off your feet
+            m_velocity.y = std::max(m_velocity.y, s.speed * 0.35f);
+            m_grounded = false;
+            m_groundId = 0;
+        }
+    }
 
     r->transform.position = res.position;
 
     // Fell off the world.
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
-    animate(dt, moving, m_grounded);
-    footsteps(moving && m_grounded && !m_swimming && !m_climbing, res.position);
+    // How fast we really moved (not how hard the keys are pushed): walking into a
+    // wall doesn't run on the spot, and a slower WalkSpeed takes slower steps.
+    const float moved = dt > 0.0f ? glm::length(glm::vec2(res.position.x - pos.x, res.position.z - pos.z)) / dt : 0.0f;
+    m_groundSpeed = approach(m_groundSpeed, moving ? std::min(moved, m_humanoid.walkSpeed * 2.0f + 2.0f) : 0.0f, 12.0f, dt);
+    animate(dt, m_groundSpeed, m_grounded);
+    footsteps(m_groundSpeed > 0.5f && m_grounded && !m_swimming && !m_climbing, res.position);
     updateGrip();
 }
 
@@ -798,10 +826,10 @@ bool Player::drivesPart(const SceneNode* p) const {
     return false;
 }
 
-void Player::animate(float dt, bool moving, bool grounded) {
-    m_swing    = approach(m_swing, (moving && grounded) ? 45.0f : 0.0f, 10.0f, dt);
+void Player::animate(float dt, float groundSpeed, bool grounded) {
+    m_swing    = approach(m_swing, grounded ? strideSwing(groundSpeed) : 0.0f, 10.0f, dt);
     m_airBlend = approach(m_airBlend, grounded ? 0.0f : 1.0f, 10.0f, dt);
-    if (moving) m_walkPhase += dt * (2.0f + m_humanoid.walkSpeed * 0.9f);
+    m_walkPhase += dt * strideRate(groundSpeed);
 
     m_holdBlend = approach(m_holdBlend, equippedTool() ? 1.0f : 0.0f, 12.0f, dt);
     float s = std::sin(m_walkPhase) * m_swing;

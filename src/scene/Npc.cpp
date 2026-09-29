@@ -219,7 +219,7 @@ void NpcSystem::step(Npc& n, SceneNode* r, float dt, Scene& scene, Physics& phys
     n.velocity.x *= drag;
     n.velocity.z *= drag;
 
-    Physics::MoveResult res = physics.moveCharacter(pos, delta, n.grounded);
+    Physics::MoveResult res = physics.moveCharacter(pos, delta, n.grounded, r->transform.rotation.y);
     glm::vec2 wanted(delta.x, delta.z), got(res.position.x - pos.x, res.position.z - pos.z);
     if (moving && n.grounded && glm::length(wanted) > 1e-4f && glm::length(got) < glm::length(wanted) * 0.3f)
         n.stuckTime += dt;
@@ -231,13 +231,15 @@ void NpcSystem::step(Npc& n, SceneNode* r, float dt, Scene& scene, Physics& phys
     r->transform.position = res.position;
     if (res.position.y < scene.world().fallenPartsHeight) h.health = 0.0f;
 
-    animate(n, r, dt, moving && glm::length(got) > 1e-4f);
+    const float moved = dt > 0.0f ? glm::length(got) / dt : 0.0f;
+    n.groundSpeed = approach(n.groundSpeed, moving ? std::min(moved, h.walkSpeed * 2.0f + 2.0f) : 0.0f, 12.0f, dt);
+    animate(n, r, dt, n.groundSpeed);
 }
 
-void NpcSystem::animate(Npc& n, SceneNode* r, float dt, bool moving) {
-    n.swing = approach(n.swing, (moving && n.grounded) ? 45.0f : 0.0f, 10.0f, dt);
+void NpcSystem::animate(Npc& n, SceneNode* r, float dt, float groundSpeed) {
+    n.swing = approach(n.swing, n.grounded ? Player::strideSwing(groundSpeed) : 0.0f, 10.0f, dt);
     n.air = approach(n.air, n.grounded ? 0.0f : 1.0f, 10.0f, dt);
-    if (moving) n.walkPhase += dt * (2.0f + n.humanoid.walkSpeed * 0.9f);
+    n.walkPhase += dt * Player::strideRate(groundSpeed);
     const float s = std::sin(n.walkPhase) * n.swing;
     float angles[4] = {
         s * (1 - n.air) + (-165.0f) * n.air,

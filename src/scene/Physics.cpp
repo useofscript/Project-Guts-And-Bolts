@@ -155,11 +155,41 @@ bool Physics::obbOverlap(const OBB& a, const OBB& b, glm::vec3& normal, float& d
     return true;
 }
 
-OBB Physics::charOBB(const glm::vec3& f) {
+OBB Physics::charOBB(const glm::vec3& f, float yaw) {
     OBB o;
     o.center = f + glm::vec3(0.0f, kCharHeight * 0.5f, 0.0f);
-    o.half = {kCharHalfWidth, kCharHeight * 0.5f, kCharHalfWidth};
+    o.half = {kCharHalfWidth, kCharHeight * 0.5f, kCharHalfDepth};
+    const float a = glm::radians(yaw);
+    o.axis[0] = {std::cos(a), 0.0f, -std::sin(a)};   // the shoulders' direction
+    o.axis[2] = {std::sin(a), 0.0f, std::cos(a)};    // facing
     return o;
+}
+
+std::vector<Physics::Shove> Physics::shoves(const glm::vec3& feet, float yaw, float charMass) const {
+    std::vector<Shove> out;
+    OBB me = charOBB(feet, yaw);
+    me.half += glm::vec3(0.06f);
+    AABB mine = bounds(me);
+    for (const auto& c : m_colliders) {
+        if (!c.dynamic || !c.solid || !mine.overlaps(c.box)) continue;
+        glm::vec3 n; float d;
+        if (!obbOverlap(me, c.rotated ? c.obb : OBB::fromAABB(c.box), n, d)) continue;
+        float approach = glm::dot(c.node->velocity, n);   // how fast it's coming at us
+        if (approach < 1.0f) continue;
+        glm::vec3 size = c.box.max - c.box.min;
+        float density = c.node->density >= 0.0f ? c.node->density
+                      : c.node->material == Material::Metal ? 3.0f : c.node->material == Material::Wood ? 0.7f
+                      : c.node->material == Material::Concrete ? 2.4f : c.node->material == Material::Glass ? 2.5f : 1.0f;
+        float mass = density * size.x * size.y * size.z;
+        out.push_back({n, approach * mass / (mass + charMass)});
+    }
+    return out;
+}
+
+AABB Physics::bounds(const OBB& o) {
+    glm::vec3 e(0.0f);
+    for (int i = 0; i < 3; ++i) e += glm::abs(o.axis[i]) * o.half[i];
+    return {o.center - e, o.center + e};
 }
 
 AABB Physics::characterBox(const glm::vec3& f) {
@@ -293,103 +323,96 @@ bool Physics::resolveSphere(glm::vec3& c, float r, glm::vec3* normal) const {
     return hit;
 }
 
+// The character is a box shaped like a Roblox R6 body (as wide as the torso,
+// half as deep, feet to the top of the head) that turns with the character.
+// Every solid part is tested against it with the separating-axis test, so it
+// fits through gaps sideways, brushes past corners and stands on ramps.
 Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec3& delta,
-                                           bool wasGrounded) const {
+                                           bool wasGrounded, float yaw) const {
     MoveResult r;
     glm::vec3 pos = feet;
-
-    // Horizontal axes first (X then Z), with a small step-up for stairs / curbs.
-    for (int axis : {0, 2}) {
-        if (std::abs(delta[axis]) < 1e-7f) continue;
-        pos[axis] += delta[axis];
+    auto boxOf = [](const Collider& c) { return c.rotated ? c.obb : OBB::fromAABB(c.box); };
+    auto fits = [&](const glm::vec3& p) {
+        OBB me = charOBB(p, yaw);
+        AABB mine = bounds(me);
         for (const auto& c : m_colliders) {
-            if (!c.solid || c.rotated) continue;
-            AABB box = characterBox(pos);
-            if (!box.overlaps(c.box)) continue;
-
-            float rise = c.box.max.y - pos.y;
-            if (wasGrounded && rise > 0.0f && rise <= kStepHeight) {
-                glm::vec3 up = pos;
-                up.y = c.box.max.y + 0.001f;
-                if (!blocked(characterBox(up))) { pos = up; continue; }
-            }
-            if (c.dynamic) {       // shove loose parts out of the way
-                glm::vec3 dir(0.0f);
-                dir[axis] = delta[axis] > 0.0f ? 1.0f : -1.0f;
-                r.pushed.push_back({c.node, dir});
-            }
-            if (delta[axis] > 0.0f) pos[axis] = c.box.min[axis] - kCharHalfWidth - 1e-4f;
-            else                    pos[axis] = c.box.max[axis] + kCharHalfWidth + 1e-4f;
+            if (!c.solid || !mine.overlaps(c.box)) continue;
+            glm::vec3 n; float d;
+            if (obbOverlap(me, boxOf(c), n, d)) return false;
         }
-    }
+        return true;
+    };
 
-    // Vertical.
-    pos.y += delta.y;
-    for (const auto& c : m_colliders) {
-        if (!c.solid || c.rotated) continue;
-        AABB box = characterBox(pos);
-        if (!box.overlaps(c.box)) continue;
-        if (delta.y <= 0.0f) {
-            pos.y = c.box.max.y;
-            r.grounded = true;
-            r.groundId = c.node->id;
-        } else {
-            pos.y = c.box.min.y - kCharHeight - 1e-4f;
-            r.hitCeiling = true;
-        }
-    }
-
-    // Tilted parts (ramps etc.): push out along the surface. Surfaces that are
-    // flat enough to stand on push straight up, so you don't slide down them.
-    auto resolveRotated = [&](glm::vec3& p, MoveResult& res) {
-        bool touched = false;
+    // Push the body out of everything solid it's inside. `stepUp`: walking into
+    // something low (a stair, a curb) climbs on top of it instead of stopping.
+    auto resolve = [&](bool stepUp, bool falling) {
         for (int iter = 0; iter < 4; ++iter) {
             bool any = false;
             for (const auto& c : m_colliders) {
-                if (!c.solid || !c.rotated) continue;
+                if (!c.solid) continue;
+                OBB me = charOBB(pos, yaw);
+                if (!bounds(me).overlaps(c.box)) continue;
                 glm::vec3 n; float d;
-                if (!obbOverlap(charOBB(p), c.obb, n, d)) continue;
-                any = touched = true;
-                if (n.y > 0.55f) {
-                    p.y += std::min(d / n.y, 1.0f);
-                    res.grounded = true;
-                    res.groundId = c.node->id;
-                } else if (n.y < -0.55f) {
-                    p += n * d;
-                    res.hitCeiling = true;
-                } else {
+                if (!obbOverlap(me, boxOf(c), n, d)) continue;
+                any = true;
+                if (stepUp && wasGrounded && !c.rotated) {
+                    float rise = c.box.max.y - pos.y;
+                    if (rise > 0.0f && rise <= kStepHeight && fits({pos.x, c.box.max.y + 0.001f, pos.z})) {
+                        pos.y = c.box.max.y + 0.001f;
+                        continue;
+                    }
+                }
+                if (n.y > 0.55f) {                       // something to stand on
+                    pos.y += std::min(d / n.y, 1.0f);
+                    r.grounded = true;
+                    r.groundId = c.node->id;
+                } else if (n.y < -0.55f) {               // bumped our head
+                    pos += n * d;
+                    r.hitCeiling = true;
+                } else {                                  // a wall: slide along it
                     glm::vec3 h(n.x, 0.0f, n.z);
                     float l = glm::length(h);
-                    if (l > 1e-4f) p += h / l * std::min(d / l, 1.0f);
+                    if (l > 1e-4f) pos += h / l * std::min(d / l, 1.0f);
+                    if (c.dynamic && !falling) r.pushed.push_back({c.node, -h / std::max(l, 1e-4f)});
                 }
             }
             if (!any) break;
         }
-        return touched;
     };
-    resolveRotated(pos, r);
+
+    // Something moved into us (a door, a pusher, turning around next to a wall).
+    resolve(false, false);
+
+    // Walk, in small steps so fast movement can't pass through thin walls.
+    glm::vec2 h(delta.x, delta.z);
+    int steps = std::max(1, (int)std::ceil(glm::length(h) / 0.2f));
+    for (int s = 0; s < steps; ++s) {
+        pos.x += h.x / steps;
+        pos.z += h.y / steps;
+        resolve(true, false);
+    }
+
+    // Fall / jump.
+    pos.y += delta.y;
+    bool wasGround = r.grounded;
+    r.grounded = false;
+    resolve(false, true);
+    if (delta.y > 0.0f && r.grounded && !wasGround) r.grounded = false;   // brushing a ledge on the way up isn't landing
+    if (wasGround && delta.y <= 0.0f) r.grounded = true;
 
     // Stick to the ground when walking down slopes and steps (instead of
     // flying off every little edge).
     if (wasGrounded && delta.y <= 0.0f && !r.grounded) {
         glm::vec3 probe = pos - glm::vec3(0.0f, 0.4f, 0.0f);
+        OBB me = charOBB(probe, yaw);
         float bestY = -1e30f;
         uint64_t bestId = 0;
         for (const auto& c : m_colliders) {
             if (!c.solid) continue;
-            if (!c.rotated) {
-                AABB box = characterBox(probe);
-                if (box.overlaps(c.box) && c.box.max.y <= pos.y + 0.01f && c.box.max.y > bestY) {
-                    bestY = c.box.max.y;
-                    bestId = c.node->id;
-                }
-            } else {
-                glm::vec3 n; float d;
-                if (obbOverlap(charOBB(probe), c.obb, n, d) && n.y > 0.55f) {
-                    float y = probe.y + d / n.y;
-                    if (y <= pos.y + 0.01f && y > bestY) { bestY = y; bestId = c.node->id; }
-                }
-            }
+            glm::vec3 n; float d;
+            if (!bounds(me).overlaps(c.box) || !obbOverlap(me, boxOf(c), n, d) || n.y <= 0.55f) continue;
+            float y = probe.y + d / n.y;
+            if (y <= pos.y + 0.01f && y > bestY) { bestY = y; bestId = c.node->id; }
         }
         if (bestId) {
             pos.y = bestY;
@@ -413,28 +436,31 @@ void Physics::collectTouches(Scene& scene, std::vector<TouchEvent>& out) {
         if (!m_touching.count(key)) out.push_back({part, other});
     };
 
-    // Character vs parts (every part, even non-collidable ones like coins).
+    // Character vs parts (every part, even non-collidable ones like coins). Like
+    // Roblox, each body part that really touches something fires Touched on its
+    // own: the arm that brushes the wall, the leg on the button, the head that
+    // bumps the ceiling. Both sides hear about it (part.Touched and limb.Touched).
     Player* player = scene.player();
     SceneNode* charRoot = player ? player->root() : nullptr;
     if (charRoot && !player->isDead()) {
-        AABB body = characterBox(player->position()).inflated(0.05f);
-        OBB bodyObb = OBB::fromAABB(body);
+        AABB body = characterBox(player->position()).inflated(1.2f);   // everything the limbs could reach
+        std::vector<std::pair<SceneNode*, OBB>> limbs;
+        for (auto& ch : charRoot->children) {
+            if (!ch->isPart() || ch->internal) continue;
+            OBB o = worldOBB(ch.get());
+            o.half += glm::vec3(0.05f);   // resting on something counts as touching it
+            limbs.push_back({ch.get(), o});
+        }
         for (const auto& c : m_colliders) {
             if (!body.overlaps(c.box)) continue;
-            if (c.rotated) {
+            OBB other = c.rotated ? c.obb : OBB::fromAABB(c.box);
+            for (auto& [limb, o] : limbs) {
+                if (!bounds(o).overlaps(c.box)) continue;
                 glm::vec3 nrm; float depth;
-                if (!obbOverlap(bodyObb, c.obb, nrm, depth)) continue;
+                if (!obbOverlap(o, other, nrm, depth)) continue;
+                report(c.node->id, limb->id, limb->id);
+                report(limb->id, c.node->id, c.node->id);
             }
-            // Report the limb that actually touched (legs for floors, etc.).
-            uint64_t limb = 0;
-            AABB hitBox = c.box.inflated(0.1f);
-            for (auto& ch : charRoot->children) {
-                if (!ch->isPart()) continue;
-                if (worldBounds(ch.get()).overlaps(hitBox)) { limb = ch->id; break; }
-            }
-            if (!limb)
-                if (SceneNode* hrp = charRoot->findChild("HumanoidRootPart")) limb = hrp->id;
-            report(c.node->id, charRoot->id, limb ? limb : charRoot->id);
         }
     }
 

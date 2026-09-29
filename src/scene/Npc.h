@@ -34,6 +34,7 @@ struct Npc {
     // Walk cycle, like the player's.
     std::unordered_map<uint64_t, Transform> rest;
     float walkPhase = 0.0f, swing = 0.0f, air = 0.0f;
+    float groundSpeed = 0.0f;           // how fast it really moves (drives the walk cycle)
     bool  zombie = false;               // arms stretched out in front
 
     float     lastHealth = 100.0f;
@@ -73,7 +74,7 @@ public:
 private:
     Npc* adopt(Scene& scene, SceneNode* model);
     void step(Npc& npc, SceneNode* root, float dt, Scene& scene, Physics& physics);
-    void animate(Npc& npc, SceneNode* root, float dt, bool moving);
+    void animate(Npc& npc, SceneNode* root, float dt, float groundSpeed);
     void startDeath(Npc& npc, SceneNode* root, Scene& scene);
     void updateDeath(Npc& npc, SceneNode* root, float dt, Scene& scene, Physics& physics);
 

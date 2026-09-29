@@ -609,6 +609,22 @@ Constraints join parts together through **Attachments** (little points on a part
 | Hinge | Lets a part swing around one axis, like a door or a wheel |
 | Motor | A hinge that spins by itself (`AngularVelocity`, `MotorMaxTorque`) |
 
+### The character's body
+
+- **Hitbox like Roblox R6:** the body collides as a box as wide as the torso
+  (2 studs) and half as deep (1 stud), from the feet to the top of the head, and
+  it turns with the character. Arms and legs don't collide, so you fit through
+  gaps sideways and brush past corners.
+- **Touched per body part:** like Roblox, each part of the body that touches
+  something fires `Touched` on its own (`hit` is that arm, leg, head...), and
+  the body part's own `Touched` fires too.
+- **Walk cycle follows your real speed:** a higher `WalkSpeed` takes quicker,
+  longer strides; walking into a wall doesn't run on the spot.
+- **Getting hit:** loose parts that crash into you shove you back, harder the
+  heavier and faster they are. A big hit knocks you off your feet.
+- **Moving platforms:** they carry you, spinning ones turn you with them, and
+  jumping off keeps their speed.
+
 ## Death, ragdolls and gore
 
 Each game picks its own rules in the Player panel (**Death & Gore**):

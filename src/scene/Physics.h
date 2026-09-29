@@ -58,8 +58,11 @@ public:
         std::vector<std::pair<SceneNode*, glm::vec3>> pushed;   // loose parts we walked into
     };
 
+    // The character's body, like Roblox's R6: 2 studs wide and 1 deep (the torso;
+    // arms and legs don't collide), from the feet to the top of the head.
     static constexpr float kCharHalfWidth = 0.5f;
-    static constexpr float kCharHeight    = 2.6f;
+    static constexpr float kCharHalfDepth = 0.25f;
+    static constexpr float kCharHeight    = 2.65f;
     static constexpr float kStepHeight    = 0.55f;
 
     static AABB worldBounds(const SceneNode* node);
@@ -75,7 +78,14 @@ public:
     void reset();                       // forget touch state (on Play / Stop)
     void gather(Scene& scene);          // collect this frame's parts
 
-    MoveResult moveCharacter(const glm::vec3& feet, const glm::vec3& delta, bool wasGrounded) const;
+    // `yaw` (degrees) = which way the character faces: its box turns with it.
+    MoveResult moveCharacter(const glm::vec3& feet, const glm::vec3& delta, bool wasGrounded, float yaw = 0.0f) const;
+    static OBB  charOBB(const glm::vec3& feet, float yaw);   // the character's body box
+    // Loose parts moving into the character: which way each one shoves it and how
+    // hard (the speed it gives), heavier and faster parts shoving harder.
+    struct Shove { glm::vec3 dir; float speed; };
+    std::vector<Shove> shoves(const glm::vec3& feet, float yaw, float characterMass) const;
+    static AABB bounds(const OBB& o);                       // a box around a turned box
     // Unanchored parts: rigid-body physics (tumbling, stacking, bouncing) and
     // constraints (ropes, rods, springs, welds, hinges). Ids of parts that fell
     // out of the world are appended to `fallen`. See RigidBodies.cpp.
@@ -108,7 +118,6 @@ private:
         bool       rotated;   // not lined up with the world axes: use `obb`
         OBB        obb;
     };
-    static OBB charOBB(const glm::vec3& feet);
     bool blocked(const AABB& box) const;
 
     std::vector<Collider>                  m_colliders;

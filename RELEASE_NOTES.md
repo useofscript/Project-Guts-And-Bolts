@@ -11,6 +11,14 @@
   `button.MouseButton1Click`.
 - They work in multiplayer, and in Roblox files (import and export).
 
+**Character physics**
+- The character's hitbox is now shaped like Roblox's R6 body (2 x 1 studs,
+  turning with you), and each body part fires `Touched` on its own.
+- The walk animation speeds up and slows down with how fast you really move.
+- Loose parts knock you back; spinning platforms carry and turn you; jumping
+  off a moving platform keeps its speed.
+- Scripts: `math.atan2`, `math.pow` and `math.log10` work like in Roblox.
+
 **Real water**
 - Water now has moving waves and ripples that bounce off the pool's sides.
 - Loose parts float or sink by material (wood floats, metal sinks), tip over
