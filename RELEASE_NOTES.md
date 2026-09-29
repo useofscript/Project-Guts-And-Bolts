@@ -11,6 +11,14 @@
   `button.MouseButton1Click`.
 - They work in multiplayer, and in Roblox files (import and export).
 
+**NPCs and zombies**
+- Any character-shaped Model is now an NPC: it walks, jumps, and dies like a
+  player. Scripts steer it with `humanoid:MoveTo()`, `MoveToFinished`,
+  `humanoid:Move()` and `humanoid.Jump`.
+- New **PathfindingService**: works out a route around walls and up ledges.
+- New ready-made **Zombie** in the Toolbox: it chases the nearest player and bites.
+- Studio's Command Bar runs inside the game while you're playing.
+
 **Climbing and swimming**
 - Walk into a **TrussPart** or a ladder to climb it. Parts called **Water** are
   swimmable. Both are in the Insert menu.

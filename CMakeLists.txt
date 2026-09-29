@@ -301,6 +301,8 @@ add_library(gb_engine STATIC
     src/scene/Scene.cpp
     src/scene/Player.cpp
     src/scene/Physics.cpp
+    src/scene/Pathfinding.cpp
+    src/scene/Npc.cpp
     src/scene/RigidBodies.cpp
     src/scene/Particles.cpp
     src/scene/Animation.cpp

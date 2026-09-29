@@ -1058,6 +1058,12 @@ void Editor::renderInsertObject() {
 // Command Bar: run a bit of Lua against the game right now (undoable).
 void Editor::runCommand(const std::string& code) {
     Log::info("> " + code);
+    // While playing, the code runs inside the game (so it can connect events and wait).
+    if (m_session && m_session->running() && m_session->scripts().running()) {
+        std::string err;
+        if (!m_session->scripts().runCommand(code, err)) Log::error(err);
+        return;
+    }
     ScriptEngine engine(m_scene);
     engine.start(false);
     std::string err;

@@ -770,6 +770,11 @@ void Player::footsteps(bool running, const glm::vec3& at) {
     m_stepSound = Audio::play("footsteps", 0.35f, pitch, true, &feet);
 }
 
+bool Player::isLimb(const SceneNode* p) {
+    for (const char* n : kLimbs) if (p->name == n) return true;
+    return false;
+}
+
 bool Player::drivesPart(const SceneNode* p) const {
     for (const char* n : kLimbs) if (p->name == n) return true;
     return false;

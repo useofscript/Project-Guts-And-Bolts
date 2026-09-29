@@ -8,6 +8,7 @@
 #include "../scene/SceneNode.h"
 #include "../core/Log.h"
 #include "../scene/Effects.h"
+#include "../scene/Physics.h"
 #include "../core/Audio.h"
 
 #include <imgui.h>
@@ -182,7 +183,37 @@ function DataStoreService:GetDataStore(name, scope)
 end
 DataStoreService.GetOrderedDataStore = DataStoreService.GetDataStore
 
-local services = { Workspace = workspace, Players = Players, Lighting = Lighting,
+-- PathfindingService: a walking route around walls (for NPCs).
+--   local path = PathfindingService:CreatePath()
+--   path:ComputeAsync(zombie.HumanoidRootPart.Position, target)
+--   if path.Status == Enum.PathStatus.Success then
+--       for _, wp in ipairs(path:GetWaypoints()) do ... humanoid:MoveTo(wp.Position) ... end
+--   end
+local findPath = __gb_findPath
+PathfindingService = {}
+function PathfindingService:CreatePath(params)
+    local jumpHeight = 1.6
+    if params and params.AgentCanJump == false then jumpHeight = 0.5 end
+    local path = { Status = "NoPath", points = {} }
+    function path:ComputeAsync(from, to)
+        local pts = findPath(from, to, jumpHeight)
+        self.points = pts or {}
+        self.Status = pts and "Success" or "NoPath"
+    end
+    function path:GetWaypoints()
+        local t = {}
+        for i, p in ipairs(self.points) do
+            t[i] = { Position = p[1], Action = p[2] and "Jump" or "Walk" }
+        end
+        return t
+    end
+    local noop = { Connect = function() return { Disconnect = function() end } end }
+    path.Blocked, path.Unblocked = noop, noop
+    function path:Destroy() end
+    return path
+end
+
+local services = { Workspace = workspace, PathfindingService = PathfindingService, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService }
 game = setmetatable({}, { __index = function(_, name)
@@ -223,7 +254,7 @@ end
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
-__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet = nil, nil, nil, nil
+__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_findPath = nil, nil, nil, nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -462,6 +493,22 @@ int gui_clear(lua_State* L) {
 }
 
 // Explode(position, radius, power)
+// __gb_findPath(from, to, jumpHeight) -> { {position, jump}, ... } or nil (PathfindingService).
+int l_findPath(lua_State* L) {
+    glm::vec3 from = LuaApi::checkVector3(L, 1), to = LuaApi::checkVector3(L, 2);
+    const Physics* ph = LuaApi::engine(L)->physics();
+    std::vector<PathPoint> pts;
+    if (!ph || !ph->findPath(from, to, (float)luaL_optnumber(L, 3, 1.6), pts)) { lua_pushnil(L); return 1; }
+    lua_createtable(L, (int)pts.size(), 0);
+    for (size_t i = 0; i < pts.size(); ++i) {
+        lua_createtable(L, 2, 0);
+        LuaApi::pushVector3(L, pts[i].pos); lua_rawseti(L, -2, 1);
+        lua_pushboolean(L, pts[i].jump);    lua_rawseti(L, -2, 2);
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 int l_explode(lua_State* L) {
     glm::vec3 pos = LuaApi::checkVector3(L, 1);
     Effects::explode(*LuaApi::engine(L)->scene(), pos, (float)luaL_optnumber(L, 2, 6.0),
@@ -580,6 +627,7 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_setRespawn", l_setRespawn);
     lua_register(L, "__gb_dsGet", l_dsGet);
     lua_register(L, "__gb_dsSet", l_dsSet);
+    lua_register(L, "__gb_findPath", l_findPath);
 
     LuaApi::pushInstance(L, m_scene->root()->id);
     lua_setglobal(L, "workspace");
@@ -973,6 +1021,10 @@ void ScriptEngine::fireClicked(uint64_t partId) {
 }
 
 void ScriptEngine::fireDied(uint64_t rootId) { fire(SignalKind::Died, rootId, nullptr); }
+
+void ScriptEngine::fireMoveToFinished(uint64_t rootId, bool reached) {
+    fire(SignalKind::MoveToFinished, rootId, [reached](lua_State* co) { lua_pushboolean(co, reached); return 1; });
+}
 
 void ScriptEngine::fireAttributeChanged(uint64_t id, const std::string& name) {
     fire(SignalKind::AttributeChanged, id, [name](lua_State* co) { lua_pushstring(co, name.c_str()); return 1; });

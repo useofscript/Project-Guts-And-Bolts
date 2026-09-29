@@ -11,7 +11,7 @@
 #include <cmath>
 #include <vector>
 
-GameSession::GameSession(Scene* scene) : m_scene(scene), m_scripts(scene) {}
+GameSession::GameSession(Scene* scene) : m_scene(scene), m_scripts(scene) { m_scripts.setPhysics(&m_physics); }
 
 void GameSession::start() {
     m_physics.reset();
@@ -31,12 +31,17 @@ void GameSession::start() {
     an.clear();
     an.restFor = [this](uint64_t rig) -> const Anim::RestPose* {
         Player* p = m_scene->player();
-        return p && p->rootId() == rig && !p->restPose().empty() ? &p->restPose() : nullptr;
+        if (p && p->rootId() == rig && !p->restPose().empty()) return &p->restPose();
+        Npc* n = m_scene->npcs().find(rig);
+        return n && !n->rest.empty() ? &n->rest : nullptr;
     };
     an.drivenElsewhere = [this](uint64_t rig, const SceneNode* part) {
         Player* p = m_scene->player();
-        return p && p->rootId() == rig && p->drivesPart(part);
+        if (p && p->rootId() == rig) return p->drivesPart(part);
+        return m_scene->npcs().find(rig) && Player::isLimb(part);
     };
+    // Character-shaped models become NPCs (before the scripts, so they can steer them).
+    if (m_role != Role::Client) m_scene->npcs().begin(*m_scene);
     if (m_role != Role::Client) setupTools();   // before the scripts, so tools' scripts start with the rest
     if (m_role != Role::Client) m_scripts.start();
 }
@@ -124,6 +129,7 @@ void GameSession::dropTool() {
 
 void GameSession::stop() {
     m_scripts.stop();
+    m_scene->npcs().end();
     m_scene->animator().clear();
     if (Player* p = m_scene->player()) p->onToolEquip = nullptr;
     m_starterPack.clear();
@@ -191,6 +197,19 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             p->clearTools();
             giveStarterTools();
         }
+    }
+
+    // NPCs walk where their scripts sent them (the host moves them for everyone).
+    if (!client) {
+        NpcSystem& npcs = m_scene->npcs();
+        npcs.update(dt, *m_scene, m_physics);
+        for (uint64_t id : npcs.died) {
+            m_scene->animator().stopRig(id, false, *m_scene);
+            m_scripts.fireDied(id);
+        }
+        for (auto [id, reached] : npcs.finished) m_scripts.fireMoveToFinished(id, reached);
+        npcs.died.clear();
+        npcs.finished.clear();
     }
 
     // Animations (after the character has walked, so they win where they pose).

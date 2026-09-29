@@ -12,6 +12,7 @@
 struct lua_State;
 class Scene;
 class SceneNode;
+class Physics;
 enum class SignalKind : int;
 
 // Things scripts can show on screen during Play (see the Gui table in Lua).
@@ -38,6 +39,9 @@ public:
     bool runChunk(const std::string& code, const std::string& chunkName, std::string& error);
     bool callRef(int ref, std::string& error);
     struct lua_State* lua() { return m_L; }
+    // The game's physics world (PathfindingService looks at it). Null outside a game.
+    void setPhysics(const Physics* p) { m_physics = p; }
+    const Physics* physics() const { return m_physics; }
     void stop();                  // tear everything down
     bool running() const { return m_L != nullptr; }
 
@@ -46,6 +50,7 @@ public:
     void fireTouched(uint64_t partId, uint64_t otherId);
     void fireClicked(uint64_t partId);
     void fireDied(uint64_t characterRootId);
+    void fireMoveToFinished(uint64_t characterRootId, bool reached);
     void fireAttributeChanged(uint64_t id, const std::string& name);
     void fireTag(bool added, uint64_t id, const std::string& tag);
     void fireTool(SignalKind kind, uint64_t toolId);   // Activated / Deactivated / Equipped / Unequipped
@@ -125,6 +130,7 @@ private:
     void reportError(lua_State* co);
 
     Scene*     m_scene;
+    const Physics* m_physics = nullptr;
     lua_State* m_L = nullptr;
     double     m_time = 0.0;
     double     m_resumeStart = 0.0;

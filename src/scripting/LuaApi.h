@@ -37,6 +37,7 @@ enum class SignalKind : int {
     GuiClick,      // button.MouseButton1Click / .Activated  ()
     GuiEnter,      // guiObject.MouseEnter            ()
     GuiLeave,      // guiObject.MouseLeave            ()
+    MoveToFinished, // humanoid.MoveToFinished        (reached)   (id = character)
 };
 
 namespace LuaApi {

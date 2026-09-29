@@ -272,6 +272,72 @@ pad.Touched:Connect(function(hit)
 end)
 )";
 
+const char* kZombie = R"(-- Zombie: chases the nearest player and bites them.
+-- It uses PathfindingService to find its way around walls.
+local zombie = script.Parent
+local humanoid = zombie.Humanoid
+local root = zombie.HumanoidRootPart
+local PathfindingService = game:GetService("PathfindingService")
+local Players = game:GetService("Players")
+
+local SIGHT = 60       -- how far away it notices you
+local DAMAGE = 15      -- health taken per bite
+local BITE_TIME = 1    -- seconds between bites
+humanoid.WalkSpeed = 4 -- slow and spooky (players walk at 6)
+
+-- The closest living player's HumanoidRootPart, and how far away it is.
+local function nearestPlayer()
+    local best, bestDist = nil, SIGHT
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        local hum = character and character:FindFirstChild("Humanoid")
+        if hrp and hum and hum.Health > 0 then
+            local distance = (hrp.Position - root.Position).Magnitude
+            if distance < bestDist then best, bestDist = hrp, distance end
+        end
+    end
+    return best, bestDist
+end
+
+-- When it dies, the body stays for a few seconds, then goes away.
+humanoid.Died:Connect(function()
+    wait(5)
+    zombie:Destroy()
+end)
+
+local lastBite = 0
+while humanoid.Health > 0 do
+    local target, distance = nearestPlayer()
+    if not target then
+        wait(0.5)   -- nobody around: stand and groan
+    elseif distance < 3 then
+        -- Close enough to bite!
+        humanoid:MoveTo(target.Position)
+        if time() - lastBite > BITE_TIME then
+            lastBite = time()
+            target.Parent.Humanoid:TakeDamage(DAMAGE)
+        end
+        wait(0.1)
+    else
+        -- Work out a route around walls, and head for its next corner.
+        local path = PathfindingService:CreatePath()
+        path:ComputeAsync(root.Position, target.Position)
+        local points = path:GetWaypoints()
+        if path.Status == Enum.PathStatus.Success and #points > 1 then
+            local nextPoint = points[2]
+            local dx, dz = nextPoint.Position.X - root.Position.X, nextPoint.Position.Z - root.Position.Z
+            if dx * dx + dz * dz < 1 and points[3] then nextPoint = points[3] end
+            if nextPoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+            humanoid:MoveTo(nextPoint.Position)
+        else
+            humanoid:MoveTo(target.Position)   -- no route found: just go straight at them
+        end
+        wait(0.3)   -- then look again (the player keeps moving!)
+    end
+end
+)";
+
 SceneNode* addPart(Scene& scene, const char* name, PrimitiveType shape, glm::vec3 pos,
                    glm::vec3 size, glm::vec3 color, Material mat = Material::Plastic) {
     SceneNode* n = scene.addNode(name, shape, MeshLibrary::get(shape));
@@ -350,6 +416,7 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::DominoRun,            "Domino Run",      "Knock the first one over..."},
         {Premade::CratePyramid,         "Crate Pyramid",   "A stack of loose crates to knock down"},
         {Premade::Trampoline,           "Trampoline",      "Super bouncy - throws players and parts up"},
+        {Premade::Zombie,               "Zombie",          "Chases the nearest player and bites (finds its way around walls)"},
         {Premade::Landmine,             "Landmine",        "Explodes when stepped on"},
         {Premade::SawBlade,             "Saw Blade",       "A spinning blade. Touch it and lose limbs"},
         {Premade::SpikeTrap,            "Spike Trap",      "Spikes shoot up every few seconds"},
@@ -500,6 +567,14 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
             // Built in: touching a part called "Checkpoint" makes it your respawn point. No script needed.
             n = addPart(scene, "Checkpoint", Cube, at + glm::vec3(0, 0.1f, 0), {3, 0.2f, 3}, {0.2f, 0.85f, 0.4f}, Material::Neon);
             break;
+        case Premade::Zombie: {
+            n = Player::buildRig(scene, "Zombie", at);
+            const glm::vec3 skin(0.45f, 0.62f, 0.32f), shirt(0.36f, 0.27f, 0.2f), pants(0.18f, 0.22f, 0.4f);
+            Player::applyColors(n, {skin, shirt, skin, skin, pants, pants});
+            n->tags.push_back("Zombie");
+            addScript(scene, n, kZombie);
+            break;
+        }
         case Premade::Trampoline:
             n = addPart(scene, "Trampoline", PrimitiveType::Cylinder, at + glm::vec3(0, 0.25f, 0), {4, 0.5f, 4}, {0.2f, 0.5f, 1.0f});
             n->elasticity = 1.0f;

@@ -507,6 +507,52 @@ Swap in your own .wav files with the same names and rebuild.
 - Scripts can check with `humanoid:GetState()`, which returns "Climbing",
   "Swimming", "Freefall", "Running" or "Dead".
 
+## NPCs (zombies and other characters)
+
+Any Model built like a character (with a **HumanoidRootPart**, **Torso** and
+**Head** inside) becomes an NPC when the game starts, or as soon as a script
+puts one in the world (for example, cloning a zombie out of ServerStorage). It
+has a Humanoid, stands on the ground, walks with swinging arms and legs, and
+falls apart (or ragdolls) when it dies.
+
+The Toolbox has a ready-made **Zombie**. It chases the nearest player, walks
+around walls and bites. Open its script to see how it works.
+
+Steer an NPC from a script through its Humanoid, like Roblox:
+
+```lua
+local npc = workspace.Guard
+local humanoid = npc.Humanoid
+
+humanoid.WalkSpeed = 8
+humanoid:MoveTo(Vector3.new(10, 0, 20))   -- walk there
+humanoid.MoveToFinished:Wait()            -- true if it got there (it gives up after 8 seconds)
+humanoid.Jump = true                      -- hop once
+humanoid.Died:Connect(function() print("got him!") end)
+```
+
+To walk around walls, ask **PathfindingService** for a route:
+
+```lua
+local PathfindingService = game:GetService("PathfindingService")
+local path = PathfindingService:CreatePath()
+path:ComputeAsync(npc.HumanoidRootPart.Position, target.Position)
+if path.Status == Enum.PathStatus.Success then
+    for _, point in ipairs(path:GetWaypoints()) do
+        if point.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+        humanoid:MoveTo(point.Position)
+        humanoid.MoveToFinished:Wait()
+    end
+end
+```
+
+Give the model a **WalkSpeed** or **MaxHealth** attribute to set those without
+a script. NPCs whose name has "Zombie" in it (or tagged `Zombie`) walk with
+their arms out. In multiplayer the host moves the NPCs, and everyone sees them.
+
+The Command Bar now runs inside the game while you're playing, so you can poke
+at NPCs (and anything else) live.
+
 ## Physics
 
 Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,

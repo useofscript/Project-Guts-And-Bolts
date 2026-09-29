@@ -67,6 +67,11 @@ bool isCharacterRoot(lua_State* L, const SceneNode* n) {
     return E(L)->scene()->isCharacterRoot(n->id);
 }
 
+// A player's character or an NPC: something with a Humanoid.
+bool hasHumanoid(lua_State* L, const SceneNode* n) {
+    return isCharacterRoot(L, n) || (n->kind == NodeKind::Model && E(L)->scene()->npcs().find(*E(L)->scene(), n->id));
+}
+
 const char* className(lua_State* L, const SceneNode* n) {
     if (n == E(L)->scene()->root()) return "Workspace";
     switch (n->kind) {
@@ -128,7 +133,7 @@ glm::vec3 worldPosition(const SceneNode* n) { return glm::vec3(n->worldMatrix()[
 
 void setWorldPosition(lua_State* L, SceneNode* n, const glm::vec3& p) {
     // Moving the character's HumanoidRootPart teleports the whole character.
-    if (n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart") {
+    if (n->parent && hasHumanoid(L, n->parent) && n->name == "HumanoidRootPart") {
         n->parent->transform.position += p - worldPosition(n);
         return;
     }
@@ -160,7 +165,7 @@ int m_FindFirstChild(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string name = luaL_checkstring(L, 2);
     bool recursive = lua_toboolean(L, 3);
-    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (name == "Humanoid" && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     SceneNode* c = n->findChild(name, recursive);
     LuaApi::pushInstance(L, c ? c->id : 0);
     return 1;
@@ -169,7 +174,7 @@ int m_FindFirstChild(lua_State* L) {
 int m_FindFirstChildOfClass(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string cls = luaL_checkstring(L, 2);
-    if (cls == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (cls == "Humanoid" && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     for (auto& c : n->children)
         if (!c->internal && isA(L, c.get(), cls)) { LuaApi::pushInstance(L, c->id); return 1; }
     lua_pushnil(L);
@@ -179,7 +184,7 @@ int m_FindFirstChildOfClass(lua_State* L) {
 int m_WaitForChild(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string name = luaL_checkstring(L, 2);
-    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (name == "Humanoid" && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     SceneNode* c = n->findChild(name);
     if (!c) return luaL_error(L, "'%s' has no child called '%s'", n->name.c_str(), name.c_str());
     LuaApi::pushInstance(L, c->id);
@@ -284,7 +289,7 @@ int m_Stop(lua_State* L) {
 // character:BreakJoints() — kill the character violently.
 int m_BreakJoints(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
-    if (isCharacterRoot(L, n)) E(L)->scene()->killCharacter(n->id, 1.0f, glm::vec3(0, 4, 0));
+    if (hasHumanoid(L, n)) E(L)->scene()->killCharacter(n->id, 1.0f, glm::vec3(0, 4, 0));
     return 0;
 }
 
@@ -628,10 +633,12 @@ int inst_index(lua_State* L) {
     if (is(k, "CFrame"))    { LuaApi::pushCFrame(L, getCFrame(n)); return 1; }
     if (is(k, "Visible"))   { lua_pushboolean(L, n->visible); return 1; }
 
-    bool hrp = n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart";
+    bool hrp = n->parent && hasHumanoid(L, n->parent) && n->name == "HumanoidRootPart";
     if (hrp && (is(k, "Velocity") || is(k, "AssemblyLinearVelocity"))) {
         Player* me = E(L)->scene()->player();
-        LuaApi::pushVector3(L, me && n->parent->id == me->rootId() ? me->velocity() : glm::vec3(0.0f));
+        Npc* npc = E(L)->scene()->npcs().find(n->parent->id);
+        LuaApi::pushVector3(L, me && n->parent->id == me->rootId() ? me->velocity()
+                               : npc ? npc->velocity : glm::vec3(0.0f));
         return 1;
     }
 
@@ -705,7 +712,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Gore"))       { lua_pushstring(L, w.gore == GoreLevel::Blood ? "Blood" : w.gore == GoreLevel::OilAndBolts ? "Oil" : "Off"); return 1; }
         if (is(k, "FallDamage")) { lua_pushboolean(L, w.fallDamage); return 1; }
     }
-    if (is(k, "Humanoid") && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (is(k, "Humanoid") && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
 
     // Like Roblox, `workspace.Door` finds a child called "Door".
     if (SceneNode* c = n->findChild(k)) { LuaApi::pushInstance(L, c->id); return 1; }
@@ -777,10 +784,11 @@ int inst_newindex(lua_State* L) {
     if (is(k, "Visible"))   { n->visible = lua_toboolean(L, 3); return 0; }
 
     // Setting the HumanoidRootPart's velocity launches the character.
-    bool hrp = n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart";
+    bool hrp = n->parent && hasHumanoid(L, n->parent) && n->name == "HumanoidRootPart";
     if (hrp && (is(k, "Velocity") || is(k, "AssemblyLinearVelocity"))) {
         Player* me = scene->player();
         if (me && n->parent->id == me->rootId()) me->launch(LuaApi::checkVector3(L, 3));
+        else if (Npc* npc = scene->npcs().find(n->parent->id)) { npc->velocity = LuaApi::checkVector3(L, 3); npc->grounded = false; }
         else if (RemoteCharacter* rc = scene->findRemote(n->parent->id))
             rc->kills.push_back({-1.0f, LuaApi::checkVector3(L, 3)});   // force < 0 = just a push
         return 0;
@@ -1067,7 +1075,7 @@ int animr_index(lua_State* L) {
     if (is(k, "IsA"))                       { lua_pushcfunction(L, animr_isA); return 1; }
     if (is(k, "Name") || is(k, "ClassName")) { lua_pushstring(L, "Animator"); return 1; }
     if (is(k, "Parent")) {
-        if (E(L)->scene()->isCharacterRoot(a->rig)) LuaApi::pushHumanoid(L, a->rig);
+        if (E(L)->scene()->humanoidOf(a->rig)) LuaApi::pushHumanoid(L, a->rig);
         else LuaApi::pushInstance(L, a->rig);
         return 1;
     }
@@ -1248,8 +1256,24 @@ int hum_getState(lua_State* L) {
     else if (mine && p->climbing()) st = "Climbing";
     else if (mine && p->swimming()) st = "Swimming";
     else if (mine && !p->grounded()) st = "Freefall";
+    else if (Npc* n = E(L)->scene()->npcs().find(humRoot(L)); n && !n->grounded) st = "Freefall";
     lua_pushstring(L, st);
     return 1;
+}
+
+// NPCs: humanoid:MoveTo(point [, part]) walks there (MoveToFinished fires when it
+// gets there, or gives up after 8 seconds); humanoid:Move(direction) keeps walking that way.
+Npc* npcOf(lua_State* L) { return E(L)->scene()->npcs().find(*E(L)->scene(), humRoot(L)); }
+int hum_moveTo(lua_State* L) {
+    glm::vec3 p = LuaApi::checkVector3(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) p = worldPosition(LuaApi::checkNode(L, 3));   // follow a part
+    if (Npc* n = npcOf(L)) { n->target = p; n->hasTarget = true; n->targetTime = 0.0f; n->moveDir = glm::vec3(0.0f); }
+    return 0;
+}
+int hum_move(lua_State* L) {
+    glm::vec3 d = LuaApi::checkVector3(L, 2);
+    if (Npc* n = npcOf(L)) { n->moveDir = d; n->hasTarget = false; }
+    return 0;
 }
 
 int hum_index(lua_State* L) {
@@ -1270,6 +1294,18 @@ int hum_index(lua_State* L) {
     if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
     if (is(k, "LoadAnimation")) { lua_pushcfunction(L, hum_loadAnimation); return 1; }
     if (is(k, "GetState"))   { lua_pushcfunction(L, hum_getState); return 1; }
+    if (is(k, "MoveTo"))     { lua_pushcfunction(L, hum_moveTo); return 1; }
+    if (is(k, "Move"))       { lua_pushcfunction(L, hum_move); return 1; }
+    if (is(k, "MoveToFinished")) { LuaApi::pushSignal(L, SignalKind::MoveToFinished, humRoot(L)); return 1; }
+    if (is(k, "Jump"))       { Npc* n = npcOf(L); lua_pushboolean(L, n && n->jump); return 1; }
+    if (is(k, "MoveDirection")) { Npc* n = npcOf(L); LuaApi::pushVector3(L, n ? n->moveDir : glm::vec3(0.0f)); return 1; }
+    if (is(k, "WalkToPoint")) { Npc* n = npcOf(L); LuaApi::pushVector3(L, n && n->hasTarget ? n->target : glm::vec3(0.0f)); return 1; }
+    if (is(k, "RootPart")) {
+        SceneNode* r = E(L)->scene()->findById(humRoot(L));
+        SceneNode* hrp = r ? r->findChild("HumanoidRootPart") : nullptr;
+        LuaApi::pushInstance(L, hrp ? hrp->id : 0);
+        return 1;
+    }
     if (is(k, "GetPlayingAnimationTracks")) { lua_pushcfunction(L, hum_playing); return 1; }
     if (is(k, "Animator"))   { pushAnimator(L, humRoot(L)); return 1; }
     if (is(k, "FindFirstChild") || is(k, "FindFirstChildOfClass") || is(k, "WaitForChild"))
@@ -1286,6 +1322,10 @@ int hum_newindex(lua_State* L) {
     else if (is(k, "WalkSpeed"))  h.walkSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3));
     else if (is(k, "JumpPower"))  h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3));
     else if (is(k, "AutoRotate")) h.autoRotate = lua_toboolean(L, 3);
+    else if (is(k, "Jump")) {
+        if (Npc* n = npcOf(L)) n->jump = lua_toboolean(L, 3);
+        return 0;
+    }
     else return luaL_error(L, "'%s' can't be set on Humanoid", k);
     touched(L);
     return 0;

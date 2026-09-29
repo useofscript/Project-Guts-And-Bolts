@@ -96,6 +96,7 @@ public:
     const std::unordered_map<uint64_t, Transform>& restPose() const { return m_rest; }
     // The parts walking moves every frame (the arms and legs).
     bool drivesPart(const SceneNode* part) const;
+    static bool isLimb(const SceneNode* part);   // an arm or a leg (walking swings these)
     glm::vec3 velocity() const { return m_velocity; }
     void      launch(const glm::vec3& v) { m_velocity = v; m_grounded = false; }   // jump pads etc.
 

@@ -29,7 +29,7 @@ const char* const kWords[] = {
     "workspace", "game", "script", "Instance.new", "Vector3.new", "Color3.new", "Color3.fromRGB", "Color3.fromHSV",
     "CFrame.new", "CFrame.Angles", "CFrame.lookAt", "task.wait", "task.spawn", "task.delay", "wait", "spawn", "delay",
     "time", "tick", "Explode", "Effects", "Sounds", "Gui", "Lighting", "Enum",
-    "Players", "RunService", "UserInputService", "CollectionService",
+    "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService",
     "game:GetService", "Players.LocalPlayer", "RunService.Heartbeat", "UserInputService.InputBegan",
     // Members
     "Parent", "Name", "ClassName", "Position", "Orientation", "Size", "CFrame", "Color", "Transparency", "Material",
@@ -38,6 +38,7 @@ const char* const kWords[] = {
     "Connect", "Once", "Wait", "Disconnect", "FindFirstChild", "FindFirstChildOfClass", "WaitForChild", "GetChildren",
     "GetDescendants", "Destroy", "Clone", "IsA", "IsDescendantOf", "GetFullName", "GetPivot", "PivotTo",
     "ApplyImpulse", "ApplyAngularImpulse", "TakeDamage", "BreakJoints", "Play", "Stop",
+    "MoveTo", "MoveToFinished", "Move", "Jump", "RootPart", "GetState", "CreatePath", "ComputeAsync", "GetWaypoints",
     "GetAttribute", "SetAttribute", "GetAttributes", "GetAttributeChangedSignal", "AttributeChanged",
     "AddTag", "RemoveTag", "HasTag", "GetTags", "GetTagged", "GetInstanceAddedSignal",
     "ClockTime", "Brightness", "FogEnabled", "FogColor", "Ambient",
