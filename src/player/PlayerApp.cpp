@@ -1330,6 +1330,17 @@ void PlayerApp::drawGame(float dt) {
     else       m_session->setTouchInput(glm::vec2(0.0f), false);
     m_session->update(dt, m_camera.yaw, acceptInput);
 
+    // BadgeService:AwardBadge from the game's scripts: the server checks we're this
+    // game's host and the player is here, then everyone hears about it.
+    for (auto& [who, badge] : m_session->scripts().takeBadgeAwards()) {
+        if (!m_server || !Online::online()) continue;
+        Online::request("gamebadge.award", {{"badge", badge}, {"to", who}}, [this](const nlohmann::json& r) {
+            if (!r.value("ok", false)) { Log::warn("BadgeService: " + r.value("error", std::string())); return; }
+            if (r.value("awarded", false) && m_server)
+                m_server->announce(r.value("player", std::string()) + " earned the badge \"" + r.value("name", std::string()) + "\"!");
+        });
+    }
+
     // Bolts for playing (not while the menu is open). Online, the server keeps count.
     if (!m_paused && Online::online()) onlinePlayTick(dt);
     else if (!m_paused) {

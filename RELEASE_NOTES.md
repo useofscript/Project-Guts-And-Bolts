@@ -41,6 +41,16 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Game badges**
+- Two kinds of badges now: **Guts&Bolts badges** (like Verified, given only
+  by staff) and **game badges** that game creators make themselves.
+- Make badges on your game's **Configure** page (name, description, colour),
+  then award them from a script:
+  `game:GetService("BadgeService"):AwardBadge(player, "badge-id")`.
+  Everyone in the server sees "X earned the badge ...!" in chat.
+- Profiles show both sections; game pages list their badges and how many
+  times each has been won.
+
 **Server cards on game pages**
 - Every game page lists its running servers like Roblox: the faces of who's
   in each one, "7 of 12 people max", **Join** (that exact server) and

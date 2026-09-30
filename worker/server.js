@@ -395,7 +395,8 @@ export class GbServerObject extends DurableObject {
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
       creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), thumb: a.thumb || 0,
-      icon: a.icon || 0, access: a.kind === 'game' ? (a.access || 'public') : undefined };
+      icon: a.icon || 0, access: a.kind === 'game' ? (a.access || 'public') : undefined,
+      badges: a.kind === 'game' ? (a.badges || []) : undefined };
   }
   // Can `me` see and play this game? (Other kinds of things are always visible.)
   canPlay(a, me) {
@@ -496,8 +497,14 @@ export class GbServerObject extends DurableObject {
       const friends = u.friends.slice(0, 9).map((id) => this.users.get(id)).filter(Boolean)
         .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.isOnline(f) }));
       const placeVisits = creations.filter((a) => a.kind === 'game').reduce((n, a) => n + (a.plays || 0), 0);
+      // Game badges (made by game creators, earned by playing) - separate from the
+      // Guts&Bolts badges above, which only staff give out.
+      const gameBadges = (u.gameBadges || []).map(([bid, gid, when]) => {
+        const g = this.assets.get(gid), b = g && (g.badges || []).find((x) => x.id === bid);
+        return b ? { id: b.id, name: b.name, description: b.description, color: b.color, game: gid, gameName: g.name, earned: when } : null;
+      }).filter(Boolean).reverse();
       return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
-        online: this.isOnline(u), placeVisits });
+        online: this.isOnline(u), placeVisits, gameBadges });
     }
     if (name === 'users.search') {
       let q = lower(cleanText(str(args, 'query'), 64));
@@ -742,6 +749,57 @@ export class GbServerObject extends DurableObject {
       if (fee > 0) this.add(me, -fee, 'Upload fee: ' + title, 'upload:' + a.id);
       this.saveUser(me);
       return okay({ asset: this.publicAsset(a), me: this.meJson(me), fee });
+    }
+    // --- Game badges: creators make them on their game's page, game scripts award them.
+    if (name === 'gamebadge.create' || name === 'gamebadge.delete') {
+      const g = this.assets.get(str(args, 'game'));
+      if (!g || g.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (g.creator !== me.id) return fail('Only the game\'s creator can change its badges.');
+      g.badges = g.badges || [];
+      if (name === 'gamebadge.delete') {
+        g.badges = g.badges.filter((b) => b.id !== str(args, 'badge'));
+        this.saveAsset(g);
+        return okay({ badges: g.badges });
+      }
+      if (g.badges.length >= 30) return fail('A game can have up to 30 badges.');
+      const title = cleanText(str(args, 'name'), 40);
+      if (!title) return fail('Give the badge a name.');
+      const col = Array.isArray(args.color) && args.color.length === 3 ? args.color.map((v) => clamp(Number(v) | 0, 0, 255)) : [240, 180, 40];
+      const b = { id: 'badge-' + randomHex(5), name: title, description: cleanText(str(args, 'description'), 300, true),
+        color: col, created: t, awarded: 0 };
+      g.badges.push(b);
+      this.saveAsset(g);
+      return okay({ badge: b, badges: g.badges });
+    }
+    if (name === 'gamebadge.award') {
+      // Only the host of a live server of the badge's game can award it, and only
+      // to someone in that server (BadgeService:AwardBadge in the game's scripts).
+      const bid = str(args, 'badge');
+      let g = null, b = null;
+      for (const a of this.assets.values()) {
+        if (a.kind !== 'game' || !a.badges) continue;
+        const found = a.badges.find((x) => x.id === bid);
+        if (found) { g = a; b = found; break; }
+      }
+      if (!b) return fail('There\'s no badge with that ID.');
+      let session = null;
+      for (const s of this.sessions.values()) if (s.host === me.id && s.game === g.id) session = s;
+      if (!session) return fail('Badges can only be given in an online server of ' + g.name + '.');
+      const who = lower(str(args, 'to'));
+      let to = lower(me.name) === who ? me : null;
+      for (const p of session.players) {
+        const c = this.conns.get(p), u = c && this.users.get(c.account);
+        if (!to && u && lower(u.name) === who) to = u;
+      }
+      if (!to) return fail('That player isn\'t in this server.');
+      if (to.userId === 0) return fail('Guests can\'t earn badges. Sign up to collect them!');
+      to.gameBadges = to.gameBadges || [];
+      if (to.gameBadges.some((x) => x[0] === b.id)) return okay({ already: true, name: b.name });
+      to.gameBadges.push([b.id, g.id, t]);
+      b.awarded = (b.awarded || 0) + 1;
+      this.saveUser(to);
+      this.saveAsset(g);
+      return okay({ awarded: true, name: b.name, player: to.name });
     }
     if (name === 'update') {
       const a = this.assets.get(str(args, 'id'));

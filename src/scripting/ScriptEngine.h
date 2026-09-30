@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -60,6 +61,13 @@ public:
     // DataStoreService's saved data for this game (a file in the player's account folder).
     const nlohmann::json& saveData();
     void setSaveData(const std::string& store, const std::string& key, const nlohmann::json& value);
+    // BadgeService:AwardBadge calls waiting to be sent to the server: (player name, badge id).
+    // The app sends them (only the host of a published game's server can award).
+    std::vector<std::pair<std::string, std::string>> takeBadgeAwards() { return std::move(m_badgeAwards); }
+    // Badges we know a player has (awarded this session, or looked up by the app).
+    void markBadge(const std::string& player, const std::string& badge) { m_knownBadges.insert(player + "\n" + badge); }
+    bool knowsBadge(const std::string& player, const std::string& badge) const { return m_knownBadges.count(player + "\n" + badge) > 0; }
+    void queueBadge(const std::string& player, const std::string& badge) { m_badgeAwards.push_back({player, badge}); }
     // Players' objects (outside the world) and what's in their leaderstats folder.
     uint64_t playerNode(const std::string& name);
     std::vector<std::pair<std::string, std::string>> leaderstats(const std::string& playerName);
@@ -103,6 +111,8 @@ private:
     std::unordered_set<uint64_t> m_started;   // scripts that have run (so nothing runs twice)
     uint64_t m_playersRoot = 0;               // "Players": one object per player (detached)
     nlohmann::json m_saveData;                // loaded on first use
+    std::vector<std::pair<std::string, std::string>> m_badgeAwards;
+    std::set<std::string> m_knownBadges;      // "player\nbadge"
     bool     m_saveLoaded = false;
     std::filesystem::path saveFile() const;
     struct Waiting {

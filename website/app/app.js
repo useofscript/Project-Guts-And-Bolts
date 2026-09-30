@@ -205,6 +205,15 @@ function itemCard(a) {
     <div class="by">${a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
 }
 
+// A game badge: a coloured medal with a star (games' own badges, made by their creators).
+function gameBadgeIcon(b, size = 56) {
+  const c = rgbCss(Array.isArray(b.color) ? b.color : [240, 180, 40]);
+  return raw(`<svg viewBox="0 0 60 60" width="${size}" height="${size}" aria-hidden="true">
+    <circle cx="30" cy="30" r="27" fill="${c}" stroke="rgba(0,0,0,.3)" stroke-width="2"/>
+    <circle cx="30" cy="30" r="20" fill="rgba(255,255,255,.18)"/>
+    <path d="M30 15 L34.4 25.2 L45.5 26.2 L37.1 33.5 L39.6 44.4 L30 38.7 L20.4 44.4 L22.9 33.5 L14.5 26.2 L25.6 25.2 Z" fill="#fff" opacity=".9"/></svg>`);
+}
+
 // Why staff can ban someone (the server has the same list).
 const BAN_REASONS = [
   ['sexual', 'Sexual content'], ['extremism', 'Violent extremism'], ['harassment', 'Harassment or bullying'],
@@ -442,6 +451,9 @@ pages.game = async (id) => {
         ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
+    ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
+        ${gameBadgeIcon(b, 44)}<span class="grow"><b>${b.name}</b><br><span class="small muted">${b.description || ''}</span></span>
+        <span class="small muted">Won ${b.awarded || 0} time${b.awarded === 1 ? '' : 's'}</span></div>`)}</div>` : ''}
     <h2>Servers</h2>
     ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
@@ -582,7 +594,22 @@ pages.configure = async (id) => {
       <p><button class="btn green big">Save</button> <a class="btn" href="#/game/${g.id}">View game</a>
         <button type="button" class="btn red" data-act="deleteAsset" data-id="${g.id}" data-name="${g.name}" style="float:right">Delete game</button>
         <span id="configMsg"></span></p>
-    </form>`);
+    </form>
+    <div class="box"><h2 class="boxhead">Badges</h2>
+      <p class="small muted">Make badges players earn in your game. Give one from a script:
+        <code>game:GetService("BadgeService"):AwardBadge(player, "badge-id")</code>
+        (it only works in online servers of this game).</p>
+      ${(g.badges || []).length ? html`<div class="list">${g.badges.map((b) => html`<div>${gameBadgeIcon(b, 40)}
+          <span class="grow"><b>${b.name}</b> <span class="small muted">${b.description || ''}</span><br>
+            <code class="small">${b.id}</code> · <span class="small muted">won ${b.awarded || 0} times</span></span>
+          <button class="btn small" data-act="copyText" data-text="${b.id}">Copy ID</button>
+          <button class="btn small red" data-act="deleteBadge" data-game="${g.id}" data-badge="${b.id}" data-name="${b.name}">Delete</button></div>`)}</div>`
+        : html`<p class="muted">No badges yet.</p>`}
+      <form class="form" data-form="newBadge"><input type="hidden" name="game" value="${g.id}">
+        <label>Badge name</label><input type="text" name="name" maxlength="40" required>
+        <label>Description <span class="muted small">(how to get it)</span></label><input type="text" name="description" maxlength="300">
+        <label>Colour</label><input type="color" name="color" value="#f0b428">
+        <p><button class="btn green">Make badge</button></p></form></div>`);
   // Show a picked picture straight away.
   view.querySelectorAll('input[data-preview]').forEach((inp) => inp.addEventListener('change', () => {
     const file = inp.files[0];
@@ -641,8 +668,13 @@ pages.user = async (id) => {
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
           ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
-        ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Badges</h2><div class="row">
+        ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Guts&amp;Bolts Badges</h2>
+          <p class="small muted">Given by Guts&amp;Bolts staff.</p><div class="row">
           ${u.badges.map((b) => html`<span class="badge-pill">${badgeNames[b] || b}</span>`)}</div></div>` : ''}
+        <div class="box"><h2 class="boxhead">Game Badges (${(r.gameBadges || []).length})</h2>
+          ${(r.gameBadges || []).length ? html`<div class="badge-grid">${r.gameBadges.slice(0, 24).map((b) => html`<a class="game-badge" href="#/game/${b.game}"
+              title="${b.name}${b.description ? ': ' + b.description : ''} (${b.gameName})">${gameBadgeIcon(b, 48)}<span>${b.name}</span></a>`)}</div>`
+            : html`<p class="muted small">No badges from games yet.</p>`}</div>
       </div>
       <div class="profile-right">
         <div class="box"><h2 class="boxhead">Friends (${r.friendCount})${f === 'self' ? html` <a class="small" href="#/friends" style="float:right">See all</a>` : ''}</h2>
@@ -972,6 +1004,15 @@ const actions = {
     catch { prompt('Copy this link:', link); }
   },
   serverPage(d) { serverPage = Number(d.to) || 1; render(); },
+  async copyText(d) {
+    try { await navigator.clipboard.writeText(d.text); toast('Copied ' + d.text); } catch { prompt('Copy this:', d.text); }
+  },
+  async deleteBadge(d) {
+    if (!confirm('Delete the badge "' + d.name + '"? Players who earned it lose it from their profile.')) return;
+    const r = await call('gamebadge.delete', { game: d.game, badge: d.badge });
+    toast(r.ok ? 'Deleted.' : r.error);
+    render();
+  },
   closeModal(d, el) { el.closest('.modal').remove(); },
   async buy(d) {
     const r = await call('buy', { id: d.id });
@@ -1137,6 +1178,13 @@ const forms = {
     const r = await gb.changePassword(me.username, f.current.value, f.password.value);
     if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
     toast('Password changed.'); render();
+  },
+  async newBadge(f) {
+    const hex = f.color.value.replace('#', '');
+    const color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16));
+    const r = await call('gamebadge.create', { game: f.game.value, name: f.name.value, description: f.description.value, color });
+    toast(r.ok ? 'Badge made! Copy its ID into your script.' : r.error);
+    if (r.ok) render();
   },
   async configure(f) {
     const msg = $('#configMsg'), say = (t, cls = 'muted') => { msg.className = cls; msg.textContent = ' ' + t; };

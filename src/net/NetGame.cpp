@@ -407,6 +407,11 @@ void NetServer::broadcast(const std::string& msg, const Client* except) {
         if (c->joined && c.get() != except) c->conn->send(msg);
 }
 
+void NetServer::announce(const std::string& text) {
+    m_chat.add("", text, true);
+    broadcast(json{{"t", "chat"}, {"from", ""}, {"text", text}, {"sys", true}}.dump(), nullptr);
+}
+
 void NetServer::say(const std::string& text) {
     std::string t = cleanText(text, 200);
     if (t.empty()) return;

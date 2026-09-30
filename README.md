@@ -929,6 +929,30 @@ make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
 sharing personal info, exploiting, spam and so on) and an optional note; the
 banned player sees them when they try to sign in.
 
+### Badges: Guts&Bolts badges and game badges
+
+There are two kinds of badges:
+
+- **Guts&Bolts badges** (like **Verified** and **Staff**) are for the whole
+  platform. Only staff can give them.
+- **Game badges** are made by game creators. On the website, open your game's
+  **Configure** page, scroll to **Badges**, and make one (name, description,
+  colour). Copy its ID and award it from a script in your game:
+
+  ```lua
+  local BadgeService = game:GetService("BadgeService")
+  game.Players.PlayerAdded:Connect(function(player)
+      BadgeService:AwardBadge(player, "badge-1a2b3c4d5e")
+  end)
+  ```
+
+  Badges are only given in online servers of the published game (the server
+  checks that the request comes from that server's host, for someone who's in
+  it). Guests can't earn them. `BadgeService:UserHasBadgeAsync(player, id)`
+  knows about badges given during the current server.
+
+Profiles show both kinds in separate boxes, and game pages list their badges.
+
 ### Signing up and logging in
 
 When you connect to a Guts&Bolts server, the site asks you to **Sign Up** or

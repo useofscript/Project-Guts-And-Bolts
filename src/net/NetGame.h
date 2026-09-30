@@ -78,6 +78,7 @@ public:
     void stop();
     void update(float dt);
     void say(const std::string& text);                 // the host's own chat
+    void announce(const std::string& text);            // a grey system line for everyone ("X earned a badge!")
     std::vector<PlayerEntry> players() const;
     ChatLog& chat() { return m_chat; }
     int port() const { return m_port; }

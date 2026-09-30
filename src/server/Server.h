@@ -53,6 +53,7 @@ private:
         long long   userId = 0;                  // 0 = hasn't signed up
         std::string pwSalt, pwHash, keyBlob;     // pwHash = hash of the login token (we never see the password)
         nlohmann::json avatar;                   // colours (0-255), hat, hatColor, wearing, updated; null = never set
+        nlohmann::json gameBadges = nlohmann::json::array();   // [badge id, game id, when] earned in games
     };
     struct Asset {
         std::string id, kind, name, description, creator;
@@ -60,6 +61,7 @@ private:
         size_t      size = 0;
         long long   thumb = 0;                   // when its picture was last set (0 = none)
         nlohmann::json meta = nlohmann::json::object();
+        nlohmann::json badges = nlohmann::json::array();   // games: badges its creator made
     };
 
     struct Post { std::string by, text; long long time = 0; };

@@ -213,7 +213,28 @@ function PathfindingService:CreatePath(params)
     return path
 end
 
-local services = { Workspace = workspace, PathfindingService = PathfindingService, Players = Players, Lighting = Lighting,
+-- BadgeService: give players the badges you made for your game on its page
+-- (Create > your game > Badges). Only works in a published game's online server.
+--   BadgeService:AwardBadge(player, "gb-badge-1a2b3c")
+local awardBadge, hasBadge = __gb_awardBadge, __gb_hasBadge
+BadgeService = {}
+local function nameOf(p)
+    if type(p) == "table" then return p.Name end
+    if type(p) == "number" then
+        for _, pl in ipairs(Players:GetPlayers()) do if pl.UserId == p then return pl.Name end end
+    end
+    return tostring(p)
+end
+function BadgeService:AwardBadge(player, badgeId)
+    awardBadge(nameOf(player), tostring(badgeId))
+    return true
+end
+function BadgeService:UserHasBadgeAsync(player, badgeId)
+    return hasBadge(nameOf(player), tostring(badgeId))
+end
+BadgeService.UserHasBadge = BadgeService.UserHasBadgeAsync
+
+local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService }
 game = setmetatable({}, { __index = function(_, name)
@@ -258,6 +279,7 @@ __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpac
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 __gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_findPath = nil, nil, nil, nil, nil
+__gb_awardBadge, __gb_hasBadge = nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -462,6 +484,19 @@ int l_dsSet(lua_State* L) {
     return 0;
 }
 
+// __gb_awardBadge(playerName, badgeId): the app sends it to the server.
+int l_awardBadge(lua_State* L) {
+    std::string name = luaL_checkstring(L, 1), badge = luaL_checkstring(L, 2);
+    ScriptEngine* e = LuaApi::engine(L);
+    if (!e->knowsBadge(name, badge)) { e->queueBadge(name, badge); e->markBadge(name, badge); }
+    return 0;
+}
+
+int l_hasBadge(lua_State* L) {
+    lua_pushboolean(L, LuaApi::engine(L)->knowsBadge(luaL_checkstring(L, 1), luaL_checkstring(L, 2)));
+    return 1;
+}
+
 int l_playerNode(lua_State* L) {
     LuaApi::pushInstance(L, LuaApi::engine(L)->playerNode(luaL_checkstring(L, 1)));
     return 1;
@@ -638,6 +673,8 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_dsGet", l_dsGet);
     lua_register(L, "__gb_dsSet", l_dsSet);
     lua_register(L, "__gb_findPath", l_findPath);
+    lua_register(L, "__gb_awardBadge", l_awardBadge);
+    lua_register(L, "__gb_hasBadge", l_hasBadge);
 
     LuaApi::pushInstance(L, m_scene->root()->id);
     lua_setglobal(L, "workspace");
