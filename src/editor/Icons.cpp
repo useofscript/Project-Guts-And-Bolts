@@ -482,6 +482,8 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Value:      return Id::Value;
         case NodeKind::Decal:      return Id::Decal;
         case NodeKind::Animation:  return Id::Animation;
+        case NodeKind::FluidSystem:  return Id::Value;    // (a liquid: plain icons for now)
+        case NodeKind::FluidEmitter: return Id::Sound;
         case NodeKind::Gui:
             switch (n.gui.type) {
                 case GuiType::ScreenGui:  return Id::ScreenGui;

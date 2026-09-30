@@ -981,6 +981,18 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     }
     else if (what == "Sound") { m_scene->select(parent); addSound(); }
     else if (what == "Attachment") put(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment));
+    else if (what == "FluidSystem") {
+        auto f = std::make_unique<SceneNode>("FluidSystem", NodeKind::FluidSystem);
+        f->color = {0.12f, 0.56f, 1.0f};
+        put(std::move(f));
+    }
+    else if (what == "FluidEmitter") {
+        // In front of the camera, a bit up, pouring down.
+        auto f = std::make_unique<SceneNode>("FluidEmitter", NodeKind::FluidEmitter);
+        f->transform.position = spawnPoint() + glm::vec3(0.0f, 8.0f, 0.0f);
+        SceneNode* e = m_scene->insert(std::move(f), m_scene->root());
+        m_scene->select(e);
+    }
     else if (what == "ForceField") put(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
     else if (what == "IntValue" || what == "NumberValue" || what == "StringValue" || what == "BoolValue") {
         auto v = std::make_unique<SceneNode>(what, NodeKind::Value);
@@ -1067,7 +1079,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},

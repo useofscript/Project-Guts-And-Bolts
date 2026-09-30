@@ -32,6 +32,8 @@ const char* classOf(const SceneNode* n, const SceneNode* root) {
         case NodeKind::Value:      return n->valueClass();
         case NodeKind::Decal:      return "Decal";
         case NodeKind::Animation:  return "Animation";
+        case NodeKind::FluidSystem:  return "FluidSystem";
+        case NodeKind::FluidEmitter: return "FluidEmitter";
         case NodeKind::Gui:        return kGuiClassNames[(int)n->gui.type];
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";

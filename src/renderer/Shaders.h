@@ -646,16 +646,21 @@ uniform mat4  uView;
 uniform mat4  uProj;
 uniform float uPointScale;
 uniform float uRadius;
+uniform vec3  uFluidColor[16];      // each kind of liquid's colour
 out vec3  vCenter;
 out float vSpeed;
 out float vRadius;
+out vec3  vColor;
 void main() {
     vec4 vp = uView * vec4(aDrop.xyz, 1.0);
     vCenter = vp.xyz;
-    // w = neighbours x 64 + speed. A drop on its own is a little droplet; one
-    // among others is drawn full size so they all melt into one surface.
-    float nearby = floor(aDrop.w / 64.0);
-    vSpeed = aDrop.w - nearby * 64.0;
+    // w = kind of liquid x 4096 + neighbours x 64 + speed. A drop on its own is a
+    // little droplet; one among others is drawn full size so they all melt into one surface.
+    float kind = floor(aDrop.w / 4096.0);
+    float rest = aDrop.w - kind * 4096.0;
+    float nearby = floor(rest / 64.0);
+    vSpeed = rest - nearby * 64.0;
+    vColor = uFluidColor[int(clamp(kind, 0.0, 15.0))];
     vRadius = uRadius * mix(0.5, 1.0, clamp(nearby / 5.0, 0.0, 1.0));
     gl_Position = uProj * vp;
     gl_PointSize = clamp(2.0 * vRadius * uPointScale / max(0.05, -vp.z), 1.0, 256.0);
@@ -667,6 +672,7 @@ inline const char* fluidDepthFrag = R"(#version 410 core
 in vec3  vCenter;
 in float vSpeed;
 in float vRadius;
+in vec3  vColor;
 uniform mat4  uProj;
 uniform sampler2D uSceneDepth;
 uniform vec2  uTexel;
@@ -690,6 +696,7 @@ inline const char* fluidThickFrag = R"(#version 410 core
 in vec3  vCenter;
 in float vSpeed;
 in float vRadius;
+in vec3  vColor;
 uniform mat4  uProj;
 uniform sampler2D uSceneDepth;
 uniform vec2  uTexel;
@@ -703,6 +710,29 @@ void main() {
     if (clip.z / clip.w * 0.5 + 0.5 > texture(uSceneDepth, gl_FragCoord.xy * uTexel).r) discard;
     float t = 2.0 * vRadius * sqrt(1.0 - r2) * 0.6;
     FragColor = vec4(t, vSpeed * t, t, 1.0);
+}
+)";
+
+// Pass 2b (more than one kind of liquid): the colour along each pixel, weighted
+// by how much of each liquid there is.
+inline const char* fluidColorFrag = R"(#version 410 core
+in vec3  vCenter;
+in float vSpeed;
+in float vRadius;
+in vec3  vColor;
+uniform mat4  uProj;
+uniform sampler2D uSceneDepth;
+uniform vec2  uTexel;
+out vec4 FragColor;
+void main() {
+    vec2 c = gl_PointCoord * 2.0 - 1.0;
+    float r2 = dot(c, c);
+    if (r2 > 1.0) discard;
+    vec3 pos = vCenter + vec3(0.0, 0.0, vRadius * 0.5);
+    vec4 clip = uProj * vec4(pos, 1.0);
+    if (clip.z / clip.w * 0.5 + 0.5 > texture(uSceneDepth, gl_FragCoord.xy * uTexel).r) discard;
+    float t = 2.0 * vRadius * sqrt(1.0 - r2) * 0.6;
+    FragColor = vec4(vColor * t, t);
 }
 )";
 
@@ -756,7 +786,9 @@ uniform vec3  uHorizon;
 uniform vec3  uGround;
 uniform float uSkyBrightness;
 uniform vec3  uAmbient;
-uniform vec3  uWaterColor;      // linear colour of deep water
+uniform bool  uTinted;          // more than one kind: the colour comes from uColorTex
+uniform sampler2D uColorTex;    // colour x thickness, thickness
+uniform vec3  uTint;            // (one kind) its colour
 out vec4 FragColor;
 #pragma gb_common
 vec3 eyePos(vec2 uv, float d) {
@@ -809,10 +841,15 @@ void main() {
     vec2 bent = clamp(hitClip.xy / hitClip.w * 0.5 + 0.5, vec2(0.001), vec2(0.999));
     if (sceneDist(bent) < d) bent = vUV;          // (never show something that's in front of the water)
     vec3 behind = texture(uScene, bent).rgb;
-    // Beer's law: water soaks up red light first, then green, so the deeper it is
-    // the darker and bluer (then blue-green) everything behind it looks.
-    vec3 absorb = exp(-path * vec3(1.20, 0.33, 0.15));
-    vec3 scatter = uWaterColor * uAmbient * 1.4 + uWaterColor * uSunColor * uSunIntensity * 0.25 * max(nW.y, 0.0);
+    // The liquid's colour here (a mix, where different liquids meet).
+    vec3 tint = uTint;
+    if (uTinted) { vec4 ct = texture(uColorTex, vUV); if (ct.a > 1e-4) tint = ct.rgb / ct.a; }
+    vec3 deep = pow(clamp(tint, 0.0, 1.0), vec3(2.2));
+    // Beer's law: the liquid soaks up the colours it isn't, the deeper the more. Water
+    // soaks up red light first, then green, so deep water looks darker and bluer.
+    vec3 sigma = 0.08 + 0.5 * -log(max(tint, vec3(0.02)));
+    vec3 absorb = exp(-path * sigma);
+    vec3 scatter = deep * uAmbient * 1.4 + deep * uSunColor * uSunIntensity * 0.25 * max(nW.y, 0.0);
     vec3 through = behind * absorb + scatter * (1.0 - absorb);
     // Fresnel (Schlick): a mirror at grazing angles, clear looking straight in.
     // Water's straight-on reflectance is ((1.333 - 1) / (1.333 + 1))^2 = 2%.
@@ -822,6 +859,9 @@ void main() {
     // White water where it's fast and thin (spray, the front of the stream).
     float foam = smoothstep(14.0, 30.0, speed) * clamp(1.4 - path, 0.0, 1.0);
     col = mix(col, (uAmbient * 1.6 + uSunColor * uSunIntensity * 0.5) * 0.9, foam * 0.7);
+    // Where it's very thin (the edge of a puddle, a lone drop) it fades into what's
+    // behind, instead of ending in a hard rim.
+    col = mix(texture(uScene, vUV).rgb, col, smoothstep(0.02, 0.3, thick));
     vec4 clip = uProj * vec4(p, 1.0);
     gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;
     FragColor = vec4(col, 1.0);
@@ -833,9 +873,9 @@ inline const char* fluidSimpleFrag = R"(#version 410 core
 in vec3  vCenter;
 in float vSpeed;
 in float vRadius;
+in vec3  vColor;
 uniform mat4  uProj;
 uniform vec3  uLightDir;     // (view space)
-uniform vec3  uWaterColor;
 uniform vec3  uAmbient;
 out vec4 FragColor;
 void main() {
@@ -849,7 +889,7 @@ void main() {
     gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;
     float diff = max(dot(n, uLightDir), 0.0);
     float spec = pow(max(dot(reflect(-uLightDir, n), vec3(0, 0, 1)), 0.0), 60.0);
-    FragColor = vec4(uWaterColor * (uAmbient + diff) + vec3(spec), 0.75);
+    FragColor = vec4(pow(vColor, vec3(2.2)) * (uAmbient + diff) + vec3(spec), 0.75);
 }
 )";
 

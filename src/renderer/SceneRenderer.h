@@ -46,8 +46,8 @@ private:
 
     std::unique_ptr<Shader> m_lit, m_grid, m_sky, m_depth;
     std::unique_ptr<Shader> m_ssao, m_bloomPre, m_bloomDown, m_bloomUp, m_composite, m_fxaa;
-    std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidBlur, m_fluidShade, m_fluidSimple;
-    Target m_fDepth, m_fTmp, m_fThick, m_sceneCopy;   // liquid: depth, blur scratch, thickness, the scene behind
+    std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidColor, m_fluidBlur, m_fluidShade, m_fluidSimple;
+    Target m_fDepth, m_fTmp, m_fThick, m_fColor, m_sceneCopy;   // liquid: depth, blur scratch, thickness, the scene behind
     unsigned int m_fluidVao = 0, m_fluidVbo = 0;
     ShadowMap               m_shadow, m_shadowNear;   // wide, and sharp close to the camera
     int                     m_shadowRes = 0;

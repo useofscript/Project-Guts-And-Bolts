@@ -56,6 +56,9 @@ public:
     void setColliders(const std::vector<glm::vec4>& packed, const std::vector<int>& grid, int gridItems,
                       const glm::ivec3& cgMin, const glm::ivec3& cgDim, float cgCell);
     void setPools(const std::vector<Pool>& pools);
+    void setMaxAge(float seconds) { m_maxAge = seconds; }
+    // Each kind of liquid: viscosity, surface tension (drops carry their kind in X.w / 4096).
+    void setFluids(const std::vector<glm::vec2>& params) { m_fluidParams = params; }
     // Which colliders the liquid touched since the last call (one flag each), then start again.
     std::vector<uint32_t> takeTouched(size_t colliders);
     // One physics step. `incoming`: new drops (position, velocity pairs).
@@ -88,6 +91,8 @@ private:
     float m_cgCell = 6.0f;
     int m_cgItems = 0;
     std::vector<Pool> m_pools;
+    std::vector<glm::vec2> m_fluidParams;
+    float m_maxAge = 120.0f;
     std::vector<glm::vec4> m_probes;                   // asked for at the last endFrame()
     bool m_pending = false;                            // results waiting to be read back
     Results m_res;

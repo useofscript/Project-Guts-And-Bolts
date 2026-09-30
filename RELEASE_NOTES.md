@@ -16,6 +16,14 @@
 - Things the liquid runs over stay wet (slippery) for a while. Stray drops
   dry up after a few seconds.
 
+**Liquid from scripts**
+- New `FluidSystem` (Color, Viscosity, SurfaceTension) and `FluidEmitter`
+  (Rate, Velocity, Size, Position, FluidSystem, Enabled) objects, from
+  `Instance.new` or Studio's Insert Object. Up to 16 kinds of liquid at once;
+  their colours mix where they meet.
+- `workspace.MaxFluidParticles` (default 100,000): when it's full, the oldest
+  drops are recycled.
+
 **Mega Water Slide (new sample game)**
 - A 400-stud tube slide spiralling down an 80-stud tower, with real water
   running down it, a ride timer, a splash pool full of floating toys, a wave

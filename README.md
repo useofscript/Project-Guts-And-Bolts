@@ -614,6 +614,37 @@ Attributes on the FluidSource:
 - **Rate:** the most drops it makes each second (default 600). The stream is
   as wide and tall as the part, so a bigger part pours more.
 
+**From a script (FluidSystem and FluidEmitter).** You never deal with single
+drops: a *FluidSystem* is a kind of liquid, and a *FluidEmitter* pours it out.
+
+```lua
+local water = Instance.new("FluidSystem")
+water.Color = Color3.fromRGB(30, 144, 255)
+water.Viscosity = 0.1          -- 0 runs like water, 1 oozes like honey
+water.SurfaceTension = 0.05    -- how much drops stick together (beads, strands)
+water.Parent = workspace
+
+local tap = Instance.new("FluidEmitter")
+tap.Rate = 500                         -- drops per second
+tap.Velocity = Vector3.new(0, -10, 0)  -- pour straight down
+tap.Size = Vector3.new(1, 1, 1)        -- the box it pours out of
+tap.Position = Vector3.new(0, 20, 0)
+tap.FluidSystem = water                -- (leave it out for plain water)
+tap.Enabled = true
+tap.Parent = workspace
+```
+
+You can also add both from Studio's Insert Object list and set them in
+Properties. Up to 16 kinds of liquid can be in a game at once, each with its
+own colour, thickness and stickiness; where they meet, their colours mix. If a
+small emitter is asked for more drops than fit through it, the stream sprays
+out wider.
+
+**Performance cap.** There are never more than `workspace.MaxFluidParticles`
+drops (100,000 unless a script changes it, and at most what the computer can
+do). When it's full and something is still pouring, the oldest drops are
+recycled first, so new liquid keeps coming and the game stays smooth.
+
 What the liquid does in the game:
 
 - It carries people along when it's faster than them, and if it gets deep

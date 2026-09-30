@@ -34,6 +34,7 @@ struct WorldSettings {
     float      bloodStay   = 30.0f;         // seconds pools and splats stay before drying up
     float      spawnForceField = 4.0f;      // seconds of ForceField after spawning (0 = none)
     bool       playerCollisions = true;     // characters bump into each other (off = walk through)
+    int        maxFluidParticles = 100000;  // real liquid: the most drops at once (the oldest are recycled)
 };
 
 // Another player's character in a multiplayer game. On the host, scripts can

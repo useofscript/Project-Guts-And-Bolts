@@ -75,6 +75,15 @@ public:
 
     static bool isSource(const SceneNode* n);
 
+    // Kinds of liquid (FluidSystem objects; number 0 is plain water). Each drop
+    // belongs to one: its colour, how thick it is and how much it sticks together.
+    struct Fluid { uint64_t id = 0; glm::vec3 color{0.12f, 0.42f, 0.62f}; float viscosity = 0.015f, tension = 0.0f; };
+    static constexpr int kMaxFluids = 16;
+    const std::vector<Fluid>& fluids() const { return m_fluids; }
+    // The most drops there can be right now (workspace.MaxFluidParticles, and what
+    // this computer can do). When it's full the oldest drops are recycled.
+    size_t capacity() const { return m_cap; }
+
 private:
     struct Collider {
         uint64_t  id = 0;
@@ -86,7 +95,8 @@ private:
         glm::vec3 velocity{0.0f};     // moving parts push the water
         glm::vec3 min{0.0f}, max{0.0f};
     };
-    struct Source { uint64_t id; glm::vec3 pos, dir, side, up; float rate, speed, width, height, carry = 0.0f; };
+    struct Source { uint64_t id; glm::vec3 pos, dir, side, up; float rate, speed, width, height, carry = 0.0f; int fluid = 0;
+                    bool part = false; };   // part: a FluidSource part (Speed 0 turns it off)
 
     void scan(Scene& scene);
     void buildColliderGrid();
@@ -94,6 +104,8 @@ private:
     // (position, velocity pairs) for the graphics card. At most `room` drops.
     void emit(float dt, size_t room, std::vector<glm::vec4>* out = nullptr);
     void updateGpu(float dt, Scene& scene);
+    // How many drops there can be (m_cap), and recycling the oldest when it's full (m_maxAge).
+    void budget(Scene& scene, size_t count, float dt);
     // Push a drop out of solid things; with dt > 0, also rub it along them (friction).
     // `prev` is where the drop was before this step (it goes back out the way it came).
     void collide(glm::vec3& p, glm::vec3& v, float dt, const glm::vec3& prev) const;
@@ -109,6 +121,10 @@ private:
     std::vector<glm::vec3> m_x, m_v, m_p;          // positions, velocities, predicted positions
     std::vector<glm::vec3> m_dp;                   // scratch: position fixes, then velocities
     std::vector<float> m_lambda, m_age, m_near;     // m_near: how many neighbours (for drawing)
+    std::vector<uint8_t> m_kind;                   // which Fluid each drop is
+    std::vector<Fluid> m_fluids;
+    size_t m_cap = kMaxDrops;
+    float m_maxAge = 120.0f;                       // drops older than this go (lower while it's full: recycling)
     std::vector<glm::vec4> m_draw;
     std::vector<Source> m_sources;
     std::vector<Collider> m_colliders;

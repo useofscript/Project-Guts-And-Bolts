@@ -222,7 +222,8 @@ void main() {
     uint j = g[0] + i;
     if (j >= uCap) return;
     vec3 v = IN[uOff + 2u * i + 1u].xyz;
-    X[j] = vec4(IN[uOff + 2u * i].xyz, 6.0 * 64.0 + min(length(v), 63.0));
+    vec4 p = IN[uOff + 2u * i];      // w: which kind of liquid
+    X[j] = vec4(p.xyz, floor(p.w + 0.5) * 4096.0 + 6.0 * 64.0 + min(length(v), 63.0));
     V[j] = vec4(v, 0.0);
 }
 #endif
@@ -464,11 +465,14 @@ layout(std430, binding = 1) buffer BV { vec4 V[]; };
 layout(std430, binding = 2) readonly buffer BP { vec4 P[]; };
 layout(std430, binding = 4) readonly buffer BS { vec4 S[]; };
 uniform float uDt; uniform float uInvRest;
+uniform vec2 uFluid[16];             // each kind of liquid: viscosity, surface tension
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= g[0]) return;
     vec3 pi = P[i].xyz, vi = S[i].xyz;
-    vec3 acc = vec3(0.0);
+    float kind = floor(X[i].w / 4096.0);
+    vec2 fl = uFluid[int(clamp(kind, 0.0, 15.0))];
+    vec3 acc = vec3(0.0), pull = vec3(0.0);
     float nearby = 0.0;
     FOR_NEIGHBOURS(pi, {
         if (j == i) continue;
@@ -476,15 +480,18 @@ void main() {
         float r2 = dot(r, r);
         if (r2 >= kH * kH) continue;
         acc += (S[j].xyz - vi) * (poly6(r2) * uInvRest);
+        float len = sqrt(r2);
+        if (len > 1e-5) pull -= r / len * sin(kPi * len / kH);   // surface tension: pull together
         nearby += 1.0;
     })
-    vec3 v = vi + 0.015 * acc;
+    // Viscosity (thick liquids move with their neighbours) and surface tension (beads, strands).
+    vec3 v = vi + fl.x * acc + pull * (fl.y * 60.0 * uDt);
     vec3 p = pi;
     collide(p, v, nearby < 3.0 ? uDt * 10.0 : uDt, X[i].xyz);   // (a lone drop sticks to things; a stream slides)
     float age = V[i].w;
     if (nearby < 3.0 && dot(v, v) < 1.0) age += uDt * 30.0;   // a stray drop sitting on its own dries up in a few seconds
     // (w: how many neighbours x 64 + speed; the renderer draws lonely drops smaller)
-    X[i] = vec4(p, min(nearby, 31.0) * 64.0 + min(length(v), 63.0));
+    X[i] = vec4(p, kind * 4096.0 + min(nearby, 31.0) * 64.0 + min(length(v), 63.0));
     V[i] = vec4(v, age);
 }
 #endif
@@ -839,7 +846,7 @@ void LiquidGpu::step(float dt, const glm::vec3& gravity, const std::vector<glm::
     bind(0, m_x[m_cur]); bind(1, m_v[m_cur]); bind(2, m_p[m_cur]); bind(4, m_key);
     glUniform1f(U(m_prog[PREDICT], "uDt"), dt);
     glUniform3f(U(m_prog[PREDICT], "uGravity"), gravity.x, gravity.y, gravity.z);
-    glUniform1f(U(m_prog[PREDICT], "uMaxAge"), 120.0f);
+    glUniform1f(U(m_prog[PREDICT], "uMaxAge"), m_maxAge);
     {
         std::vector<glm::vec4> lo(kMaxPools), hi(kMaxPools);
         for (size_t i = 0; i < m_pools.size(); ++i) { lo[i] = glm::vec4(m_pools[i].min, 0); hi[i] = glm::vec4(m_pools[i].max, 0); }
@@ -922,6 +929,11 @@ void LiquidGpu::step(float dt, const glm::vec3& gravity, const std::vector<glm::
     bind(0, m_x[m_cur]); bind(1, m_v[m_cur]); bind(2, m_p[m_pcur]); bind(4, m_scratch); bind(5, m_touched);
     glUniform1f(U(m_prog[VISCOSITY], "uDt"), dt);
     glUniform1f(U(m_prog[VISCOSITY], "uInvRest"), 1.0f / rest);
+    {
+        std::vector<glm::vec2> fl(16, glm::vec2(0.015f, 0.0f));
+        for (size_t k = 0; k < m_fluidParams.size() && k < 16; ++k) fl[k] = m_fluidParams[k];
+        glUniform2fv(U(m_prog[VISCOSITY], "uFluid"), 16, &fl[0].x);
+    }
     dispatchDrops();
     barrier();
 }

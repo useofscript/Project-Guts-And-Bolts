@@ -38,6 +38,8 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Value      ? node->valueClass()
                     : node->kind == NodeKind::Decal      ? "Decal"
                     : node->kind == NodeKind::Animation  ? "Animation"
+                    : node->kind == NodeKind::FluidSystem  ? "FluidSystem"
+                    : node->kind == NodeKind::FluidEmitter ? "FluidEmitter"
                     : node->kind == NodeKind::Gui        ? kGuiClassNames[(int)node->gui.type]
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
@@ -246,6 +248,44 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::TextDisabled("Put a part called Handle inside: that's what the character holds (its long side, Y, "
                             "points forward out of the hand). Players pick tools up by touching them, and press "
                             "1-9 to equip. Scripts inside get tool.Activated when the player clicks.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    // --- Real liquid ---
+    if (node->kind == NodeKind::FluidSystem) {
+        ImGui::ColorEdit3("Color", &node->color.x);
+        ImGui::SliderFloat("Viscosity", &node->viscosity, 0.0f, 1.0f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How thick it is: 0 runs like water, 1 oozes like honey.");
+        ImGui::SliderFloat("SurfaceTension", &node->surfaceTension, 0.0f, 1.0f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much it sticks to itself: higher makes beads and strands.");
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("A kind of liquid. FluidEmitters pour it out (set their FluidSystem to this).");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+    if (node->kind == NodeKind::FluidEmitter) {
+        ImGui::Checkbox("Enabled", &node->enabled);
+        ImGui::DragFloat3("Position", &node->transform.position.x, 0.1f);
+        ImGui::DragFloat3("Size", &node->transform.scale.x, 0.05f, 0.1f, 100.0f);
+        ImGui::DragFloat("Rate", &node->fluidRate, 5.0f, 0.0f, 100000.0f, "%.0f drops/s");
+        ImGui::DragFloat3("Velocity", &node->fluidVelocity.x, 0.1f);
+        std::string current = "Water (default)";
+        std::vector<SceneNode*> systems;
+        m_scene->forEach([&](SceneNode* n) { if (n->kind == NodeKind::FluidSystem) systems.push_back(n); });
+        for (SceneNode* sys : systems) if (sys->id == node->fluidSystem) current = sys->name;
+        if (ImGui::BeginCombo("FluidSystem", current.c_str())) {
+            if (ImGui::Selectable("Water (default)", node->fluidSystem == 0)) node->fluidSystem = 0;
+            for (SceneNode* sys : systems) {
+                ImGui::PushID((int)sys->id);
+                if (ImGui::Selectable(sys->name.c_str(), node->fluidSystem == sys->id)) node->fluidSystem = sys->id;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Pours real liquid while the game runs: Rate drops a second, out of a box "
+                            "Size big, moving at Velocity.");
         ImGui::PopTextWrapPos();
         return;
     }

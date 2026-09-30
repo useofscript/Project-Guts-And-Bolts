@@ -105,7 +105,7 @@ constexpr int   kMaxNeigh = 40;
 constexpr int   kIterations = 2;
 constexpr float kMaxSpeed = 32.0f;
 constexpr float kFriction = 0.15f;                         // per second, where it touches things (slides are slippery)
-constexpr float kViscosity = 0.015f;
+constexpr float kTension = 60.0f;                          // how hard SurfaceTension 1 pulls drops together (studs/s²)
 
 float poly6(float r2) {
     const float d = kH * kH - r2;
@@ -116,6 +116,13 @@ glm::vec3 spikyGrad(const glm::vec3& r, float len) {
     if (len <= 1e-6f || len >= kH) return glm::vec3(0.0f);
     const float d = kH - len;
     return kSpiky * d * d * (r / len);
+}
+
+// Surface tension: drops a little apart pull towards each other (zero right on
+// top of each other and at the edge of reach; the density solver keeps them from squashing).
+float cohesion(float len) {
+    if (len <= 0.0f || len >= kH) return 0.0f;
+    return std::sin(kPi * len / kH);
 }
 
 uint32_t cellHash(int x, int y, int z, uint32_t mask) {
@@ -214,6 +221,8 @@ void Liquid::begin(Scene& scene) {
 void Liquid::end() {
     m_active = false;
     m_x.clear(); m_v.clear(); m_p.clear(); m_dp.clear(); m_lambda.clear(); m_age.clear(); m_near.clear(); m_draw.clear();
+    m_kind.clear(); m_fluids.clear();
+    m_maxAge = 120.0f;
     m_sources.clear();
     m_colliders.clear();
     if (m_gpu && s_contexts <= 0) m_gpu->forget();
@@ -230,7 +239,45 @@ void Liquid::scan(Scene& scene) {
     m_colliders.clear();
     std::vector<Source> sources;
     size_t triangles = 0;
+    // The kinds of liquid first (emitters point at them).
+    m_fluids.assign(1, Fluid{});
     scene.forEach([&](SceneNode* n) {
+        if (n->kind != NodeKind::FluidSystem || (int)m_fluids.size() >= kMaxFluids) return;
+        Fluid f;
+        f.id = n->id;
+        f.color = n->color;
+        f.viscosity = glm::clamp(n->viscosity, 0.0f, 1.0f);
+        f.tension = glm::clamp(n->surfaceTension, 0.0f, 1.0f);
+        m_fluids.push_back(f);
+    });
+    auto fluidIndex = [&](uint64_t id) {
+        for (size_t i = 1; i < m_fluids.size(); ++i) if (m_fluids[i].id == id) return (int)i;
+        return 0;
+    };
+    scene.forEach([&](SceneNode* n) {
+        // A FluidEmitter (made in Studio or with Instance.new): a box that pours drops at Velocity.
+        if (n->kind == NodeKind::FluidEmitter) {
+            if (!n->enabled || n->fluidRate <= 0.0f || !shown(n)) return;
+            const glm::mat4 m = n->worldMatrix();
+            Source s;
+            s.id = n->id;
+            s.pos = glm::vec3(m[3]);
+            const float sp = glm::length(n->fluidVelocity);
+            s.dir = sp > 1e-3f ? n->fluidVelocity / sp : glm::vec3(0.0f, -1.0f, 0.0f);
+            s.speed = sp;
+            // The face of the box the drops come out of, across the way they go.
+            const glm::vec3 ref = std::abs(s.dir.y) > 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+            s.side = glm::normalize(glm::cross(s.dir, ref));
+            s.up = glm::normalize(glm::cross(s.side, s.dir));
+            const glm::vec3 size = n->transform.scale;
+            s.width = std::max(0.2f, glm::dot(glm::abs(s.side), size));
+            s.height = std::max(0.2f, glm::dot(glm::abs(s.up), size));
+            s.rate = n->fluidRate;
+            s.fluid = fluidIndex(n->fluidSystem);
+            for (const Source& old : m_sources) if (old.id == s.id) s.carry = old.carry;
+            sources.push_back(s);
+            return;
+        }
         if (!n->isPart() || !shown(n)) return;
         const glm::mat4 m = n->worldMatrix();
         if (isSource(n)) {
@@ -244,6 +291,7 @@ void Liquid::scan(Scene& scene) {
             s.speed = numberAttr(n, "Speed", 8.0f);
             s.width = std::max(0.2f, numberAttr(n, "Width", glm::length(glm::vec3(m[0]))));
             s.height = std::max(0.2f, glm::length(glm::vec3(m[1])));
+            s.part = true;
             for (const Source& old : m_sources) if (old.id == s.id) s.carry = old.carry;
             sources.push_back(s);
             return;
@@ -485,29 +533,45 @@ void Liquid::forNeighbours(const glm::vec3& p, F&& f) const {
 void Liquid::emit(float dt, size_t room, std::vector<glm::vec4>* out) {
     size_t made = 0;
     for (Source& s : m_sources) {
-        if (s.rate <= 0.0f || s.speed <= 0.0f) continue;
-        const int across = std::max(1, (int)std::round(s.width / kSpacing));
-        const int high = std::max(1, (int)std::round(s.height / kSpacing));
+        if (s.rate <= 0.0f || (s.part && s.speed <= 0.0f)) continue;
+        // Layers per second: the speed (a slow emitter still makes room for the next
+        // layer by spacing them out), but never more drops than Rate.
+        const float laySpeed = std::max(s.speed, 2.0f);
+        float width = s.width, height = s.height;
+        if (!s.part) {
+            // A FluidEmitter makes Rate drops a second. A small opening can't push that
+            // many out without squashing them together, so the stream spreads wider
+            // instead (like a nozzle spraying), up to 4 times as wide.
+            const float fits = std::max(1.0f, std::round(width / kSpacing)) * std::max(1.0f, std::round(height / kSpacing)) *
+                               laySpeed / kSpacing;
+            if (s.rate > fits) {
+                const float grow = std::min(4.0f, std::sqrt(s.rate / fits));
+                width *= grow;
+                height *= grow;
+            }
+        }
+        const int across = std::max(1, (int)std::round(width / kSpacing));
+        const int high = std::max(1, (int)std::round(height / kSpacing));
         const float perLayer = (float)(across * high);
-        // Layers per second: the speed, but never more drops than Rate.
-        const float layers = std::min(s.speed / kSpacing, s.rate / perLayer);
+        const float layers = std::min(laySpeed / kSpacing, s.rate / perLayer);
         s.carry += layers * dt;
         while (s.carry >= 1.0f && made + (size_t)perLayer <= room) {
             made += (size_t)perLayer;
             s.carry -= 1.0f;
-            const float ahead = s.carry / std::max(1e-3f, layers) * s.speed;   // how far this layer has moved already
+            const float ahead = s.carry / std::max(1e-3f, layers) * laySpeed;   // how far this layer has moved already
             for (int a = 0; a < across; ++a)
                 for (int b = 0; b < high; ++b) {
-                    glm::vec3 p = s.pos + s.side * ((a + 0.5f) / across - 0.5f) * s.width +
-                                  s.up * ((b + 0.5f) / high - 0.5f) * s.height + s.dir * ahead +
+                    glm::vec3 p = s.pos + s.side * ((a + 0.5f) / across - 0.5f) * width +
+                                  s.up * ((b + 0.5f) / high - 0.5f) * height + s.dir * ahead +
                                   glm::vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f) * 0.04f;
                     if (out) {
-                        out->push_back(glm::vec4(p, 0.0f));
+                        out->push_back(glm::vec4(p, (float)s.fluid));
                         out->push_back(glm::vec4(s.dir * s.speed, 0.0f));
                         continue;
                     }
                     m_x.push_back(p); m_v.push_back(s.dir * s.speed); m_p.push_back(p);
                     m_lambda.push_back(0.0f); m_age.push_back(0.0f); m_near.push_back(6.0f);
+                    m_kind.push_back((uint8_t)s.fluid);
                 }
         }
         if (made + (size_t)perLayer > room) s.carry = std::min(s.carry, 1.0f);   // full: don't save up
@@ -608,13 +672,18 @@ void Liquid::step(float dt, Scene& scene) {
     });
     parallel(n, [&](size_t a, size_t b) {
         for (size_t i = a; i < b; ++i) {
-            glm::vec3 acc(0.0f);
+            glm::vec3 acc(0.0f), pull(0.0f);
+            const Fluid& f = m_fluids[m_kind[i] < m_fluids.size() ? m_kind[i] : 0];
             const int* nb = &m_neigh[i * kMaxNeigh];
             for (int k = 0; k < m_neighCount[i]; ++k) {
                 const glm::vec3 r = m_p[i] - m_p[nb[k]];
-                acc += (m_dp[nb[k]] - m_dp[i]) * (poly6(glm::dot(r, r)) * invRest);
+                const float len = glm::length(r);
+                acc += (m_dp[nb[k]] - m_dp[i]) * (poly6(len * len) * invRest);
+                if (len > 1e-5f) pull -= r / len * cohesion(len);
             }
-            m_v[i] = m_dp[i] + kViscosity * acc;
+            // Viscosity (drops move with their neighbours; honey a lot, water a little) and
+            // surface tension (drops pull on each other, so they bead up and hang in strands).
+            m_v[i] = m_dp[i] + f.viscosity * acc + pull * (f.tension * kTension * dt);
             // Friction and "don't go into walls" (a lone drop sticks to things; a stream slides).
             collide(m_p[i], m_v[i], m_neighCount[i] < 3 ? dt * 10.0f : dt, m_x[i]);
             m_x[i] = m_p[i];
@@ -632,7 +701,7 @@ void Liquid::soakIntoPools(Scene& scene) {
     size_t w = 0;
     int sprays = 0;
     for (size_t i = 0; i < m_x.size(); ++i) {
-        bool keep = m_age[i] < 120.0f && m_x[i].y > -40.0f;
+        bool keep = m_age[i] < m_maxAge && m_x[i].y > -40.0f;
         if (keep)
             for (const WaterSystem::Body& b : water.bodies()) {
                 const glm::vec3& p = m_x[i];
@@ -650,10 +719,10 @@ void Liquid::soakIntoPools(Scene& scene) {
             }
         if (!keep) continue;
         m_x[w] = m_x[i]; m_v[w] = m_v[i]; m_p[w] = m_p[i]; m_lambda[w] = m_lambda[i]; m_age[w] = m_age[i];
-        m_near[w] = m_near[i];
+        m_near[w] = m_near[i]; m_kind[w] = m_kind[i];
         ++w;
     }
-    m_x.resize(w); m_v.resize(w); m_p.resize(w); m_lambda.resize(w); m_age.resize(w); m_near.resize(w);
+    m_x.resize(w); m_v.resize(w); m_p.resize(w); m_lambda.resize(w); m_age.resize(w); m_near.resize(w); m_kind.resize(w);
 }
 
 // Floating things bob on the liquid and get carried along by it.
@@ -728,13 +797,14 @@ void Liquid::update(float dt, Scene& scene) {
     const auto t0 = std::chrono::steady_clock::now();
     for (float& p : m_prof) p = 0.0f;
     scan(scene);
+    budget(scene, m_x.size(), dt);
     m_prof[4] = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
     if (m_sources.empty() && m_x.empty()) { m_draw.clear(); return; }
     dt = std::min(dt, 1.0f / 30.0f);
     const int steps = std::clamp((int)std::ceil(dt * 90.0f), 1, 3);
     const float h = dt / steps;
     for (int s = 0; s < steps; ++s) {
-        emit(h, (size_t)kMaxDrops - std::min(m_x.size(), (size_t)kMaxDrops));
+        emit(h, m_cap - std::min(m_x.size(), m_cap));
         step(h, scene);
     }
     for (float& a : m_age) a += dt;
@@ -751,7 +821,7 @@ void Liquid::update(float dt, Scene& scene) {
             auto copy = arr;
             for (size_t k = 0; k < n; ++k) arr[k] = copy[m_sorted[k]];
         };
-        permute(m_x); permute(m_v); permute(m_p); permute(m_lambda); permute(m_age); permute(m_near);
+        permute(m_x); permute(m_v); permute(m_p); permute(m_lambda); permute(m_age); permute(m_near); permute(m_kind);
         std::vector<uint32_t> cells(n);
         for (size_t k = 0; k < n; ++k) cells[k] = m_cellOf[m_sorted[k]];
         m_cellOf.swap(cells);
@@ -761,7 +831,8 @@ void Liquid::update(float dt, Scene& scene) {
     // (w: how many neighbours x 64 + speed, like the graphics card version; lonely drops are drawn smaller)
     m_draw.resize(m_x.size());
     for (size_t i = 0; i < m_x.size(); ++i) {
-        m_draw[i] = glm::vec4(m_x[i], std::min(m_near[i], 31.0f) * 64.0f + std::min(glm::length(m_v[i]), 63.0f));
+        m_draw[i] = glm::vec4(m_x[i], (float)m_kind[i] * 4096.0f + std::min(m_near[i], 31.0f) * 64.0f +
+                                          std::min(glm::length(m_v[i]), 63.0f));
     }
     m_ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
@@ -821,6 +892,13 @@ void Liquid::updateGpu(float dt, Scene& scene) {
         pools.push_back({b.min, glm::vec3(b.max.x, water.surface(b, mid.x, mid.z), b.max.z)});
     }
     m_gpu->setPools(pools);
+    budget(scene, res.count, dt);
+    m_gpu->setMaxAge(m_maxAge);
+    {
+        std::vector<glm::vec2> params;
+        for (const Fluid& f : m_fluids) params.push_back({f.viscosity, f.tension});
+        m_gpu->setFluids(params);
+    }
     m_prof[4] = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t1).count();
 
     if (!m_sources.empty() || res.count > 0) {
@@ -831,8 +909,7 @@ void Liquid::updateGpu(float dt, Scene& scene) {
         for (int s = 0; s < steps; ++s) {
             m_incoming.clear();
             const size_t known = m_gpu->results().count;
-            const size_t cap = LiquidGpu::maxCapacity();
-            emit(h, known < cap ? cap - known : 0, &m_incoming);
+            emit(h, known < m_cap ? m_cap - known : 0, &m_incoming);
             m_gpu->step(h, g, m_incoming);
         }
     }
@@ -874,4 +951,15 @@ std::vector<glm::vec4> Liquid::debugDrops() {
 bool Liquid::isWet(uint64_t partId) const {
     auto it = m_wetUntil.find(partId);
     return it != m_wetUntil.end() && it->second > m_time;
+}
+
+void Liquid::budget(Scene& scene, size_t count, float dt) {
+    const size_t most = m_gpu ? (size_t)LiquidGpu::maxCapacity() : (size_t)kMaxDrops;
+    m_cap = std::min(most, (size_t)std::max(0, scene.world().maxFluidParticles));
+    // Full (or nearly) while something is still pouring: the oldest drops go, a little
+    // sooner each frame, so new liquid keeps coming and the game stays smooth.
+    if (!m_sources.empty() && m_cap > 0 && count + count / 50 >= m_cap)
+        m_maxAge = std::max(1.5f, m_maxAge * (1.0f - 1.5f * dt));
+    else
+        m_maxAge = std::min(120.0f, m_maxAge + 10.0f * dt);
 }

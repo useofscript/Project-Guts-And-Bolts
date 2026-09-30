@@ -115,6 +115,7 @@ SceneRenderer::SceneRenderer() {
     m_fxaa      = std::make_unique<Shader>(fullscreenVert, fxaaFrag);
     m_fluidDepth  = std::make_unique<Shader>(fluidVert, fluidDepthFrag);
     m_fluidThick  = std::make_unique<Shader>(fluidVert, fluidThickFrag);
+    m_fluidColor  = std::make_unique<Shader>(fluidVert, fluidColorFrag);
     m_fluidBlur   = std::make_unique<Shader>(fullscreenVert, fluidBlurFrag);
     m_fluidShade  = std::make_unique<Shader>(fullscreenVert, fluidShadeFrag);
     m_fluidSimple = std::make_unique<Shader>(fluidVert, fluidSimpleFrag);
@@ -135,7 +136,7 @@ SceneRenderer::~SceneRenderer() {
     if (m_emptyVao) glDeleteVertexArrays(1, &m_emptyVao);
     if (m_fluidVbo) glDeleteBuffers(1, &m_fluidVbo);
     if (m_fluidVao) glDeleteVertexArrays(1, &m_fluidVao);
-    destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_sceneCopy);
+    destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_fColor); destroyTarget(m_sceneCopy);
     destroyTarget(m_hdr);
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
@@ -835,14 +836,20 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     const glm::mat4 view = camera.view(), proj = camera.projection();
     const float pointScale = proj[1][1] * 0.5f * (float)h;
     const float radius = Liquid::kRadius * 1.25f;   // drawn a bit fatter so they join up
-    const glm::vec3 waterColor = glm::pow(glm::vec3(0.12f, 0.42f, 0.62f), glm::vec3(2.2f));
     const glm::vec3 ambient = env.ambientColor * env.ambientIntensity;
+    // Each kind of liquid's colour (FluidSystem.Color; number 0 is plain water).
+    glm::vec3 palette[Liquid::kMaxFluids];
+    for (int k = 0; k < Liquid::kMaxFluids; ++k) palette[k] = glm::vec3(0.12f, 0.42f, 0.62f);
+    const auto& fluids = liquid.fluids();
+    for (size_t k = 0; k < fluids.size() && k < (size_t)Liquid::kMaxFluids; ++k) palette[k] = fluids[k].color;
+    const bool tinted = fluids.size() > 1;
     auto setDrops = [&](Shader& s) {
         s.bind();
         s.setMat4("uView", view);
         s.setMat4("uProj", proj);
         s.setFloat("uPointScale", pointScale);
         s.setFloat("uRadius", radius);
+        s.setVec3Array("uFluidColor", palette, Liquid::kMaxFluids);
     };
 
     // Without float pictures (some phones): shiny balls straight into the scene.
@@ -853,7 +860,6 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         setDrops(*m_fluidSimple);
         m_fluidSimple->setVec3("uLightDir", glm::normalize(glm::vec3(view * glm::vec4(env.sunDirection(), 0.0f))));
-        m_fluidSimple->setVec3("uWaterColor", waterColor);
         m_fluidSimple->setVec3("uAmbient", ambient);
         drawDrops();
         glDisable(GL_BLEND);
@@ -870,6 +876,7 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
         createTarget(m_fDepth, w, h, depthFmt, true);
         createTarget(m_fTmp, w, h, depthFmt, false);
         createTarget(m_fThick, w, h, GL_RGBA16F, false);
+        createTarget(m_fColor, w, h, GL_RGBA16F, false);
         createTarget(m_sceneCopy, w, h, hdrFormat(), true);   // colour and depth of what's behind
     }
     const glm::vec2 texel(1.0f / w, 1.0f / h);
@@ -898,6 +905,16 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     m_fluidThick->setInt("uSceneDepth", 0);
     m_fluidThick->setVec2("uTexel", texel);
     drawDrops();
+    // 2b. With more than one kind of liquid: which colour, where.
+    if (tinted) {
+        bindTarget(m_fColor);
+        glClear(GL_COLOR_BUFFER_BIT);
+        setDrops(*m_fluidColor);
+        bindTex(0, m_hdr.depth);
+        m_fluidColor->setInt("uSceneDepth", 0);
+        m_fluidColor->setVec2("uTexel", texel);
+        drawDrops();
+    }
     glDisable(GL_BLEND);
 
     // 3. Smooth the surface (twice across, twice down).
@@ -943,7 +960,9 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     m_fluidShade->setVec3("uGround", env.skyGround);
     m_fluidShade->setFloat("uSkyBrightness", env.skyBrightness);
     m_fluidShade->setVec3("uAmbient", ambient);
-    m_fluidShade->setVec3("uWaterColor", waterColor);
+    m_fluidShade->setBool("uTinted", tinted);
+    m_fluidShade->setVec3("uTint", palette[0]);
+    bindTex(4, m_fColor.color); m_fluidShade->setInt("uColorTex", 4);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glDepthFunc(GL_LESS);
     glActiveTexture(GL_TEXTURE0);
