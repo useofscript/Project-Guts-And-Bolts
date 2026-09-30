@@ -1,4 +1,4 @@
-# Guts&Bolts 0.6.0: water, NPCs and Roblox-style controls
+# Guts&Bolts 0.6.0: water, NPCs and Roblox-style controls (September 30, 2026)
 
 ## New
 
