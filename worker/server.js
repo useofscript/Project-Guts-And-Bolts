@@ -17,9 +17,13 @@ import wasmModule from '../website/app/gbcrypto.wasm';
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
-const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal'];
-const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5 };
-const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20 };
+const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model'];
+const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0 };
+// Models (objects published from Studio to the Library) are public or private. Verified
+// creators can make as many public as they like; everyone else 5 a week.
+const kPublicModelsPerWeek = 5;
+const weekOf = (t) => Math.floor(t / (7 * 86400));
+const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20 };
 // Shirts and pants can have a picture: a PNG laid out like the clothing template.
 const kTemplateW = 585, kTemplateH = 559;
 const pngSize = (d) => (d.length > 24 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => d[i] === v)
@@ -368,6 +372,7 @@ export class GbServerObject extends DurableObject {
       canDaily: !this.hasRef(u, 'daily:' + today),
       playEarnedToday: u.playDay === today ? u.playEarned : 0,
       uploadsLeft: this.isVerified(u) ? -1 : kDailyUploadsUnverified - (u.uploadDay === today ? u.uploadsToday : 0),
+      publicModelsLeft: this.publicModelsLeft(u),
       owned: [...u.owned].sort(),
       avatar: u.avatar || null,
       email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
@@ -435,12 +440,28 @@ export class GbServerObject extends DurableObject {
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
       creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), thumb: a.thumb || 0,
-      icon: a.icon || 0, access: a.kind === 'game' ? (a.access || 'public') : undefined,
+      icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
       badges: a.kind === 'game' ? (a.badges || []) : undefined,
       genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a) };
+  }
+  publicModelsLeft(u) {   // -1 = no limit
+    if (this.isVerified(u)) return -1;
+    const used = u.publicWeek === weekOf(now()) ? (u.publicThisWeek || 0) : 0;
+    return Math.max(0, kPublicModelsPerWeek - used);
+  }
+  publicModelOk(u) { return this.publicModelsLeft(u) !== 0; }
+  publicModelLimitText() {
+    return 'You\'ve made ' + kPublicModelsPerWeek + ' models public this week. Publish it as private for now, or get Verified for no limit.';
+  }
+  countPublicModel(u) {
+    if (this.isVerified(u)) return;
+    const w = weekOf(now());
+    if (u.publicWeek !== w) { u.publicWeek = w; u.publicThisWeek = 0; }
+    u.publicThisWeek++;
+    this.saveUser(u);
   }
   playingIn(gameId) {   // people in the game's servers right now
     let n = 0;
@@ -449,13 +470,14 @@ export class GbServerObject extends DurableObject {
   }
   // Can `me` see and play this game? (Other kinds of things are always visible.)
   canPlay(a, me) {
-    if (a.kind !== 'game' || !a.access || a.access === 'public') return true;
+    if ((a.kind !== 'game' && a.kind !== 'model') || !a.access || a.access === 'public') return true;
     if (a.creator === me.id || this.isStaff(me)) return true;
     if (a.access === 'friends') return me.friends.includes(a.creator);
     return false;
   }
   noPlay(a) {
     const c = this.users.get(a.creator);
+    if (a.kind === 'model') return 'This model is private.';
     return a.access === 'friends' ? 'Only ' + (c ? c.name : 'the creator') + '\'s friends can play this game.' : 'This game is private.';
   }
   publicGroup(g) {
@@ -807,6 +829,12 @@ export class GbServerObject extends DurableObject {
       }
       if (kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
       if (kind === 'plugin' && !data.length) return fail('That plugin is empty.');
+      let access;
+      if (kind === 'model') {
+        if (!isJson(data)) return fail('That isn\'t a Guts&Bolts model.');
+        access = str(args, 'access') === 'private' ? 'private' : 'public';
+        if (access === 'public' && !this.publicModelOk(me)) return fail(this.publicModelLimitText());
+      }
       if (kind === 'hat') data = new Uint8Array(0);
       delete meta.image;
       if ((kind === 'shirt' || kind === 'pants') && data.length) {
@@ -822,6 +850,7 @@ export class GbServerObject extends DurableObject {
         return fail('Uploading costs ' + fee + ' Bolts, and you have ' + this.balance(me) + '. (It\'s free for Verified creators.)');
       const a = { id: kind + '-' + randomHex(5), kind, name: title, description: desc, creator: me.id, price, created: t,
         sales: 0, plays: 0, size: data.length, meta };
+      if (access) { a.access = access; if (access === 'public') this.countPublicModel(me); }
       this.writeFile(a.id, data);
       this.assets.set(a.id, a);
       this.saveAsset(a);
@@ -959,6 +988,20 @@ export class GbServerObject extends DurableObject {
       me.owned.push(a.id);
       this.saveAsset(a); this.saveUser(me);
       return okay({ me: this.meJson(me) });
+    }
+    if (name === 'model.access') {
+      // Make one of your Library models public or private.
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'model') return fail('That model doesn\'t exist (any more).');
+      if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change your own models.');
+      const access = str(args, 'access') === 'private' ? 'private' : 'public';
+      if (access === 'public' && a.access !== 'public') {
+        if (!this.publicModelOk(me)) return fail(this.publicModelLimitText());
+        this.countPublicModel(me);
+      }
+      a.access = access;
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a, me), me: this.meJson(me) });
     }
     // --- Editing items (their creator or staff) ---
     if (name === 'item.edit') {

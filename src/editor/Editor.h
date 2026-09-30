@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 #include <nlohmann/json.hpp>
 #include "EditorState.h"
 #include "Premades.h"
@@ -91,6 +92,8 @@ private:
     void       renderServerDialog();
     void       renderPublishDialog();
     void       renderMarketplace();
+    void       renderPublishModelDialog();   // File > Publish Selection to Library
+    void       drawToolboxLibrary();         // the Toolbox's Library section
     void       renderPluginsTab();
     void       insertObject(const std::string& what, SceneNode* parent);
     SceneNode* aiFind(const std::string& ref);   // "#42" or "Workspace.Castle.Door"
@@ -141,6 +144,12 @@ private:
     std::string m_serverInput, m_publishName, m_publishDesc, m_publishMsg, m_marketMsg, m_marketQuery;
     int         m_marketTab = 0, m_publishPluginIndex = 0, m_publishPluginPrice = 0;
     bool        m_marketLoaded = false, m_onlineBusy = false;
+    // Library: publishing a model (public or private) and browsing everyone's public ones.
+    bool        m_openPublishModel = false, m_modelPublic = true, m_libraryLoaded = false;
+    std::string m_modelName, m_modelDesc, m_modelMsg, m_libraryQuery, m_libraryMsg;
+    int         m_libraryKind = 0;   // 0 models, 1 decals, 2 audio
+    nlohmann::json m_library = nlohmann::json::array();
+    std::map<std::string, std::string> m_libraryThumbs;   // asset id -> picture file ("" = still coming)
     nlohmann::json m_marketPlugins = nlohmann::json::array(), m_marketAudio = nlohmann::json::array();
     bool        m_openTeam = false;
     std::string m_teamAddress;

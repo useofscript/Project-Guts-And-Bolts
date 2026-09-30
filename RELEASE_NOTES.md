@@ -41,6 +41,15 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**The Library**
+- Studio: **File > Publish Selection to Library** shares objects as a model,
+  **public** or **private**. Verified creators can make as many public as they
+  like; everyone else 5 a week. Studio takes a picture of it automatically.
+- Studio's **Toolbox** now starts with the **Library**: everyone's public
+  models, decals and audio, with pictures. Click one to insert it.
+- The website's Create page has a **Library** tab (all public models, decals,
+  audio and plugins) and a **Models** tab to switch yours public or private.
+
 **Limiteds, resale and trading**
 - Item creators (and staff) get an **Edit item** page: name, description,
   price, colour, hat shape or clothing picture.

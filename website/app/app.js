@@ -26,7 +26,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 
 function show(content) { view.innerHTML = content.s; }
 const view = $('#view');
-const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal' };
+const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model' };
 const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0 };
 
 let me = null;          // our account on the server (from "hello")
@@ -424,6 +424,51 @@ pages.games = async () => {
       : html`<p class="error">${r.error}</p>`}`);
 };
 
+// Create > Library: everything people have made public, to use in your games.
+async function libraryPage(head) {
+  const q = new URLSearchParams(location.hash.split('?')[1] || '');
+  const kind = q.get('kind') || 'model', query = q.get('q') || '';
+  const r = await pageCall('list', { kind, query, sort: 'popular', limit: 100 });
+  const chip = (k, l) => html`<a class="chip ${kind === k ? 'on' : ''}" href="#/create/library?kind=${k}">${l}</a>`;
+  const card = (a) => html`<div class="card square lib-card">
+      <div class="pic">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
+        : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
+        : html`<span class="lib-kind">${KINDS[a.kind] || a.kind}</span>`}</div>
+      <div class="name">${a.name}</div>
+      <div class="by">by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
+      <div class="by small"><button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button></div></div>`;
+  show(html`${head}
+    <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> and look under
+      <b>Library</b>, or copy an ID into a Decal's Texture / a Sound's File.</p>
+    <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
+      <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
+    <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>
+    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(card)}</div>` : html`<p class="muted">Nothing here yet.</p>`) : html`<p class="error">${r.error}</p>`}`);
+  view.querySelectorAll('img[data-decal]').forEach(decalPicture);
+  view.querySelectorAll('img[data-thumb]').forEach(async (img) => {
+    const t = await call('thumb.get', { id: img.dataset.thumb });
+    if (t.ok && t.data) img.src = 'data:image/png;base64,' + t.data;
+  });
+}
+
+// Create > Models: the models you published from Studio, public or private.
+async function myModelsPage(head) {
+  if (!signedIn()) { show(html`${head}${needSignIn('see your models')}`); return; }
+  const r = await pageCall('list', { creator: me.id, kind: 'model', limit: 100 });
+  const left = me.publicModelsLeft;
+  show(html`${head}
+    <div class="box">Publish models from <b>Studio</b>: select objects, then <b>File &gt; Publish Selection to Library</b>.
+      Public models show in everyone's Library; private ones only for you.
+      ${left >= 0 ? html`<br><span class="muted">You can make ${left} more model${left === 1 ? '' : 's'} public this week (Verified creators have no limit).</span>` : ''}</div>
+    <h2>My Models</h2>
+    ${r.ok && r.assets.length ? html`<div class="list">${r.assets.map((a) => html`<div>
+        <span class="grow"><b>${a.name}</b> <span class="small muted">${a.id}</span></span>
+        <span class="badge-pill">${a.access === 'private' ? 'Private' : 'Public'}</span>
+        <button class="btn small" data-act="modelAccess" data-id="${a.id}" data-access="${a.access === 'private' ? 'public' : 'private'}">Make ${a.access === 'private' ? 'public' : 'private'}</button>
+        <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`)}</div>`
+      : html`<p class="muted">No models yet.</p>`}`);
+}
+
 let serverPage = 1;   // which page of a game's server cards
 pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
@@ -558,8 +603,11 @@ async function decalPicture(img) {
 }
 
 pages.create = async (tab = 'games') => {
-  const tabs = [['games', 'My Games'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['shirt', 'Shirts'], ['pants', 'Pants'], ['plugin', 'Plugins']];
+  const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['shirt', 'Shirts'],
+    ['pants', 'Pants'], ['plugin', 'Plugins'], ['library', 'Library']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
+  if (tab === 'library') { await libraryPage(head); return; }
+  if (tab === 'model') { await myModelsPage(head); return; }
   const r = signedIn() ? await pageCall('list', { creator: me.id, limit: 100 }) : { ok: true, assets: [] };
   const mine = r.ok ? r.assets : [];
   const kind = tab === 'games' ? 'game' : tab;
@@ -1113,6 +1161,12 @@ const actions = {
   },
   serverPage(d) { serverPage = Number(d.to) || 1; render(); },
   toggle(d) { const el = $(d.target); if (el) el.hidden = !el.hidden; },
+  async modelAccess(d) {
+    const r = await call('model.access', { id: d.id, access: d.access });
+    if (r.ok && r.me) setMe(r.me);
+    toast(r.ok ? (d.access === 'public' ? 'It\'s public now.' : 'It\'s private now.') : r.error);
+    render();
+  },
   async resaleBuy(d) {
     if (!signedIn()) { loginPopup('buy items'); return; }
     if (!confirm('Buy copy #' + d.serial + ' for ' + d.price + ' Bolts?')) return;
@@ -1343,6 +1397,7 @@ const forms = {
     render();
   },
   topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
+  librarySearch(f) { location.hash = '#/create/library?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value, genre: f.genre.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   peopleSearch(f) { location.hash = '#/people?' + new URLSearchParams({ q: f.q.value }); },

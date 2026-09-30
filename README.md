@@ -929,6 +929,22 @@ make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
 sharing personal info, exploiting, spam and so on) and an optional note; the
 banned player sees them when they try to sign in.
 
+### The Library (sharing models)
+
+Select some objects in Studio and use **File > Publish Selection to Library**.
+Give it a name, and pick **Public** (everyone can find and use it) or
+**Private** (only you). Verified creators can make as many models public as
+they want; everyone else can make **5 public a week** (private ones don't
+count). Studio takes a picture of the model for its thumbnail.
+
+Find things in two places:
+
+- **Studio's Toolbox > Library:** everyone's public models, decals and audio,
+  with pictures and a search box. Click a model to insert it, a decal to put
+  it on the selected part, or a sound to add it.
+- **The website's Create > Library tab:** all public models, decals, audio and
+  plugins. **Create > Models** lists yours with a Public / Private switch.
+
 ### Limiteds, resale and trading
 
 - **Edit item:** on an item's page on the website, its creator (or staff) can

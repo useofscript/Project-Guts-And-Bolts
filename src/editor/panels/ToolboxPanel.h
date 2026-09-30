@@ -15,6 +15,7 @@ public:
         std::function<void()>              addSound;
         std::function<void(int)>           startConnect;   // ConstraintType (5 = motor)
         std::function<void(Premade)>       spawnPremade;
+        std::function<void()>              drawLibrary;    // the online Library (models, decals, audio)
     };
 
     explicit ToolboxPanel(Actions actions);

@@ -40,6 +40,8 @@ public:
     // A picture of the game from its spawn point, as a PNG file (for publishing).
     // `fromView`: from where the Studio camera is now (else a nice view of the spawn).
     std::string snapshotPng(int width, int height, bool fromView = false);
+    // A picture framed on a box (a Library model's thumbnail).
+    std::string snapshotAround(int width, int height, glm::vec3 center, float radius);
     bool      gizmoInUse() const;
     // F: glide the camera to the selected things (only ones with a body:
     // parts, and models / tools with parts in them). False if none.
@@ -83,6 +85,7 @@ private:
     int  m_viewW = 0, m_viewH = 0;
     bool m_hovered = false;
     bool m_shiftLock = false;   // play test: Roblox Shift Lock
+    bool m_aimSnapshot = false; glm::vec3 m_aimCenter{0.0f}; float m_aimRadius = 1.0f;   // snapshotAround
     // Game UI: pointer state in Play, and dragging a UI object while building.
     GameGui::Input m_guiInput;
     int       m_guiDrag = 0;                  // 1 = moving, 2 = resizing

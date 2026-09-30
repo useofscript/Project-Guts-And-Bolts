@@ -290,3 +290,7 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 @media (max-width: 640px) { .trade-cols { grid-template-columns: 1fr; } }
 .trade-pick { display: flex; flex-direction: column; gap: 4px; }
 .past-names { margin: -6px 0 10px; }
+
+/* Create > Library */
+.lib-thumb { width: 100%; height: 100%; object-fit: cover; }
+.lib-kind { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--muted); font-weight: bold; }

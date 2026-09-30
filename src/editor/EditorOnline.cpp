@@ -14,6 +14,8 @@
 #include "../online/Protocol.h"
 #include "../scene/Scene.h"
 #include "../scene/Serializer.h"
+#include "../scene/Physics.h"
+#include "../renderer/Textures.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -318,4 +320,180 @@ void Editor::testSnapshot(const std::string& file) {
     std::string png = m_viewport->snapshotPng(480, 270);
     std::ofstream(file, std::ios::binary).write(png.data(), (std::streamsize)png.size());
     Log::system("Snapshot: " + std::to_string(png.size()) + " bytes to " + file);
+}
+
+// ---------------------------------------------------------------------------
+// File > Publish Selection to Library: share objects as a model, public or private
+// ---------------------------------------------------------------------------
+
+void Editor::renderPublishModelDialog() {
+    if (m_openPublishModel) {
+        ImGui::OpenPopup("Publish to Library");
+        m_openPublishModel = false;
+        SceneNode* sel = m_scene->selected();
+        m_modelName = sel ? sel->name : "Model";
+        m_modelDesc.clear();
+        m_modelMsg.clear();
+    }
+    ImGui::SetNextWindowSize(ImVec2(520, 0));
+    if (!ImGui::BeginPopupModal("Publish to Library", nullptr, ImGuiWindowFlags_NoResize)) return;
+    std::vector<SceneNode*> items;
+    for (SceneNode* n : m_scene->selectionRoots())
+        if (n != m_scene->root() && !m_scene->isCharacterPart(n)) items.push_back(n);
+    if (!Online::online()) {
+        onlineLine();
+    } else if (items.empty()) {
+        ImGui::TextWrapped("Select the objects you want to share first (a Model, some parts, a scripted tool...).");
+    } else {
+        ImGui::TextWrapped("Put %d selected object%s in the Guts&Bolts Library so you (or everyone) can insert "
+                           "them from the Toolbox.", (int)items.size(), items.size() == 1 ? "" : "s");
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(-90);
+        ImGui::InputText("Name", &m_modelName);
+        ImGui::InputTextMultiline("Description", &m_modelDesc, ImVec2(-90, 60));
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Who can find it?");
+        if (ImGui::RadioButton("Public: everyone can find and use it", m_modelPublic)) m_modelPublic = true;
+        if (ImGui::RadioButton("Private: only you", !m_modelPublic)) m_modelPublic = false;
+        int left = Online::me().value("publicModelsLeft", -1);
+        if (left >= 0)
+            ImGui::TextDisabled("You can make %d more model%s public this week (Verified creators have no limit).",
+                                left, left == 1 ? "" : "s");
+        ImGui::Spacing();
+        ImGui::BeginDisabled(m_onlineBusy || m_modelName.empty());
+        if (ImGui::Button("Publish", ImVec2(140, 30))) {
+            // The objects, and a picture framed on them for the Library.
+            json nodes = json::array();
+            glm::vec3 lo(1e9f), hi(-1e9f);
+            for (SceneNode* n : items) {
+                nodes.push_back(json::parse(Serializer::nodeToString(*n)));
+                std::vector<SceneNode*> stack{n};
+                while (!stack.empty()) {
+                    SceneNode* c = stack.back(); stack.pop_back();
+                    if (c->isPart()) { AABB b = Physics::worldBounds(c); lo = glm::min(lo, b.min); hi = glm::max(hi, b.max); }
+                    for (auto& k : c->children) stack.push_back(k.get());
+                }
+            }
+            if (lo.x > hi.x) { lo = glm::vec3(-1.0f); hi = glm::vec3(1.0f); }
+            std::string picture = m_viewport->snapshotAround(256, 256, (lo + hi) * 0.5f, glm::length(hi - lo) * 0.5f);
+            json model = {{"format", "gbmodel"}, {"version", 1}, {"nodes", nodes}};
+            json args = {{"kind", "model"}, {"name", m_modelName}, {"description", m_modelDesc},
+                         {"access", m_modelPublic ? "public" : "private"}, {"data", Online::base64Encode(model.dump())}};
+            m_onlineBusy = true;
+            m_modelMsg = "Publishing...";
+            Online::request("upload", args, [this, picture](const json& r) {
+                m_onlineBusy = false;
+                if (!r.value("ok", false)) { m_modelMsg = r.value("error", std::string("Publishing didn't work.")); return; }
+                std::string id = r["asset"].value("id", std::string());
+                if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
+                m_modelMsg = "Published! Find it in the Toolbox's Library.";
+                m_libraryLoaded = false;
+                Online::connect();   // refresh "public models left"
+            }, 120);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Close", ImVec2(90, 30))) ImGui::CloseCurrentPopup();
+    if (!m_modelMsg.empty()) ImGui::TextWrapped("%s", m_modelMsg.c_str());
+    ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------
+// The Toolbox's Library: everyone's public models, decals and audio, with pictures
+// ---------------------------------------------------------------------------
+
+void Editor::drawToolboxLibrary() {
+    if (!Online::online()) { ImGui::TextDisabled("Connecting to the Library..."); return; }
+    static const char* kinds[] = {"model", "decal", "audio"};
+    static const char* labels[] = {"Models", "Decals", "Audio"};
+    auto load = [this]() {
+        m_libraryLoaded = true;
+        Online::request("list", {{"kind", kinds[m_libraryKind]}, {"query", m_libraryQuery}, {"sort", "popular"}, {"limit", 60}},
+                        [this](const json& r) { if (r.value("ok", false)) m_library = r["assets"]; });
+    };
+    for (int i = 0; i < 3; ++i) {
+        if (i) ImGui::SameLine();
+        if (ImGui::RadioButton(labels[i], m_libraryKind == i)) { m_libraryKind = i; m_library = json::array(); load(); }
+    }
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputTextWithHint("##libq", "Search the Library", &m_libraryQuery, ImGuiInputTextFlags_EnterReturnsTrue)) load();
+    if (!m_libraryLoaded) load();
+    if (!m_libraryMsg.empty()) ImGui::TextWrapped("%s", m_libraryMsg.c_str());
+    if (m_library.empty()) { ImGui::TextDisabled("Nothing here yet."); return; }
+
+    // A picture for each: models have a snapshot, decals are pictures themselves.
+    auto thumbFor = [this](const json& a) -> unsigned {
+        std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
+        auto it = m_libraryThumbs.find(id);
+        if (it == m_libraryThumbs.end()) {
+            m_libraryThumbs[id] = "";
+            if (kind == "decal") {
+                Online::download(id, [this, id](bool ok, const std::filesystem::path& f, const json&) { if (ok) m_libraryThumbs[id] = f.string(); });
+            } else if (kind == "model" && a.value("thumb", 0LL) > 0) {
+                Online::request("thumb.get", {{"id", id}}, [this, id](const json& r) {
+                    std::string bytes;
+                    if (!r.value("ok", false) || !Online::base64Decode(r.value("data", std::string()), bytes) || bytes.empty()) return;
+                    std::filesystem::path f = Paths::downloadsFolder() / ("thumb-" + id + ".png");
+                    std::ofstream(f, std::ios::binary).write(bytes.data(), (std::streamsize)bytes.size());
+                    m_libraryThumbs[id] = f.string();
+                });
+            }
+            return 0;
+        }
+        return it->second.empty() ? 0 : Textures::get(it->second);
+    };
+
+    const float cell = 76.0f;
+    const int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 6) / (cell + 6)));
+    for (size_t i = 0; i < m_library.size(); ++i) {
+        const json a = m_library[i];
+        std::string id = a.value("id", std::string()), name = a.value("name", std::string()), kind = a.value("kind", std::string());
+        ImGui::PushID((int)i);
+        if (i % perRow) ImGui::SameLine(0, 6);
+        ImGui::BeginGroup();
+        unsigned tex = thumbFor(a);
+        bool clicked;
+        if (tex) clicked = ImGui::ImageButton("##t", (ImTextureID)(intptr_t)tex, ImVec2(cell - 8, cell - 8), ImVec2(0, 1), ImVec2(1, 0));   // pictures load bottom row first
+        else clicked = ImGui::Button(kind == "audio" ? "Sound" : kind == "decal" ? "Decal" : "Model", ImVec2(cell, cell));
+        std::string shortName = name.size() > 11 ? name.substr(0, 10) + "..." : name;
+        ImGui::TextDisabled("%s", shortName.c_str());
+        ImGui::EndGroup();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nby %s\n%s", name.c_str(), a.value("creatorName", std::string("?")).c_str(),
+                              kind == "model" ? "Click to insert" : kind == "decal" ? "Click to put on the selected part" : "Click to add a Sound");
+        if (clicked) {
+            if (kind == "model") {
+                m_libraryMsg = "Getting " + name + "...";
+                Online::download(id, [this, name](bool ok, const std::filesystem::path& f, const json& info) {
+                    if (!ok) { m_libraryMsg = info.value("error", std::string("Download failed.")); return; }
+                    std::ifstream in(f, std::ios::binary);
+                    std::stringstream ss; ss << in.rdbuf();
+                    json model = json::parse(ss.str(), nullptr, false);
+                    if (!model.is_object() || !model.contains("nodes")) { m_libraryMsg = "That model looks broken."; return; }
+                    m_scene->deselect();
+                    for (const json& nj : model["nodes"]) {
+                        auto n = Serializer::nodeFromString(nj.dump(), true);
+                        if (n) m_scene->addToSelection(m_scene->insert(std::move(n), m_scene->root()));
+                    }
+                    m_libraryMsg = "Inserted " + name + ".";
+                    Online::fetchSounds(*m_scene);   // its decals and sounds
+                });
+            } else {
+                Online::download(id);
+                SceneNode* parent = m_scene->selected();
+                if (parent && !parent->isPart()) parent = nullptr;
+                if (kind == "decal" && !parent) { m_libraryMsg = "Select a part first, then click the decal."; }
+                else {
+                    auto n = std::make_unique<SceneNode>(name.empty() ? (kind == "decal" ? "Decal" : "Sound") : name,
+                                                         kind == "decal" ? NodeKind::Decal : NodeKind::Sound);
+                    if (kind == "decal") n->texture = "gb:" + id;
+                    else n->soundId = "gb:" + id;
+                    m_scene->insert(std::move(n), parent);
+                    m_libraryMsg = "Added " + name + ".";
+                }
+            }
+        }
+        ImGui::PopID();
+    }
 }

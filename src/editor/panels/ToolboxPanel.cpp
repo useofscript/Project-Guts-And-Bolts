@@ -10,6 +10,9 @@ void ToolboxPanel::render() {
     float spacing = ImGui::GetStyle().ItemSpacing.x;
     float btnW    = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
 
+    // Everyone's public models, decals and audio (Roblox's Toolbox is mostly this).
+    if (m_do.drawLibrary && ImGui::CollapsingHeader("Library", ImGuiTreeNodeFlags_DefaultOpen)) m_do.drawLibrary();
+
     if (ImGui::CollapsingHeader("Parts", ImGuiTreeNodeFlags_DefaultOpen)) {
         struct Item { const char* label; PrimitiveType type; };
         static const Item items[] = {

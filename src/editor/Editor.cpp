@@ -96,6 +96,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
         connectParts(m_state.connectTool, a, pa, b, pb);
     };
     actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
+    actions.drawLibrary  = [this] { drawToolboxLibrary(); };
     m_toolbox = std::make_unique<ToolboxPanel>(actions);
 
     resetHistory();
@@ -149,6 +150,7 @@ void Editor::render(float dt) {
     m_scriptEditor->renderFindAll();
     renderServerDialog();
     renderPublishDialog();
+    renderPublishModelDialog();
     renderMarketplace();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
     renderInsertObject();
@@ -1302,6 +1304,7 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
+        if (ImGui::MenuItem("Publish Selection to Library...", nullptr, false, m_scene->selected() != nullptr)) m_openPublishModel = true;
         if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
         if (ImGui::MenuItem("Marketplace (plugins, audio)")) m_showMarketplace = true;
         ImGui::Separator();
