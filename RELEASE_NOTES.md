@@ -41,6 +41,14 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Finding games**
+- Games can pick up to 3 **genres** (Obby, Horror, Tycoon, Roleplay, Racing
+  and more) and a **server size** on their Configure page.
+- The Games page has genre buttons, searches descriptions and genres too, and
+  sorts by Most played, Playing now, Top rated, Newest or Recently updated.
+- Game pages show genres, 👍/👎 votes (after you've played), a like bar, and a
+  stats table: playing now, visits, created, updated, server size.
+
 **Game badges**
 - Two kinds of badges now: **Guts&Bolts badges** (like Verified, given only
   by staff) and **game badges** that game creators make themselves.

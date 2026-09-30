@@ -189,13 +189,20 @@ async function loadPlaying() {
   if (r.ok) for (const s of r.servers) playingNow[s.game] = (playingNow[s.game] || 0) + (s.players || 0);
 }
 
+// Genres a game can pick (the server has the same list).
+const GENRES = ['Adventure', 'Obby', 'Fighting', 'Horror', 'Roleplay', 'Simulator', 'Tycoon', 'Racing', 'Sports',
+  'Shooter', 'Puzzle', 'Survival', 'Comedy', 'Building', 'Sandbox', 'Showcase', 'Town and City', 'Destruction'];
+// "87%" liked, or '' before anyone has voted.
+const likedPercent = (g) => (g.likes || 0) + (g.dislikes || 0) ? Math.round(100 * g.likes / (g.likes + g.dislikes)) + '%' : '';
+
 function gameCard(g) {
-  const n = playingNow[g.id] || 0;
+  const n = playingNow[g.id] || g.playing || 0, liked = likedPercent(g);
   return html`<a class="card" href="#/game/${g.id}">
     ${gamePic(g)}
     <div class="name">${g.name}</div>
     <div class="by">by ${g.creatorName}${verified(g.creatorVerified)}</div>
-    <div class="by">${g.plays || 0} visits${n ? html` · <b class="playing">${n} playing</b>` : ''}</div></a>`;
+    <div class="by">${liked ? html`<span class="liked" title="${g.likes} likes, ${g.dislikes} dislikes">&#128077; ${liked}</span> · ` : ''}${n ? html`<b class="playing">${n} playing</b>` : html`${g.plays || 0} visits`}</div>
+    ${(g.genres || []).length ? html`<div class="by small">${g.genres.join(' · ')}</div>` : ''}</a>`;
 }
 
 function itemCard(a) {
@@ -399,16 +406,20 @@ pages.home = async () => {
 
 pages.games = async () => {
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
-  const sort = q.get('sort') || 'popular', query = q.get('q') || '';
+  const sort = q.get('sort') || 'popular', query = q.get('q') || '', genre = q.get('genre') || '';
   show(html`<h1>Games</h1><p class="muted">Loading...</p>`);
-  const [r] = await Promise.all([pageCall('list', { kind: 'game', sort, query, limit: 100 }), loadPlaying()]);
-  show(html`<h1>Games</h1>
-    <form class="row" data-form="gameSearch">
-      <input type="search" name="q" placeholder="Search games" value="${query}" style="max-width:280px">
-      <select name="sort" style="width:auto"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>Most played</option>
-        <option value="new" ${sort === 'new' ? 'selected' : ''}>Newest</option></select>
-      <button class="btn blue">Search</button></form><br>
-    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>` : html`<p class="muted">No games found.</p>`)
+  const [r] = await Promise.all([pageCall('list', { kind: 'game', sort, query, genre, limit: 100 }), loadPlaying()]);
+  const sorts = [['popular', 'Most played'], ['playing', 'Playing now'], ['rated', 'Top rated'], ['new', 'Newest'], ['updated', 'Recently updated']];
+  const link = (over) => '#/games?' + new URLSearchParams(Object.assign({ q: query, sort, genre }, over));
+  show(html`<h1>Games${genre ? html` <span class="muted">· ${genre}</span>` : ''}</h1>
+    <form class="row" data-form="gameSearch"><input type="hidden" name="genre" value="${genre}">
+      <input type="search" name="q" placeholder="Search games, genres, descriptions" value="${query}" style="max-width:280px">
+      <select name="sort" style="width:auto">${sorts.map(([k, l]) => html`<option value="${k}" ${sort === k ? 'selected' : ''}>${l}</option>`)}</select>
+      <button class="btn blue">Search</button></form>
+    <div class="genre-chips"><a class="chip ${genre ? '' : 'on'}" href="${link({ genre: '' })}">All</a>
+      ${GENRES.map((gn) => html`<a class="chip ${genre === gn ? 'on' : ''}" href="${link({ genre: gn })}">${gn}</a>`)}</div>
+    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
+        : html`<p class="muted">No games found${genre ? ' in ' + genre : ''}. ${genre || query ? html`<a href="#/games">See all games</a>` : ''}</p>`)
       : html`<p class="error">${r.error}</p>`}`);
 };
 
@@ -446,7 +457,15 @@ pages.game = async (id) => {
       <div><h1 class="game-title">${gameIcon(g, 40)} ${g.name}</h1>
         ${g.access && g.access !== 'public' ? html`<p><span class="badge-pill">${ACCESS_NAMES[g.access]}</span></p>` : ''}
         <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
-        <p class="muted">${g.plays || 0} plays · published ${ago(g.created)}</p>
+        ${(g.genres || []).length ? html`<p>${g.genres.map((gn) => html`<a class="chip" href="#/games?genre=${encodeURIComponent(gn)}">${gn}</a> `)}</p>` : ''}
+        <div class="votes">
+          <button class="btn small ${g.myVote === 1 ? 'green' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === 1 ? 0 : 1}" title="I like it">&#128077; ${g.likes || 0}</button>
+          <div class="vote-bar"><div style="width:${(g.likes || 0) + (g.dislikes || 0) ? Math.round(100 * g.likes / (g.likes + g.dislikes)) : 50}%"></div></div>
+          <button class="btn small ${g.myVote === -1 ? 'red' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === -1 ? 0 : -1}" title="Not for me">&#128078; ${g.dislikes || 0}</button></div>
+        <table class="stats game-stats">
+          <tr><td>Playing</td><td>${g.playing || 0}</td><td>Visits</td><td>${g.plays || 0}</td></tr>
+          <tr><td>Created</td><td>${new Date(g.created * 1000).toLocaleDateString()}</td><td>Updated</td><td>${ago(g.updated || g.created)}</td></tr>
+          <tr><td>Server size</td><td>${g.maxPlayers || 12}</td><td>Genre</td><td>${(g.genres || []).join(', ') || 'All'}</td></tr></table>
         <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
         ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
@@ -572,6 +591,10 @@ pages.configure = async (id) => {
       <div class="box"><h2 class="boxhead">Basic settings</h2>
         <label>Name</label><input type="text" name="name" maxlength="50" value="${g.name}" required>
         <label>Description</label><textarea name="description" maxlength="1000" rows="5">${g.description || ''}</textarea></div>
+      <div class="box"><h2 class="boxhead">Genres and players</h2>
+        <p class="small muted">Pick up to 3 genres so people can find your game.</p>
+        <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
+        <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px"></div>
       <div class="box"><h2 class="boxhead">Who can play</h2>
         ${choice('public', 'Public', 'Everyone can find and play it.')}
         ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
@@ -1004,6 +1027,12 @@ const actions = {
     catch { prompt('Copy this link:', link); }
   },
   serverPage(d) { serverPage = Number(d.to) || 1; render(); },
+  async vote(d) {
+    if (!signedIn()) { loginPopup('vote on games'); return; }
+    const r = await call('game.vote', { id: d.id, vote: Number(d.vote) });
+    if (!r.ok) toast(r.error);
+    render();
+  },
   async copyText(d) {
     try { await navigator.clipboard.writeText(d.text); toast('Copied ' + d.text); } catch { prompt('Copy this:', d.text); }
   },
@@ -1191,7 +1220,10 @@ const forms = {
     const id = f.id.value;
     say('Saving...');
     try {
-      let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value });
+      const genres = [...f.querySelectorAll('input[name=genre]:checked')].map((x) => x.value);
+      if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
+      let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
+        genres, maxPlayers: Number(f.maxPlayers.value) || 12 });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
         r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });
@@ -1211,7 +1243,7 @@ const forms = {
     render();
   },
   topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
-  gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value }); },
+  gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value, genre: f.genre.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   peopleSearch(f) { location.hash = '#/people?' + new URLSearchParams({ q: f.q.value }); },
   staffSearch(f) { location.hash = '#/staff?' + new URLSearchParams({ q: f.q.value }); },

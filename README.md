@@ -929,6 +929,15 @@ make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
 sharing personal info, exploiting, spam and so on) and an optional note; the
 banned player sees them when they try to sign in.
 
+### Finding games: genres, votes and sorting
+
+On the website, a game's **Configure** page lets its creator pick up to 3
+**genres** and how many players fit in one server. The **Games** page has a
+button for each genre, a search box that also looks at descriptions and
+genres, and sorting by **Most played**, **Playing now**, **Top rated**,
+**Newest** and **Recently updated**. Once you've played a game you can give it
+a thumbs up or down on its page; cards show how liked each game is.
+
 ### Badges: Guts&Bolts badges and game badges
 
 There are two kinds of badges:

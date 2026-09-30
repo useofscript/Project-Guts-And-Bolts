@@ -62,6 +62,11 @@ function sixDigits() { return String(crypto.getRandomValues(new Uint32Array(1))[
 
 // Who can play a game: everyone, the creator's friends, or only the creator.
 const ACCESS = ['public', 'friends', 'private'];
+// Genres a game can pick (up to 3), so people can find the kind of game they like.
+const GENRES = ['Adventure', 'Obby', 'Fighting', 'Horror', 'Roleplay', 'Simulator', 'Tycoon', 'Racing', 'Sports',
+  'Shooter', 'Puzzle', 'Survival', 'Comedy', 'Building', 'Sandbox', 'Showcase', 'Town and City', 'Destruction'];
+// How well liked a game is, for sorting: likes out of votes, pulled towards 50% while there are few votes.
+const ratingOf = (a) => ((a.likes || 0) + 1) / ((a.likes || 0) + (a.dislikes || 0) + 2);
 // Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
 const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join']);
 
@@ -390,13 +395,22 @@ export class GbServerObject extends DurableObject {
       }
     }
   }
-  publicAsset(a) {
+  publicAsset(a, me = null) {
     const c = this.users.get(a.creator);
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
       creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), thumb: a.thumb || 0,
       icon: a.icon || 0, access: a.kind === 'game' ? (a.access || 'public') : undefined,
-      badges: a.kind === 'game' ? (a.badges || []) : undefined };
+      badges: a.kind === 'game' ? (a.badges || []) : undefined,
+      genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
+      likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
+      updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
+      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined };
+  }
+  playingIn(gameId) {   // people in the game's servers right now
+    let n = 0;
+    for (const s of this.sessions.values()) if (s.game === gameId) n += s.players.size + 1;
+    return n;
   }
   // Can `me` see and play this game? (Other kinds of things are always visible.)
   canPlay(a, me) {
@@ -598,8 +612,30 @@ export class GbServerObject extends DurableObject {
         if (!ACCESS.includes(access)) return fail('Pick public, friends or private.');
         a.access = access;
       }
+      if ('genres' in args) {
+        const picked = Array.isArray(args.genres) ? [...new Set(args.genres.filter((x) => GENRES.includes(x)))] : [];
+        if (picked.length > 3) return fail('Pick up to 3 genres.');
+        a.genres = picked;
+      }
+      if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
+      a.updated = t;
       this.saveAsset(a);
-      return okay({ asset: this.publicAsset(a) });
+      return okay({ asset: this.publicAsset(a, me) });
+    }
+    if (name === 'game.vote') {
+      // Thumbs up or down, like Roblox; you have to have played it first.
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (!(me.played || []).includes(a.id) && a.creator !== me.id) return fail('Play the game first, then you can vote.');
+      const v = Math.sign(num(args, 'vote'));
+      a.votes = a.votes || {};
+      const old = a.votes[me.id] || 0;
+      if (old === 1) a.likes--; else if (old === -1) a.dislikes--;
+      if (v === 0) delete a.votes[me.id]; else a.votes[me.id] = v;
+      a.likes = (a.likes || 0) + (v === 1 ? 1 : 0);
+      a.dislikes = (a.dislikes || 0) + (v === -1 ? 1 : 0);
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a, me) });
     }
     if (name === 'icon.get') {
       // A game's icon (the app shows it while you connect).
@@ -819,19 +855,29 @@ export class GbServerObject extends DurableObject {
         a.price = price;
       }
       if (!isClothing(a.kind)) a.size = data.length;
+      a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a) });
     }
     if (name === 'list') {
       const kind = str(args, 'kind'), q = lower(cleanText(str(args, 'query'), 64)), creator = lower(str(args, 'creator'));
-      const sort = str(args, 'sort');
+      const sort = str(args, 'sort'), genre = str(args, 'genre');
       const found = [...this.assets.values()].filter((a) =>
         (!kind || a.kind === kind || (kind === 'clothing' && isClothing(a.kind))) &&
-        (!creator || a.creator === creator) && (!q || lower(a.name).includes(q)) && this.canPlay(a, me));
-      found.sort((x, y) => (sort === 'popular' ? (y.plays + y.sales) - (x.plays + x.sales) : y.created - x.created));
+        (!creator || a.creator === creator) && this.canPlay(a, me) &&
+        (!genre || (a.genres || []).includes(genre)) &&
+        (!q || lower(a.name).includes(q) || lower(a.description || '').includes(q) || (a.genres || []).some((g) => lower(g) === q)));
+      const playing = sort === 'playing' ? new Map(found.map((a) => [a.id, this.playingIn(a.id)])) : null;
+      const by = {
+        popular: (x, y) => (y.plays + y.sales) - (x.plays + x.sales),
+        playing: (x, y) => playing.get(y.id) - playing.get(x.id) || y.plays - x.plays,
+        rated: (x, y) => ratingOf(y) - ratingOf(x) || y.plays - x.plays,
+        updated: (x, y) => (y.updated || y.created) - (x.updated || x.created),
+      }[sort] || ((x, y) => y.created - x.created);
+      found.sort(by);
       const offset = Math.max(0, num(args, 'offset'));
       const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
-      return okay({ assets: found.slice(offset, offset + limit).map((a) => this.publicAsset(a)), total: found.length });
+      return okay({ assets: found.slice(offset, offset + limit).map((a) => this.publicAsset(a, me)), total: found.length, genres: GENRES });
     }
     if (name === 'get') {
       const a = this.assets.get(str(args, 'id'));
@@ -841,7 +887,12 @@ export class GbServerObject extends DurableObject {
       if (!this.canPlay(a, me)) return fail(this.noPlay(a));
       const data = this.readFile(a.id);
       if (!data) return fail('The server lost that file.');
-      if (a.kind === 'game' && a.creator !== me.id) { a.plays++; this.saveAsset(a); }
+      if (a.kind === 'game' && a.creator !== me.id) {
+        a.plays++;
+        this.saveAsset(a);
+        me.played = me.played || [];
+        if (!me.played.includes(a.id)) { me.played.push(a.id); if (me.played.length > 500) me.played.shift(); this.saveUser(me); }
+      }
       return okay({ asset: this.publicAsset(a), data: bytesToB64(data) });
     }
     if (name === 'buy') {
@@ -1283,7 +1334,8 @@ export class GbServerObject extends DurableObject {
       if (hosting >= kHostedEach) { reply(fail('You\'re already running ' + kHostedEach + ' servers.')); close(); return; }
       const s = { id: 's-' + randomHex(6), game: cleanText(typeof args.game === 'string' ? args.game : '', 80),
         title: cleanText(typeof args.title === 'string' ? args.title : '', 60) || 'A game', host: me.id, code: '',
-        priv: !!args.private, max: clamp(Number.isInteger(args.max) ? args.max : kDefaultMax, 2, kMostPlayers), created: t,
+        priv: !!args.private, created: t,
+        max: clamp((this.assets.get(args.game) || {}).maxPlayers || (Number.isInteger(args.max) ? args.max : kDefaultMax), 2, kMostPlayers),
         control: c.id, players: new Set() };
       if (s.priv) {
         do s.code = makeCode(); while ([...this.sessions.values()].some((x) => x.code === s.code));
