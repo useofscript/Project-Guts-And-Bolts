@@ -10,6 +10,14 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'steady-aim', name: 'Steady Aim', version: '', time: 1790809300, tag: 'Fix',
+    summary: 'The camera no longer slowly tilts up by itself in Shift Lock, first person or fullscreen.',
+    items: [
+      'With the mouse locked, the middle of the screen was often half a pixel, and the pointer can only sit on whole pixels, so every frame looked like a tiny mouse move up',
+      'The camera now only moves when you move the mouse',
+    ],
+  },
+  {
     id: 'deep-end', name: 'The Deep End', version: '', time: 1790805900, tag: 'Engine',
     summary: 'Pools, lakes and rivers get real ocean waves, crystal-clear shallows and splashes that throw real water.',
     items: [

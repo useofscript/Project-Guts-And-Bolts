@@ -1,4 +1,5 @@
 #include "AppWindow.h"
+#include <cmath>
 #include "Settings.h"
 #include "Audio.h"
 #include "../editor/Theme.h"
@@ -112,7 +113,12 @@ void AppWindow::close() { glfwSetWindowShouldClose(m_window, GLFW_TRUE); }
 void AppWindow::setTitle(const std::string& t) { glfwSetWindowTitle(m_window, t.c_str()); }
 
 namespace {
-struct MouseLock { bool want = false, active = false; double x = 0, y = 0; float dx = 0, dy = 0; };
+struct MouseLock {
+    bool want = false, active = false;
+    double x = 0, y = 0;            // where it's asked to stay
+    double homeX = 0, homeY = 0;    // where it really is after being put back there
+    float dx = 0, dy = 0;
+};
 MouseLock g_lock;
 
 // Keep the hidden pointer where it was asked to be, and measure how far it moved.
@@ -127,9 +133,14 @@ void updateMouseLock(GLFWwindow* w) {
     }
     double cx, cy;
     glfwGetCursorPos(w, &cx, &cy);
-    if (g_lock.active) { g_lock.dx = (float)(cx - g_lock.x); g_lock.dy = (float)(cy - g_lock.y); }
+    // How far it moved since we put it back: measured from where it really ended up
+    // last time, not from where we asked. (The middle of the screen is often half a
+    // pixel; the pointer can only sit on whole pixels, so measuring from the asked-for
+    // spot read a half-pixel move every frame and the camera slowly drifted.)
+    if (g_lock.active) { g_lock.dx = (float)(cx - g_lock.homeX); g_lock.dy = (float)(cy - g_lock.homeY); }
     else glfwSetInputMode(w, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-    glfwSetCursorPos(w, g_lock.x, g_lock.y);
+    glfwSetCursorPos(w, std::floor(g_lock.x), std::floor(g_lock.y));
+    glfwGetCursorPos(w, &g_lock.homeX, &g_lock.homeY);
     g_lock.active = true;
 }
 } // namespace
