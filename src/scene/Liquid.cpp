@@ -4,6 +4,7 @@
 // spread out and splash like the real thing.
 #include "Liquid.h"
 #include "LiquidGpu.h"
+#include "../core/Settings.h"
 #include "EditMesh.h"
 #include "Scene.h"
 #include "SceneNode.h"
@@ -955,7 +956,8 @@ bool Liquid::isWet(uint64_t partId) const {
 
 void Liquid::budget(Scene& scene, size_t count, float dt) {
     const size_t most = m_gpu ? (size_t)LiquidGpu::maxCapacity() : (size_t)kMaxDrops;
-    m_cap = std::min(most, (size_t)std::max(0, scene.world().maxFluidParticles));
+    m_cap = std::min({most, (size_t)std::max(0, scene.world().maxFluidParticles),
+                      (size_t)GraphicsSettings::get().waterMaxDrops()});
     // Full (or nearly) while something is still pouring: the oldest drops go, a little
     // sooner each frame, so new liquid keeps coming and the game stays smooth.
     if (!m_sources.empty() && m_cap > 0 && count + count / 50 >= m_cap)

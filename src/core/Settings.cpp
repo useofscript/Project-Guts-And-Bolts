@@ -18,19 +18,19 @@ void GraphicsSettings::applyPreset(int q) {
     switch (q) {
         case Low:
             shadowRes = 1024; shadowQuality = 0; ssao = false; bloom = false;
-            fxaa = false; postFx = true; renderScale = 0.75f; maxLights = 8;
+            fxaa = false; postFx = true; renderScale = 0.75f; maxLights = 8; waterQuality = 0;
             break;
         case Medium:
             shadowRes = 2048; shadowQuality = 1; ssao = false; bloom = true;
-            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 16;
+            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 16; waterQuality = 1;
             break;
         case High:
             shadowRes = 2048; shadowQuality = 2; ssao = true; bloom = true;
-            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32;
+            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32; waterQuality = 2;
             break;
         case Ultra:
             shadowRes = 4096; shadowQuality = 2; ssao = true; bloom = true;
-            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32;
+            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32; waterQuality = 3;
             break;
         default: break;
     }
@@ -61,6 +61,23 @@ void GraphicsSettings::load() {
     rd("touchControls", touchControls); rd("touchSize", touchSize);
     rd("shiftLockSwitch", shiftLockSwitch); rd("mouseSensitivity", mouseSensitivity); rd("invertCamera", invertCamera);
     rd("volume", volume); rd("fullscreen", fullscreen);
+    rd("waterQuality", waterQuality); rd("graphicsApi", graphicsApi);
+}
+
+const char* const* GraphicsSettings::apiNames() {
+#ifdef GB_GLES
+    static const char* const names[] = {"Auto (best for this device)", "OpenGL ES 3.2", "OpenGL ES 3.1",
+                                        "OpenGL ES 3.0 (safe mode)"};
+#else
+    static const char* const names[] = {"Auto (best for this computer)", "OpenGL 4.6 (newest)", "OpenGL 4.3",
+                                        "OpenGL 4.1 (safe mode)"};
+#endif
+    return names;
+}
+
+std::string& GraphicsSettings::activeApi() {
+    static std::string s;
+    return s;
 }
 
 bool GraphicsSettings::touchEnabled() const {
@@ -82,6 +99,7 @@ void GraphicsSettings::save() const {
         {"touchControls", touchControls}, {"touchSize", touchSize},
         {"shiftLockSwitch", shiftLockSwitch}, {"mouseSensitivity", mouseSensitivity}, {"invertCamera", invertCamera},
         {"volume", volume}, {"fullscreen", fullscreen},
+        {"waterQuality", waterQuality}, {"graphicsApi", graphicsApi},
     };
     std::ofstream f(settingsFile());
     if (f) f << j.dump(2);

@@ -1895,6 +1895,19 @@ void PlayerApp::drawPauseMenu() {
         static const char* q[] = {"Low", "Medium", "High", "Ultra", "Custom"};
         int qi = std::clamp(gs.quality, 0, 4);
         if (ImGui::Combo("##quality", &qi, q, 5)) { if (qi < 4) gs.applyPreset(qi); else gs.quality = qi; changed = true; }
+        row("Water Quality");
+        static const char* wq[] = {"Low", "Medium", "High", "Ultra"};
+        if (ImGui::Combo("##water", &gs.waterQuality, wq, 4)) { gs.quality = GraphicsSettings::Custom; changed = true; }
+        row("Graphics API");
+        static const int startedApi = gs.graphicsApi;
+        changed |= ImGui::Combo("##api", &gs.graphicsApi, GraphicsSettings::apiNames(), 4);
+        if (!GraphicsSettings::activeApi().empty()) {
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("Using %s", GraphicsSettings::activeApi().c_str());
+            ImGui::PopTextWrapPos();
+        }
+        if (gs.graphicsApi != startedApi)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Close and reopen Guts&Bolts to switch.");
         onOff("Show FPS", gs.showFps);
         ImGui::SeparatorText("Other");
         onOff("Blood and Gore", gs.allowGore);

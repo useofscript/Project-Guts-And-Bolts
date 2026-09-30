@@ -867,19 +867,25 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
         return;
     }
 
-    if (m_fDepth.w != w || m_fDepth.h != h || !m_fDepth.fbo) {
+    // Water Quality: lower draws the liquid at a lower resolution (then smooths it),
+    // which is much faster; higher smooths it more.
+    const GraphicsSettings& gq = GraphicsSettings::get();
+    const int fw = std::max(1, (int)std::lround(w * gq.waterScale())), fh = std::max(1, (int)std::lround(h * gq.waterScale()));
+    if (m_fDepth.w != fw || m_fDepth.h != fh || m_sceneCopy.w != w || m_sceneCopy.h != h || !m_fDepth.fbo) {
 #ifdef GB_GLES
         const GLenum depthFmt = GL_RGBA16F;
 #else
         const GLenum depthFmt = GL_R32F;
 #endif
-        createTarget(m_fDepth, w, h, depthFmt, true);
-        createTarget(m_fTmp, w, h, depthFmt, false);
-        createTarget(m_fThick, w, h, GL_RGBA16F, false);
-        createTarget(m_fColor, w, h, GL_RGBA16F, false);
+        createTarget(m_fDepth, fw, fh, depthFmt, true);
+        createTarget(m_fTmp, fw, fh, depthFmt, false);
+        createTarget(m_fThick, fw, fh, GL_RGBA16F, false);
+        createTarget(m_fColor, fw, fh, GL_RGBA16F, false);
         createTarget(m_sceneCopy, w, h, hdrFormat(), true);   // colour and depth of what's behind
     }
-    const glm::vec2 texel(1.0f / w, 1.0f / h);
+    const glm::vec2 texel(1.0f / fw, 1.0f / fh);
+    const float fluidScale = pointScale * (float)fh / (float)h;   // drop sizes in the liquid's (maybe smaller) pictures
+    auto setDropsSmall = [&](Shader& s) { setDrops(s); s.setFloat("uPointScale", fluidScale); };
 
     // 1. Nearest liquid in each pixel.
     bindTarget(m_fDepth);
@@ -888,7 +894,7 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
-    setDrops(*m_fluidDepth);
+    setDropsSmall(*m_fluidDepth);
     bindTex(0, m_hdr.depth);
     m_fluidDepth->setInt("uSceneDepth", 0);
     m_fluidDepth->setVec2("uTexel", texel);
@@ -900,7 +906,7 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
-    setDrops(*m_fluidThick);
+    setDropsSmall(*m_fluidThick);
     bindTex(0, m_hdr.depth);
     m_fluidThick->setInt("uSceneDepth", 0);
     m_fluidThick->setVec2("uTexel", texel);
@@ -909,7 +915,7 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     if (tinted) {
         bindTarget(m_fColor);
         glClear(GL_COLOR_BUFFER_BIT);
-        setDrops(*m_fluidColor);
+        setDropsSmall(*m_fluidColor);
         bindTex(0, m_hdr.depth);
         m_fluidColor->setInt("uSceneDepth", 0);
         m_fluidColor->setVec2("uTexel", texel);
@@ -923,14 +929,14 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     m_fluidBlur->bind();
     m_fluidBlur->setInt("uSrc", 0);
     m_fluidBlur->setFloat("uWorldBlur", Liquid::kRadius * 2.4f);
-    m_fluidBlur->setFloat("uPointScale", pointScale);
-    for (int pass = 0; pass < 2; ++pass) {
+    m_fluidBlur->setFloat("uPointScale", fluidScale);
+    for (int pass = 0; pass < gq.waterBlurPasses(); ++pass) {
         bindTarget(m_fTmp);
         bindTex(0, m_fDepth.color);
         m_fluidBlur->setVec2("uDir", glm::vec2(texel.x, 0.0f));
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindFramebuffer(GL_FRAMEBUFFER, m_fDepth.fbo);
-        glViewport(0, 0, w, h);
+        glViewport(0, 0, fw, fh);
         bindTex(0, m_fTmp.color);
         m_fluidBlur->setVec2("uDir", glm::vec2(0.0f, texel.y));
         glDrawArrays(GL_TRIANGLES, 0, 3);

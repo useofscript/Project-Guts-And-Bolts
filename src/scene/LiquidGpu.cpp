@@ -1,6 +1,7 @@
 // The liquid's physics as compute shaders (see LiquidGpu.h for the big picture).
 #include "LiquidGpu.h"
 #include "../renderer/GL.h"
+#include "../core/Settings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -632,6 +633,7 @@ void LiquidGpu::forget() {
 bool LiquidGpu::supported(std::string* why) {
     auto no = [&](const char* w) { if (why) *why = w; return false; };
     if (const char* e = std::getenv("GB_LIQUID_CPU"); e && *e && *e != '0') return no("GB_LIQUID_CPU is set");
+    if (GraphicsSettings::get().graphicsApi == GraphicsSettings::ApiSafe) return no("the graphics API is in safe mode");
     GLint major = 0, minor = 0;
     glGetIntegerv(GL_MAJOR_VERSION, &major);
     glGetIntegerv(GL_MINOR_VERSION, &minor);

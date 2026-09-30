@@ -103,7 +103,7 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);   // (asked for properly below)
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
@@ -117,10 +117,27 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
 #endif
     m_sdl = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
     if (!m_sdl) throw std::runtime_error(std::string("Couldn't open a window: ") + SDL_GetError());
-    m_gl = SDL_GL_CreateContext(m_sdl);
+    // Settings > Graphics API: ask for that OpenGL ES version, falling back to older
+    // ones if the phone can't. 3.0 is "safe mode" (no compute shaders: the liquid
+    // runs on the processor).
+    {
+        const int api = GraphicsSettings::get().graphicsApi;
+        const int tries[] = {32, 31, 30};
+        const int first = api == GraphicsSettings::ApiSafe ? 2 : api == GraphicsSettings::ApiMiddle ? 1 : 0;
+        for (int i = first; i < 3 && !m_gl; ++i) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, tries[i] / 10);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, tries[i] % 10);
+            m_gl = SDL_GL_CreateContext(m_sdl);
+        }
+    }
     if (!m_gl) throw std::runtime_error(std::string("This device needs OpenGL ES 3: ") + SDL_GetError());
     SDL_GL_MakeCurrent(m_sdl, (SDL_GLContext)m_gl);
     SDL_GL_SetSwapInterval(1);
+    {
+        const char* ver = (const char*)glGetString(GL_VERSION);
+        const char* gpu = (const char*)glGetString(GL_RENDERER);
+        GraphicsSettings::activeApi() = std::string(ver ? ver : "OpenGL ES ?") + " - " + (gpu ? gpu : "?");
+    }
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);

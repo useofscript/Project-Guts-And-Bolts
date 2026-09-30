@@ -29,6 +29,25 @@
   running down it, a ride timer, a splash pool full of floating toys, a wave
   pool and a fountain.
 
+**Graphics settings**
+- New **Graphics API** setting: Auto (the newest OpenGL your graphics card
+  has), OpenGL 4.6, OpenGL 4.3, or OpenGL 4.1 "safe mode" (phones: OpenGL ES
+  3.2 / 3.1 / 3.0). If the one you pick doesn't work it falls back to the next.
+  Settings shows which one is really running, on which graphics card.
+- New **Water Quality** setting (Low / Medium / High / Ultra, set by the quality
+  presets): how sharp the liquid is drawn, how smooth its surface is, and how
+  many drops there can be (25,000 / 60,000 / 100,000 / up to a million).
+
+**Better shadows**
+- No more light leaking under boxes sitting on the ground: shadows start
+  right at an object's base, with no flicker where it touches.
+- Sharper shadows close to you (a second, close-up shadow map).
+
+**Publishing puts games on the website**
+- Saving a published game in Studio updates it online too.
+- The Player's My Games has a Publish button for games that are only on your
+  computer. The staff page can put the sample games online as official games.
+
 **Slippery parts**
 - Tag a part `Slippery` and people slide on it (water slides, ice).
 - Tilted Water parts work: you swim in their real, turned box.
