@@ -106,7 +106,8 @@ private:
     // Online (a Guts&Bolts server) — PlayerOnline.cpp
     void drawServerButton(ImVec2 at);
     void drawServerDialog();
-    void drawNoServer();   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
+    void drawNoServer();
+    void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
     bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
     void drawOnlineItemDialog();
@@ -187,7 +188,7 @@ private:
     void drawCharacterPicker();
     void applyGuestLook(int which);    // 0 = boy (black cap), 1 = girl (ponytail)
     // A gutsandbolts:// link to act on once we're online (the website's Play button).
-    std::string                    m_linkGame, m_linkGuest;
+    std::string                    m_linkGame, m_linkGuest, m_linkServer;
     double                         m_linkPollAt = 0.0;
     void takeLink(const std::string& url);
     void followLink();
@@ -295,6 +296,11 @@ private:
     std::string    m_serversKey, m_serversTitle, m_serversMsg, m_codeInput;
     Starter        m_serversStart;
     nlohmann::json m_serverList = nlohmann::json::array();
+    // The game page's server cards (Roblox-style): whose game, when fetched, which page.
+    nlohmann::json m_gameServers = nlohmann::json::array();
+    std::string    m_gameServersKey;
+    double         m_gameServersAt = -100.0;
+    int            m_gameServersPage = 0;
     std::string    m_playMsg;                      // "Finding a server..."
     bool           m_joinedOnce = false;           // fetched the game's sounds after joining
     bool           m_autoStarted = false;          // test options that wait for the server

@@ -8,6 +8,7 @@ namespace LaunchLink {
 struct Link {
     std::string game;    // server asset id of the game to play
     std::string guest;   // "boy" / "girl" when a visitor picked a guest character, else ""
+    std::string server;  // a running server to join (the game page's Join button), else ""
 };
 bool parse(const std::string& url, Link& out);
 

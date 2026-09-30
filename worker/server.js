@@ -1162,8 +1162,15 @@ export class GbServerObject extends DurableObject {
   // --- the relay (ServerRelay.cpp) ---
   sessionJson(s) {
     const h = this.users.get(s.host);
+    // Who's in it (the first few, with their avatars), for the Roblox-style server cards.
+    const ids = [s.host];
+    for (const p of s.players) { const c = this.conns.get(p); if (c && c.account) ids.push(c.account); }
+    const people = ids.slice(0, 5).map((id) => {
+      const u = this.users.get(id);
+      return { id, name: u ? u.name : '?', avatar: (u && u.avatar) || null };
+    });
     return { id: s.id, game: s.game, title: s.title, players: s.players.size + 1, max: s.max, private: s.priv,
-      hostName: h ? h.name : '?', hostVerified: !!h && this.isVerified(h) };
+      hostName: h ? h.name : '?', hostVerified: !!h && this.isVerified(h), people };
   }
   sessionOf(userId) {
     for (const s of this.sessions.values()) {

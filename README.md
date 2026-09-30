@@ -738,6 +738,9 @@ Games saved with the old blocky character get the new one when they load.
 
 - **Home:** every game in the `games` folder, each with a rendered preview.
   Press **Play** to jump into a **public server** of that game.
+- **Servers** (on a game's page, in the app and on the website): cards for
+  every running server with the faces of the people in it, how full it is,
+  **Join** to hop into that exact server and **Share** to copy a link to it.
 - **Create a server** (on a game's page): a **private server** (friends and
   people with its code). The same window lists the servers running now and has
   a box for joining with a code.

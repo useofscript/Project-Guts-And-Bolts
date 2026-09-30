@@ -41,6 +41,11 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Server cards on game pages**
+- Every game page lists its running servers like Roblox: the faces of who's
+  in each one, "7 of 12 people max", **Join** (that exact server) and
+  **Share** (a link to it), with pages when there are lots.
+
 **Always online**
 - The Player always connects to the main Guts&Bolts server: no more offline
   or local-network play. Without internet it shows *Can't reach Guts&Bolts*

@@ -47,11 +47,18 @@ bool parse(const std::string& url, Link& out) {
     for (char c : rest) if (!safeChar(c)) return false;   // ids only: nothing that could reach a shell or a path
     out.game = rest;
     out.guest.clear();
+    out.server.clear();
     std::stringstream qs(query);
     std::string pair;
     while (std::getline(qs, pair, '&')) {
         if (pair == "guest=boy") out.guest = "boy";
         else if (pair == "guest=girl") out.guest = "girl";
+        else if (pair.rfind("server=", 0) == 0 && pair.size() <= 7 + 40) {
+            std::string sv = pair.substr(7);
+            bool ok = !sv.empty();
+            for (char c : sv) if (!safeChar(c)) ok = false;
+            if (ok) out.server = sv;
+        }
     }
     return true;
 }

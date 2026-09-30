@@ -272,12 +272,12 @@ void PlayerApp::takeLink(const std::string& url) {
     if (!LaunchLink::parse(url, link)) return;
     m_linkGame = link.game;
     m_linkGuest = link.guest;
+    m_linkServer = link.server;
 }
 
 void PlayerApp::followLink() {
     if (m_linkGame.empty()) return;
     if (!Online::online()) {   // not connected yet: wait (a server that's switched off never answers)
-        if (!Online::configured()) { m_status = "Connect to a Guts&Bolts server to play games from the website."; m_linkGame.clear(); }
         return;
     }
     if (m_busy) return;
@@ -291,7 +291,10 @@ void PlayerApp::followLink() {
     std::string title;
     for (const auto& g : m_onlineGames) if (g.value("id", std::string()) == id) title = g.value("name", std::string());
     m_page = Page::Home;
-    playGame(id, title, onlineStarter(id));
+    const std::string server = m_linkServer;
+    m_linkServer.clear();
+    if (!server.empty()) { startLoadingScreen(id, title); joinRelay(server, "", title); }   // "Join" on one of its servers
+    else playGame(id, title, onlineStarter(id));
 }
 
 void PlayerApp::drawCharacterPicker() {

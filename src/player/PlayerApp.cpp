@@ -189,6 +189,10 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
         m_page = Page::GameInfo;
         m_autoServers = true;
     }
+    if (m_opts.page.rfind("game:", 0) == 0 && !m_games.empty()) {   // tests: a game's page
+        m_selected = std::clamp(std::atoi(m_opts.page.c_str() + 5), 0, (int)m_games.size() - 1);
+        m_page = Page::GameInfo;
+    }
     if (m_opts.page.rfind("group:", 0) == 0) { m_groupId = m_opts.page.substr(6); m_page = Page::Group; }
     if (m_opts.page.rfind("profile:", 0) == 0) { m_profileId = m_opts.page.substr(8); m_page = Page::Profile; }
     if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
@@ -1011,7 +1015,7 @@ void PlayerApp::drawGameInfo() {
     ImGui::Spacing();
     if (Classic::button("Create a server", Classic::kBlue, ImVec2(220, 34))) openServers(key, g.info.title, localStarter(g.path));
     ImGui::EndDisabled();
-    ImGui::TextDisabled(Online::online() ? "Play puts you in a public server." : "Offline: Play is just you.");
+    ImGui::TextDisabled("Play puts you in a public server.");
     ImGui::Spacing();
     ImGui::TextDisabled("Death: %s", g.ragdoll ? "Ragdoll" : "Classic");
     ImGui::TextDisabled("Gore: %s", g.gore ? "Yes" : "No");
@@ -1024,6 +1028,113 @@ void PlayerApp::drawGameInfo() {
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(g.info.description.c_str());
     ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    drawServerCards(key, g.info.title);
+}
+
+namespace {
+// A round headshot like Roblox's server cards: the avatar's head colour, a face and its hat.
+void drawHeadshot(ImDrawList* dl, ImVec2 c, float r, const nlohmann::json& av) {
+    auto col = [&](const char* k, ImU32 fallback) {
+        if (!av.is_object() || !av.contains(k) || !av[k].is_array() || av[k].size() < 3 || !av[k][0].is_number()) return fallback;
+        int R = av[k][0].get<int>(), G = av[k][1].get<int>(), B = av[k][2].get<int>();
+        if (R < 0) return fallback;
+        return IM_COL32(std::clamp(R, 0, 255), std::clamp(G, 0, 255), std::clamp(B, 0, 255), 255);
+    };
+    dl->AddCircleFilled(c, r, IM_COL32(200, 207, 217, 255), 32);
+    ImU32 skin = col("head", IM_COL32(245, 205, 48, 255));
+    float h = r * 0.62f;
+    dl->AddRectFilled(ImVec2(c.x - h, c.y - h * 0.75f), ImVec2(c.x + h, c.y + h * 1.05f), skin, h * 0.3f);
+    dl->AddCircleFilled(ImVec2(c.x - h * 0.33f, c.y), h * 0.1f, IM_COL32(20, 20, 20, 255));
+    dl->AddCircleFilled(ImVec2(c.x + h * 0.33f, c.y), h * 0.1f, IM_COL32(20, 20, 20, 255));
+    dl->PathArcTo(ImVec2(c.x, c.y + h * 0.28f), h * 0.35f, 0.35f, 2.8f);
+    dl->PathStroke(IM_COL32(20, 20, 20, 255), 0, std::max(1.2f, r * 0.05f));
+    int hat = av.is_object() ? av.value("hat", 0) : 0;
+    if (hat > 0) {
+        ImU32 hc = col("hatColor", IM_COL32(30, 30, 34, 255));
+        dl->AddRectFilled(ImVec2(c.x - h * 1.05f, c.y - h * 1.05f), ImVec2(c.x + h * 1.05f, c.y - h * 0.62f), hc, h * 0.3f);
+    }
+}
+} // namespace
+
+void PlayerApp::drawServerCards(const std::string& gameKey, const std::string& title) {
+    ImGui::SeparatorText("Servers");
+    if (!Online::online()) return;
+    if (gameKey != m_gameServersKey || ImGui::GetTime() - m_gameServersAt > 10.0) {   // keep it fresh
+        if (gameKey != m_gameServersKey) { m_gameServers = nlohmann::json::array(); m_gameServersPage = 0; }
+        m_gameServersKey = gameKey;
+        m_gameServersAt = ImGui::GetTime();
+        Online::request("servers.list", {{"game", gameKey}}, [this, gameKey](const nlohmann::json& r) {
+            if (gameKey == m_gameServersKey && r.value("ok", false)) m_gameServers = r["servers"];
+        });
+    }
+    if (m_gameServers.empty()) { ImGui::TextDisabled("Nobody's playing right now. Be the first!"); return; }
+
+    const float cardW = 200.0f, cardH = 250.0f, gap = 12.0f, face = 50.0f;
+    const int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + gap) / (cardW + gap)));
+    const int perPage = perRow * 2;
+    const int pages = std::max(1, ((int)m_gameServers.size() + perPage - 1) / perPage);
+    m_gameServersPage = std::clamp(m_gameServersPage, 0, pages - 1);
+    const int first = m_gameServersPage * perPage, last = std::min((int)m_gameServers.size(), first + perPage);
+    for (int i = first; i < last; ++i) {
+        const nlohmann::json& sv = m_gameServers[i];
+        if ((i - first) % perRow) ImGui::SameLine(0, gap);
+        ImGui::PushID(i);
+        ImGui::BeginGroup();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + cardW, p.y + cardH), IM_COL32(40, 43, 50, 255), 6.0f);
+        // Faces: up to 5, then "+N".
+        const nlohmann::json people = sv.value("people", nlohmann::json::array());
+        const int players = sv.value("players", 1), max = sv.value("max", 12);
+        int shown = std::min<int>((int)people.size(), 5), more = players - shown;
+        for (int k = 0; k < shown + (more > 0 ? 1 : 0); ++k) {
+            ImVec2 c(p.x + 14 + face * 0.5f + (k % 2) * (face + 8), p.y + 12 + face * 0.5f + (k / 2) * (face + 8));
+            if (k < shown) drawHeadshot(dl, c, face * 0.5f, people[k].value("avatar", nlohmann::json()));
+            else {
+                dl->AddCircleFilled(c, face * 0.5f, IM_COL32(120, 126, 140, 255), 32);
+                std::string t = "+" + std::to_string(more);
+                ImVec2 ts = ImGui::CalcTextSize(t.c_str());
+                dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 255), t.c_str());
+            }
+        }
+        char line[64];
+        std::snprintf(line, sizeof(line), "%d of %d people max", players, max);
+        dl->AddText(ImVec2(p.x + 14, p.y + 186), IM_COL32(235, 237, 242, 255), line);
+        std::string id = sv.value("id", std::string());
+        std::string shortId = "ID: " + (id.rfind("s-", 0) == 0 ? id.substr(2) : id);
+        dl->AddText(ImVec2(p.x + 14, p.y + cardH - 20), IM_COL32(170, 175, 185, 255), shortId.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(p.x + 14, p.y + 208));
+        ImGui::BeginDisabled(players >= max);
+        if (Classic::button(players >= max ? "Full" : "Join", Classic::kPlay, ImVec2(cardW - 28, 24))) {
+            startLoadingScreen(gameKey, title);
+            joinRelay(id, "", title);
+        }
+        ImGui::EndDisabled();
+        ImGui::SetCursorScreenPos(p);
+        ImGui::Dummy(ImVec2(cardW, cardH));
+        ImGui::EndGroup();
+        // Names when you point at a card.
+        if (ImGui::IsItemHovered() && !people.empty()) {
+            std::string names;
+            for (const auto& pp : people) names += (names.empty() ? "" : ", ") + pp.value("name", std::string("?"));
+            if (more > 0) names += " and " + std::to_string(more) + " more";
+            ImGui::SetTooltip("%s", names.c_str());
+        }
+        ImGui::PopID();
+    }
+    if (pages > 1) {
+        ImGui::Spacing();
+        if (ImGui::SmallButton("<<")) m_gameServersPage = 0;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("<")) --m_gameServersPage;
+        ImGui::SameLine();
+        ImGui::Text("Page %d of %d", m_gameServersPage + 1, pages);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(">")) ++m_gameServersPage;
+        ImGui::SameLine();
+        if (ImGui::SmallButton(">>")) m_gameServersPage = pages - 1;
+    }
 }
 
 // ---------------------------------------------------------------------------

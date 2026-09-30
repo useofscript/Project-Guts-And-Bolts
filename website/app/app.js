@@ -148,7 +148,8 @@ const hexOf = (c) => '#' + c.map((x) => (Math.max(0, Math.min(255, x | 0))).toSt
 const fromHex = (h) => [1, 3, 5].map((i) => parseInt(h.substr(i, 2), 16));
 
 // A blocky character, front view. Clothes from the catalog colour the parts they cover.
-function avatarSvg(av, size = 160, items = []) {
+// `head`: just the head and hat, square (the round faces on server cards).
+function avatarSvg(av, size = 160, items = [], head = false) {
   const a = Object.assign(defaultAvatar(), av || {});
   const col = {};
   PARTS.forEach((p) => { col[p] = rgbCss(Array.isArray(a[p]) ? a[p] : defaultAvatar()[p]); });
@@ -166,7 +167,8 @@ function avatarSvg(av, size = 160, items = []) {
     3: `<path d="M35 16 L36 2 L43 9 L50 0 L57 9 L64 2 L65 16 Z" fill="${hatCol}"/><rect x="35" y="13" width="30" height="4" fill="rgba(0,0,0,.2)"/>`,
     4: `<path d="M35 20 Q35 9 50 9 Q65 9 65 20 Q58 14 50 15 Q42 14 35 20 Z" fill="${hatCol}"/><circle cx="50" cy="6" r="6" fill="${hatCol}"/>`,
   };
-  const svg = `<svg viewBox="0 -8 100 128" width="${size}" height="${size * 1.28}" role="img" aria-label="Avatar">
+  const box = head ? '28 -6 44 44' : '0 -8 100 128', tall = head ? size : size * 1.28;
+  const svg = `<svg viewBox="${box}" width="${size}" height="${tall}" role="img" aria-label="Avatar">
     <rect x="37" y="12" width="26" height="22" rx="4" fill="${col.head}" stroke="rgba(0,0,0,.25)"/>
     <ellipse cx="47.5" cy="19.5" rx="1.3" ry="2.4" fill="#111"/><ellipse cx="52.5" cy="19.5" rx="1.3" ry="2.4" fill="#111"/>
     <path d="M44.5 24.5 Q46 30.5 50 30.5 Q54 30.5 55.5 24.5" stroke="#111" stroke-width="1.8" fill="none" stroke-linecap="round"/>
@@ -243,8 +245,9 @@ function guestPicker(id, name) {
     }).catch(() => {});
 }
 // Open the app on this game (if it's installed), with a way to get it if not.
-function launchGame(id, name, guest) {
-  const url = 'gutsandbolts://play/' + encodeURIComponent(id) + (guest ? '?guest=' + guest : '');
+function launchGame(id, name, guest, server = '') {
+  const q = [guest ? 'guest=' + guest : '', server ? 'server=' + encodeURIComponent(server) : ''].filter(Boolean).join('&');
+  const url = 'gutsandbolts://play/' + encodeURIComponent(id) + (q ? '?' + q : '');
   popup(html`<h1 class="popup-title">Starting Guts&amp;Bolts...</h1>
     <div class="launch-spin" aria-hidden="true"></div>
     <p>Opening <b>${name}</b> in the Guts&amp;Bolts app${guest ? ' as a guest' : ''}.</p>
@@ -400,12 +403,35 @@ pages.games = async () => {
       : html`<p class="error">${r.error}</p>`}`);
 };
 
+let serverPage = 1;   // which page of a game's server cards
 pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id);
   if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
   const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
+  const shared = new URLSearchParams(location.hash.split('?')[1] || '').get('server') || '';
+  // Roblox-style server cards: faces of who's in it, how full it is, Join and Share. 8 a page.
+  const perPage = 8, pages = Math.max(1, Math.ceil(servers.length / perPage));
+  serverPage = Math.min(Math.max(1, serverPage), pages);
+  const shown = servers.slice((serverPage - 1) * perPage, serverPage * perPage);
+  const card = (sv) => {
+    const people = sv.people || [], more = (sv.players || 1) - people.length;
+    return html`<div class="server-card ${sv.id === shared ? 'shared' : ''}">
+      <div class="server-faces">${people.map((p) => html`<a class="face" href="#/user/${p.id}" title="${p.name}">${avatarSvg(p.avatar, 52, [], true)}</a>`)}
+        ${more > 0 ? html`<span class="face more">+${more}</span>` : ''}</div>
+      <p class="server-count">${sv.players || 1} of ${sv.max || '?'} people max${sv.private ? html` <span class="badge-pill">Private</span>` : ''}</p>
+      ${sv.friends ? html`<p class="small muted">${sv.friends} friend${sv.friends === 1 ? '' : 's'} here</p>` : ''}
+      <div class="server-buttons"><button class="btn green small" data-act="joinServer" data-id="${g.id}" data-name="${g.name}" data-server="${sv.id}">Join</button>
+        <button class="btn small" data-act="shareServer" data-id="${g.id}" data-server="${sv.id}">Share</button></div>
+      <p class="small muted">ID: ${sv.id.replace(/^s-/, '')}</p></div>`;
+  };
+  const pager = pages > 1 ? html`<div class="pager">
+      <button class="btn small" data-act="serverPage" data-to="1" ${serverPage === 1 ? 'disabled' : ''}>&laquo;</button>
+      <button class="btn small" data-act="serverPage" data-to="${serverPage - 1}" ${serverPage === 1 ? 'disabled' : ''}>&lsaquo;</button>
+      <span>Page ${serverPage} of ${pages}</span>
+      <button class="btn small" data-act="serverPage" data-to="${serverPage + 1}" ${serverPage === pages ? 'disabled' : ''}>&rsaquo;</button>
+      <button class="btn small" data-act="serverPage" data-to="${pages}" ${serverPage === pages ? 'disabled' : ''}>&raquo;</button></div>` : '';
   show(html`<p><a href="#/games">&lt; Games</a></p>
     <div class="hero">${gamePic(g)}
       <div><h1 class="game-title">${gameIcon(g, 40)} ${g.name}</h1>
@@ -417,8 +443,7 @@ pages.game = async (id) => {
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     <h2>Servers</h2>
-    ${servers.length ? html`<div class="list">${servers.map((sv) => html`<div><span class="grow">${sv.title || g.name}</span>
-        <span class="muted">${sv.players || 1} / ${sv.max || '?'} players${sv.friends ? html` · ${sv.friends} friend(s)` : ''}</span></div>`)}</div>`
+    ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
 };
 
@@ -937,6 +962,16 @@ const actions = {
     launchGame(d.id, d.name, '');
   },
   pickGuest(d) { launchGame(d.id, d.name, d.guest); },
+  joinServer(d) {
+    if (!signedIn()) { guestPicker(d.id, d.name); return; }
+    launchGame(d.id, d.name, '', d.server);
+  },
+  async shareServer(d) {
+    const link = location.origin + location.pathname + '#/game/' + encodeURIComponent(d.id) + '?server=' + encodeURIComponent(d.server);
+    try { await navigator.clipboard.writeText(link); toast('Link copied! Friends who open it can join this server.'); }
+    catch { prompt('Copy this link:', link); }
+  },
+  serverPage(d) { serverPage = Number(d.to) || 1; render(); },
   closeModal(d, el) { el.closest('.modal').remove(); },
   async buy(d) {
     const r = await call('buy', { id: d.id });
