@@ -829,12 +829,24 @@ void Liquid::update(float dt, Scene& scene) {
         for (size_t k = 0; k < n; ++k) m_sorted[k] = (int)k;
     }
     pushThings(dt, scene);
-    // (w: how many neighbours x 64 + speed, like the graphics card version; lonely drops are drawn smaller)
-    m_draw.resize(m_x.size());
-    for (size_t i = 0; i < m_x.size(); ++i) {
-        m_draw[i] = glm::vec4(m_x[i], (float)m_kind[i] * 4096.0f + std::min(m_near[i], 31.0f) * 64.0f +
-                                          std::min(glm::length(m_v[i]), 63.0f));
-    }
+    // Two vec4s a drop (see drawList): where to draw it (a little smoothed) and its shape.
+    m_draw.resize(m_x.size() * 2);
+    parallel(m_x.size(), [&](size_t a, size_t b) {
+        std::vector<glm::vec3> near;
+        for (size_t i = a; i < b; ++i) {
+            near.clear();
+            forNeighbours(m_x[i], [&](int j) {
+                if ((size_t)j == i || near.size() >= 48) return;
+                const glm::vec3 r = m_x[j] - m_x[i];
+                if (glm::dot(r, r) < kH * kH) near.push_back(m_x[j]);
+            });
+            glm::vec3 smoothed;
+            const glm::vec4 shape = dropShape(m_x[i], near, smoothed);
+            m_draw[i * 2] = glm::vec4(smoothed, (float)m_kind[i] * 4096.0f + std::min(m_near[i], 31.0f) * 64.0f +
+                                                    std::min(glm::length(m_v[i]), 63.0f));
+            m_draw[i * 2 + 1] = shape;
+        }
+    });
     m_ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
@@ -946,7 +958,64 @@ Liquid::Stats Liquid::stats() const {
 
 std::vector<glm::vec4> Liquid::debugDrops() {
     if (m_gpu) return m_gpu->readDrops();
-    return m_draw;
+    std::vector<glm::vec4> out;
+    for (size_t i = 0; i < m_x.size(); ++i) out.push_back(glm::vec4(m_x[i], glm::length(m_v[i])));
+    return out;
+}
+
+namespace {
+// Eigen-decomposition of a symmetric 3x3 matrix (the analytic way): its smallest
+// and largest eigenvalues, and the eigenvector of the smallest.
+void smallestEigen(const glm::mat3& C, glm::vec3& vec, float& lmin, float& lmax) {
+    const float p1 = C[0][1] * C[0][1] + C[0][2] * C[0][2] + C[1][2] * C[1][2];
+    const float q = (C[0][0] + C[1][1] + C[2][2]) / 3.0f;
+    const float p2 = (C[0][0] - q) * (C[0][0] - q) + (C[1][1] - q) * (C[1][1] - q) + (C[2][2] - q) * (C[2][2] - q) + 2.0f * p1;
+    const float p = std::sqrt(p2 / 6.0f);
+    if (p < 1e-9f) { vec = glm::vec3(0, 1, 0); lmin = lmax = q; return; }
+    const glm::mat3 B = (C - q * glm::mat3(1.0f)) * (1.0f / p);
+    const float r = glm::clamp(glm::determinant(B) * 0.5f, -1.0f, 1.0f);
+    const float phi = std::acos(r) / 3.0f;
+    lmax = q + 2.0f * p * std::cos(phi);
+    lmin = q + 2.0f * p * std::cos(phi + 2.0943951f);
+    const glm::mat3 A = C - lmin * glm::mat3(1.0f);
+    const glm::vec3 r0(A[0][0], A[1][0], A[2][0]), r1(A[0][1], A[1][1], A[2][1]), r2(A[0][2], A[1][2], A[2][2]);
+    glm::vec3 c0 = glm::cross(r0, r1), c1 = glm::cross(r0, r2), c2 = glm::cross(r1, r2);
+    float d0 = glm::dot(c0, c0), d1 = glm::dot(c1, c1), d2 = glm::dot(c2, c2);
+    vec = d0 >= d1 && d0 >= d2 ? c0 : d1 >= d2 ? c1 : c2;
+    const float len = glm::length(vec);
+    vec = len > 1e-12f ? vec / len : glm::vec3(0, 1, 0);
+}
+} // namespace
+
+glm::vec4 Liquid::dropShape(const glm::vec3& center, const std::vector<glm::vec3>& near, glm::vec3& smoothed) {
+    smoothed = center;
+    if (near.size() < 4) return glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);   // on its own: a round droplet
+    // Neighbours weighted by closeness: their middle, and how they're spread (covariance).
+    float wsum = 1.0f;
+    glm::vec3 mean = center;
+    for (const glm::vec3& q : near) {
+        const float t = glm::length(q - center) / kH;
+        const float w = 1.0f - t * t * t;
+        mean += q * w;
+        wsum += w;
+    }
+    mean /= wsum;
+    glm::mat3 C(0.0f);
+    for (const glm::vec3& q : near) {
+        const float t = glm::length(q - center) / kH;
+        const float w = 1.0f - t * t * t;
+        const glm::vec3 d = q - mean;
+        C += w * glm::outerProduct(d, d);
+    }
+    C /= wsum;
+    glm::vec3 axis;
+    float lmin, lmax;
+    smallestEigen(C, axis, lmin, lmax);
+    // Round inside the liquid; flat where the neighbours lie in a sheet (a surface, a
+    // film on the floor). Drawn a little towards its neighbours, which smooths the surface.
+    const float flat = glm::clamp(std::sqrt(std::max(lmin, 0.0f) / std::max(lmax, 1e-8f)) * 1.6f, 0.25f, 1.0f);
+    smoothed = glm::mix(center, mean, 0.85f);
+    return glm::vec4(axis, flat);
 }
 
 bool Liquid::isWet(uint64_t partId) const {

@@ -53,7 +53,8 @@ struct GraphicsSettings {
     // Real liquid at this water quality: how sharp it's drawn (a fraction of the
     // screen), how many smoothing passes, and the most drops at once.
     float waterScale() const  { return waterQuality <= 0 ? 0.5f : waterQuality == 1 ? 0.75f : 1.0f; }
-    int   waterBlurPasses() const { return waterQuality <= 0 ? 1 : waterQuality >= 3 ? 3 : 2; }
+    int   waterBlurPasses() const { return waterQuality <= 0 ? 2 : waterQuality == 1 ? 3 : 4; }
+    bool  waterReflections() const { return waterQuality >= 1; }   // mirror the scene (Medium and up)
     int   waterMaxDrops() const { return waterQuality <= 0 ? 25000 : waterQuality == 1 ? 60000 : waterQuality == 2 ? 100000 : 1 << 20; }
 
     void applyPreset(int q);

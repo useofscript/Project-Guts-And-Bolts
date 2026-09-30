@@ -28,9 +28,9 @@ constexpr uint32_t kGroup = 128;          // threads per work group (every OpenG
 constexpr uint32_t kBlock = kGroup * 8;   // cells per prefix-sum block
 
 enum Kernel { EMIT, SETCOUNT, PREDICT, CLEAR, COUNT, SCAN1, SCAN2, SCAN3, SCATTER, FINISH,
-              LAMBDA, DELTA, VELOCITY, VISCOSITY, STATS, KERNELS };
+              LAMBDA, DELTA, VELOCITY, VISCOSITY, STATS, SHAPE, KERNELS };
 const char* kKernelNames[KERNELS] = {"EMIT", "SETCOUNT", "PREDICT", "CLEAR", "COUNT", "SCAN1", "SCAN2", "SCAN3",
-                                     "SCATTER", "FINISH", "LAMBDA", "DELTA", "VELOCITY", "VISCOSITY", "STATS"};
+                                     "SCATTER", "FINISH", "LAMBDA", "DELTA", "VELOCITY", "VISCOSITY", "STATS", "SHAPE"};
 bool kUsesCollide(int k) { return k == PREDICT || k == DELTA || k == VISCOSITY; }
 
 const char* kCommon = R"(
@@ -497,6 +497,67 @@ void main() {
 }
 #endif
 
+// Once a frame, for drawing: each drop's shape from where its neighbours are
+// (Yu & Turk's anisotropic kernels, as in Liquid::dropShape): flat along a surface
+// or a film, round inside. Writes two vec4s a drop: (smoothed position, w), (axis, flatness).
+#ifdef K_SHAPE
+layout(std430, binding = 0) readonly buffer BX { vec4 X[]; };
+layout(std430, binding = 4) writeonly buffer BD { vec4 D[]; };
+void smallestEigen(mat3 C, out vec3 vec, out float lmin, out float lmax) {
+    float p1 = C[0][1] * C[0][1] + C[0][2] * C[0][2] + C[1][2] * C[1][2];
+    float q = (C[0][0] + C[1][1] + C[2][2]) / 3.0;
+    float p2 = (C[0][0] - q) * (C[0][0] - q) + (C[1][1] - q) * (C[1][1] - q) + (C[2][2] - q) * (C[2][2] - q) + 2.0 * p1;
+    float p = sqrt(p2 / 6.0);
+    if (p < 1e-9) { vec = vec3(0.0, 1.0, 0.0); lmin = q; lmax = q; return; }
+    mat3 B = (C - q * mat3(1.0)) * (1.0 / p);
+    float r = clamp(determinant(B) * 0.5, -1.0, 1.0);
+    float phi = acos(r) / 3.0;
+    lmax = q + 2.0 * p * cos(phi);
+    lmin = q + 2.0 * p * cos(phi + 2.0943951);
+    mat3 A = C - lmin * mat3(1.0);
+    vec3 r0 = vec3(A[0][0], A[1][0], A[2][0]), r1 = vec3(A[0][1], A[1][1], A[2][1]), r2 = vec3(A[0][2], A[1][2], A[2][2]);
+    vec3 c0 = cross(r0, r1), c1 = cross(r0, r2), c2 = cross(r1, r2);
+    float d0 = dot(c0, c0), d1 = dot(c1, c1), d2 = dot(c2, c2);
+    vec = d0 >= d1 && d0 >= d2 ? c0 : (d1 >= d2 ? c1 : c2);
+    float len = length(vec);
+    vec = len > 1e-12 ? vec / len : vec3(0.0, 1.0, 0.0);
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= g[0]) return;
+    vec4 xi = X[i];
+    vec3 c = xi.xyz;
+    float wsum = 1.0, n = 0.0;
+    vec3 mean = c;
+    FOR_NEIGHBOURS(c, {
+        if (j == i) continue;
+        vec3 q = X[j].xyz;
+        float t = length(q - c) / kH;
+        if (t >= 1.0) continue;
+        float w = 1.0 - t * t * t;
+        mean += q * w; wsum += w; n += 1.0;
+    })
+    mean /= wsum;
+    if (n < 4.0) { D[2u * i] = xi; D[2u * i + 1u] = vec4(0.0, 1.0, 0.0, 1.0); return; }   // a round droplet
+    mat3 C = mat3(0.0);
+    FOR_NEIGHBOURS(c, {
+        if (j == i) continue;
+        vec3 q = X[j].xyz;
+        float t = length(q - c) / kH;
+        if (t >= 1.0) continue;
+        float w = 1.0 - t * t * t;
+        vec3 d = q - mean;
+        C += w * outerProduct(d, d);
+    })
+    C /= wsum;
+    vec3 axis; float lmin, lmax;
+    smallestEigen(C, axis, lmin, lmax);
+    float flatness = clamp(sqrt(max(lmin, 0.0) / max(lmax, 1e-8)) * 1.6, 0.25, 1.0);
+    D[2u * i] = vec4(mix(c, mean, 0.85), xi.w);
+    D[2u * i + 1u] = vec4(axis, flatness);
+}
+#endif
+
 // Once a frame: the box around all the liquid, the fastest drop, and how much
 // liquid is around each probe (people, floating things).
 #ifdef K_STATS
@@ -620,14 +681,14 @@ LiquidGpu::LiquidGpu() = default;
 LiquidGpu::~LiquidGpu() {
     for (unsigned& p : m_prog) if (p) glDeleteProgram(p);
     unsigned* bufs[] = {&m_x[0], &m_x[1], &m_v[0], &m_v[1], &m_p[0], &m_p[1], &m_scratch, &m_lambda,
-                        &m_key, &m_grid, &m_coll, &m_cgrid, &m_in, &m_touched};
+                        &m_key, &m_grid, &m_coll, &m_cgrid, &m_in, &m_touched, &m_shape};
     for (unsigned* b : bufs) if (*b) glDeleteBuffers(1, b);
 }
 
 void LiquidGpu::forget() {
     for (unsigned& p : m_prog) p = 0;
     m_x[0] = m_x[1] = m_v[0] = m_v[1] = m_p[0] = m_p[1] = 0;
-    m_scratch = m_lambda = m_key = m_grid = m_coll = m_cgrid = m_in = m_touched = 0;
+    m_scratch = m_lambda = m_key = m_grid = m_coll = m_cgrid = m_in = m_touched = m_shape = 0;
 }
 
 bool LiquidGpu::supported(std::string* why) {
@@ -684,6 +745,7 @@ void LiquidGpu::allocate(uint32_t cap) {
     makeBuffer(m_scratch, (size_t)cap * 16);
     makeBuffer(m_lambda, (size_t)cap * 4);
     makeBuffer(m_key, (size_t)cap * 8);
+    makeBuffer(m_shape, (size_t)cap * 32);
     const size_t blocks = (table + 1 + kBlock - 1) / kBlock;
     makeBuffer(m_grid, (kState + 2 * (size_t)(table + 1) + blocks + 16) * 4);
     if (had) {
@@ -942,6 +1004,12 @@ void LiquidGpu::step(float dt, const glm::vec3& gravity, const std::vector<glm::
 
 void LiquidGpu::endFrame(const std::vector<glm::vec4>& probes) {
     m_probes.assign(probes.begin(), probes.begin() + std::min<size_t>(probes.size(), kMaxProbes));
+    // Each drop's shape for drawing.
+    glUseProgram(m_prog[SHAPE]);
+    glUniform1ui(U(m_prog[SHAPE], "uT"), m_table);
+    bind(3, m_grid); bind(0, m_x[m_cur]); bind(4, m_shape);
+    dispatchDrops();
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     glUseProgram(m_prog[STATS]);
     glUniform1ui(U(m_prog[STATS], "uT"), m_table);
     bind(3, m_grid); bind(0, m_x[m_cur]); bind(1, m_v[m_cur]);

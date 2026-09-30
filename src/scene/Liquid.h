@@ -47,9 +47,15 @@ public:
     void update(float dt, Scene& scene);
     bool active() const { return m_active; }
 
-    // Drops for drawing: position, and w = how fast it's going (white water at speed).
+    // Drops for drawing, two vec4s each: (position, w) and (shape axis, flatness).
+    // w = kind of liquid x 4096 + neighbours x 64 + speed. Each drop is drawn as a
+    // squashed ball lined up with its neighbours (flat along the surface, round
+    // inside), so a surface or a film on the floor comes out smooth, not bumpy.
     // Empty when the graphics card has them (see gpuDrawBuffer()).
     const std::vector<glm::vec4>& drawList() const { return m_draw; }
+    // A drop's shape from where its neighbours are (Yu & Turk's anisotropic kernels):
+    // the direction they're least spread along, and how flat to make it (1 = round).
+    static glm::vec4 dropShape(const glm::vec3& center, const std::vector<glm::vec3>& near, glm::vec3& smoothed);
     size_t count() const;
     bool onGpu() const { return (bool)m_gpu; }
     const char* backend() const { return m_gpu ? "gpu" : "cpu"; }

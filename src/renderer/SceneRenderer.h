@@ -51,6 +51,8 @@ private:
     unsigned int m_fluidVao = 0, m_fluidVbo = 0;
     ShadowMap               m_shadow, m_shadowNear;   // wide, and sharp close to the camera
     int                     m_shadowRes = 0;
+    glm::mat4               m_lightSpace{1.0f};       // (the wide shadow map's, for the water)
+    bool                    m_shadowsOn = false;
 
     static constexpr int kBloomLevels = 6;
     Target m_hdr, m_ao, m_ldr, m_bloom[kBloomLevels];

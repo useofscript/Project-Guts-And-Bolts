@@ -68,8 +68,9 @@ public:
     void clear();                                      // no drops
     void forget();                                     // the graphics context is gone: just let go of it all
 
-    // For the renderer: the buffer of drops (vec4: position, speed) and the draw command.
-    unsigned drawBuffer() const { return m_x[m_cur]; }
+    // For the renderer: the buffer of drops (two vec4s each: (position, w), (shape
+    // axis, flatness); see Liquid::drawList) and the draw command.
+    unsigned drawBuffer() const { return m_shape; }
     unsigned commandBuffer() const { return m_grid; }
     static constexpr unsigned kDrawCommandOffset = 16;   // bytes into commandBuffer()
 
@@ -82,7 +83,7 @@ private:
 
     unsigned m_prog[16] = {};
     unsigned m_x[2] = {}, m_v[2] = {}, m_p[2] = {};
-    unsigned m_scratch = 0, m_lambda = 0, m_key = 0, m_grid = 0, m_coll = 0, m_cgrid = 0, m_in = 0, m_touched = 0;
+    unsigned m_scratch = 0, m_lambda = 0, m_key = 0, m_grid = 0, m_coll = 0, m_cgrid = 0, m_in = 0, m_touched = 0, m_shape = 0;
     size_t m_touchedCap = 0;
     int m_cur = 0, m_pcur = 0;
     uint32_t m_cap = 0, m_table = 0;

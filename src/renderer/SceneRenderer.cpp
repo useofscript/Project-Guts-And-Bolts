@@ -263,6 +263,8 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     glm::mat4 lightSpace = lightProj * lightView0;
     bool shadows = env.shadows && env.sunElevation > -5.0f;
     if (shadows) renderShadowPass(scene, lightSpace, m_shadow);
+    m_lightSpace = lightSpace;
+    m_shadowsOn = shadows;
     // The sharp one: the same, but only ~20 studs round the camera's focus.
     const float extentNear = std::min(extent, 20.0f);
     const float texelNear  = (2.0f * extentNear) / (float)m_shadowNear.size();
@@ -814,7 +816,7 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
         glBindVertexArray(m_fluidVao);
         glBindBuffer(GL_ARRAY_BUFFER, m_fluidVbo);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), nullptr);
+        glEnableVertexAttribArray(1);
     }
     glBindVertexArray(m_fluidVao);
     if (onGpu) {
@@ -824,10 +826,12 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
         glBindBuffer(GL_ARRAY_BUFFER, m_fluidVbo);
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(drops.size() * sizeof(glm::vec4)), drops.data(), GL_STREAM_DRAW);
     }
-    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), nullptr);
+    // Two vec4s a drop: (position, w) and (shape axis, flatness).
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::vec4), nullptr);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::vec4), (const void*)sizeof(glm::vec4));
     auto drawDrops = [&]() {
         if (onGpu) glDrawArraysIndirect(GL_POINTS, (const void*)(uintptr_t)Liquid::gpuDrawCommandOffset());
-        else glDrawArrays(GL_POINTS, 0, (GLsizei)drops.size());
+        else glDrawArrays(GL_POINTS, 0, (GLsizei)(drops.size() / 2));
     };
     auto done = [&]() {
         if (onGpu) glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -931,18 +935,22 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     glBindVertexArray(m_emptyVao);
     m_fluidBlur->bind();
     m_fluidBlur->setInt("uSrc", 0);
-    m_fluidBlur->setFloat("uWorldBlur", Liquid::kRadius * 2.4f);
+    m_fluidBlur->setFloat("uRange", 0.45f);   // studs: bigger depth jumps are edges
     m_fluidBlur->setFloat("uPointScale", fluidScale);
+    m_fluidBlur->setVec2("uTexel", texel);
+    float step = 0.06f;   // studs; doubles every pass (4 passes reach ~1.8 studs)
     for (int pass = 0; pass < gq.waterBlurPasses(); ++pass) {
         bindTarget(m_fTmp);
         bindTex(0, m_fDepth.color);
-        m_fluidBlur->setVec2("uDir", glm::vec2(texel.x, 0.0f));
+        m_fluidBlur->setFloat("uStep", step);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        step *= 2.0f;
         glBindFramebuffer(GL_FRAMEBUFFER, m_fDepth.fbo);
         glViewport(0, 0, fw, fh);
         bindTex(0, m_fTmp.color);
-        m_fluidBlur->setVec2("uDir", glm::vec2(0.0f, texel.y));
+        m_fluidBlur->setFloat("uStep", step);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        step *= 2.0f;
     }
 
     // 4. The scene behind the water (and how far away it is), then the lit surface on top of it.
@@ -972,6 +980,12 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
     m_fluidShade->setBool("uTinted", tinted);
     m_fluidShade->setVec3("uTint", palette[0]);
     bindTex(4, m_fColor.color); m_fluidShade->setInt("uColorTex", 4);
+    m_fluidShade->setBool("uWaterShadows", m_shadowsOn);
+    m_shadow.bindForRead(5); m_fluidShade->setInt("uShadowMap", 5);
+    m_fluidShade->setMat4("uLightSpace", m_lightSpace);
+    m_fluidShade->setFloat("uShadowStrength", env.shadowStrength);
+    m_fluidShade->setBool("uReflections", gq.waterReflections());
+    m_fluidShade->setFloat("uTime", (float)(now() - m_startTime));
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glDepthFunc(GL_LESS);
     glActiveTexture(GL_TEXTURE0);
