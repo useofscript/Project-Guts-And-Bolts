@@ -116,7 +116,9 @@ private:
 
     // Files
     void newScene();
-    void saveFile(const std::string& path);
+    // Save to a file. A game that's published is sent to the server too (`sync`), so the
+    // website always has the newest version.
+    void saveFile(const std::string& path, bool sync = true);
     void save();
     void updateTitle();
     void exportRoblox(bool selectionOnly);

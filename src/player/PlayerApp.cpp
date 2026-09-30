@@ -236,6 +236,15 @@ void PlayerApp::run() {
                     break;
                 }
         }
+        // Test helper: publish a game file (like the Publish button on My Games).
+        if (!m_opts.testPublish.empty() && m_frame == 60) {
+            std::printf("PUBLISH %s (online %d)\n", m_opts.testPublish.c_str(), (int)Online::online());
+            std::fflush(stdout);
+            publishGameFile(m_opts.testPublish, std::string(), [](bool ok, const std::string& msg) {
+                std::printf("PUBLISHED %d %s\n", (int)ok, msg.c_str());
+                std::fflush(stdout);
+            });
+        }
         // Test helper: drive the tool hotbar, one step every 25 frames.
         if (!m_opts.testTools.empty() && m_page == Page::Game && m_frame > 40 && m_frame % 25 == 0) {
             size_t sp = m_opts.testTools.find(' ');
@@ -2072,6 +2081,30 @@ void PlayerApp::drawStaff() {
 
     if (Online::online()) drawOnlineStaff();   // verify people straight from the server
     if (!official) return;   // the rest is for the official account only
+
+    // The sample games that come with Guts&Bolts, put on the server as official games
+    // (so the website has them for everyone, not just people who installed the apps).
+    if (Online::online()) {
+        ImGui::SeparatorText("Official games on the website");
+        int waiting = 0;
+        for (const GameCard& g : m_games)
+            if (!g.broken && g.info.author == "Guts and Bolts" && g.info.publishedId.empty()) ++waiting;
+        ImGui::PushTextWrapPos(0);
+        if (waiting)
+            ImGui::TextDisabled("%d sample game%s on this computer %s not on the server yet.", waiting,
+                                waiting == 1 ? "" : "s", waiting == 1 ? "is" : "are");
+        else
+            ImGui::TextDisabled("All the sample games on this computer are on the server.");
+        ImGui::PopTextWrapPos();
+        if (waiting && Classic::button("Put the sample games online", Classic::kPlay, ImVec2(240, 30))) {
+            m_staffMsg = "Publishing the sample games...";
+            for (const GameCard& g : m_games) {
+                if (g.broken || g.info.author != "Guts and Bolts" || !g.info.publishedId.empty()) continue;
+                publishGameFile(g.path, g.thumb ? g.thumb->toPng() : std::string(),
+                                [this](bool, const std::string& msg) { m_staffMsg = msg; });
+            }
+        }
+    }
 
     ImGui::SeparatorText("Give someone Bolts");
     ImGui::PushTextWrapPos(0);

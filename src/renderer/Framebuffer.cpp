@@ -1,4 +1,7 @@
 #include "Framebuffer.h"
+#include <stb_image_write.h>   // (its code is in Textures.cpp)
+#include <algorithm>
+#include <vector>
 
 void Framebuffer::resize(int w, int h) {
     if (w == m_w && h == m_h) return;
@@ -41,4 +44,25 @@ void Framebuffer::bind() const {
 
 void Framebuffer::unbind() const {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+std::string Framebuffer::toPng() const {
+    const int w = m_w, h = m_h;
+    if (w <= 0 || h <= 0) return {};
+    std::vector<unsigned char> px((size_t)w * h * 4);
+    bind();
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    unbind();
+    // OpenGL's rows go bottom-up; pictures go top-down. And no see-through pixels.
+    std::vector<unsigned char> img(px.size());
+    const size_t row = (size_t)w * 4;
+    for (int y = 0; y < h; ++y)
+        std::copy(px.begin() + (size_t)(h - 1 - y) * row, px.begin() + (size_t)(h - y) * row, img.begin() + (size_t)y * row);
+    for (size_t i = 3; i < img.size(); i += 4) img[i] = 255;
+    std::string out;
+    stbi_write_png_to_func([](void* ctx, void* data, int size) {
+        static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
+    }, &out, w, h, 4, img.data(), (int)row);
+    return out;
 }

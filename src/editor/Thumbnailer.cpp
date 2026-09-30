@@ -87,25 +87,7 @@ void Thumbnailer::shoot(Scene& scene, Framebuffer& fb, int size) {
     m_renderer->render(scene, cam, fb, false);
 }
 
-std::string Thumbnailer::toPng(Framebuffer& fb) {
-    const int w = fb.width(), h = fb.height();
-    std::vector<unsigned char> px((size_t)w * h * 4);
-    fb.bind();
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-    fb.unbind();
-    // OpenGL's rows go bottom-up; pictures go top-down. And no see-through pixels.
-    std::vector<unsigned char> img(px.size());
-    const size_t row = (size_t)w * 4;
-    for (int y = 0; y < h; ++y)
-        std::copy(px.begin() + (size_t)(h - 1 - y) * row, px.begin() + (size_t)(h - y) * row, img.begin() + (size_t)y * row);
-    for (size_t i = 3; i < img.size(); i += 4) img[i] = 255;
-    std::string out;
-    stbi_write_png_to_func([](void* ctx, void* data, int size) {
-        static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
-    }, &out, w, h, 4, img.data(), (int)row);
-    return out;
-}
+std::string Thumbnailer::toPng(Framebuffer& fb) { return fb.toPng(); }
 
 std::string Thumbnailer::png(const std::function<void(Scene&)>& build, int size) {
     Scene scene;

@@ -134,7 +134,12 @@ void Editor::renderPublishDialog() {
                 }, 60);
             m_scene->info().title = m_publishName;
             m_scene->info().description = m_publishDesc;
-            m_publishMsg = "Published! It's on the site's home page now. (Save your game to remember it's published.)";
+            if (!m_path.empty()) {
+                saveFile(m_path, false);   // remember it's published (the server already has this version)
+                m_publishMsg = "Published! It's on the website now, and saving updates it there too.";
+            } else {
+                m_publishMsg = "Published! It's on the website now. Save your game so Studio remembers it's published.";
+            }
             Log::system("Published \"" + m_publishName + "\" to " + Online::serverInfo().value("name", std::string("the server")));
         }, 120);
     };

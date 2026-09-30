@@ -4,6 +4,7 @@
 #include "../game/Profile.h"
 #include "../scene/EditMesh.h"
 #include "../online/OnlineClient.h"
+#include "../online/Protocol.h"
 #include "Plugins.h"
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
@@ -702,7 +703,7 @@ void Editor::exportRoblox(bool selectionOnly) {
     }
 }
 
-void Editor::saveFile(const std::string& path) {
+void Editor::saveFile(const std::string& path, bool sync) {
     if (m_playing) togglePlay();
     // A new game is signed by whoever made it (it shows on the site's Create page).
     GameInfo& info = m_scene->info();
@@ -711,7 +712,24 @@ void Editor::saveFile(const std::string& path) {
     if (Serializer::writeFile(path, Serializer::saveScene(*m_scene, true))) {
         m_path  = path;
         m_dirty = false;
-        Log::system("Saved to " + path + "  (it now shows up in Guts&BoltsPlayer)");
+        const std::string& published = info.publishedId;
+        if (published.empty()) {
+            Log::system("Saved to " + path + ". It's only on this computer: use File > Publish to put it online "
+                        "for everyone (and on the website).");
+        } else if (sync && Online::online()) {
+            // Published: send the new version to the server, so the website and everyone playing it get it.
+            Log::system("Saved to " + path + ". Updating the published game...");
+            nlohmann::json args = {{"id", published}, {"name", info.title}, {"description", info.description},
+                         {"data", Online::base64Encode(Serializer::saveScene(*m_scene))}};
+            Online::request("update", args, [](const nlohmann::json& r) {
+                if (r.value("ok", false)) Log::system("The published game is up to date on the server.");
+                else Log::warn("Saved, but the server didn't take the update: " + r.value("error", std::string()) +
+                               " (File > Publish to try again.)");
+            }, 120);
+        } else {
+            Log::system("Saved to " + path + ". You're offline, so the published game wasn't updated: "
+                        "save again (or File > Publish) when you're back online.");
+        }
     } else {
         Log::error("Couldn't save to " + path);
     }
