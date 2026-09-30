@@ -43,6 +43,11 @@ void Profile::load() {
     if (!j.value("serverChecked", false) && server.empty()) server = Online::kOfficialServer;
     strings("wearing", wearing);
     avatarUpdated = j.value("avatarUpdated", 0LL);
+    auto safeImage = [](std::string s) {   // only server clothing pictures
+        return s.rfind("gb:", 0) == 0 && s.size() < 64 ? s : std::string();
+    };
+    shirtImage = safeImage(j.value("shirtImage", std::string()));
+    pantsImage = safeImage(j.value("pantsImage", std::string()));
     // Nobody else gets to be called Guts, even by editing profile.json.
     if (Account::nameIsReserved(name) && !Account::iAmStaff()) name = "Player";
     hatColor        = vec(j, "hatColor", hatColor);
@@ -61,7 +66,7 @@ void Profile::save() const {
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
         {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server}, {"serverChecked", true},
-        {"avatarUpdated", avatarUpdated},
+        {"avatarUpdated", avatarUpdated}, {"shirtImage", shirtImage}, {"pantsImage", pantsImage},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

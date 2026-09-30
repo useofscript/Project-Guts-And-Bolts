@@ -18,6 +18,50 @@ struct Part {
     glm::vec3 position{0.0f}, size{1.0f};
 };
 
+// The clothing template (the classic 585 x 559 shirt / pants picture): where each
+// side of each body part goes, in pixels. Shirts use Torso and the arms; pants use
+// Torso and the legs, drawn in the arms' places. tools/make_clothing_template.py
+// draws the same layout.
+struct Rect { float x, y, w, h; };
+struct BoxLayout { Rect front, back, right, left, up, down; };
+constexpr float kTemplateW = 585.0f, kTemplateH = 559.0f;
+constexpr BoxLayout kTorso = {{231, 74, 128, 128}, {427, 74, 128, 128}, {165, 74, 64, 128},
+                              {361, 74, 64, 128}, {231, 8, 128, 64}, {231, 204, 128, 64}};
+// Right arm / right leg (bottom left of the picture) and left arm / left leg (bottom right).
+constexpr BoxLayout kRightLimb = {{217, 355, 64, 128}, {85, 355, 64, 128}, {151, 355, 64, 128},
+                                  {19, 355, 64, 128}, {217, 289, 64, 64}, {217, 485, 64, 64}};
+constexpr BoxLayout kLeftLimb = {{308, 355, 64, 128}, {440, 355, 64, 128}, {506, 355, 64, 128},
+                                 {374, 355, 64, 128}, {308, 289, 64, 64}, {308, 485, 64, 64}};
+
+// Lay a body part (its points are -0.5..0.5) out on the template: each face goes on
+// the side of the box it faces, seen from outside, the same way up as the character.
+// (In the model the character faces +Z, so its right side is -X.)
+void layOut(EditMesh& m, const BoxLayout& L) {
+    m.uvs.clear();
+    for (const auto& f : m.faces) {
+        glm::vec3 n = MeshEdit::faceNormal(m, f), a = glm::abs(n);
+        std::vector<glm::vec2> uv;
+        for (uint32_t i : f) {
+            glm::vec3 p = glm::clamp(m.verts[i], glm::vec3(-0.5f), glm::vec3(0.5f));
+            Rect r; float s, t;   // s: 0 = left of the picture, t: 0 = top
+            if (a.y >= a.x && a.y >= a.z) {
+                if (n.y > 0) { r = L.up;   s = p.x + 0.5f; t = p.z + 0.5f; }
+                else         { r = L.down; s = p.x + 0.5f; t = 0.5f - p.z; }
+            } else if (a.x >= a.z) {
+                if (n.x < 0) { r = L.right; s = p.z + 0.5f; t = 0.5f - p.y; }
+                else         { r = L.left;  s = 0.5f - p.z; t = 0.5f - p.y; }
+            } else {
+                if (n.z > 0) { r = L.front; s = p.x + 0.5f; t = 0.5f - p.y; }
+                else         { r = L.back;  s = 0.5f - p.x; t = 0.5f - p.y; }
+            }
+            // Half a pixel in from the edges so neighbours don't bleed in.
+            float x = r.x + 0.5f + s * (r.w - 1.0f), y = r.y + 0.5f + t * (r.h - 1.0f);
+            uv.push_back({x / kTemplateW, 1.0f - y / kTemplateH});   // pictures load bottom row first
+        }
+        m.uvs.push_back(std::move(uv));
+    }
+}
+
 std::map<std::string, Part>& parts() {
     static std::map<std::string, Part> p = [] {
         std::map<std::string, Part> out;
@@ -25,6 +69,11 @@ std::map<std::string, Part>& parts() {
         for (auto& [name, o] : ObjImport::parse(text)) {
             std::string rig = name;   // "Left_Arm" in the file -> "Left Arm" on the rig
             for (char& c : rig) if (c == '_') c = ' ';
+            if (rig == "Torso") layOut(*o.mesh, kTorso);
+            // By where they are, not their names: the limbs on the character's right (-X)
+            // use the template's right-limb boxes.
+            else if (rig != "Head" && o.center.x < 0.0f) layOut(*o.mesh, kRightLimb);
+            else if (rig != "Head") layOut(*o.mesh, kLeftLimb);
             out[rig] = {o.mesh, nullptr, o.center * kScale, o.size * kScale};
         }
         return out;

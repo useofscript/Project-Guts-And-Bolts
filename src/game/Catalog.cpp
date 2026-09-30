@@ -139,6 +139,7 @@ Item fromServer(const json& a) {
     if (a.contains("meta") && a["meta"].is_object()) {
         const json& m = a["meta"];
         it.hat = (HatStyle)std::clamp(m.value("style", 2), 1, 3);
+        if (m.value("image", false) && it.type != Type::Hat) it.image = "gb:" + it.id;
         if (m.contains("color") && m["color"].is_array() && m["color"].size() == 3)
             it.color = {m["color"][0].get<int>() / 255.0f, m["color"][1].get<int>() / 255.0f, m["color"][2].get<int>() / 255.0f};
     }
@@ -176,10 +177,12 @@ void applyLook(const Item& it) {
             me.hatColor = it.color;
             break;
         case Type::Shirt:
-            me.colors.torso = me.colors.leftArm = me.colors.rightArm = it.color;
+            if (it.image.empty()) me.colors.torso = me.colors.leftArm = me.colors.rightArm = it.color;
+            me.shirtImage = it.image;
             break;
         case Type::Pants:
-            me.colors.leftLeg = me.colors.rightLeg = it.color;
+            if (it.image.empty()) me.colors.leftLeg = me.colors.rightLeg = it.color;
+            me.pantsImage = it.image;
             break;
         default: break;
     }

@@ -63,6 +63,7 @@ in vec3 vWorldPos;
 in vec2 vUV;
 
 uniform bool      uUseDecal;   // drawing a Decal: its picture colours the surface
+uniform bool      uClothing;   // a shirt / pants picture (uDecal) painted over the part's colour
 uniform sampler2D uDecal;
 
 uniform vec3  uColor;
@@ -190,6 +191,10 @@ void main() {
         if (px.a < 0.01) discard;
         albedo *= lin(px.rgb);
         decalAlpha = px.a;
+    }
+    if (uClothing) {   // see-through bits of the clothing show the body colour
+        vec4 px = texture(uDecal, vUV);
+        albedo = mix(albedo, lin(px.rgb), px.a);
     }
 
     // --- Material look ---

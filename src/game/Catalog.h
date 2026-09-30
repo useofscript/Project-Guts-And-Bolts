@@ -19,6 +19,7 @@ struct Item {
     Type        type  = Type::Hat;
     HatStyle    hat   = HatStyle::Cap;     // hats only
     glm::vec3   color = glm::vec3(1.0f);
+    std::string image;                     // shirts / pants: "gb:<id>" when it has a template picture
     long long   created = 0;               // unix time
     long long   price = 0;                 // in Bolts; 0 = free
     std::string signature;

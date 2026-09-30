@@ -59,7 +59,21 @@ void Player::build() {
     SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
     m_rootId = r->id;
     setHat(m_hat, m_hatTint);
+    applyClothing(r, m_shirt, m_pants);
     m_scene->markDirty();
+}
+
+void Player::setClothing(const std::string& shirt, const std::string& pants) {
+    m_shirt = shirt;
+    m_pants = pants;
+    if (SceneNode* r = root()) applyClothing(r, shirt, pants);
+}
+
+void Player::applyClothing(SceneNode* r, const std::string& shirt, const std::string& pants) {
+    auto set = [&](const char* n, const std::string& t) { if (SceneNode* p = r->findChild(n)) p->texture = t; };
+    set("Torso", shirt.empty() ? pants : shirt);
+    set("Left Arm", shirt); set("Right Arm", shirt);
+    set("Left Leg", pants); set("Right Leg", pants);
 }
 
 SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::vec3& feet) {

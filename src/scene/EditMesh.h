@@ -18,6 +18,9 @@ struct EditMesh {
     std::vector<glm::vec3>             verts;
     std::vector<std::vector<uint32_t>> faces;
     bool                               smooth = false;   // smooth shading (no hard edges)
+    // Optional texture coordinates, one per corner of each face (the character's
+    // clothing layout). Empty, or out of step with `faces` after an edit = box mapping.
+    std::vector<std::vector<glm::vec2>> uvs;
 };
 
 namespace MeshEdit {

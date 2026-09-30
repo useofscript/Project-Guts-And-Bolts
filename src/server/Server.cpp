@@ -542,6 +542,17 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             return fail("That's too big (the most is " + std::to_string(Online::maxSize(kind) / 1024) + " KB).");
         json meta = args.contains("meta") && args["meta"].is_object() ? args["meta"] : json::object();
         if (meta.dump().size() > 4096) return fail("Too much extra information.");
+        meta.erase("image");
+        if (kind == "hat") data.clear();
+        if ((kind == "shirt" || kind == "pants") && !data.empty()) {   // a clothing template picture
+            auto u = [&](size_t i) { return (uint32_t)(unsigned char)data[i]; };
+            if (data.size() < 24 || data.compare(1, 3, "PNG") != 0)
+                return fail("Clothing pictures must be .png files made from the template.");
+            uint32_t w = u(16) << 24 | u(17) << 16 | u(18) << 8 | u(19), h = u(20) << 24 | u(21) << 16 | u(22) << 8 | u(23);
+            if (w != 585 || h != 559) return fail("Clothing pictures must be 585 x 559 (the template's size).");
+            meta["image"] = true;
+            meta["ext"] = "png";
+        }
         if (kind == "audio") {
             std::string ext = lower(meta.value("ext", std::string()));
             if (ext != "mp3" && ext != "wav" && ext != "ogg" && ext != "flac") return fail("Audio must be .mp3, .wav, .ogg or .flac.");

@@ -16,6 +16,7 @@ struct Profile {
     std::vector<std::pair<std::string, std::string>> grants;   // official badges: {badge, signature}
     std::vector<std::string> inventory;   // catalog item ids you own
     std::vector<std::string> wearing;     // catalog item ids you have on
+    std::string shirtImage, pantsImage;   // clothing pictures being worn ("gb:<id>"), "" = none
     long long   avatarUpdated = 0;        // when the avatar was last saved on the server (to keep the website in step)
     std::string server;                   // Guts&Bolts server to use ("" = offline); new players get the official one
 
@@ -32,6 +33,7 @@ struct Profile {
     void applyTo(Player& player) const {
         player.setBodyColors(colors);
         player.setHat(hat, hatColor);
+        player.setClothing(shirtImage, pantsImage);
     }
 
     static Profile& get();

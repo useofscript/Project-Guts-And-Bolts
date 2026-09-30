@@ -40,6 +40,7 @@ size_t maxSize(const std::string& k) {
     if (k == "game") return kMaxGame;
     if (k == "plugin") return kMaxPlugin;
     if (k == "decal") return kMaxDecal;
+    if (k == "shirt" || k == "pants") return 1024u * 1024u;   // an optional template picture
     return 64u * 1024u;   // clothing is just a little description of the look
 }
 

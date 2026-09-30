@@ -929,6 +929,20 @@ make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
 sharing personal info, exploiting, spam and so on) and an optional note; the
 banned player sees them when they try to sign in.
 
+### Clothing templates
+
+Shirts and pants can have a **picture**, like classic Roblox clothing. Get the
+template (the website's Create page links **shirt template** and **pants
+template**; the app's Create page has **Save the template**; they're also in
+`assets/templates/`). It's a 585 x 559 picture with a box for every side of the
+torso and each arm (shirts) or leg (pants): **R** and **L** are the
+character's own right and left. Paint over the boxes, save it as a .png, and
+pick it as the **Picture** when you upload the shirt or pants. Anything you
+leave see-through shows the clothing's colour.
+
+`tools/make_clothing_template.py` redraws the templates; the layout lives in
+`src/scene/PlayerModel.cpp`.
+
 ### Finding games: genres, votes and sorting
 
 On the website, a game's **Configure** page lets its creator pick up to 3

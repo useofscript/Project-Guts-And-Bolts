@@ -112,6 +112,10 @@ public:
     HatStyle   hat() const { return m_hat; }
     void       setHat(HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));
     void       rememberHat(HatStyle style) { m_hat = style; }   // no rebuild (loading)
+    // Clothing pictures (the 585 x 559 template): "gb:<id>" or a file; "" = none.
+    // The shirt goes on the torso and arms, pants on the legs (and the torso if no shirt).
+    void       setClothing(const std::string& shirt, const std::string& pants);
+    static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants);
 
     static const char* hatName(HatStyle s);
 
@@ -161,6 +165,7 @@ private:
     Humanoid m_humanoid;
     HatStyle m_hat = HatStyle::None;
     glm::vec3 m_hatTint = glm::vec3(-1.0f);
+    std::string m_shirt, m_pants;
 
     glm::vec3 m_spawn{0.0f};
     glm::vec3 m_velocity{0.0f};

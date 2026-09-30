@@ -203,6 +203,7 @@ json toJson(const SceneNode& n) {
         j["gui"] = guiToJson(n.gui);
         j["enabled"] = n.enabled;
     }
+    if (n.isPart() && !n.texture.empty()) j["texture"] = n.texture;   // clothing pictures on a character
     if (n.kind == NodeKind::Decal) {
         j["texture"] = n.texture;
         j["face"] = kFaceNames[(int)n.face];
@@ -333,6 +334,7 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         if (j.contains("gui") && j["gui"].is_object()) guiFromJson(n->gui, j["gui"]);
         n->enabled = get<bool>(j, "enabled", true);
     }
+    if (n->isPart()) n->texture = get<std::string>(j, "texture", std::string());
     if (n->kind == NodeKind::Decal) {
         n->texture = get<std::string>(j, "texture", std::string());
         std::string f = get<std::string>(j, "face", std::string("Front"));

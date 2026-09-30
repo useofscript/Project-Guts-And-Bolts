@@ -348,6 +348,10 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     if (Player* p = m_scene->player()) {
         me.applyTo(*p);
         if (SceneNode* r = p->root()) r->name = Online::playerName();   // like Roblox: the character is named after you
+        if (testMode() && !m_opts.testClothes.empty()) {
+            size_t comma = m_opts.testClothes.find(',');
+            p->setClothing(m_opts.testClothes.substr(0, comma), comma == std::string::npos ? "" : m_opts.testClothes.substr(comma + 1));
+        }
     }
     m_session->scripts().setPlayerName(Online::playerName());
     *m_soloChat = ChatLog{};

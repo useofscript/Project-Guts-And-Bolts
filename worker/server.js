@@ -19,7 +19,11 @@ const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
 const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5 };
-const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20 };
+const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20 };
+// Shirts and pants can have a picture: a PNG laid out like the clothing template.
+const kTemplateW = 585, kTemplateH = 559;
+const pngSize = (d) => (d.length > 24 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => d[i] === v)
+  ? [(d[16] << 24 | d[17] << 16 | d[18] << 8 | d[19]) >>> 0, (d[20] << 24 | d[21] << 16 | d[22] << 8 | d[23]) >>> 0] : null);
 const maxSize = (k) => MAX_SIZE[k] || 64 * 1024;
 const isClothing = (k) => k === 'hat' || k === 'shirt' || k === 'pants';
 // Decals and audio are free-use assets: anyone can put them in their games.
@@ -772,6 +776,16 @@ export class GbServerObject extends DurableObject {
       }
       if (kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
       if (kind === 'plugin' && !data.length) return fail('That plugin is empty.');
+      if (kind === 'hat') data = new Uint8Array(0);
+      delete meta.image;
+      if ((kind === 'shirt' || kind === 'pants') && data.length) {
+        const size = pngSize(data);
+        if (!size) return fail('Clothing pictures must be .png files made from the template.');
+        if (size[0] !== kTemplateW || size[1] !== kTemplateH)
+          return fail('Clothing pictures must be ' + kTemplateW + ' x ' + kTemplateH + ' (the template\'s size).');
+        meta.image = true;
+        meta.ext = 'png';
+      }
       const fee = verified ? 0 : FEE[kind];
       if (fee > 0 && this.balance(me) < fee)
         return fail('Uploading costs ' + fee + ' Bolts, and you have ' + this.balance(me) + '. (It\'s free for Verified creators.)');

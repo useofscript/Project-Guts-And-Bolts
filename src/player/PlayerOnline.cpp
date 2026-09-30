@@ -11,6 +11,8 @@
 #include "../online/AssetCache.h"
 #include "../online/OnlineClient.h"
 #include "../online/Protocol.h"
+#include "ShirtTemplate.h"   // generated: the clothing templates
+#include "PantsTemplate.h"
 #include "../renderer/Framebuffer.h"
 #include "../renderer/Textures.h"
 #include "../scene/Scene.h"
@@ -278,6 +280,7 @@ void PlayerApp::drawOnlineItemDialog() {
     auto wearIt = [this, it]() {
         Catalog::applyLook(it);
         if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
+        Online::fetchSounds(*m_avatarScene);   // its clothing picture, if it has one
     };
     if (!owned) {
         std::string label = it.price > 0 ? "Buy for " + Bolts::format(it.price) : std::string("Get it");
@@ -547,6 +550,30 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
         }
         ImGui::SetNextItemWidth(fieldW);
         ImGui::ColorEdit3("Colour", &m_createColor.x);
+        if (kind != "hat") {
+            // Optional: a picture painted on the clothing template.
+            bool browse = FileDialog::available();
+            ImGui::SetNextItemWidth(browse ? fieldW - 90 : fieldW);
+            ImGui::InputTextWithHint("##cloth", "(optional) C:/pictures/my_shirt.png", &m_createPath);
+            if (browse) {
+                ImGui::SameLine();
+                if (ImGui::Button("Browse...", ImVec2(82, 0))) {
+                    std::string picked = FileDialog::openImage("Pick your clothing picture");
+                    if (!picked.empty()) m_createPath = picked;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Picture");
+            ImGui::TextDisabled("A 585 x 559 .png painted on the template. See-through bits show the colour above.");
+            if (ImGui::SmallButton(kind == "shirt" ? "Save the shirt template" : "Save the pants template")) {
+                std::filesystem::path out = Paths::downloadsFolder() / (kind + "_template.png");
+                std::ofstream f(out, std::ios::binary);
+                if (kind == "shirt") f.write(reinterpret_cast<const char*>(kShirtTemplate), (std::streamsize)kShirtTemplateSize);
+                else f.write(reinterpret_cast<const char*>(kPantsTemplate), (std::streamsize)kPantsTemplateSize);
+                m_createMsg = f ? "Saved the template to " + out.string() + ". Paint over the boxes, then pick it above."
+                                : std::string("Couldn't save the template.");
+            }
+        }
     } else {
         const char* hint = kind == "decal" ? "C:/pictures/logo.png" : kind == "audio" ? "C:/music/song.mp3" : "C:/plugins/myplugin.lua";
         bool browse = FileDialog::available();
@@ -619,6 +646,12 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
                                        (int)std::lround(m_createColor.b * 255)}}};
             if (kind == "hat") args["meta"]["style"] = m_createStyle;
             args["data"] = "";
+            std::string path = cleanPath(m_createPath);
+            if (kind != "hat" && !path.empty()) {   // the template picture
+                std::error_code ec;
+                if (!std::filesystem::is_regular_file(path, ec)) { m_createMsg = "Couldn't open that picture. Check the path."; ok = false; }
+                else args["data"] = Online::base64Encode(readWholeFile(path));
+            }
         } else {
             std::string path = cleanPath(m_createPath);
             std::error_code ec;

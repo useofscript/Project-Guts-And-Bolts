@@ -43,6 +43,7 @@ struct PlayerOptions {
     std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
     bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
     bool        privateServer = false; // --private-server (with a game): start a private server once online
+    std::string testClothes;           // --test-clothes shirt.png,pants.png: wear these pictures (tests)
     std::string joinCode;              // --join-code <code>: join a private server once online
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
     float       cameraYaw = -1000.0f;  // --camera-yaw <degrees> (tests: look from another side)

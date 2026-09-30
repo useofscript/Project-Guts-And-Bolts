@@ -17,6 +17,7 @@ std::string extensionFor(const nlohmann::json& asset) {
     std::string kind = asset.value("kind", std::string());
     if (kind == "game") return ".gbscene";
     if (kind == "plugin") return ".lua";
+    if (kind == "shirt" || kind == "pants") return ".png";   // the clothing picture
     if (kind == "audio" || kind == "decal") {
         std::string ext = asset.contains("meta") ? asset["meta"].value("ext", std::string(kind == "decal" ? "png" : "mp3"))
                                                  : std::string(kind == "decal" ? "png" : "mp3");
@@ -51,7 +52,7 @@ void download(const std::string& id, Downloaded done, bool redownload) {
 void fetchSounds(Scene& scene) {
     if (!online()) return;
     scene.forEach([](SceneNode* n) {
-        const std::string* id = n->isSound() ? &n->soundId : n->isDecal() ? &n->texture : nullptr;
+        const std::string* id = n->isSound() ? &n->soundId : (n->isDecal() || n->isPart()) && !n->texture.empty() ? &n->texture : nullptr;
         if (id && id->rfind("gb:", 0) == 0 && Paths::downloaded(id->substr(3)).empty())
             download(id->substr(3));
     });

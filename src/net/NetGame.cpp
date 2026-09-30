@@ -1,6 +1,7 @@
 #include "NetGame.h"
 #include "../scripting/LuaApi.h"   // SignalKind (UI clicks)
 #include "../scene/PlayerModel.h"
+#include "../online/AssetCache.h"
 #include "../game/Badges.h"
 #include "../game/GameSession.h"
 #include "../game/Profile.h"
@@ -125,7 +126,8 @@ json avatarJson(const Profile& p) {
     const BodyColors& c = p.colors;
     return {{"head", vec3(c.head)}, {"torso", vec3(c.torso)}, {"leftArm", vec3(c.leftArm)},
             {"rightArm", vec3(c.rightArm)}, {"leftLeg", vec3(c.leftLeg)}, {"rightLeg", vec3(c.rightLeg)},
-            {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)}};
+            {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)},
+            {"shirtImage", p.shirtImage}, {"pantsImage", p.pantsImage}};
 }
 
 // Everything a joined player needs to see about a (non-character) object.
@@ -586,6 +588,12 @@ void NetServer::handle(Client& c, const std::string& text) {
             Player::applyColors(rig, col);
             glm::vec3 tint = a.contains("hatColor") ? vec3(a["hatColor"]) : glm::vec3(-1.0f);
             Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, kHatStyleCount - 1), tint);
+            auto cloth = [&](const char* k) {   // only server clothing pictures ("gb:<id>")
+                std::string s = a.value(k, std::string());
+                return s.rfind("gb:", 0) == 0 && s.size() < 64 ? s : std::string();
+            };
+            Player::applyClothing(rig, cloth("shirtImage"), cloth("pantsImage"));
+            Online::fetchSounds(*m_scene);   // download their clothing pictures
         }
         c.rootId = rig->id;
         RemoteCharacter rc;

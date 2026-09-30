@@ -542,7 +542,11 @@ pages.create = async (tab = 'games') => {
       <label>Description</label><textarea name="description" maxlength="1000"></textarea>
       ${clothing ? html`${kind === 'hat' ? html`<label>Style</label><select name="style"><option value="1">Top Hat</option>
           <option value="2" selected>Cap</option><option value="3">Crown</option></select>` : ''}
-        <label>Colour</label><input type="color" name="color" value="#e63333">`
+        <label>Colour</label><input type="color" name="color" value="#e63333">
+        ${kind !== 'hat' ? html`<label>Picture <span class="muted small">(optional)</span></label>
+          <input type="file" name="picture" accept="image/png">
+          <p class="small muted">A 585 x 559 .png painted on the
+            <a href="templates/${kind}_template.png" download>${kind} template</a>. See-through bits show the colour above.</p>` : ''}`
       : html`<label>File</label><input type="file" name="file" accept="${accept}" required>
         <p class="small muted">${{ decal: 'A .png or .jpg picture (up to 4 MB).', audio: 'An .mp3, .wav, .ogg or .flac file (up to 6 MB).',
           plugin: 'A Lua plugin for Studio.', game: 'A .gbscene file saved from Studio (or use File > Publish in Studio).' }[kind]}</p>`}
@@ -1282,7 +1286,7 @@ const forms = {
       const c = f.color.value;
       args.meta = { color: [1, 3, 5].map((i) => parseInt(c.substr(i, 2), 16)) };
       if (kind === 'hat') args.meta.style = Number(f.style.value);
-      args.data = '';
+      args.data = f.picture && f.picture.files[0] ? await gb.fileBase64(f.picture.files[0]) : '';
     } else {
       const file = f.file.files[0];
       if (!file) { msg.textContent = 'Pick a file first.'; return; }

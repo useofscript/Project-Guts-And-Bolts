@@ -41,6 +41,13 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Clothing templates**
+- The character now has a proper clothing layout: shirts and pants can have a
+  **picture** painted on the new 585 x 559 templates (`assets/templates/`, also
+  downloadable from the website's Create page and saveable from the app).
+- See-through parts of the picture show the clothing's colour underneath.
+- Worn clothing pictures show in games and in multiplayer.
+
 **Finding games**
 - Games can pick up to 3 **genres** (Obby, Horror, Tycoon, Roleplay, Racing
   and more) and a **server size** on their Configure page.

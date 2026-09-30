@@ -306,6 +306,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
 
     // --- Lit geometry ---
     m_lit->bind();
+    m_lit->setBool("uClothing", false);
     m_lit->setMat4("uView", view);
     m_lit->setMat4("uProj", proj);
     m_lit->setVec3("uViewPos", camera.position());
@@ -621,7 +622,15 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
             mesh->update(waterVerts, waterIdx);
             mesh->draw();
         } else {
+            // Clothing: a shirt / pants picture (the template layout) over the body colour.
+            unsigned cloth = !node->texture.empty() && !node->isDecal() ? Textures::get(node->texture) : 0;
+            if (cloth) {
+                bindTex(5, cloth);
+                m_lit->setInt("uDecal", 5);
+                m_lit->setBool("uClothing", true);
+            }
             node->mesh->draw();
+            if (cloth) m_lit->setBool("uClothing", false);
         }
         if (water) glEnable(GL_CULL_FACE);
     };
