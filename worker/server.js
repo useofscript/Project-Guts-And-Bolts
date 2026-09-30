@@ -51,6 +51,7 @@ const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
+const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get']);
@@ -328,6 +329,7 @@ export class GbServerObject extends DurableObject {
   publicUser(u) {
     return { id: u.id, name: u.name, username: u.username, userId: u.userId, verified: this.isVerified(u),
       staff: this.isStaff(u), official: this.isOfficial(u), created: u.created, banned: u.banned,
+      pastNames: u.pastNames || [],
       banReason: u.banned ? (u.banReason || '') : undefined };
   }
   meJson(u) {
@@ -1007,6 +1009,33 @@ export class GbServerObject extends DurableObject {
       const on = !!args.on;
       if (on && !me.emailVerified) return fail('Add and confirm an email first: the codes go there.');
       me.twoStep = on;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.rename') {
+      // Change your username for 1000 Bolts. Old usernames stay reserved for you: nobody
+      // else can take them, and you can switch back to one (for the same price).
+      if (me.userId === 0) return fail('Sign up first.');
+      if (this.isOfficial(me)) return fail('The staff account is always Guts.');
+      const username = cleanText(str(args, 'username'), 20);
+      const problem = usernameProblem(username);
+      if (problem) return fail(problem);
+      const want = lower(username);
+      if (want === lower(me.username)) {
+        if (username === me.username) return fail('That\'s already your username.');
+      } else {
+        const mine = (me.pastNames || []).some((p) => lower(p) === want);
+        if (!mine && this.takenNames.has(want)) return fail('That username is taken (usernames are never reused).');
+      }
+      if (this.balance(me) < kRenameCost) return fail('Changing your username costs ' + kRenameCost + ' Bolts. You have ' + this.balance(me) + '.');
+      const old = me.username;
+      this.add(me, -kRenameCost, 'Username change: ' + old + ' to ' + username, 'rename:' + randomHex(6));
+      me.pastNames = (me.pastNames || []).filter((p) => lower(p) !== want);
+      if (lower(old) !== want && !me.pastNames.some((p) => lower(p) === lower(old))) me.pastNames.push(old);
+      me.username = username;
+      me.name = username;
+      this.takenNames.add(want);
+      this.dirty.ids = true;
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }

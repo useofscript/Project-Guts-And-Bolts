@@ -929,6 +929,14 @@ make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
 sharing personal info, exploiting, spam and so on) and an optional note; the
 banned player sees them when they try to sign in.
 
+### Changing your username
+
+On the website's **Settings** page you can change your username for **1,000
+Bolts**. Your old usernames show on your profile under **Past usernames**.
+Usernames are never reused: nobody else can take one of your old names, but
+you can switch back to it yourself (for the same price). Your password stays
+the same.
+
 ### Clothing templates
 
 Shirts and pants can have a **picture**, like classic Roblox clothing. Get the

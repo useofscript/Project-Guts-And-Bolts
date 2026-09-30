@@ -680,6 +680,7 @@ pages.user = async (id) => {
       <h1>${u.username}${verified(u.verified)}</h1>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
       <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>` : ''}</div>
+    ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
       <div class="profile-left">
         <div class="box avatar-box"><div id="profileAvatar">${avatarSvg(u.avatar, 200, worn)}</div>
@@ -927,7 +928,13 @@ pages.settings = async () => {
     <div class="settings">
       <div class="box"><h2 class="boxhead">Account</h2>
         <table class="stats"><tr><td>Username</td><td><b>${me.username}</b></td></tr><tr><td>User number</td><td>#${me.userId}</td></tr>
-          <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr></table></div>
+          <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr>
+          ${(me.pastNames || []).length ? html`<tr><td>Past usernames</td><td>${me.pastNames.join(', ')}</td></tr>` : ''}</table>
+        <form class="form" data-form="rename"><label>Change your username <span class="muted small">(1,000 Bolts)</span></label>
+          <input type="text" name="username" maxlength="20" required placeholder="3-20 letters or numbers" autocomplete="off">
+          <p class="small muted">Your old username stays on your profile under "Past usernames", and nobody else can ever take it.
+            You can switch back to it later (for the same price).</p>
+          <p><button class="btn blue">Change username</button> <span id="renameMsg"></span></p></form></div>
       <div class="box"><h2 class="boxhead">Email</h2>
         ${me.canMail ? '' : html`<p class="box gold small">Email isn't switched on for this server yet, so codes can't be sent.</p>`}
         <p>${me.email ? html`Your email: <b>${me.email}</b> <span class="ok">(confirmed)</span>` : html`<span class="muted">No email yet.</span>
@@ -1299,6 +1306,16 @@ const forms = {
     f.querySelector('button').disabled = false;
     if (!r.ok) { msg.className = 'error'; msg.textContent = ' ' + r.error; return; }
     toast('Uploaded "' + r.asset.name + '"!' + (r.fee ? ' (' + r.fee + ' Bolts)' : ''));
+    render();
+  },
+  async rename(f) {
+    const want = f.username.value.trim();
+    if (!confirm('Change your username to "' + want + '" for 1,000 Bolts?')) return;
+    const r = await call('account.rename', { username: want });
+    const msg = $('#renameMsg');
+    if (!r.ok) { msg.className = 'error'; msg.textContent = ' ' + r.error; return; }
+    setMe(r.me);
+    toast('You\'re now ' + r.me.username + '!');
     render();
   },
   async groupCreate(f) {

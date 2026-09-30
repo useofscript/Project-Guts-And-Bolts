@@ -41,6 +41,11 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Username changes**
+- Change your username for 1,000 Bolts on the website's Settings page.
+- Old usernames show on your profile under "Past usernames" and stay yours:
+  nobody else can take them, and you can switch back.
+
 **Clothing templates**
 - The character now has a proper clothing layout: shirts and pants can have a
   **picture** painted on the new 585 x 559 templates (`assets/templates/`, also

@@ -207,7 +207,7 @@ void PlayerApp::drawLogin() {
         ImGui::Spacing();
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
         if (m_loginTab == 0)
-            ImGui::TextDisabled("Usernames can't be changed, and once taken they're gone for good. "
+            ImGui::TextDisabled("Usernames are never reused. You can change yours later for 1,000 Bolts (on the website's Settings page). "
                                 "Your password never leaves this device. Add an email in Account Settings on the "
                                 "website, so you can reset it if you forget it.%s",
                                 official ? "\n\nThis is the staff computer: sign up as Guts to add a password to user #1." : "");
