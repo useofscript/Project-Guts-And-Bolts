@@ -41,6 +41,12 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Always online**
+- The Player always connects to the main Guts&Bolts server: no more offline
+  or local-network play. Without internet it shows *Can't reach Guts&Bolts*
+  with a **Try again** button. Studio's "Play in Guts&BoltsPlayer" puts you in
+  an online server too.
+
 **Assistant and MCP (AI in Studio)**
 - New Assistant tab: chat with Claude (your own API key) and it builds,
   scripts, playtests and takes screenshots in your game. Everything is undoable.

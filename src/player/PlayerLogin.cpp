@@ -23,7 +23,7 @@ using namespace Site;
 using json = nlohmann::json;
 
 bool PlayerApp::needsLogin() const {
-    if (m_playOffline || m_page == Page::Game) return false;
+    if (m_page == Page::Game) return false;
     if (m_page == Page::Login) return true;
     return Online::online() && Online::me().value("userId", 0LL) == 0 && !Online::isGuest();
 }
@@ -150,9 +150,9 @@ void PlayerApp::drawLogin() {
     if (!Online::online()) {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
         ImGui::TextDisabled("%s", Online::configured() ? Online::statusText().c_str()
-                                                       : "Accounts live on a Guts&Bolts server. Pick one first.");
+                                                       : "Connecting to the Guts&Bolts server...");
         ImGui::PopTextWrapPos();
-        if (Classic::button("Pick a server", Classic::kBlue, ImVec2(w, 32))) { m_serverInput = Online::serverAddress(); m_showServer = true; }
+        if (Classic::button("Try again", Classic::kBlue, ImVec2(w, 32))) Online::connect();
     } else {
         ImGui::TextUnformatted("Username");
         ImGui::SetNextItemWidth(w);
@@ -227,9 +227,7 @@ void PlayerApp::drawLogin() {
         ImGui::PopTextWrapPos();
         ImGui::Spacing();
     }
-    if (ImGui::SmallButton("Play offline instead")) { m_playOffline = true; if (m_page == Page::Login) m_page = Page::Home; }
     if (m_page == Page::Login && Online::me().value("userId", 0LL) > 0) {
-        ImGui::SameLine();
         if (ImGui::SmallButton("Back")) m_page = Page::Home;
     }
     ImGui::EndGroup();

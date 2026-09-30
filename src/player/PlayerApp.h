@@ -106,6 +106,8 @@ private:
     // Online (a Guts&Bolts server) — PlayerOnline.cpp
     void drawServerButton(ImVec2 at);
     void drawServerDialog();
+    void drawNoServer();   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
+    bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
     void drawOnlineItemDialog();
     void drawCreate();
@@ -282,7 +284,6 @@ private:
     bool           m_loginNeedCode = false;
     nlohmann::json m_nameCheck = nlohmann::json::object();   // is the typed username free?
     double         m_nameCheckAt = 0.0;
-    bool           m_playOffline = false;          // "Play offline instead"
 
     // Friends and servers
     nlohmann::json m_friends = nlohmann::json::object();   // friends.list reply

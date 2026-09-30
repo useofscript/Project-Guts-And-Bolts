@@ -59,10 +59,7 @@ bool PlayerApp::needsServer(const char* what) {
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("%s live on a Guts&Bolts server, so you need to be connected to one.", what);
     ImGui::PopTextWrapPos();
-    if (Classic::button("Pick a server", Classic::kBlue, ImVec2(160, 30))) {
-        m_serverInput = Online::serverAddress();
-        m_showServer = true;
-    }
+    if (Classic::button("Try again", Classic::kBlue, ImVec2(160, 30))) Online::connect();
     return true;
 }
 

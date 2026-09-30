@@ -58,26 +58,13 @@ void onlineLine() {
 // ---------------------------------------------------------------------------
 
 void Editor::renderServerDialog() {
-    if (m_openServer) { ImGui::OpenPopup("Guts&Bolts Server"); m_openServer = false; m_serverInput = Online::serverAddress(); }
+    if (m_openServer) { ImGui::OpenPopup("Guts&Bolts Server"); m_openServer = false; }
     ImGui::SetNextWindowSize(ImVec2(520, 0));
     if (!ImGui::BeginPopupModal("Guts&Bolts Server", nullptr, ImGuiWindowFlags_NoResize)) return;
-    ImGui::TextWrapped("A Guts&Bolts server keeps published games, plugins, audio, Bolts and badges for everyone. "
-                       "The official one runs on Cloudflare, so it's always on. You can also run your own "
-                       "GutsAndBoltsServer on a computer and type its address here (like 192.168.1.20 or "
-                       "myserver.com:7780).");
+    ImGui::TextWrapped("Studio uses the official Guts&Bolts server for publishing games, plugins, audio, "
+                       "Bolts and badges. You can still build and play-test without it.");
     ImGui::Spacing();
-    ImGui::SetNextItemWidth(-1);
-    bool enter = ImGui::InputTextWithHint("##addr", "server address (empty = offline)", &m_serverInput,
-                                          ImGuiInputTextFlags_EnterReturnsTrue);
-    if (ImGui::Button("Connect", ImVec2(120, 0)) || enter) { Online::setServerAddress(m_serverInput); m_marketLoaded = false; }
-    ImGui::SameLine();
-    if (ImGui::Button("Official server", ImVec2(130, 0))) {
-        m_serverInput = Online::kOfficialServer;
-        Online::setServerAddress(m_serverInput);
-        m_marketLoaded = false;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(110, 0))) { m_serverInput.clear(); Online::setServerAddress(""); }
+    if (ImGui::Button("Reconnect", ImVec2(120, 0))) { Online::connect(); m_marketLoaded = false; }
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
     ImGui::Spacing();

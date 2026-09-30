@@ -195,9 +195,13 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
     // (--online-play / --private-server / --join-code wait until we're online: see frame())
-    if (!m_opts.game.empty() && !m_opts.onlinePlay && !m_opts.privateServer)
-        joinGame(m_opts.game, m_opts.host ? HostMode::Lan : HostMode::Solo);
-    if (!m_opts.join.empty()) joinServer(m_opts.join);
+    // Everyone plays on the main server: a game file (Studio's "Play in Guts&BoltsPlayer")
+    // goes into a public server once we're online. Only automated tests play offline / on LAN.
+    if (!m_opts.game.empty() && !m_opts.onlinePlay && !m_opts.privateServer) {
+        if (testMode()) joinGame(m_opts.game, m_opts.host ? HostMode::Lan : HostMode::Solo);
+        else m_opts.onlinePlay = true;
+    }
+    if (!m_opts.join.empty() && testMode()) joinServer(m_opts.join);
 }
 
 PlayerApp::~PlayerApp() {
@@ -413,6 +417,44 @@ void PlayerApp::joinServer(const std::string& address) {
     m_page = Page::Game;
 }
 
+// Not connected: everything lives on the Guts&Bolts server, so wait for it here.
+void PlayerApp::drawNoServer() {
+    const Online::Status st = Online::status();
+    const bool trying = st == Online::Status::Connecting || st == Online::Status::Off;
+    const float w = ImGui::GetContentRegionAvail().x;
+    ImGui::Dummy(ImVec2(0, 60));
+    auto centered = [&](const char* text, ImVec4 col, float scale) {
+        ImGui::SetWindowFontScale(scale);
+        ImVec2 ts = ImGui::CalcTextSize(text);
+        ImGui::SetCursorPosX(std::max(0.0f, (w - ts.x) * 0.5f));
+        ImGui::TextColored(col, "%s", text);
+        ImGui::SetWindowFontScale(1.0f);
+    };
+    if (trying) {
+        // A little spinner while we connect.
+        ImVec2 c = ImGui::GetCursorScreenPos();
+        c.x += w * 0.5f; c.y += 22;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        float t = (float)ImGui::GetTime() * 5.0f;
+        for (int i = 0; i < 8; ++i) {
+            float a = t + i * 0.785f;
+            dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * 16, c.y + std::sin(a) * 16), 2.0f + i * 0.4f,
+                                IM_COL32(29, 114, 210, 60 + i * 24));
+        }
+        ImGui::Dummy(ImVec2(0, 50));
+        centered("Connecting to Guts&Bolts...", Classic::kInk, 1.4f);
+    } else {
+        centered("Can't reach Guts&Bolts", ImVec4(0.75f, 0.2f, 0.15f, 1), 1.4f);
+        ImGui::Spacing();
+        centered("Guts&Bolts needs an internet connection: games, friends and Bolts all live online.",
+                 Classic::kInkDim, 1.0f);
+        centered("Check your internet, then try again.", Classic::kInkDim, 1.0f);
+        ImGui::Spacing();
+        ImGui::SetCursorPosX(std::max(0.0f, (w - 160) * 0.5f));
+        if (Classic::button("Try again", Classic::kBlue, ImVec2(160, 34))) Online::connect();
+    }
+}
+
 ChatLog& PlayerApp::chat() {
     if (m_server) return m_server->chat();
     if (m_client) return m_client->chat();
@@ -527,7 +569,8 @@ void PlayerApp::frame(float dt) {
             ImGui::IsKeyPressed(ImGuiKey_Escape, false))
             m_page = Page::Home;
         ImGui::PushTextWrapPos(0.0f);   // long lines wrap at the page edge (small phone screens)
-        if (needsLogin()) drawLogin();   // online but not signed up: that comes first
+        if (!Online::online() && !testMode()) drawNoServer();   // no offline play
+        else if (needsLogin()) drawLogin();   // online but not signed up: that comes first
         else switch (m_page) {
             case Page::Home:     drawHome(); break;
             case Page::Games:    drawGames(); break;
@@ -748,7 +791,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 9: m_page = Page::Create; m_loaded.clear(); break;
                 case 11: m_page = Page::People; m_socialMsg.clear(); m_loaded.clear(); break;
                 case 12: m_page = Page::Groups; m_socialMsg.clear(); m_loaded.clear(); break;
-                case 10: m_serverInput = Online::serverAddress(); m_showServer = true; break;
+                case 10: if (!Online::online()) Online::connect(); break;
             }
         }
     }

@@ -12,10 +12,10 @@ namespace Online {
 
 enum class Status { Off, Connecting, Online, Failed };
 
-// The server to use: "host" or "host:port" ("" = none, play offline).
-// Saved with your profile; GB_SERVER overrides it (for tests).
+// The server to use: always the official Guts&Bolts server (everyone plays on
+// it). GB_SERVER overrides it, for tests and people developing the server.
 std::string serverAddress();
-void        setServerAddress(const std::string& address);   // and reconnects
+void        setServerAddress(const std::string& address);   // (kept for old callers) reconnects
 bool        configured();
 
 Status             status();

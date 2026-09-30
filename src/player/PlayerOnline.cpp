@@ -76,11 +76,8 @@ void PlayerApp::drawServerButton(ImVec2 at) {
     ImVec2 ts = ImGui::CalcTextSize(label.c_str());
     ImVec2 b(at.x + ts.x + 30, at.y + 22);
     ImGui::SetCursorScreenPos(at);
-    if (ImGui::InvisibleButton("##server", ImVec2(b.x - at.x, b.y - at.y))) {
-        m_serverInput = Online::serverAddress();
-        m_serverMsg.clear();
-        m_showServer = true;
-    }
+    if (ImGui::InvisibleButton("##server", ImVec2(b.x - at.x, b.y - at.y)) && st != Online::Status::Online)
+        Online::connect();   // try again
     ImDrawList* dl = ImGui::GetWindowDrawList();
     bool hover = ImGui::IsItemHovered();
     dl->AddRectFilled(at, b, hover ? IM_COL32(255, 255, 255, 235) : IM_COL32(255, 255, 255, 200), 11.0f);
@@ -89,7 +86,7 @@ void PlayerApp::drawServerButton(ImVec2 at) {
               : st == Online::Status::Connecting ? IM_COL32(240, 180, 40, 255) : IM_COL32(150, 150, 160, 255);
     dl->AddCircleFilled(ImVec2(at.x + 12, at.y + 11), 5.0f, dot);
     dl->AddText(ImVec2(at.x + 22, at.y + 11 - ts.y * 0.5f), IM_COL32(30, 40, 60, 255), label.c_str());
-    if (hover) ImGui::SetTooltip("%s\nClick to pick a Guts&Bolts server", Online::statusText().c_str());
+    if (hover) ImGui::SetTooltip("%s%s", Online::statusText().c_str(), st == Online::Status::Online ? "" : "\nClick to try again");
 }
 
 void PlayerApp::drawServerDialog() {
@@ -743,10 +740,7 @@ void PlayerApp::drawCreate() {
         ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("Uploading needs a Guts&Bolts server, so everyone can see what you make.");
         ImGui::PopTextWrapPos();
-        if (Classic::button("Pick a server", Classic::kBlue, ImVec2(160, 30))) {
-            m_serverInput = Online::serverAddress();
-            m_showServer = true;
-        }
+        if (Classic::button("Try again", Classic::kBlue, ImVec2(160, 30))) Online::connect();
         return;
     }
     const bool verified = Online::verified();

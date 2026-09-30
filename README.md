@@ -737,12 +737,14 @@ Games saved with the old blocky character get the new one when they load.
 ## Guts&Bolts Player
 
 - **Home:** every game in the `games` folder, each with a rendered preview.
-  Press **Play** to jump into a **public server** of that game (when you're
-  connected to a Guts&Bolts server; otherwise you just play alone).
+  Press **Play** to jump into a **public server** of that game.
 - **Create a server** (on a game's page): a **private server** (friends and
-  people with its code), **offline** (just you) or **local network** (same
-  Wi-Fi). The same window lists the servers running now and has a box for
-  joining with a code.
+  people with its code). The same window lists the servers running now and has
+  a box for joining with a code.
+- **Always online:** everyone plays on the main Guts&Bolts server; there's no
+  offline or local-network play. Without internet the site says *Can't reach
+  Guts&Bolts* with a **Try again** button. (Studio still builds and
+  play-tests without internet.)
 - **Friends:** see "Friends and servers" below.
 - **Catalog:** hats, shirts and pants for your avatar. Only the official staff
   account can add items (see below), so it starts out empty.
@@ -787,10 +789,10 @@ public half is your **account ID** (safe to share). The secret half stays in
 ### Guts&Bolts server (storing things online)
 
 The **official Guts&Bolts server runs on Cloudflare** (with the website), so it's
-online even when nobody's computer is on. The apps start on it:
-`https://project-guts-and-bolts.pizzadoe173.workers.dev`. In the server window
-(the site's **Online/Offline** button, or Studio's **File > Guts&Bolts
-Server...**), **Official server** switches back to it at any time.
+online even when nobody's computer is on. The apps always use it:
+`https://project-guts-and-bolts.pizzadoe173.workers.dev`. (Clicking the status
+pill on the site's banner, or Studio's **File > Guts&Bolts Server... >
+Reconnect**, tries again if the connection dropped.)
 
 How it works:
 
@@ -810,19 +812,17 @@ How it works:
 - Everything fits Cloudflare's free plan for a small community: about 100,000
   requests a day, and 5 GB of storage.
 
-You can still run your own server on a computer instead, for example for LAN
-parties:
+For developers, the C++ server can still run on a computer (for example to
+test server changes). The apps only use it when started with the `GB_SERVER`
+environment variable set to its address:
 
 1. **Start it.** Double-click `tools/Start Server.bat` (Windows) or
    `tools/Start Server.command` (Mac), or run `python3 install.py --server`.
    A window opens and says which address and port (7780) it's on. Keep that
    window open while people play. Everything it stores goes in the
    `server_data` folder; back that folder up to keep it safe.
-2. **Connect the apps.** On the site, click the server button on the banner
-   (on phones, **Offline** in the nav bar). In Studio, use **File >
-   Guts&Bolts Server...**. Type the server's address, like `192.168.1.20`
-   (same Wi-Fi) or `myserver.com:7780`, and click **Connect**. Leave it empty
-   to play offline.
+2. **Connect the apps.** Start them with `GB_SERVER` set to the server's
+   address, like `GB_SERVER=192.168.1.20` or `GB_SERVER=myserver.com:7780`.
 3. **Let friends outside your house connect** (optional). Either forward port
    7780 on your router to the server computer and give friends your public
    IP, or run the server on a rented Linux server (a "VPS") and give out its
@@ -929,7 +929,7 @@ banned player sees them when they try to sign in.
 ### Signing up and logging in
 
 When you connect to a Guts&Bolts server, the site asks you to **Sign Up** or
-**Log In** first (or you can press *Play offline instead*).
+**Log In** first.
 
 **No account? Play as Guest.** Guests get a name like *Guest 4821* and can play
 every game, on their own or in public and private servers with other people.
@@ -1014,9 +1014,6 @@ The **Friends** page has three tabs:
 
 Profiles also have an **Add Friend** button. Your friends list is only shown to
 you, and nothing on the site shows anyone's address or when they were last on.
-
-The old "type an address" way of joining still exists, but only for games on
-your **local network** (same Wi-Fi).
 
 ### People and Groups
 
