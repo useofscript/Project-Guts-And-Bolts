@@ -671,7 +671,14 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         m_lit->setBool("uSelected", node->selected);
         m_lit->setInt("uMaterial", water ? 7 : (int)node->material);
         m_lit->setFloat("uAlpha", 1.0f - node->shownTransparency());
-        if (water) glDisable(GL_CULL_FACE);   // seen from underwater too
+        if (water) {
+            glDisable(GL_CULL_FACE);   // seen from underwater too
+            // A pool's water box usually fills it exactly, so its sides lie right on
+            // the walls. Push the water a hair further back so the wall always wins
+            // there, instead of flickering stripes (z-fighting).
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(2.0f, 8.0f);
+        }
         if (wb) {
             auto& mesh = m_waterMeshes[node->id];
             if (!mesh) mesh = std::make_unique<Mesh>();
@@ -691,7 +698,11 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
             node->mesh->draw();
             if (cloth) m_lit->setBool(face ? "uFace" : "uClothing", false);
         }
-        if (water) glEnable(GL_CULL_FACE);
+        if (water) {
+            glEnable(GL_CULL_FACE);
+            glDisable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(0.0f, 0.0f);
+        }
     };
 
     glDisable(GL_BLEND);

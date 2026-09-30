@@ -10,6 +10,14 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'crisp-edges', name: 'Crisp Edges', version: '', time: 1790804476, tag: 'Fix',
+    summary: 'No more flickering stripes where water touches walls.',
+    items: [
+      'Pools, rivers and any Water part sitting against a wall or floor no longer z-fight (the grey streaks on the walls)',
+      'Looks clean from underwater too',
+    ],
+  },
+  {
     id: 'hydromania', name: 'The Hydromania Update', version: '0.6.1', time: 1790794400, tag: 'Engine',
     summary: 'Swim, dive, float and sink. Water you can really get into, and a Render Distance bar to keep big maps smooth.',
     items: [
