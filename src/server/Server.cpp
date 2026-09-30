@@ -378,7 +378,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json wearing = json::array();
         if (a.contains("wearing") && a["wearing"].is_array())
             for (const auto& w : a["wearing"])
-                if (w.is_string() && me.owned.count(w.get<std::string>()) && wearing.size() < 8) wearing.push_back(w);
+                if (w.is_string() && me.owned.count(w.get<std::string>()) && wearing.size() < 12) wearing.push_back(w);
         av["wearing"] = wearing;
         av["updated"] = now;
         me.avatar = av;
@@ -556,6 +556,19 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (data.size() < 8 || data.compare(1, 3, "PNG") != 0) return fail("Faces must be .png pictures.");
             meta["image"] = true;
             meta["ext"] = "png";
+        }
+        if (kind == "tshirt") {   // any picture, worn flat on the front of the torso
+            bool png = data.size() > 24 && data.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0;
+            bool jpg = data.size() > 3 && (unsigned char)data[0] == 0xFF && (unsigned char)data[1] == 0xD8 &&
+                       (unsigned char)data[2] == 0xFF;
+            if (!png && !jpg) return fail("T-shirts must be .png or .jpg pictures.");
+            if (png) {
+                auto u = [&](size_t i) { return (uint32_t)(unsigned char)data[i]; };
+                uint32_t w = u(16) << 24 | u(17) << 16 | u(18) << 8 | u(19), h = u(20) << 24 | u(21) << 16 | u(22) << 8 | u(23);
+                if (w > 1024 || h > 1024) return fail("T-shirt pictures can be at most 1024 x 1024.");
+            }
+            meta["image"] = true;
+            meta["ext"] = png ? "png" : "jpg";
         }
         if ((kind == "shirt" || kind == "pants") && !data.empty()) {   // a clothing template picture
             auto u = [&](size_t i) { return (uint32_t)(unsigned char)data[i]; };

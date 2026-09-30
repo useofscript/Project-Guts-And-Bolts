@@ -71,6 +71,8 @@ in vec3 vLocalNormal;
 uniform bool      uUseDecal;   // drawing a Decal: its picture colours the surface
 uniform bool      uFace;       // a head: its face picture (uDecal) is painted onto the front of it
 uniform bool      uClothing;   // a shirt / pants picture (uDecal) painted over the part's colour
+uniform bool      uHasTShirt;  // a torso with a T-shirt: its picture flat on the front
+uniform sampler2D uTShirt;
 uniform sampler2D uDecal;
 
 uniform vec3  uColor;
@@ -93,6 +95,12 @@ uniform bool  uFogEnabled;
 uniform vec3  uFogColor;
 uniform float uFogDensity;
 uniform float uRenderDist;    // render distance: things fade into the sky towards it (0 = no limit)
+// Wetness: splashed and dripped-on patches (position, radius; how wet), and a whole
+// part the liquid ran over or a character just out of the water.
+uniform int   uWetCount;
+uniform vec4  uWetSpots[16];
+uniform float uWetAmt[16];
+uniform float uWetPart;
 uniform float uFogSunGlow;
 
 uniform bool      uShadowsEnabled;
@@ -222,6 +230,14 @@ void main() {
         vec4 px = texture(uDecal, vUV);
         albedo = mix(albedo, lin(px.rgb), px.a);
     }
+    if (uHasTShirt && vLocalNormal.z > 0.0) {
+        // A T-shirt: the picture flat on the front of the torso (over the shirt), seen
+        // straight on, fading out where the torso curves round to the sides.
+        vec2 tuv = vec2(vLocalPos.x + 0.5, vLocalPos.y + 0.5);
+        vec4 px = texture(uTShirt, tuv);
+        float front = smoothstep(0.35, 0.6, normalize(vLocalNormal).z);
+        albedo = mix(albedo, lin(px.rgb), px.a * front);
+    }
     if (uFace && vLocalNormal.z > 0.0) {
         // Like Roblox: the face picture is flat, seen straight on from the front, and
         // painted onto the head's own (round) surface, so it hugs the head exactly.
@@ -259,6 +275,23 @@ void main() {
             vec2 slope = vec2(sin(p.x * 3.1 + t * 1.9) + sin(p.x * 1.3 + p.y * 2.3 + t * 1.3) + 0.5 * sin(p.x * 7.0 - p.y * 5.0 + t * 3.1),
                               cos(p.y * 2.7 - t * 1.6) + cos(p.x * 2.1 - p.y * 1.4 + t * 1.1) + 0.5 * cos(p.y * 6.3 + p.x * 4.1 - t * 2.7));
             N = normalize(N + vec3(slope.x, 0.0, slope.y) * 0.035 * (0.3 + 0.7 * detail));
+        }
+    }
+
+    // Wet things: darker (water soaks into wood, concrete and the like) and shinier,
+    // with little puddles on flat tops. Patchy as they dry.
+    if (uMaterial != 2 && uMaterial != 7 && uMaterial != 8) {
+        float wet = uWetPart;
+        for (int i = 0; i < uWetCount; ++i) {
+            float d = length(vWorldPos - uWetSpots[i].xyz);
+            wet = max(wet, uWetAmt[i] * (1.0 - smoothstep(uWetSpots[i].w * 0.5, uWetSpots[i].w, d)));
+        }
+        if (wet > 0.0) {
+            wet *= smoothstep(0.15, 0.55, vnoise(vWorldPos.xz * 1.3 + vWorldPos.y * 0.7) * 0.6 + wet * 0.6);
+            float porous = (uMaterial == 3 || uMaterial == 5) ? 0.5 : (uMaterial == 0 ? 0.72 : 0.88);
+            albedo *= mix(1.0, porous, wet);
+            float puddle = wet * smoothstep(0.75, 0.95, N.y);
+            rough = mix(rough, 0.05, max(wet * 0.75, puddle));
         }
     }
 
@@ -597,7 +630,43 @@ uniform vec2  uDepthParams;    // proj[3][2], proj[2][2]: distance from the dept
 uniform vec3  uWaterSigma;     // how much each colour fades per stud
 uniform vec3  uWaterFog;       // the colour far-away things fade into
 uniform float uTime;
+uniform mat4  uInvViewProj;    // (underwater: where each pixel is, for caustics)
+uniform float uWaterTop;       // the surface above the camera
+uniform float uCaustics;       // how strong the sun's caustics are down here
+uniform float uDrip;           // just surfaced: water running down the screen (1 .. 0)
 out vec4 FragColor;
+
+float causticsAt(vec2 x, float t) {
+    float c = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        float k = 1.0 + 0.6 * float(i);
+        vec2 q = x * k + vec2(t * 0.35, -t * 0.27) * k;
+        q += 0.7 * vec2(sin(q.y * 1.3 + t * 0.9), sin(q.x * 1.1 - t * 0.8));
+        c += pow(1.0 - abs(sin(q.x) * sin(q.y)), 8.0);
+    }
+    return c / 3.0;
+}
+float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// Drops of water sliding down the screen after coming up for air: how much each pixel
+// is bent (xy) and how much drop is there (z).
+vec3 screenDrops(vec2 uv, float t) {
+    vec3 r = vec3(0.0);
+    for (int layer = 0; layer < 2; ++layer) {
+        vec2 grid = vec2(10.0, 4.0) * (1.0 + float(layer) * 0.7);
+        vec2 st = uv * grid;
+        vec2 id = floor(st);
+        float h = h21(id + float(layer) * 17.0);
+        if (h < 0.4) continue;                                   // not every cell has a drop
+        float x = fract(st.x) - 0.5 - (h - 0.5) * 0.5;
+        float y = fract(st.y + t * (0.15 + h * 0.35) + h * 7.0) - 0.5;
+        float d = length(vec2(x * 1.6, y));
+        float drop = smoothstep(0.2, 0.1, d);
+        float trail = smoothstep(0.05, 0.015, abs(x)) * smoothstep(-0.02, 0.45, y) * 0.35;
+        r.xy += vec2(x, y) * drop * 0.9 / grid + vec2(x, 0.0) * trail * 0.4 / grid;
+        r.z = max(r.z, max(drop, trail));
+    }
+    return r;
+}
 
 vec3 aces(vec3 x) {
     const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
@@ -606,15 +675,38 @@ vec3 aces(vec3 x) {
 
 void main() {
     vec2 uv = vUV;
+    vec3 drops = vec3(0.0);
+    if (uDrip > 0.0) { drops = screenDrops(vUV, uTime) * uDrip; uv += drops.xy; }
     if (uUnderwater)
         uv += vec2(sin(vUV.y * 28.0 + uTime * 1.9), cos(vUV.x * 23.0 + uTime * 1.6)) * 0.0022;
-    vec3 c = texture(uHdr, uv).rgb;
+    vec3 c;
     if (uUnderwater) {
         float ndc = texture(uDepth, uv).r * 2.0 - 1.0;
         float dist = ndc > 0.9999 ? 1e4 : uDepthParams.x / (ndc + uDepthParams.y);
+        // Things further away go blurry, and the colours split a little at the edges of
+        // the view (like looking through a diving mask).
+        float blur = clamp(dist * 0.00035, 0.0, 0.004);
+        vec2 ca = (uv - 0.5) * 0.006;
+        c = vec3(0.0);
+        const vec2 taps[5] = vec2[](vec2(0.0), vec2(1.0, 1.0), vec2(-1.0, 1.0), vec2(1.0, -1.0), vec2(-1.0, -1.0));
+        for (int i = 0; i < 5; ++i) {
+            vec2 o = taps[i] * blur;
+            c += vec3(texture(uHdr, uv + o + ca).r, texture(uHdr, uv + o).g, texture(uHdr, uv + o - ca).b);
+        }
+        c /= 5.0;
+        // Caustics on everything down here: where is this pixel in the world?
+        if (ndc < 0.9999 && uCaustics > 0.0) {
+            vec4 wp = uInvViewProj * vec4(uv * 2.0 - 1.0, ndc, 1.0);
+            wp /= wp.w;
+            if (wp.y < uWaterTop)
+                c *= 1.0 + causticsAt(wp.xz * 1.4, uTime) * uCaustics * exp(-(uWaterTop - wp.y) * 0.12);
+        }
         vec3 keep = exp(-min(dist, 400.0) * uWaterSigma);
         c = c * keep + uWaterFog * (1.0 - keep);
+    } else {
+        c = texture(uHdr, uv).rgb;
     }
+    c *= 1.0 + drops.z * 0.12;   // (the drops catch the light a little)
     if (uUseAO) {
         float ao = 0.0;
         ao += texture(uAO, vUV + uAOTexel * vec2(-1.5, -1.5)).r;
@@ -1035,6 +1127,324 @@ void main() {
     col = mix(texture(uScene, vUV).rgb, col, smoothstep(0.02, 0.3, thick));
     vec4 clip = uProj * vec4(p, 1.0);
     gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;
+    FragColor = vec4(col, 1.0);
+}
+)";
+
+// ---------------------------------------------------------------------------
+// Water parts (pools, lakes, rivers, FluidVolumes)
+// ---------------------------------------------------------------------------
+// Drawn after the solid scene, reading a copy of its colour and depth:
+//  * Gerstner waves move the surface (the same ones the physics floats things on).
+//  * How deep the water is at each pixel = the distance from the surface to the
+//    ground behind it, so it fades from crystal clear at the shore to dark blue in
+//    the deep (Beer-Lambert), by its Clarity.
+//  * What's under the water is bent by Snell's law (index of refraction 1.333).
+//  * Fresnel reflections of the sky and the scene, the sun's glint, caustics on the
+//    bottom, foam where it meets the shore and on breaking crests.
+inline const char* waterVert = R"(#version 410 core
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;      // wave meshes: x = foam from the ripples, y = 1 on the moving surface
+uniform mat4  uModel;
+uniform mat4  uView;
+uniform mat4  uProj;
+uniform mat3  uNormalMat;
+uniform bool  uWaveMesh;             // the moving surface (while playing), not a plain box
+uniform float uWaveAmp;              // Gerstner: total height (0 = calm)
+uniform float uSteep;                // how much the water bunches towards the crests
+uniform vec4  uWaves[4];             // direction x, z, length, share of the height
+uniform float uWavePhase[4];
+uniform float uTime;
+uniform vec3  uBodyMin, uBodyMax;
+out vec3  vWorldPos;
+out vec3  vNormal;
+out float vFoam;
+out float vCrest;
+void main() {
+    vec3 w = (uModel * vec4(aPos, 1.0)).xyz;
+    vec3 n = normalize(uNormalMat * aNormal);
+    float crest = 0.0;
+    if (uWaveMesh && uWaveAmp > 0.0 && aUV.y > 0.5) {
+        // Near the sides the water only rises and falls (so it can't poke through walls).
+        float edge = clamp(min(min(w.x - uBodyMin.x, uBodyMax.x - w.x), min(w.z - uBodyMin.z, uBodyMax.z - w.z)) * 0.5, 0.0, 1.0);
+        float q = uSteep / 4.0;
+        vec3 d = vec3(0.0);
+        vec3 gn = vec3(0.0, 1.0, 0.0);
+        for (int i = 0; i < 4; ++i) {
+            vec2 dir = uWaves[i].xy;
+            float k = 6.2831853 / uWaves[i].z;
+            float A = uWaveAmp * uWaves[i].w;
+            float ph = k * dot(dir, w.xz) - sqrt(9.8 * k) * uTime + uWavePhase[i];
+            float c = cos(ph), s = sin(ph);
+            d.xz += dir * (q / k) * c * edge;
+            d.y  += A * s;
+            gn.x -= dir.x * k * A * c;
+            gn.z -= dir.y * k * A * c;
+            gn.y -= q * s * edge;
+            crest += q * s * edge;
+        }
+        w += d;
+        if (n.y > 0.5) n = normalize(gn + (n - vec3(0.0, 1.0, 0.0)));   // plus the ripples
+    }
+    vWorldPos = w;
+    vNormal = n;
+    vFoam = uWaveMesh ? aUV.x : 0.0;
+    vCrest = crest;   // how bunched up the water is here (whitecaps on big, steep waves)
+    gl_Position = uProj * uView * vec4(w, 1.0);
+}
+)";
+
+inline const char* waterFrag = R"(#version 410 core
+in vec3  vWorldPos;
+in vec3  vNormal;
+in float vFoam;
+in float vCrest;
+uniform sampler2D uScene;        // the solid scene behind the water
+uniform sampler2D uSceneDepth;   // ... and how far away it is
+uniform mat4  uView;
+uniform mat4  uProj;
+uniform vec2  uTexel;
+uniform vec3  uViewPos;
+uniform vec3  uColor;            // the water's colour
+uniform float uClarity;          // 1 crystal clear .. 0 murky
+uniform float uTime;
+uniform vec3  uSunDir;
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+uniform vec3  uZenith, uHorizon, uGround;
+uniform float uSkyBrightness;
+uniform vec3  uAmbient;
+uniform bool  uReflections;
+uniform bool  uWaterShadows;
+uniform sampler2D uShadowMap;
+uniform mat4  uLightSpace;
+uniform float uShadowStrength;
+uniform bool  uFogEnabled;
+uniform vec3  uFogColor;
+uniform float uFogDensity;
+uniform float uFogSunGlow;
+uniform float uRenderDist;
+uniform bool  uSelected;
+// The current: a flow map (x, z speed per grid point, bent around rocks) or one
+// direction for the whole body. The little ripples are carried along it.
+uniform bool  uHasFlowMap;
+uniform sampler2D uFlowMap;
+uniform vec3  uFlowGrid;         // cell size, points across x, points across z
+uniform vec2  uFlowBase;
+uniform vec3  uBodyMin, uBodyMax;
+out vec4 FragColor;
+#pragma gb_common
+const float kIor = 1.333;
+
+// View-space distance to the solid scene in a pixel.
+float sceneZ(vec2 uv) {
+    float ndc = texture(uSceneDepth, uv).r * 2.0 - 1.0;
+    return uProj[3][2] / (ndc + uProj[2][2]);
+}
+vec2 toScreen(vec3 w) {
+    vec4 c = uProj * uView * vec4(w, 1.0);
+    return clamp(c.xy / c.w * 0.5 + 0.5, vec2(0.001), vec2(0.999));
+}
+// Little ripples on top of the big waves (the "normal map", made up as we go).
+// `drift` moves the two layers of ripples (they drift different ways on still water).
+vec3 rippleNormal(vec2 p, vec2 driftA, vec2 driftB) {
+    vec2 e = vec2(0.08, 0.0);
+    vec2 a = p * 1.3 + driftA, b = p * 2.9 + driftB;
+    float h  = vnoise(a) * 0.6 + vnoise(b) * 0.4;
+    float hx = vnoise(a + e.xy * 1.3) * 0.6 + vnoise(b + e.xy * 2.9) * 0.4;
+    float hz = vnoise(a + e.yx * 1.3) * 0.6 + vnoise(b + e.yx * 2.9) * 0.4;
+    return normalize(vec3((h - hx) / e.x, 1.0, (h - hz) / e.x) * vec3(0.12, 1.0, 0.12));
+}
+vec2 flowHere(vec2 xz) {
+    if (!uHasFlowMap) return uFlowBase;
+    vec2 uv = ((xz - uBodyMin.xz) / uFlowGrid.x + 0.5) / uFlowGrid.yz;
+    return texture(uFlowMap, uv).rg;
+}
+// Flow mapping: the ripples are carried along the current. Two copies of them slide
+// along it, each restarting when the other is at its strongest, and blend, so they
+// flow forever without stretching.
+vec3 detailNormal(vec2 p, vec2 flow) {
+    float t = uTime;
+    if (dot(flow, flow) < 0.01) return rippleNormal(p, vec2(t * 0.35, t * 0.21), -vec2(t * 0.27, -t * 0.4));
+    float ph0 = fract(t * 0.4), ph1 = fract(t * 0.4 + 0.5);
+    float w0 = 1.0 - abs(2.0 * ph0 - 1.0);
+    vec2 s0 = -flow * ph0 * 2.5, s1 = -flow * ph1 * 2.5 + vec2(3.7, 1.9);
+    vec3 n0 = rippleNormal(p + s0, s0 * 0.3, s0 * 1.1);
+    vec3 n1 = rippleNormal(p + s1, s1 * 0.3, s1 * 1.1);
+    return normalize(mix(n1, n0, w0));
+}
+// Foam lace carried along by the current the same way.
+float laceAt(vec2 p, vec2 flow) {
+    float t = uTime;
+    if (dot(flow, flow) < 0.01) return vnoise(p * 3.1 + t * 0.4) * 0.6 + vnoise(p * 7.3 - t * 0.3) * 0.4;
+    float ph0 = fract(t * 0.4), ph1 = fract(t * 0.4 + 0.5);
+    float w0 = 1.0 - abs(2.0 * ph0 - 1.0);
+    vec2 q0 = p - flow * ph0 * 2.5, q1 = p - flow * ph1 * 2.5 + vec2(3.7, 1.9);
+    float l0 = vnoise(q0 * 3.1) * 0.6 + vnoise(q0 * 7.3) * 0.4;
+    float l1 = vnoise(q1 * 3.1) * 0.6 + vnoise(q1 * 7.3) * 0.4;
+    return mix(l1, l0, w0);
+}
+float sunLight(vec3 wp) {
+    if (!uWaterShadows) return 1.0;
+    vec4 lc = uLightSpace * vec4(wp, 1.0);
+    vec3 s = lc.xyz / lc.w * 0.5 + 0.5;
+    if (s.z > 1.0 || any(lessThan(s.xy, vec2(0.0))) || any(greaterThan(s.xy, vec2(1.0)))) return 1.0;
+    vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    float lit = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x)
+            lit += texture(uShadowMap, s.xy + vec2(x, y) * texel * 1.5).r < s.z - 0.0002 ? 0.0 : 1.0;
+    return mix(1.0, lit / 9.0, uShadowStrength);
+}
+// Screen-space reflection: walk along the reflected ray (view space) until it goes
+// behind something solid.
+vec2 projUV(vec3 q) { vec4 c = uProj * vec4(q, 1.0); return c.xy / c.w * 0.5 + 0.5; }
+vec3 mirror(vec3 p, vec3 R, out float found) {
+    found = 0.0;
+    if (!uReflections) return vec3(0.0);
+    // (A random start per pixel turns the steps' banding into fine noise.)
+    float stepLen = 0.2 + 0.25 * hash12(gl_FragCoord.xy);
+    vec3 q = p + R * 0.1, prev = q;
+    for (int i = 0; i < 40; ++i) {
+        prev = q;
+        q += R * stepLen;
+        stepLen *= 1.12;
+        if (q.z > -0.05) return vec3(0.0);
+        vec2 uv = projUV(q);
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
+        float behind = -q.z - sceneZ(uv);
+        if (behind > 0.0) {
+            if (behind > stepLen * 2.0 + 0.5) return vec3(0.0);   // went behind a thin thing, not into it
+            // Home in on where it went in (binary search between the last two steps).
+            vec3 a = prev, b = q;
+            for (int k = 0; k < 5; ++k) {
+                vec3 m = (a + b) * 0.5;
+                if (-m.z - sceneZ(projUV(m)) > 0.0) b = m; else a = m;
+            }
+            uv = projUV(b);
+            vec2 e = smoothstep(vec2(0.0), vec2(0.08), uv) * smoothstep(vec2(0.0), vec2(0.08), 1.0 - uv);
+            found = e.x * e.y * (1.0 - float(i) / 40.0);
+            return texture(uScene, uv).rgb;
+        }
+    }
+    return vec3(0.0);
+}
+float caustics(vec2 x, float t) {
+    float c = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        float k = 1.0 + 0.6 * float(i);
+        vec2 q = x * k + vec2(t * 0.35, -t * 0.27) * k;
+        q += 0.7 * vec2(sin(q.y * 1.3 + t * 0.9), sin(q.x * 1.1 - t * 0.8));
+        c += pow(1.0 - abs(sin(q.x) * sin(q.y)), 8.0);
+    }
+    return c / 3.0;
+}
+void main() {
+    vec2 uv = gl_FragCoord.xy * uTexel;
+    vec3 wp = vWorldPos;
+    vec3 N = normalize(vNormal);
+    vec3 toEye = uViewPos - wp;
+    float eyeDist = length(toEye);
+    vec2 flow = flowHere(wp.xz);
+    // Little ripples close up; far away they're smaller than a pixel, so they'd only sparkle.
+    if (N.y > 0.3) N = normalize(N + (detailNormal(wp.xz, flow) - vec3(0.0, 1.0, 0.0)) * clamp(1.0 - eyeDist / 70.0, 0.0, 1.0));
+    vec3 V = toEye / eyeDist;
+    bool below = dot(N, V) < 0.0;          // looking up at the surface from underwater
+    if (below) N = -N;
+    vec3 tint = clamp(uColor, vec3(0.03), vec3(1.0));
+    vec3 deep = lin(tint);
+    float sun = sunLight(wp);
+    vec3 sunRad = uSunColor * uSunIntensity;
+    // Light that bounces around inside the water: its own colour, the deep-water look.
+    vec3 inscatter = deep * (uAmbient * 0.9 + sunRad * 0.22 * sun);
+    float f0 = ((kIor - 1.0) / (kIor + 1.0)) * ((kIor - 1.0) / (kIor + 1.0));
+    float cosV = max(dot(N, V), 0.0);
+    vec3 col;
+    vec4 pv = uView * vec4(wp, 1.0);
+    float waterZ = -pv.z;
+    if (!below) {
+        // How far the light goes through water: from the surface to what's behind it.
+        float rayScale = eyeDist / max(waterZ, 1e-3);
+        float path = max(sceneZ(uv) - waterZ, 0.0) * rayScale;
+        // Snell's law: follow the bent ray that far and see what's there.
+        vec3 T = refract(-V, N, 1.0 / kIor);
+        vec2 ruv = toScreen(wp + T * clamp(path, 0.2, 8.0));
+        float rz = sceneZ(ruv);
+        if (rz < waterZ) { ruv = uv; rz = sceneZ(uv); }        // (never something in front of the water)
+        float rpath = max(rz - waterZ, 0.0) * rayScale;
+        vec3 behind = texture(uScene, ruv).rgb;
+        // Caustics dance on the bottom, strongest in shallow sunny water.
+        vec3 floorW = wp + T * rpath;
+        float amount = sun * uSunIntensity * smoothstep(0.05, 0.4, rpath) * exp(-rpath * 0.15) * max(normalize(uSunDir).y, 0.0);
+        // The pattern is where the waves above focus the light: bent by the surface right
+        // above, so it shifts in step with the waves (and drifts with the current).
+        vec2 cp = floorW.xz * 1.4 + N.xz * (1.5 + rpath * 0.4) - flow * uTime * 0.3;
+        behind *= 1.0 + caustics(cp, uTime) * 1.2 * amount;
+        // Beer-Lambert: the deeper, the more of each colour is soaked up (red first).
+        vec3 sigma = mix(0.35, 0.012, uClarity) * (0.4 + -log(tint));
+        vec3 keep = exp(-min(rpath, 200.0) * sigma);
+        vec3 through = behind * keep + inscatter * (1.0 - keep);
+        // Reflections: the scene where we can find it, the sky everywhere else.
+        vec3 R = reflect(-V, N);
+        vec3 sky = lin(skyGradient(R, uZenith, uHorizon, uGround)) * uSkyBrightness;
+        float found;
+        vec3 seen = mirror(pv.xyz, normalize(mat3(uView) * R), found);
+        // The sun's glint (Cook-Torrance: GGX highlights, Smith shadowing, Schlick
+        // Fresnel): blinding sparkles on the crests facing the sun, breaking up over
+        // choppy water. Rougher where the surface turns a lot within a pixel, so it's a
+        // sheen instead of single-pixel sparkles.
+        vec3 L = normalize(uSunDir);
+        vec3 H = normalize(L + V);
+        float NoL = max(dot(N, L), 0.0), NoH = max(dot(N, H), 0.0), VoH = max(dot(V, H), 0.0);
+        float wobble = clamp(length(fwidth(N)) * 4.0, 0.0, 1.0);
+        float a = mix(0.035, 0.22, wobble), a2 = a * a;
+        float dd = NoH * NoH * (a2 - 1.0) + 1.0;
+        float D = a2 / (3.14159 * dd * dd);
+        float k = a * 0.5;
+        float G = (cosV / (cosV * (1.0 - k) + k)) * (NoL / (NoL * (1.0 - k) + k));
+        float Fs = f0 + (1.0 - f0) * pow(1.0 - VoH, 5.0);
+        vec3 spec = sunRad * sun * min(D * G * Fs / (4.0 * max(cosV, 0.05) * max(NoL, 1e-3) + 1e-4) * NoL, 80.0) * 3.14159;
+        float fres = f0 + (1.0 - f0) * pow(1.0 - cosV, 5.0);
+        col = mix(through, mix(sky, seen, found), fres) + spec;
+        // Foam: a lacy band where the water meets the shore, on breaking crests and
+        // where the surface was churned up.
+        float lace = laceAt(wp.xz, flow);
+        float foam = (1.0 - smoothstep(0.02, 0.25, path)) * smoothstep(0.4, 0.7, lace);
+        foam = max(foam, smoothstep(0.62, 0.85, vCrest) * smoothstep(0.5, 0.8, lace) * 0.8);
+        foam = max(foam, clamp(vFoam, 0.0, 1.0) * smoothstep(0.3, 0.6, lace));
+        // White water where the current is squeezed faster past a rock, or turned.
+        float baseSpeed = length(uFlowBase);
+        if (baseSpeed > 0.1) {
+            float bent = length(flow - uFlowBase) / baseSpeed;
+            foam = max(foam, smoothstep(0.45, 1.1, bent) * smoothstep(0.45, 0.8, lace) * 0.85);
+        }
+        col = mix(col, (uAmbient * 1.4 + sunRad * 0.6 * sun) * 0.95, clamp(foam, 0.0, 1.0) * 0.85);
+        // Right at the waterline it fades into what's behind (no hard edge).
+        col = mix(texture(uScene, uv).rgb, col, smoothstep(0.0, 0.06, path));
+    } else {
+        // From underwater: the world above is bent through the surface, and past the
+        // critical angle the surface is a mirror of the deep (total internal reflection).
+        vec3 T = refract(-V, N, kIor);
+        float fres = f0 + (1.0 - f0) * pow(1.0 - cosV, 5.0);
+        if (dot(T, T) < 1e-4) col = inscatter;
+        else {
+            vec3 above = texture(uScene, toScreen(wp + T * 6.0)).rgb;
+            col = mix(above, inscatter, fres);
+        }
+    }
+    if (uSelected) col = mix(col, vec3(2.0, 0.9, 0.2), pow(1.0 - cosV, 3.0) * 0.8);
+    if (uFogEnabled) {
+        float f = 1.0 - exp(-uFogDensity * eyeDist);
+        vec3 fog = lin(uFogColor);
+        float toward = pow(max(dot(-V, normalize(uSunDir)), 0.0), 8.0);
+        fog += lin(uSunColor) * uSunIntensity * toward * uFogSunGlow * 0.6;
+        col = mix(col, fog, clamp(f, 0.0, 1.0));
+    }
+    if (uRenderDist > 0.0) {
+        float edge = smoothstep(uRenderDist * 0.8, uRenderDist, eyeDist);
+        col = mix(col, lin(skyGradient(-V, uZenith, uHorizon, uGround)) * uSkyBrightness, edge);
+    }
     FragColor = vec4(col, 1.0);
 }
 )";

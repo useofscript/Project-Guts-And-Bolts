@@ -65,7 +65,7 @@ void Player::build() {
     SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
     m_rootId = r->id;
     setHat(m_hat, m_hatTint);
-    applyClothing(r, m_shirt, m_pants);
+    applyClothing(r, m_shirt, m_pants, m_tshirt);
     applyAccessories(*m_scene, r, m_accessories);
     applyFace(*m_scene, r, m_face);
     m_scene->markDirty();
@@ -148,15 +148,17 @@ void Player::removeOldFace(Scene& scene, SceneNode* head) {
     for (SceneNode* o : old) scene.removeNode(o);
 }
 
-void Player::setClothing(const std::string& shirt, const std::string& pants) {
+void Player::setClothing(const std::string& shirt, const std::string& pants, const std::string& tshirt) {
     m_shirt = shirt;
     m_pants = pants;
-    if (SceneNode* r = root()) applyClothing(r, shirt, pants);
+    m_tshirt = tshirt;
+    if (SceneNode* r = root()) applyClothing(r, shirt, pants, tshirt);
 }
 
-void Player::applyClothing(SceneNode* r, const std::string& shirt, const std::string& pants) {
+void Player::applyClothing(SceneNode* r, const std::string& shirt, const std::string& pants, const std::string& tshirt) {
     auto set = [&](const char* n, const std::string& t) { if (SceneNode* p = r->findChild(n)) p->texture = t; };
     set("Torso", shirt.empty() ? pants : shirt);
+    if (SceneNode* torso = r->findChild("Torso")) torso->tshirt = tshirt;
     set("Left Arm", shirt); set("Right Arm", shirt);
     set("Left Leg", pants); set("Right Leg", pants);
 }
@@ -708,7 +710,7 @@ bool Player::waterAt(Scene& scene, const glm::vec3& p, float* top, glm::vec3* fl
         wetBox.max.y = t;
         if (!insideBox(wetBox, p) || t < best) return;
         found = true; best = t;
-        if (flow) { const WaterSystem::Body* wb = waves.find(n->id); *flow = wb ? wb->flow : glm::vec3(0.0f); }
+        if (flow) { const WaterSystem::Body* wb = waves.find(n->id); *flow = wb ? waves.flowAt(*wb, p.x, p.z) : glm::vec3(0.0f); }
         if (color) *color = n->color;
     });
     // Flowing water from a WaterSource (floods, rivers).
@@ -816,6 +818,12 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_climbing = truss && (moving || (m_climbing && !m_grounded));
     m_swimming = water && !m_climbing;
     if (!m_swimming) m_underwater = false;
+    // Out of the water you drip for a while, leaving wet patches where you walk.
+    if (m_swimming) m_drip = 1.0f;
+    else if (m_drip > 0.0f) {
+        m_drip = std::max(0.0f, m_drip - dt / 20.0f);
+        if ((m_dripTimer -= dt) <= 0.0f) { m_dripTimer = 0.3f; waves.addWetSpot(pos, 0.7f + m_drip * 0.5f); }
+    }
     float speed = m_humanoid.walkSpeed * (m_swimming ? 0.75f : 1.0f);
 
     // Gravity + jumping.

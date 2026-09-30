@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -20,7 +21,13 @@ class SceneNode;
 //    waves (see buoyancy in RigidBodies.cpp) and swimmers bob up and down.
 //
 // A water part can have attributes: "Waves" (how tall the ocean swell is, in
-// units) and "Flow" (a Vector3: a current that carries things along).
+// units; or "WaveScale", 1 = half a stud), "Flow" (a Vector3: a current that
+// carries things along) and "Clarity" (0 murky .. 1 crystal clear). The swell is
+// made of Gerstner waves (Gerstner.h). A FluidVolume (from scripts) is a water
+// part with these set.
+//
+// Where the surface moves fast (a splash, a wave slapping a wall) it throws up
+// spray: real liquid drops (Liquid) that fall back in and soak into the pool.
 //
 // Flowing water (Flood.cpp): parts called "WaterSource" pour out water that
 // runs downhill, spreads, fills holes, piles up behind walls and pours over
@@ -34,9 +41,16 @@ public:
         int       nx = 0, nz = 0;         // grid points across x and z
         float     cell = 1.0f;            // distance between grid points
         std::vector<float> h, v;          // how far each point is above / below the still level, and its speed
-        float     swell = 0.0f;           // "Waves" attribute
+        float     swell = 0.0f;           // how tall the Gerstner waves are ("Waves", or "WaveScale" x 0.5)
+        float     clarity = 0.6f;         // how clear: 1 = crystal, 0 = murky ("Clarity", or from Transparency)
         glm::vec3 flow{0.0f};             // "Flow" attribute
         glm::vec3 color{0.2f, 0.45f, 0.7f};
+        // The current across the surface, one arrow per grid point (x, z): the "Flow"
+        // bent around anything solid sticking out of the water (a boulder, a pillar),
+        // so it splits around it and speeds up past its sides. Empty = no current.
+        std::vector<glm::vec2> flowMap;
+        uint64_t  flowKey = 0;            // what it was worked out from (so it's only redone when that changes)
+        int       flowVersion = 0;        // goes up when it changes (the renderer re-uploads it)
         float     transparency = 0.4f;
     };
 
@@ -86,6 +100,12 @@ public:
 
     const std::vector<Body>& bodies() const { return m_bodies; }
     float surface(const Body& b, float x, float z) const { return b.max.y + heightAt(b, x, z) + swellAt(b, x, z); }
+    // Just the ripples (no swell: the renderer adds the Gerstner waves itself).
+    float rippleSurface(const Body& b, float x, float z) const { return b.max.y + heightAt(b, x, z); }
+    // The current at a point on the surface (the flow map, bilinear).
+    glm::vec3 flowAt(const Body& b, float x, float z) const;
+    // How fast the surface is moving here (splashes, wakes): for foam.
+    float churn(const Body& b, float x, float z) const;
     const Body* find(uint64_t id) const;
     float time() const { return m_time; }
 
@@ -95,9 +115,18 @@ public:
 
 private:
     void scan(Scene& scene);
+    void buildFlowMap(Body& b, Scene& scene);
     Body* bodyAt(const glm::vec3& p, float pad = 0.0f);
     const Body* bodyAt(const glm::vec3& p, float pad = 0.0f) const;
     float heightAt(const Body& b, float x, float z) const;   // grid part only
+public:
+    // Near the sides of a pool the waves stop moving sideways (0 at the side, 1 two
+    // studs in), so the water never pokes through the walls.
+    static float edgeFade(const Body& b, float x, float z) {
+        const float d = std::min(std::min(x - b.min.x, b.max.x - x), std::min(z - b.min.z, b.max.z - z));
+        return std::clamp(d * 0.5f, 0.0f, 1.0f);
+    }
+private:
     float swellAt(const Body& b, float x, float z) const;
     // Flowing water (Flood.cpp).
     struct Source { uint64_t id; glm::vec3 pos; float radius, rate; };
@@ -119,6 +148,14 @@ public:
     // Where the camera is and the render distance (0 = no limit): water further away
     // than that stops making waves until you come closer (less lag).
     void setViewer(const glm::vec3& p, float dist) { m_viewer = p; m_viewDist = dist; m_liquid.setViewer(p, dist); }
+    // Wet patches: splashes and dripping swimmers leave the things around them wet
+    // (darker and shinier) for a while, drying from the edges.
+    struct WetSpot { glm::vec3 pos; float radius; float born; };
+    void addWetSpot(const glm::vec3& p, float radius);
+    const std::vector<WetSpot>& wetSpots() const { return m_wetSpots; }
+    float wetness(const WetSpot& s) const;   // 1 soaked .. 0 dry
+private:
+    std::vector<WetSpot> m_wetSpots;
 private:
     std::unordered_map<uint64_t, float> m_lastWet;           // when each body was last in the water
     std::unordered_map<uint64_t, glm::vec3> m_charPrev;      // characters' last positions (for wakes)

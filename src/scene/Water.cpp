@@ -3,9 +3,11 @@
 #include "SceneNode.h"
 #include "Physics.h"
 #include "Player.h"
+#include "Gerstner.h"
 #include "../core/Audio.h"
 
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 
 namespace {
@@ -13,6 +15,8 @@ namespace {
 constexpr float kWaveSpeed = 6.0f;    // how fast ripples spread (units / second)
 constexpr float kCalm      = 0.55f;   // how quickly waves die down
 constexpr int   kMaxPoints = 96;      // grid points along the longest side
+
+float rnd01() { static uint32_t s = 0x9e3779b9u; s ^= s << 13; s ^= s >> 17; s ^= s << 5; return (s & 0xffffff) / 16777216.0f; }
 
 const Attribute* attr(const SceneNode* n, const char* name, Attribute::Type t) {
     const Attribute* a = n->findAttribute(name);
@@ -71,9 +75,13 @@ void WaterSystem::scan(Scene& scene) {
         }
         b.swell = 0.0f;
         b.flow = glm::vec3(0.0f);
+        if (const Attribute* a = attr(n, "WaveScale", Attribute::Number)) b.swell = std::max(0.0f, (float)a->n) * 0.5f;
         if (const Attribute* a = attr(n, "Waves", Attribute::Number)) b.swell = std::max(0.0f, (float)a->n);
+        b.clarity = std::clamp(0.2f + n->transparency, 0.0f, 1.0f);
+        if (const Attribute* a = attr(n, "Clarity", Attribute::Number)) b.clarity = std::clamp((float)a->n, 0.0f, 1.0f);
         if (const Attribute* a = attr(n, "Flow", Attribute::Vector3)) b.flow = a->v;
         b.color = n->color;
+        buildFlowMap(b, scene);
         b.transparency = n->transparency;
         keep.push_back(std::move(b));
     });
@@ -84,6 +92,7 @@ void WaterSystem::end() {
     m_bodies.clear();
     m_liquid.end();
     m_flood = Flood{};
+    m_wetSpots.clear();
     m_sources.clear();
     m_lastWet.clear();
     m_charPrev.clear();
@@ -118,13 +127,125 @@ float WaterSystem::heightAt(const Body& b, float x, float z) const {
     return (H(x0, z0) * (1 - tx) + H(x0 + 1, z0) * tx) * (1 - tz) + (H(x0, z0 + 1) * (1 - tx) + H(x0 + 1, z0 + 1) * tx) * tz;
 }
 
+// The flow map: start with the Flow everywhere, then make it go around solid things
+// (the pressure solve every fluid simulator uses: water can't pile up or vanish, so
+// it has to go around, and squeezes faster through the gaps).
+void WaterSystem::buildFlowMap(Body& b, Scene& scene) {
+    const glm::vec2 base(b.flow.x, b.flow.z);
+    if (glm::length(base) < 1e-3f) {
+        if (!b.flowMap.empty()) { b.flowMap.clear(); b.flowKey = 0; ++b.flowVersion; }
+        return;
+    }
+    // Solid things poking through the surface.
+    std::vector<AABB> solids;
+    uint64_t key = 1469598103934665603ull;
+    auto mix = [&](float v) { uint32_t u; std::memcpy(&u, &v, 4); key = (key ^ u) * 1099511628211ull; };
+    mix(base.x); mix(base.y); mix((float)b.nx); mix((float)b.nz); mix(b.min.x); mix(b.min.z);
+    scene.forEach([&](SceneNode* n) {
+        if (!n->isPart() || !n->canCollide || !n->anchored || Player::isWater(n) || scene.isCharacterPart(n)) return;
+        const AABB a = Physics::worldBounds(n);
+        if (a.max.x < b.min.x || a.min.x > b.max.x || a.max.z < b.min.z || a.min.z > b.max.z) return;
+        if (a.max.y < b.max.y - 0.3f || a.min.y > b.max.y + 0.3f) return;   // under the surface, or above it
+        solids.push_back(a);
+        mix(a.min.x); mix(a.min.z); mix(a.max.x); mix(a.max.z);
+    });
+    if (key == b.flowKey && !b.flowMap.empty()) return;
+    b.flowKey = key;
+    ++b.flowVersion;
+    const int nx = b.nx, nz = b.nz;
+    const size_t n = (size_t)nx * nz;
+    std::vector<uint8_t> solid(n, 0);
+    for (int k = 0; k < nz; ++k)
+        for (int i = 0; i < nx; ++i) {
+            const float x = b.min.x + i * b.cell, z = b.min.z + k * b.cell;
+            for (const AABB& a : solids)
+                if (x >= a.min.x && x <= a.max.x && z >= a.min.z && z <= a.max.z) { solid[(size_t)k * nx + i] = 1; break; }
+        }
+    std::vector<glm::vec2> u(n);
+    for (size_t id = 0; id < n; ++id) u[id] = solid[id] ? glm::vec2(0.0f) : base;
+    auto vel = [&](int i, int k) {   // outside the grid: the current comes in / goes out as it is
+        if (i < 0 || k < 0 || i >= nx || k >= nz) return base;
+        return u[(size_t)k * nx + i];
+    };
+    std::vector<float> div(n, 0.0f), p(n, 0.0f), q(n, 0.0f);
+    const float h = b.cell;
+    for (int k = 0; k < nz; ++k)
+        for (int i = 0; i < nx; ++i)
+            if (!solid[(size_t)k * nx + i])
+                div[(size_t)k * nx + i] = (vel(i + 1, k).x - vel(i - 1, k).x + vel(i, k + 1).y - vel(i, k - 1).y) / (2.0f * h);
+    // Pressure: open edges (the river carries on past the part), solid walls push back.
+    for (int it = 0; it < 80; ++it) {
+        for (int k = 0; k < nz; ++k)
+            for (int i = 0; i < nx; ++i) {
+                const size_t id = (size_t)k * nx + i;
+                if (solid[id]) { q[id] = 0.0f; continue; }
+                float sum = 0.0f;
+                int count = 0;
+                const int ni[4] = {i + 1, i - 1, i, i}, nk[4] = {k, k, k + 1, k - 1};
+                for (int d = 0; d < 4; ++d) {
+                    if (ni[d] < 0 || nk[d] < 0 || ni[d] >= nx || nk[d] >= nz) { ++count; continue; }   // open edge: p = 0
+                    const size_t j = (size_t)nk[d] * nx + ni[d];
+                    if (solid[j]) continue;                                                              // wall
+                    sum += p[j];
+                    ++count;
+                }
+                q[id] = count ? (sum - h * h * div[id]) / count : 0.0f;
+            }
+        p.swap(q);
+    }
+    auto P = [&](int i, int k, float self) {
+        if (i < 0 || k < 0 || i >= nx || k >= nz) return 0.0f;
+        const size_t j = (size_t)k * nx + i;
+        return solid[j] ? self : p[j];
+    };
+    b.flowMap.assign(n, glm::vec2(0.0f));
+    const float cap = glm::length(base) * 3.0f;
+    for (int k = 0; k < nz; ++k)
+        for (int i = 0; i < nx; ++i) {
+            const size_t id = (size_t)k * nx + i;
+            if (solid[id]) continue;
+            const float self = p[id];
+            glm::vec2 v = u[id] - glm::vec2(P(i + 1, k, self) - P(i - 1, k, self), P(i, k + 1, self) - P(i, k - 1, self)) / (2.0f * h);
+            const float s = glm::length(v);
+            if (s > cap) v *= cap / s;
+            b.flowMap[id] = v;
+        }
+}
+
+glm::vec3 WaterSystem::flowAt(const Body& b, float x, float z) const {
+    if (b.flowMap.empty()) return b.flow;
+    float fx = std::clamp((x - b.min.x) / b.cell, 0.0f, (float)(b.nx - 1));
+    float fz = std::clamp((z - b.min.z) / b.cell, 0.0f, (float)(b.nz - 1));
+    int x0 = std::min((int)fx, b.nx - 2), z0 = std::min((int)fz, b.nz - 2);
+    float tx = fx - x0, tz = fz - z0;
+    auto F = [&](int i, int k) { return b.flowMap[(size_t)k * b.nx + i]; };
+    const glm::vec2 v = (F(x0, z0) * (1 - tx) + F(x0 + 1, z0) * tx) * (1 - tz) + (F(x0, z0 + 1) * (1 - tx) + F(x0 + 1, z0 + 1) * tx) * tz;
+    return glm::vec3(v.x, b.flow.y, v.y);
+}
+
+void WaterSystem::addWetSpot(const glm::vec3& p, float radius) {
+    if (!m_active) return;
+    for (WetSpot& s : m_wetSpots)   // soaking a patch that's already wet: freshen it up
+        if (glm::length(s.pos - p) < s.radius * 0.5f) { s.born = m_time; s.radius = std::max(s.radius, radius); return; }
+    if (m_wetSpots.size() >= 64) m_wetSpots.erase(m_wetSpots.begin());
+    m_wetSpots.push_back({p, radius, m_time});
+}
+
+float WaterSystem::wetness(const WetSpot& s) const {
+    const float age = m_time - s.born;
+    return 1.0f - std::clamp((age - 12.0f) / 25.0f, 0.0f, 1.0f);   // soaked for a while, dry after ~40 s
+}
+
+float WaterSystem::churn(const Body& b, float x, float z) const {
+    const int i = std::clamp((int)std::lround((x - b.min.x) / b.cell), 0, b.nx - 1);
+    const int k = std::clamp((int)std::lround((z - b.min.z) / b.cell), 0, b.nz - 1);
+    return std::abs(b.v[(size_t)k * b.nx + i]);
+}
+
 float WaterSystem::swellAt(const Body& b, float x, float z) const {
     if (b.swell <= 0.0f) return 0.0f;
-    const float t = m_time;
-    // A few long waves rolling in from different directions.
-    return b.swell * (0.5f * std::sin(x * 0.31f + z * 0.12f + t * 1.1f) +
-                      0.3f * std::sin(z * 0.43f - x * 0.2f + t * 1.7f) +
-                      0.2f * std::sin((x + z) * 0.77f + t * 2.3f));
+    // Gerstner waves (the same ones the water is drawn with).
+    return Gerstner::heightAt(x, z, m_time, b.swell, edgeFade(b, x, z));
 }
 
 float WaterSystem::surfaceOf(const SceneNode* water, float x, float z) const {
@@ -139,7 +260,7 @@ bool WaterSystem::at(const glm::vec3& p, float* surface, glm::vec3* flow) const 
     float s = b->max.y + heightAt(*b, p.x, p.z) + swellAt(*b, p.x, p.z);
     if (p.y > s) return floodAt(p, surface, flow);
     if (surface) *surface = s;
-    if (flow) *flow = b->flow;
+    if (flow) *flow = flowAt(*b, p.x, p.z);
     return true;
 }
 
@@ -166,8 +287,18 @@ void WaterSystem::splash(Scene& scene, const glm::vec3& p, float speed, float si
     if (!b && !floodAt(p - glm::vec3(0.0f, 0.05f, 0.0f), nullptr, nullptr)) return;
     size = std::clamp(size, 0.2f, 4.0f);
     if (b) disturb(p, std::min(0.6f, speed * 0.02f * size), 0.5f + size * 0.7f);
+    addWetSpot(p, std::clamp(1.5f + size * 1.5f + speed * 0.08f, 1.5f, 9.0f));   // the pool's edge and anything nearby get splashed
     int count = (int)std::clamp(speed * size * 4.0f, 8.0f, 90.0f);
     scene.particles().waterSpray(p, count, std::clamp(speed * 0.45f, 2.0f, 10.0f), b ? b->color : m_flood.color, size * 0.6f);
+    // A big splash also throws real liquid up (it falls back and soaks in).
+    const int drops = (int)std::clamp((speed - 6.0f) * size * 1.5f, 0.0f, 40.0f);
+    for (int i = 0; i < drops; ++i) {
+        const float a = rnd01() * 6.2831853f, r = rnd01();
+        const glm::vec3 out(std::cos(a) * r, 0.0f, std::sin(a) * r);
+        m_liquid.spray(p + out * size * 0.6f + glm::vec3(0.0f, 0.2f, 0.0f),
+                       out * std::clamp(speed * 0.12f, 1.0f, 5.0f) +
+                       glm::vec3(0.0f, std::clamp(speed * 0.3f, 4.0f, 14.0f) * (0.6f + 0.4f * rnd01()), 0.0f));
+    }
     if (m_splashSound <= 0.0f) {
         Audio::play("splash", std::clamp(speed * size / 12.0f, 0.15f, 1.0f), std::clamp(1.3f - size * 0.15f, 0.7f, 1.3f), false, &p);
         m_splashSound = 0.08f;
@@ -194,6 +325,8 @@ void WaterSystem::update(float dt, Scene& scene) {
     if (!m_active) return;
     m_time += dt;
     m_splashSound -= dt;
+    m_wetSpots.erase(std::remove_if(m_wetSpots.begin(), m_wetSpots.end(),
+                                    [&](const WetSpot& s) { return wetness(s) <= 0.0f; }), m_wetSpots.end());
     if ((m_scanTime -= dt) <= 0.0f) { m_scanTime = 0.25f; scan(scene); scanSources(scene); }
     stepFlood(dt, scene);
     m_liquid.update(dt, scene);
@@ -244,6 +377,19 @@ void WaterSystem::update(float dt, Scene& scene) {
             for (size_t id = 0; id < b.h.size(); ++id)
                 b.h[id] = std::clamp(b.h[id] + b.v[id] * hs, -2.0f, 2.0f) * (1.0f - 0.02f * hs);
         }
+        // White water: where the surface shoots up fast (a wave slapping a wall, the
+        // middle of a splash) it throws real liquid drops into the air.
+        int thrown = 0;
+        for (int k = 1; k + 1 < b.nz && thrown < 12; k += 2)
+            for (int i = 1; i + 1 < b.nx && thrown < 12; i += 2) {
+                const size_t id = (size_t)k * b.nx + i;
+                const float rise = b.v[id];
+                if (rise < 1.4f || b.h[id] < 0.12f || rnd01() > 0.25f) continue;
+                const glm::vec3 p(b.min.x + i * b.cell, b.max.y + b.h[id], b.min.z + k * b.cell);
+                const glm::vec3 side((rnd01() - 0.5f) * 2.0f, 0.0f, (rnd01() - 0.5f) * 2.0f);
+                m_liquid.spray(p, side + glm::vec3(0.0f, std::min(rise * 2.2f, 9.0f), 0.0f));
+                ++thrown;
+            }
     }
 
     // Forget things that left the water long ago.

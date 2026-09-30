@@ -9,7 +9,7 @@
 // ones signed by the official staff account show up, so only staff can add them.
 namespace Catalog {
 
-enum class Type { Hat, Shirt, Pants, Hair, FaceAcc, Neck, Shoulder, Waist, Face, Count };
+enum class Type { Hat, Shirt, Pants, Hair, FaceAcc, Neck, Shoulder, Waist, Face, TShirt, Count };
 const char* typeName(Type t);
 
 struct Item {

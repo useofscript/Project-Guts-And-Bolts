@@ -128,7 +128,7 @@ json avatarJson(const Profile& p) {
     return {{"head", vec3(c.head)}, {"torso", vec3(c.torso)}, {"leftArm", vec3(c.leftArm)},
             {"rightArm", vec3(c.rightArm)}, {"leftLeg", vec3(c.leftLeg)}, {"rightLeg", vec3(c.rightLeg)},
             {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)},
-            {"shirtImage", p.shirtImage}, {"pantsImage", p.pantsImage},
+            {"shirtImage", p.shirtImage}, {"pantsImage", p.pantsImage}, {"tshirtImage", p.tshirtImage},
             {"faceImage", p.faceImage}, {"accessories", p.accessories}};
 }
 
@@ -594,7 +594,7 @@ void NetServer::handle(Client& c, const std::string& text) {
                 std::string s = a.value(k, std::string());
                 return s.rfind("gb:", 0) == 0 && s.size() < 64 ? s : std::string();
             };
-            Player::applyClothing(rig, cloth("shirtImage"), cloth("pantsImage"));
+            Player::applyClothing(rig, cloth("shirtImage"), cloth("pantsImage"), cloth("tshirtImage"));
             Online::fetchSounds(*m_scene);   // download their clothing pictures
             // Their accessories and face: download them, then dress the rig (if they're still here).
             Player::Accessories acc;

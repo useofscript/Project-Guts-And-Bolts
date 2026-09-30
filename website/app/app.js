@@ -27,15 +27,16 @@ const $ = (sel, root = document) => root.querySelector(sel);
 function show(content) { view.innerHTML = content.s; }
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
-  hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face' };
+  hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
+  tshirt: 'T-Shirt' };
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
-const WEARABLE = ['shirt', 'pants', 'face', ...ACCESSORIES];
+const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
 // Only Guts' own accessories and faces can be Limited.
 const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
 // Items with a real picture (Studio accessories, faces) show that instead of a drawing.
-const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || (a.meta && a.meta.model));
-const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0 };
+const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || a.kind === 'tshirt' || (a.meta && a.meta.model));
+const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
 
 let me = null;          // our account on the server (from "hello")
 let pageToken = 0;      // goes up with every page change; a slower old page must not draw over a newer one
@@ -91,6 +92,9 @@ function itemIcon(a) {
     shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="${c}"/>`;
   } else if (k === 'pants') {
     shape = `<path d="M30 18 L70 18 L74 84 L56 84 L50 42 L44 84 L26 84 Z" fill="${c}"/><rect x="30" y="18" width="40" height="7" fill="rgba(0,0,0,.2)"/>`;
+  } else if (k === 'tshirt') {   // (no picture yet)
+    shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="#fff" stroke="#999" stroke-width="2"/>
+      <rect x="38" y="40" width="24" height="24" rx="3" fill="#ddd"/>`;
   } else if (k === 'face') {
     shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
       <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
@@ -224,8 +228,9 @@ function gameCard(g) {
 const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
   leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
 const items3d = new Map();   // id -> item, for the pictures below
-// Shirts, pants and shape hats: the 3D mannequin can wear them.
-const drawable3d = (a) => ['shirt', 'pants'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
+// Shirts, pants, T-shirts and shape hats: the 3D mannequin can wear them (with
+// their pictures on, the way the game shows them).
+const drawable3d = (a) => ['shirt', 'pants', 'tshirt'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
 
 // Fills in <img data-thumb="id"> with the item's picture.
 function loadThumbs(root = view) {
@@ -498,7 +503,7 @@ pages.updates = async () => {
   const staffForm = me && me.staff ? html`<details class="box"><summary><b>Post an update</b> (staff)</summary>
       <form data-form="postUpdate" class="form">
         <label>Name <input type="text" name="name" maxlength="40" required placeholder="Give it a cool name, like Glass Lagoon"></label>
-        <label>Version <input type="text" name="version" maxlength="12" placeholder="0.6.1"></label>
+        <label>Version <input type="text" name="version" maxlength="12" placeholder="0.6.2"></label>
         <label>Kind <select name="tag">${['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'].map((t) => html`<option>${t}</option>`)}</select></label>
         <label>Summary <input type="text" name="summary" maxlength="200" placeholder="One line about it"></label>
         <label>What changed (one per line) <textarea name="items" rows="5"></textarea></label>
@@ -676,7 +681,7 @@ pages.catalog = async () => {
   const tab = (k, label) => html`<a class="btn ${kind === k ? 'blue' : ''}" href="#/catalog?kind=${k}">${label}</a>`;
   show(html`<h1>Catalog</h1>
     <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('hair', 'Hair')}${tab('face', 'Faces')}${tab('faceacc', 'Face Accessories')}${tab('neck', 'Neck')}
-      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('pants', 'Pants')}</div>
+      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('tshirt', 'T-Shirts')}${tab('pants', 'Pants')}</div>
     <form class="row" data-form="catalogSearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the catalog" value="${query}" style="max-width:280px">
       <button class="btn blue">Search</button></form><br>
@@ -716,6 +721,7 @@ pages.item = async (id) => {
         <label>Price (Bolts)</label><input type="number" name="price" min="0" value="${a.price || 0}" style="max-width:140px">
         ${drawable3d(a) ? html`<label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">` : ''}
         ${a.kind === 'face' ? html`<label>New picture <span class="muted small">(optional, a .png face)</span></label><input type="file" name="picture" accept="image/png">`
+          : a.kind === 'tshirt' ? html`<label>New picture <span class="muted small">(optional, a .png or .jpg)</span></label><input type="file" name="picture" accept="image/png,image/jpeg">`
           : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
           : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
           : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
@@ -756,7 +762,7 @@ async function decalPicture(img) {
 
 pages.create = async (tab = 'games') => {
   const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['accessory', 'Accessories'],
-    ['shirt', 'Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library']];
+    ['shirt', 'Shirts'], ['tshirt', 'T-Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
   if (tab === 'library') { await libraryPage(head); return; }
   if (tab === 'model') { await myModelsPage(head); return; }
@@ -770,7 +776,7 @@ pages.create = async (tab = 'games') => {
     : me.verified ? html`<b>You're Verified!</b> Uploading is free, with no daily limit, and you can sell what you make.`
     : html`Uploading costs a few Bolts (decals 5, clothes 10, audio 20, plugins 20; games are free).
       <span class="muted">${me.uploadsLeft} uploads left today.</span>`;
-  const clothing = ['hat', 'shirt', 'pants'].includes(kind), face = kind === 'face';
+  const clothing = ['hat', 'shirt', 'pants'].includes(kind), face = kind === 'face', tee = kind === 'tshirt';
   const accept = { decal: '.png,.jpg,.jpeg', audio: '.mp3,.wav,.ogg,.flac', plugin: '.lua', game: '.gbscene' }[kind] || '';
   const form = html`<h2>${kind === 'game' ? 'Publish a game' : 'Upload a new ' + KINDS[kind]}</h2>
     <form class="form" data-form="upload"><input type="hidden" name="kind" value="${kind}">
@@ -783,6 +789,9 @@ pages.create = async (tab = 'games') => {
           <input type="file" name="picture" accept="image/png">
           <p class="small muted">A 585 x 559 .png painted on the
             <a href="templates/${kind}_template.png" download>${kind} template</a>. See-through bits show the colour above.</p>` : ''}`
+      : tee ? html`<label>Picture</label><input type="file" name="file" accept="image/png,image/jpeg" required>
+        <p class="small muted">Any .png or .jpg (up to 1024 x 1024). It's worn flat on the front of the torso, over your shirt.
+          Square pictures fit best; see-through bits show the shirt underneath.</p>`
       : face ? html`<label>Picture</label><input type="file" name="file" accept="image/png" required>
         <p class="small muted">A square .png of the face, see-through around the eyes and mouth (like 256 x 256). It's drawn on the front of the head.</p>`
       : html`<label>File</label><input type="file" name="file" accept="${accept}" required>
@@ -790,7 +799,7 @@ pages.create = async (tab = 'games') => {
           plugin: 'A Lua plugin for Studio.', game: 'A .gbscene file saved from Studio (or use File > Publish in Studio).' }[kind]}</p>`}
       ${['decal', 'audio'].includes(kind) ? html`<p class="small muted">${kind === 'decal' ? 'Decals' : 'Sounds'} are always free: anyone can use them in their games.</p>`
         : (me.verified || face) && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
-      ${kind === 'decal' || face ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
+      ${kind === 'decal' || face || tee ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
       <p><button class="btn green">${FEES[kind] && !me.verified ? 'Upload for ' + FEES[kind] + ' Bolts' : 'Upload (free)'}</button>
         <span id="uploadMsg"></span></p></form>`;
   // Hats are for Verified creators; shirts and pants are open to everyone.
@@ -1400,8 +1409,13 @@ const actions = {
   avatarHat(d) { avatarDraft.hat = Number(d.i); avatarDraft.hatColor = [-1, -1, -1]; render(); },
   avatarWear(d) {
     const w = avatarDraft.wearing;
+    const kindOf = (id) => id.slice(0, id.lastIndexOf('-'));   // item ids are "<kind>-<hex>"
     if (w.includes(d.id)) w.splice(w.indexOf(d.id), 1);
-    else if (w.length < 8) w.push(d.id);
+    else {
+      // One of each kind: a new T-shirt replaces the old one.
+      for (let i = w.length - 1; i >= 0; --i) if (kindOf(w[i]) === kindOf(d.id)) w.splice(i, 1);
+      if (w.length < 12) w.push(d.id);
+    }
     render();
   },
   async saveAvatar() {

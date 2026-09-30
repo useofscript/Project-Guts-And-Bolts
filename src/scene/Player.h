@@ -115,8 +115,10 @@ public:
     void       rememberHat(HatStyle style) { m_hat = style; }   // no rebuild (loading)
     // Clothing pictures (the 585 x 559 template): "gb:<id>" or a file; "" = none.
     // The shirt goes on the torso and arms, pants on the legs (and the torso if no shirt).
-    void       setClothing(const std::string& shirt, const std::string& pants);
-    static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants);
+    void       setClothing(const std::string& shirt, const std::string& pants, const std::string& tshirt = "");
+    // tshirt: a picture flat on the front of the torso (over the shirt, if there is one).
+    static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants,
+                              const std::string& tshirt = "");
     // Accessories made in Studio's Accessory window: kind ("hat", "hair", "faceacc",
     // "neck", "shoulder", "waist") -> "gb:<id>" or a file holding the accessory.
     // Ones not downloaded yet are skipped (set them again once they arrive).
@@ -169,6 +171,7 @@ public:
     bool grounded() const { return m_grounded; }
     bool swimming() const { return m_swimming; }
     bool underwater() const { return m_underwater; }   // swimming with the head under
+    float dripping() const { return m_drip; }          // just out of the water: 1 soaked .. 0 dry
     // Swimming controls for the next update: look = the camera's up/down (-1 looking
     // straight down .. 1 straight up), down = the dive key (C / Ctrl).
     void setSwimInput(float look, bool down) { m_swimLook = look; m_swimDown = down; }
@@ -188,7 +191,7 @@ private:
     Humanoid m_humanoid;
     HatStyle m_hat = HatStyle::None;
     glm::vec3 m_hatTint = glm::vec3(-1.0f);
-    std::string m_shirt, m_pants, m_face;
+    std::string m_shirt, m_pants, m_tshirt, m_face;
     Accessories m_accessories;
 
     glm::vec3 m_spawn{0.0f};
@@ -211,6 +214,7 @@ private:
     // Climbing trusses / ladders, and swimming in water.
     bool  m_climbing = false, m_swimming = false, m_underwater = false;
     float m_swimLook = 0.0f, m_bobPhase = 0.0f;
+    float m_drip = 0.0f, m_dripTimer = 0.0f;   // dripping wet after swimming (leaves wet footprints)
     bool  m_swimDown = false;
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
     float m_climbPhase = 0.0f;

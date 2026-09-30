@@ -5,7 +5,7 @@ plugins {
     id 'com.android.application'
 }
 
-def gbVersionName = project.findProperty('gbVersion') ?: '0.6.1'
+def gbVersionName = project.findProperty('gbVersion') ?: '0.6.2'
 def gbVersionCode = (project.findProperty('gbVersionCode') ?: '5') as int
 
 android {

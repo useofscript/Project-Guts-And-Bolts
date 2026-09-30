@@ -1,4 +1,5 @@
 #pragma once
+#include "../renderer/Textures.h"
 // The Guts&Bolts site's look (2011-style): colours, buttons and drawings shared
 // by the site's pages (PlayerApp.cpp, PlayerOnline.cpp).
 #include <imgui.h>
@@ -6,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include "../game/Catalog.h"
+#include "../online/AssetCache.h"
+#include <set>
 
 namespace Site {
 
@@ -110,8 +113,45 @@ inline void logo(ImDrawList* dl, ImVec2 p, float size, const char* text) {
     dl->AddText(f, size, p, IM_COL32(222, 34, 28, 255), text);
 }
 } // namespace Classic
+// An item's picture ("gb:<id>"): asks the server for it the first time (it shows
+// up by itself once it has downloaded).
+inline unsigned itemPicture(const std::string& image) {
+    if (image.empty()) return 0;
+    unsigned tex = Textures::get(image);
+    static std::set<std::string> asked;
+    if (!tex && image.rfind("gb:", 0) == 0 && asked.insert(image).second) Online::download(image.substr(3));
+    return tex;
+}
+
+// Shirts and pants made from the template: a grey mannequin seen from the front,
+// wearing the real picture (the same boxes of the template the game uses).
+inline bool drawClothingOnMannequin(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it) {
+    const bool shirt = it.type == Catalog::Type::Shirt;
+    if (it.image.empty() || (!shirt && it.type != Catalog::Type::Pants)) return false;
+    unsigned tex = itemPicture(it.image);
+    if (!tex) return false;
+    const float W = 585.0f, H = 559.0f;   // the template (see PlayerModel.cpp)
+    auto part = [&](ImVec2 a, ImVec2 b, ImU32 body, float x, float y, float w, float h, bool dressed) {
+        dl->AddRectFilled(a, b, body);
+        // Pictures are loaded bottom row first, so the template's top is v = 1.
+        if (dressed) dl->AddImage((ImTextureID)(intptr_t)tex, a, b, ImVec2(x / W, 1.0f - y / H), ImVec2((x + w) / W, 1.0f - (y + h) / H));
+    };
+    const float u = s * 0.19f;   // half a torso
+    const ImU32 grey = IM_COL32(205, 207, 212, 255), legGrey = IM_COL32(190, 192, 198, 255);
+    const float top = c.y - s * 0.44f;
+    dl->AddRectFilled(ImVec2(c.x - u * 0.6f, top), ImVec2(c.x + u * 0.6f, top + u * 1.1f), grey, u * 0.25f);   // head
+    const float ty = top + u * 1.2f;
+    part(ImVec2(c.x - u, ty), ImVec2(c.x + u, ty + 2 * u), grey, 231, 74, 128, 128, true);                     // torso
+    part(ImVec2(c.x - 2 * u, ty), ImVec2(c.x - u, ty + 2 * u), grey, 217, 355, 64, 128, shirt);               // right arm (on the left as you look)
+    part(ImVec2(c.x + u, ty), ImVec2(c.x + 2 * u, ty + 2 * u), grey, 308, 355, 64, 128, shirt);               // left arm
+    part(ImVec2(c.x - u, ty + 2 * u), ImVec2(c.x, ty + 4 * u), legGrey, 217, 355, 64, 128, !shirt);          // right leg
+    part(ImVec2(c.x, ty + 2 * u), ImVec2(c.x + u, ty + 4 * u), legGrey, 308, 355, 64, 128, !shirt);          // left leg
+    return true;
+}
+
 // A simple picture of a catalog item, drawn in its colour.
 inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it) {
+    if (drawClothingOnMannequin(dl, c, s, it)) return;
     ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(it.color.r, it.color.g, it.color.b, 1));
     ImU32 line = IM_COL32(40, 40, 50, 255);
     float t = std::max(1.5f, s * 0.02f);
@@ -159,6 +199,22 @@ inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item&
         dl->AddRect(w0, w1, line, 0, 0, t);
         dl->AddRect(l0, l1, line, 0, 0, t);
         dl->AddRect(r0, r1, line, 0, 0, t);
+        break;
+    }
+    case Catalog::Type::TShirt: {   // a white tee with its picture on the front
+        ImVec2 pts[] = {{c.x - s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.4f, c.y - s * 0.12f},
+                        {c.x + s * 0.3f, c.y + s * 0.0f}, {c.x + s * 0.22f, c.y - s * 0.06f}, {c.x + s * 0.22f, c.y + s * 0.34f},
+                        {c.x - s * 0.22f, c.y + s * 0.34f}, {c.x - s * 0.22f, c.y - s * 0.06f}, {c.x - s * 0.3f, c.y + s * 0.0f},
+                        {c.x - s * 0.4f, c.y - s * 0.12f}};
+        const ImU32 white = IM_COL32(250, 250, 250, 255);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.22f, c.y - s * 0.32f), ImVec2(c.x + s * 0.22f, c.y + s * 0.34f), white);
+        dl->AddTriangleFilled(pts[1], pts[2], pts[3], white); dl->AddTriangleFilled(pts[1], pts[3], pts[4], white);
+        dl->AddTriangleFilled(pts[0], pts[9], pts[8], white); dl->AddTriangleFilled(pts[0], pts[8], pts[7], white);
+        dl->AddPolyline(pts, 10, line, ImDrawFlags_Closed, t);
+        const ImVec2 a(c.x - s * 0.16f, c.y - s * 0.16f), b(c.x + s * 0.16f, c.y + s * 0.16f);
+        if (unsigned tex = itemPicture(it.image))
+            dl->AddImage((ImTextureID)(intptr_t)tex, a, b, ImVec2(0, 1), ImVec2(1, 0));
+        else dl->AddRectFilled(a, b, IM_COL32(210, 214, 222, 255), 3);
         break;
     }
     case Catalog::Type::Face: {   // a smiley on a yellow head

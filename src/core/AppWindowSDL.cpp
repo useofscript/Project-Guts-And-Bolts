@@ -256,6 +256,7 @@ void  AppWindow::lockMouse(float, float) {}
 float AppWindow::mouseLookX() { return 0.0f; }
 float AppWindow::mouseLookY() { return 0.0f; }
 bool  AppWindow::mouseLocked() { return false; }
+std::vector<std::string> AppWindow::takeDroppedFiles() { return {}; }   // nothing to drag files from on a phone
 
 float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     const GraphicsSettings& gs = GraphicsSettings::get();

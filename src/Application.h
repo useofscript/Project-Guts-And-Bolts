@@ -20,6 +20,7 @@ struct LaunchOptions {
     std::string testSelect;        // --test-select "Name1,Name2"  (tests)
     std::string exportRoblox;      // --export-roblox <file.rbxlx> (tests)
     std::string testSnapshot;      // --test-snapshot <file.png> (tests: the picture Publish sends)
+    std::string testDrop;          // --test-drop "a.fbx;b.png" (tests: files dropped on the 3D view)
     std::string testMesh;          // --test-mesh "enter,face,top,extrude"  (tests: Modeling-mode steps)
     bool        testAnim = false;  // --test-anim (tests: the Animation Editor)
     bool        testCollide = false; // --test-collide (tests: Studio's Collisions)

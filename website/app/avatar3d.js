@@ -18,12 +18,56 @@ function loadModel() {
       if (!r.ok) throw new Error('no model');
       return r.text();
     }).then(parseObj).then((parts) => {
+      for (const [name, part] of Object.entries(parts)) {
+        if (name === 'Head') continue;
+        const cx = (part.min[0] + part.max[0]) / 2;
+        layOut(part, name === 'Torso' ? TORSO_UV : cx < 0 ? RIGHT_LIMB_UV : LEFT_LIMB_UV);
+      }
       const hd = parts.Head;
       if (hd) headBox = { c: hd.min.map((m, i) => (m + hd.max[i]) / 2), s: hd.min.map((m, i) => hd.max[i] - m) };
+      const to = parts.Torso;
+      if (to) torsoBox = { c: to.min.map((m, i) => (m + to.max[i]) / 2), s: to.min.map((m, i) => to.max[i] - m) };
       return parts;
     });
   }
   return modelPromise;
+}
+
+// The clothing template (the classic 585 x 559 shirt / pants picture): where each
+// side of each body part goes, in pixels. The same numbers as PlayerModel.cpp, so a
+// shirt looks the same here as in the game.
+const TEMPLATE_W = 585, TEMPLATE_H = 559;
+const TORSO_UV = { front: [231, 74, 128, 128], back: [427, 74, 128, 128], right: [165, 74, 64, 128],
+  left: [361, 74, 64, 128], up: [231, 8, 128, 64], down: [231, 204, 128, 64] };
+const RIGHT_LIMB_UV = { front: [217, 355, 64, 128], back: [85, 355, 64, 128], right: [151, 355, 64, 128],
+  left: [19, 355, 64, 128], up: [217, 289, 64, 64], down: [217, 485, 64, 64] };
+const LEFT_LIMB_UV = { front: [308, 355, 64, 128], back: [440, 355, 64, 128], right: [506, 355, 64, 128],
+  left: [374, 355, 64, 128], up: [308, 289, 64, 64], down: [308, 485, 64, 64] };
+
+// Give each corner a place on the template: each triangle goes on the side of the
+// part's box it faces, seen from outside, the same way up as the character.
+// (The character faces +Z, so its right side is -X.)
+function layOut(part, L) {
+  const c = part.min.map((m, i) => (m + part.max[i]) / 2), sz = part.min.map((m, i) => Math.max(part.max[i] - m, 1e-6));
+  const P = part.pos, uv = [];
+  for (let t = 0; t < P.length; t += 9) {
+    const e1 = [P[t + 3] - P[t], P[t + 4] - P[t + 1], P[t + 5] - P[t + 2]];
+    const e2 = [P[t + 6] - P[t], P[t + 7] - P[t + 1], P[t + 8] - P[t + 2]];
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const a = n.map(Math.abs);
+    for (let k = 0; k < 3; ++k) {
+      const p = [0, 1, 2].map((i) => Math.max(-0.5, Math.min(0.5, (P[t + k * 3 + i] - c[i]) / sz[i])));
+      let r, s0, t0;   // s0: 0 = left of the picture, t0: 0 = top
+      if (a[1] >= a[0] && a[1] >= a[2]) {
+        if (n[1] > 0) { r = L.up; s0 = p[0] + 0.5; t0 = p[2] + 0.5; } else { r = L.down; s0 = p[0] + 0.5; t0 = 0.5 - p[2]; }
+      } else if (a[0] >= a[2]) {
+        if (n[0] < 0) { r = L.right; s0 = p[2] + 0.5; t0 = 0.5 - p[1]; } else { r = L.left; s0 = 0.5 - p[2]; t0 = 0.5 - p[1]; }
+      } else if (n[2] > 0) { r = L.front; s0 = p[0] + 0.5; t0 = 0.5 - p[1]; } else { r = L.back; s0 = 0.5 - p[0]; t0 = 0.5 - p[1]; }
+      const x = r[0] + 0.5 + s0 * (r[2] - 1), y = r[1] + 0.5 + t0 * (r[3] - 1);
+      uv.push(x / TEMPLATE_W, 1 - y / TEMPLATE_H);   // pictures are loaded bottom row first
+    }
+  }
+  part.uv = uv;
 }
 
 // Each named object -> triangles (positions + normals), in game units.
@@ -110,9 +154,13 @@ function pieces(model, av, items) {
     if (it.kind === 'hat') { hat = Number(it.meta.style) || 2; hatTint = c; }
   }
   const out = [];
+  // Clothing pictures (Player::applyClothing): the shirt on the torso and arms, the
+  // pants on the legs (and on the torso when there's no shirt).
+  const shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
+  const clothFor = { torso: shirt ? 1 : pants ? 2 : 0, leftArm: shirt ? 1 : 0, rightArm: shirt ? 1 : 0, leftLeg: pants ? 2 : 0, rightLeg: pants ? 2 : 0 };
   for (const [name, part] of Object.entries(model)) {
     const key = PART_OF[name];
-    if (key) out.push({ mesh: part, color: col[key], face: name === 'Head' });
+    if (key) out.push({ mesh: part, color: col[key], face: name === 'Head', torso: name === 'Torso', cloth: clothFor[key] || 0 });
   }
   // The face is a flat picture painted onto the front of the head (see FS / faceTexture).
   const head = model.Head;
@@ -143,7 +191,9 @@ function pieces(model, av, items) {
   return out;
 }
 
-// Everything in one list of triangles: position, normal, colour, shine.
+// Everything in one list of triangles: position, normal, colour, shine, and the
+// clothing picture's place (uv) and which one (0 none, 1 shirt, 2 pants).
+const STRIDE = 13;
 function build(list) {
   const data = [];
   for (const p of list) {
@@ -160,7 +210,10 @@ function build(list) {
       if (!p.mesh) { nx /= size[0]; ny /= size[1]; nz /= size[2]; }
       if (p.roll) [nx, ny] = [nx * rc - ny * rs, nx * rs + ny * rc];
       const l = Math.hypot(nx, ny, nz) || 1;
-      data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.face ? 3 : p.glow ? 2 : p.shine ? 1 : 0);
+      const k = (i / 3) * 2;
+      const u = p.mesh && src.uv ? src.uv[k] : 0, v = p.mesh && src.uv ? src.uv[k + 1] : 0;
+      data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.face ? 3 : p.torso ? 4 : p.glow ? 2 : p.shine ? 1 : 0,
+        u, v, p.mesh && src.uv ? p.cloth || 0 : 0);
     }
   }
   return new Float32Array(data);
@@ -170,26 +223,43 @@ function build(list) {
 
 const VS = `
 attribute vec3 aPos; attribute vec3 aNrm; attribute vec3 aCol; attribute float aShine;
+attribute vec2 aUV; attribute float aCloth;
 uniform mat4 uMvp; uniform mat3 uRot;
 varying vec3 vNrm; varying vec3 vCol; varying float vShine; varying float vY;
-varying vec3 vPos; varying vec3 vModelNrm;
+varying vec3 vPos; varying vec3 vModelNrm; varying vec2 vUV; varying float vCloth;
 void main() {
-  vNrm = uRot * aNrm; vCol = aCol; vShine = aShine; vY = aPos.y;
+  vNrm = uRot * aNrm; vCol = aCol; vShine = aShine; vY = aPos.y; vUV = aUV; vCloth = aCloth;
   vPos = aPos; vModelNrm = aNrm;
   gl_Position = uMvp * vec4(aPos, 1.0);
 }`;
 const FS = `
 precision mediump float;
 varying vec3 vNrm; varying vec3 vCol; varying float vShine; varying float vY;
-varying vec3 vPos; varying vec3 vModelNrm;
+varying vec3 vPos; varying vec3 vModelNrm; varying vec2 vUV; varying float vCloth;
 uniform float uShadow;
+uniform sampler2D uShirt, uPants; // shirt / pants pictures (the template layout)
 uniform sampler2D uFace;       // the face picture
 uniform vec3 uHeadC, uHeadS;   // the head's middle and size
+uniform sampler2D uTShirt;     // a T-shirt picture (on the front of the torso)
+uniform float uHasTShirt;
+uniform vec3 uTorsoC, uTorsoS; // the torso's middle and size
 void main() {
   if (uShadow > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, 0.22 * vCol.r); return; }
   vec3 n = normalize(vNrm);
   vec3 base = vCol;
-  if (vShine > 2.5) {
+  // Clothing: the picture over the body colour (see-through bits show the body).
+  if (vCloth > 0.5) {
+    vec4 px = vCloth < 1.5 ? texture2D(uShirt, vUV) : texture2D(uPants, vUV);
+    base = mix(base, px.rgb, px.a);
+  }
+  if (vShine > 3.5) {
+    // The torso: a T-shirt picture flat on its front (like the game does).
+    vec3 mn = normalize(vModelNrm);
+    if (uHasTShirt > 0.5 && mn.z > 0.0) {
+      vec4 px = texture2D(uTShirt, (vPos.xy - uTorsoC.xy) / uTorsoS.xy + 0.5);
+      base = mix(base, px.rgb, px.a * smoothstep(0.35, 0.6, mn.z));
+    }
+  } else if (vShine > 2.5) {
     // The head: its face picture, flat and seen straight on, painted onto the front
     // of the round head (like the game does).
     vec3 mn = normalize(vModelNrm);
@@ -203,7 +273,8 @@ void main() {
   float fill = max(dot(n, normalize(vec3(0.6, 0.2, 0.4))), 0.0) * 0.25;
   float sky = 0.5 + 0.5 * n.y;
   vec3 h = normalize(key + vec3(0.0, 0.0, 1.0));
-  float spec = pow(max(dot(n, h), 0.0), vShine > 0.5 ? 40.0 : 24.0) * (vShine > 0.5 ? 0.8 : 0.18);
+  bool shiny = vShine > 0.5 && vShine < 1.5;
+  float spec = pow(max(dot(n, h), 0.0), shiny ? 40.0 : 24.0) * (shiny ? 0.8 : 0.18);
   vec3 c = base * (0.32 + 0.18 * sky + 0.62 * diff + fill) + vec3(spec);
   if (vShine > 1.5 && vShine < 2.5) c = vCol * 1.6;
   gl_FragColor = vec4(pow(c, vec3(0.95)), 1.0);
@@ -230,6 +301,10 @@ function initGl() {
     shadow: gl.getUniformLocation(prog, 'uShadow'),
     face: gl.getUniformLocation(prog, 'uFace'),
     headC: gl.getUniformLocation(prog, 'uHeadC'), headS: gl.getUniformLocation(prog, 'uHeadS'),
+    tshirt: gl.getUniformLocation(prog, 'uTShirt'), hasTShirt: gl.getUniformLocation(prog, 'uHasTShirt'),
+    torsoC: gl.getUniformLocation(prog, 'uTorsoC'), torsoS: gl.getUniformLocation(prog, 'uTorsoS'),
+    uv: gl.getAttribLocation(prog, 'aUV'), cloth: gl.getAttribLocation(prog, 'aCloth'),
+    shirt: gl.getUniformLocation(prog, 'uShirt'), pants: gl.getUniformLocation(prog, 'uPants'),
   };
   vbo = gl.createBuffer();
   // A soft round shadow under the feet (rings fading out).
@@ -237,7 +312,7 @@ function initGl() {
   const ring = (r0, r1, a0, a1) => {
     for (let i = 0; i < 32; ++i) {
       const t0 = (i / 32) * Math.PI * 2, t1 = ((i + 1) / 32) * Math.PI * 2;
-      const P = (r, t, a) => [Math.cos(t) * r, 0.001, Math.sin(t) * r * 0.8, 0, 1, 0, a, 0, 0, 0];
+      const P = (r, t, a) => [Math.cos(t) * r, 0.001, Math.sin(t) * r * 0.8, 0, 1, 0, a, 0, 0, 0, 0, 0, 0];
       d.push(...P(r0, t0, a0), ...P(r1, t0, a1), ...P(r1, t1, a1), ...P(r0, t0, a0), ...P(r1, t1, a1), ...P(r0, t1, a0));
     }
   };
@@ -313,10 +388,51 @@ function faceTexture(id) {
 }
 // Which face an avatar wears: a face item from the catalog, or the classic smiley.
 const faceOf = (items) => { const f = (items || []).find((i) => i && i.kind === 'face'); return f ? f.id : ''; };
+// Which T-shirt (a picture on the front of the torso), if any.
+const teeOf = (items) => { const f = (items || []).find((i) => i && i.kind === 'tshirt'); return f ? f.id : ''; };
+// Shirt / pants pictures (only ones made from the template: older items are just a colour).
+const clothOf = (items, kind) => { const f = (items || []).find((i) => i && i.kind === kind && i.meta && i.meta.image); return f ? f.id : ''; };
+const teeTextures = new Map();   // pictures by item id: T-shirts, shirts and pants
+function teeTexture(id) {
+  if (teeTextures.has(id)) return teeTextures.get(id);
+  const tex = gl.createTexture();
+  const entry = { tex, loaded: false, ready: null };
+  entry.ready = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      entry.loaded = true;
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = '/thumb/' + encodeURIComponent(id);
+  });
+  teeTextures.set(id, entry);
+  return entry;
+}
+
+// A 1 x 1 see-through picture: clothing that hasn't loaded shows the body colour.
+let blankTex = null;
+function blankTexture() {
+  if (!blankTex) {
+    blankTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, blankTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+  }
+  return blankTex;
+}
 
 let headBox = null;   // the head's middle and size (from the model)
+let torsoBox = null;  // ... and the torso's
 
-function draw(buffer, count, w, h, yaw, pitch, face = '') {
+function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', pants = '') {
   if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
@@ -336,11 +452,13 @@ function draw(buffer, count, w, h, yaw, pitch, face = '') {
   gl.uniformMatrix4fv(loc.mvp, false, new Float32Array(mvp));
   gl.uniformMatrix3fv(loc.rot, false, new Float32Array([vr[0], vr[1], vr[2], vr[4], vr[5], vr[6], vr[8], vr[9], vr[10]]));
   const attrs = () => {
-    const S = 40;
+    const S = STRIDE * 4;
     gl.enableVertexAttribArray(loc.pos); gl.vertexAttribPointer(loc.pos, 3, gl.FLOAT, false, S, 0);
     gl.enableVertexAttribArray(loc.nrm); gl.vertexAttribPointer(loc.nrm, 3, gl.FLOAT, false, S, 12);
     gl.enableVertexAttribArray(loc.col); gl.vertexAttribPointer(loc.col, 3, gl.FLOAT, false, S, 24);
     gl.enableVertexAttribArray(loc.shine); gl.vertexAttribPointer(loc.shine, 1, gl.FLOAT, false, S, 36);
+    if (loc.uv >= 0) { gl.enableVertexAttribArray(loc.uv); gl.vertexAttribPointer(loc.uv, 2, gl.FLOAT, false, S, 40); }
+    if (loc.cloth >= 0) { gl.enableVertexAttribArray(loc.cloth); gl.vertexAttribPointer(loc.cloth, 1, gl.FLOAT, false, S, 48); }
   };
   // Shadow first (no depth), then the body.
   gl.disable(gl.DEPTH_TEST);
@@ -357,6 +475,21 @@ function draw(buffer, count, w, h, yaw, pitch, face = '') {
   gl.bindTexture(gl.TEXTURE_2D, faceTexture(face).tex);
   gl.uniform1i(loc.face, 0);
   if (headBox) { gl.uniform3fv(loc.headC, headBox.c); gl.uniform3fv(loc.headS, headBox.s); }
+  const t = tee ? teeTexture(tee) : null;
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, t && t.loaded ? t.tex : faceTexture('').tex);
+  gl.uniform1i(loc.tshirt, 1);
+  gl.uniform1f(loc.hasTShirt, t && t.loaded ? 1 : 0);
+  if (torsoBox) { gl.uniform3fv(loc.torsoC, torsoBox.c); gl.uniform3fv(loc.torsoS, torsoBox.s); }
+  // Clothing pictures (a see-through stand-in until they've loaded).
+  const clothTex = (id) => { const c = id ? teeTexture(id) : null; return c && c.loaded ? c.tex : blankTexture(); };
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, clothTex(shirt));
+  gl.uniform1i(loc.shirt, 2);
+  gl.activeTexture(gl.TEXTURE3);
+  gl.bindTexture(gl.TEXTURE_2D, clothTex(pants));
+  gl.uniform1i(loc.pants, 3);
+  gl.activeTexture(gl.TEXTURE0);
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
   gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
   attrs();
@@ -387,11 +520,15 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   canvas.setAttribute('role', 'img');
   canvas.setAttribute('aria-label', 'Avatar in 3D');
   const ctx = canvas.getContext('2d');
-  let buffer = build(pieces(model, avatar, items)), count = buffer.length / 10;
-  let face = faceOf(items);
+  let buffer = build(pieces(model, avatar, items)), count = buffer.length / STRIDE;
+  let face = faceOf(items), tee = teeOf(items), shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
+  const whenLoaded = () => {   // repaint as the pictures arrive
+    faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });
+    for (const id of [tee, shirt, pants]) if (id) teeTexture(id).ready.then(() => { if (canvas.isConnected) paint(); });
+  };
   let yaw = opts.yaw ?? -0.35, spin = 0, dragging = false, lastX = 0, frame = 0;
   const paint = () => {
-    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face);
+    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face, tee, shirt, pants);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(glCanvas, 0, 0);
   };
@@ -419,13 +556,16 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   canvas.addEventListener('dblclick', () => { yaw = opts.yaw ?? -0.35; spin = 0; kick(); });
   el.replaceChildren(canvas);
   paint();
-  faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });   // a face picture arrived
+  whenLoaded();
   return {
     set(av, its = []) {
-      buffer = build(pieces(model, av, its)); count = buffer.length / 10;
+      buffer = build(pieces(model, av, its)); count = buffer.length / STRIDE;
       face = faceOf(its);
+      tee = teeOf(its);
+      shirt = clothOf(its, 'shirt');
+      pants = clothOf(its, 'pants');
       paint();
-      faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });
+      whenLoaded();
     },
   };
 }
@@ -440,9 +580,10 @@ export async function avatarPicture(avatar, items = [], size = 96) {
   if (pictureCache.has(key)) return pictureCache.get(key);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const buffer = build(pieces(model, avatar, items));
-  const face = faceOf(items);
-  await faceTexture(face).ready;   // (a still picture: wait for the face)
-  draw(buffer, buffer.length / 10, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face);
+  const face = faceOf(items), tee = teeOf(items), shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
+  await faceTexture(face).ready;   // (a still picture: wait for the face and clothes)
+  for (const id of [tee, shirt, pants]) if (id) await teeTexture(id).ready;
+  draw(buffer, buffer.length / STRIDE, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face, tee, shirt, pants);
   const url = glCanvas.toDataURL('image/png');
   pictureCache.set(key, url);
   return url;

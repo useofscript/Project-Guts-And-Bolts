@@ -35,9 +35,14 @@ public:
     float     cameraYaw() const;                  // for camera-relative controls
     float     swimLook() const;                   // (and swimming up / down)
     glm::vec3 cameraPivot() const { return m_camera.pivot; }
+    glm::vec3 cameraPosition() const { return m_camera.position(); }
     void      frameOn(const glm::vec3& target);   // point the camera at a target
     void      followPlayer(Player& p, float dt);   // Play: the camera follows the head (first person too)
     bool      hovered() const { return m_hovered; }
+    // Where the mouse points in the 3D view: the part under it (or null) and the
+    // spot it touches (on the part, else on the ground). False if the mouse
+    // isn't over the 3D view.
+    bool      pointAt(ImVec2 mouse, glm::vec3& point, SceneNode*& part);
     // A picture of the game from its spawn point, as a PNG file (for publishing).
     // `fromView`: from where the Studio camera is now (else a nice view of the spawn).
     std::string snapshotPng(int width, int height, bool fromView = false);

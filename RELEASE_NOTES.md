@@ -1,3 +1,65 @@
+# Guts&Bolts 0.6.2: Hotfixes, Headaches & Hand Grenades (September 30, 2026)
+
+## New
+
+**Import 3D models, and drag files straight into Studio**
+- File > Import 3D Model, Picture, Sound... (and the Import button) reads
+  .fbx, .obj (+ .mtl), .gltf / .glb, .stl and .ply. Each object becomes a mesh
+  part in its material's colour, grouped in a Model; hard edges stay hard and
+  curved surfaces stay smooth. Huge or tiny models are resized to about 10
+  studs.
+- Drag files from your computer onto Studio: models land where you drop them,
+  pictures become Decals on the part under the mouse (or a sign on the
+  ground), sounds become Sounds, .lua / .luau files become Scripts, Roblox
+  models are inserted and games are opened. Several at once line up side by
+  side.
+
+**Water parts, like real water**
+- Gerstner waves (the `Waves` attribute, or `WaveScale` on a FluidVolume):
+  sharp crests, wide troughs, whitecaps on big waves. Swimmers and floating
+  things ride exactly the waves you see.
+- The water reads how deep it is at every pixel: crystal clear at the shore,
+  fading to deep blue in the deep (Beer-Lambert), set by the new `Clarity`
+  (0 murky .. 1 clear).
+- Things under the water are bent by it (refraction, index 1.333); reflections
+  of the sky and the world; the sun's glint; caustics on the bottom; foam where
+  it meets the shore; seen from underwater, the surface bends the world above
+  and turns into a mirror at low angles.
+- Big splashes and waves slapping walls throw real liquid drops that fall back
+  and soak in, and leave a ring of foam.
+
+**Rivers, wetness and diving ("Riptide")**
+- Flow maps: a water part's `Flow` is bent around rocks and pillars that poke
+  through it (it splits around them and speeds up past them, with white water
+  on the sides). The ripples are carried along it, and swimmers and floating
+  things follow it too.
+- Caustics bend with the waves above them; underwater, everything gets them.
+- Sun glints use a Cook-Torrance (GGX) highlight: brilliant sparkles on crests.
+- Splashes and dripping swimmers leave things wet: darker and shinier, drying
+  over about half a minute. Parts the liquid ran over look wet too.
+- Underwater: distance blur and a slight colour split; after coming up for
+  air, water runs down the screen for a few seconds.
+
+**T-shirts ("Tee Time")**
+- A new catalog item: any .png or .jpg worn flat on the front of the torso,
+  over your shirt. Make one on the Create page (website or app), wear it from
+  the Avatar page; the game and the website's 3D avatars show it.
+- What you put on on the website now shows up properly in the game (clothes,
+  faces, accessories and T-shirts), and the Avatar page swaps items of the
+  same kind instead of stacking them.
+
+**FluidVolume**
+- `Instance.new("FluidVolume")` (or Insert Object): a block of water with
+  `FlowVelocity`, `Clarity` and `WaveScale`. Any instance also has
+  `:ParentTo(parent)`.
+
+## Fixed
+- Catalog pictures of shirts, pants and T-shirts show the real clothing on the
+  mannequin (on the website and in the app), not just a plain colour.
+- Water no longer flickers in stripes where it touches walls (z-fighting).
+- The camera no longer slowly looks up by itself in Shift Lock, first person
+  or fullscreen.
+
 # Guts&Bolts 0.6.1: The Hydromania Update (September 30, 2026)
 
 Real water you can pour, swim in, dive under and float things on.

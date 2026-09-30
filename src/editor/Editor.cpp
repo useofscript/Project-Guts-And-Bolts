@@ -33,6 +33,7 @@
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
+#include "../core/AppWindow.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtx/euler_angles.hpp>
@@ -147,6 +148,8 @@ void Editor::render(float dt) {
     buildDockspace();
     if (!m_playing) m_animEditor->update(dt, m_viewport->gizmoInUse());   // show the rig posed
     m_viewport->render(dt);
+    // Files dragged from the computer onto Studio.
+    if (auto dropped = AppWindow::takeDroppedFiles(); !dropped.empty()) importFiles(dropped, ImGui::GetMousePos(), true);
     if (m_showPanel[kPanelExplorer]) m_outliner->render();
     if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
     if (m_showPanel[kPanelProperties]) m_properties->render();
@@ -950,6 +953,21 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         w->canCollide = false;
         w->castShadow = false;
     }
+    else if (what == "FluidVolume") {   // water with waves, clarity and a current (attributes)
+        SceneNode* w = part("FluidVolume", PrimitiveType::Cube);
+        w->transform.scale = {20, 5, 20};
+        w->transform.position.y += 2.0f;
+        w->color = {0.13f, 0.45f, 0.62f};
+        w->transparency = 0.45f;
+        w->material = Material::Glass;
+        w->canCollide = false;
+        w->castShadow = false;
+        w->tags = {"Water", "FluidVolume"};
+        auto num = [&](const char* name, double v) { Attribute a; a.name = name; a.type = Attribute::Number; a.n = v; w->attributes.push_back(a); };
+        num("Clarity", 0.8);
+        num("WaveScale", 1.0);
+        Attribute flow; flow.name = "Flow"; flow.type = Attribute::Vector3; flow.v = glm::vec3(0.0f); w->attributes.push_back(flow);
+    }
     else if (what == "WaterSource") {   // pours water that flows downhill and fills things up
         SceneNode* w = part("WaterSource", PrimitiveType::Cylinder);
         w->transform.scale = {1.2f, 0.4f, 1.2f};
@@ -1079,7 +1097,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
@@ -1332,6 +1350,10 @@ void Editor::renderMenuBar() {
             m_openSaveAs = true;
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Import 3D Model, Picture, Sound...")) importDialog();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("3D models (.fbx .obj .gltf .glb .stl .ply), pictures, sounds and scripts.\n"
+                              "You can also just drag files from your computer onto Studio.");
         if (ImGui::MenuItem("Import Roblox File (.rbxl / .rbxm)...")) { m_pending = Pending::Open; m_openOpen = true; }
         if (ImGui::MenuItem("Export to Roblox Place (.rbxlx)")) exportRoblox(false);
         if (ImGui::MenuItem("Export Selection to Roblox Model (.rbxmx)", nullptr, false, m_scene->selected() != nullptr))
@@ -1490,6 +1512,7 @@ void Editor::renderDialogs() {
             ImGui::CloseCurrentPopup();
             if (m_pending == Pending::New) { newScene(); m_pending = Pending::None; }
             else if (m_pending == Pending::Open) m_openOpen = true;
+            else if (m_pending == Pending::OpenDropped) { m_pending = Pending::None; openFile(m_droppedGame); }
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(100, 0))) {

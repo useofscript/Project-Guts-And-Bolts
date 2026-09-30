@@ -73,6 +73,22 @@ bool hasHumanoid(lua_State* L, const SceneNode* n) {
     return isCharacterRoot(L, n) || (n->kind == NodeKind::Model && E(L)->scene()->npcs().find(*E(L)->scene(), n->id));
 }
 
+// FluidVolume (Instance.new("FluidVolume")): a water part with the FluidVolume tag.
+bool isFluidVolume(const SceneNode* n) {
+    return n->isPart() && std::find(n->tags.begin(), n->tags.end(), "FluidVolume") != n->tags.end();
+}
+float numAttr(const SceneNode* n, const char* name, float fallback) {
+    const Attribute* a = n->findAttribute(name);
+    return a && a->type == Attribute::Number ? (float)a->n : fallback;
+}
+void setAttr(SceneNode* n, const char* name, Attribute::Type t, double num, glm::vec3 v = glm::vec3(0.0f)) {
+    for (Attribute& a : n->attributes)
+        if (a.name == name) { a.type = t; a.n = num; a.v = v; return; }
+    Attribute a;
+    a.name = name; a.type = t; a.n = num; a.v = v;
+    n->attributes.push_back(a);
+}
+
 const char* className(lua_State* L, const SceneNode* n) {
     if (n == E(L)->scene()->root()) return "Workspace";
     switch (n->kind) {
@@ -97,7 +113,9 @@ const char* className(lua_State* L, const SceneNode* n) {
                 case ConstraintType::Weld:   return "WeldConstraint";
                 default:                     return "HingeConstraint";
             }
-        default:               return n->primitiveType == PrimitiveType::Mesh ? "MeshPart" : "Part";
+        default:
+            if (isFluidVolume(n)) return "FluidVolume";
+            return n->primitiveType == PrimitiveType::Mesh ? "MeshPart" : "Part";
     }
 }
 
@@ -434,10 +452,18 @@ int m_GetTags(lua_State* L) {
 int m_LoadAnimation(lua_State* L);   // (with the animation code below)
 bool parsePriority(const char* s, Anim::Priority& out);
 
+// river:ParentTo(workspace): the same as river.Parent = workspace.
+int m_ParentTo(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    std::string err;
+    if (!E(L)->setParent(n, LuaApi::checkNode(L, 2), err)) return luaL_error(L, "%s", err.c_str());
+    return 0;
+}
+
 const luaL_Reg kMethods[] = {
     {"FindFirstChild", m_FindFirstChild}, {"FindFirstChildOfClass", m_FindFirstChildOfClass},
     {"WaitForChild", m_WaitForChild}, {"GetChildren", m_GetChildren},
-    {"GetDescendants", m_GetDescendants}, {"Destroy", m_Destroy}, {"Remove", m_Destroy},
+    {"GetDescendants", m_GetDescendants}, {"Destroy", m_Destroy}, {"Remove", m_Destroy}, {"ParentTo", m_ParentTo},
     {"ClearAllChildren", m_ClearAllChildren}, {"Clone", m_Clone}, {"IsA", m_IsA},
     {"IsDescendantOf", m_IsDescendantOf}, {"GetFullName", m_GetFullName},
     {"GetPivot", m_GetPivot}, {"PivotTo", m_PivotTo}, {"BreakJoints", m_BreakJoints},
@@ -656,6 +682,11 @@ int inst_index(lua_State* L) {
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { LuaApi::pushVector3(L, n->velocity); return 1; }
         if (is(k, "RotVelocity") || is(k, "AssemblyAngularVelocity")) { LuaApi::pushVector3(L, n->angularVelocity); return 1; }
         if (is(k, "Density"))    { lua_pushnumber(L, Physics::densityOf(n)); return 1; }   // (water is 1.3)
+        if (Player::isWater(n)) {   // water parts and FluidVolumes (stored as attributes)
+            if (is(k, "FlowVelocity")) { const Attribute* a = n->findAttribute("Flow"); LuaApi::pushVector3(L, a && a->type == Attribute::Vector3 ? a->v : glm::vec3(0.0f)); return 1; }
+            if (is(k, "Clarity"))      { lua_pushnumber(L, numAttr(n, "Clarity", std::clamp(0.2f + n->transparency, 0.0f, 1.0f))); return 1; }
+            if (is(k, "WaveScale"))    { lua_pushnumber(L, numAttr(n, "WaveScale", numAttr(n, "Waves", 0.0f) * 2.0f)); return 1; }
+        }
         if (is(k, "Friction"))   { lua_pushnumber(L, n->friction); return 1; }
         if (is(k, "Elasticity")) { lua_pushnumber(L, n->elasticity); return 1; }
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }
@@ -819,6 +850,16 @@ int inst_newindex(lua_State* L) {
     if (part) {
         if (is(k, "Color"))        { n->color = LuaApi::checkColor3(L, 3); return 0; }
         if (is(k, "Transparency")) { n->transparency = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+        if (Player::isWater(n)) {
+            if (is(k, "FlowVelocity")) { setAttr(n, "Flow", Attribute::Vector3, 0.0, LuaApi::checkVector3(L, 3)); return 0; }
+            if (is(k, "Clarity"))      { setAttr(n, "Clarity", Attribute::Number, std::clamp(luaL_checknumber(L, 3), 0.0, 1.0)); return 0; }
+            if (is(k, "WaveScale")) {
+                setAttr(n, "WaveScale", Attribute::Number, std::max(0.0, luaL_checknumber(L, 3)));
+                n->attributes.erase(std::remove_if(n->attributes.begin(), n->attributes.end(),
+                                                   [](const Attribute& a) { return a.name == "Waves"; }), n->attributes.end());
+                return 0;
+            }
+        }
         if (is(k, "Anchored"))     { n->anchored = lua_toboolean(L, 3); if (n->anchored) n->velocity = glm::vec3(0.0f); return 0; }
         if (is(k, "CanCollide"))   { n->canCollide = lua_toboolean(L, 3); return 0; }
         if (is(k, "CastShadow"))   { n->castShadow = lua_toboolean(L, 3); return 0; }
@@ -969,6 +1010,24 @@ int inst_new(lua_State* L) {
     } else if (cls == "FluidSystem") {
         n = std::make_unique<SceneNode>(cls, NodeKind::FluidSystem);
         n->color = {0.12f, 0.56f, 1.0f};
+    } else if (cls == "FluidVolume") {
+        // A block of water: swim in it, float things on it. Its waves, clarity and
+        // current live in attributes (so Studio shows them and they're saved).
+        n = std::make_unique<SceneNode>("FluidVolume");
+        n->primitiveType = PrimitiveType::Cube;
+        n->mesh = MeshLibrary::get(PrimitiveType::Cube);
+        n->anchored = true;
+        n->canCollide = false;
+        n->castShadow = false;
+        n->material = Material::Glass;
+        n->color = {0.13f, 0.45f, 0.62f};
+        n->transparency = 0.45f;
+        n->transform.scale = {10.0f, 5.0f, 10.0f};
+        n->transform.position = {0.0f, 2.5f, 0.0f};
+        n->tags = {"Water", "FluidVolume"};
+        setAttr(n.get(), "Clarity", Attribute::Number, 0.8);
+        setAttr(n.get(), "WaveScale", Attribute::Number, 1.0);
+        setAttr(n.get(), "Flow", Attribute::Vector3, 0.0, glm::vec3(0.0f));
     } else if (cls == "FluidEmitter") {
         n = std::make_unique<SceneNode>(cls, NodeKind::FluidEmitter);
         n->transform.scale = {1.0f, 1.0f, 1.0f};
