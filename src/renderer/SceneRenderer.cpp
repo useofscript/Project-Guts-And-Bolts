@@ -335,6 +335,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     // --- Lit geometry ---
     m_lit->bind();
     m_lit->setBool("uClothing", false);
+    m_lit->setBool("uFace", false);
     m_lit->setMat4("uView", view);
     m_lit->setMat4("uProj", proj);
     m_lit->setVec3("uViewPos", camera.position());
@@ -658,13 +659,15 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         } else {
             // Clothing: a shirt / pants picture (the template layout) over the body colour.
             unsigned cloth = !node->texture.empty() && !node->isDecal() ? Textures::get(node->texture) : 0;
+            // A character's head: the texture is its face, painted on the front.
+            const bool face = cloth && node->name == "Head";
             if (cloth) {
                 bindTex(5, cloth);
                 m_lit->setInt("uDecal", 5);
-                m_lit->setBool("uClothing", true);
+                m_lit->setBool(face ? "uFace" : "uClothing", true);
             }
             node->mesh->draw();
-            if (cloth) m_lit->setBool("uClothing", false);
+            if (cloth) m_lit->setBool(face ? "uFace" : "uClothing", false);
         }
         if (water) glEnable(GL_CULL_FACE);
     };

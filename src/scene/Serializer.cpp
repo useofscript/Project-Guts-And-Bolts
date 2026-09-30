@@ -510,6 +510,20 @@ void applySettings(Scene& scene, const json& j) {
     }
     scene.world() = w;
 
+    // Characters and NPC rigs saved with the old 3D face (eye and smile parts): the flat picture instead.
+    {
+        std::vector<SceneNode*> heads;
+        scene.forEach([&](SceneNode* n) {
+            if (n->name != "Head" || !n->isPart()) return;
+            for (auto& c : n->children)
+                if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) { heads.push_back(n); return; }
+        });
+        for (SceneNode* h : heads) {
+            Player::removeOldFace(scene, h);
+            if (h->texture.empty()) Player::addFace(h);
+        }
+    }
+
     if (Player* p = scene.player()) {
         p->resetSettings();
         p->setRootId(0);

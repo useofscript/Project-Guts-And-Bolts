@@ -38,6 +38,12 @@
   presets): how sharp the liquid is drawn, how smooth its surface is, and how
   many drops there can be (25,000 / 60,000 / 100,000 / up to a million).
 
+**Flat faces**
+- Faces are flat pictures painted onto the front of the head (like Roblox),
+  not little 3D shapes: the classic smiley and catalog faces both hug the
+  round head exactly. Old characters and NPCs switch over when a game loads.
+  The website's 3D avatars match.
+
 **Better shadows**
 - No more light leaking under boxes sitting on the ground: shadows start
   right at an object's base, with no flicker where it touches.

@@ -4,6 +4,7 @@
 #include "Physics.h"
 #include "PlayerModel.h"
 #include "../renderer/MeshLibrary.h"
+#include "../renderer/Textures.h"
 #include "../core/Audio.h"
 #include "../core/Paths.h"
 #include "Serializer.h"
@@ -133,17 +134,18 @@ void Player::applyFace(Scene& scene, SceneNode* r, const std::string& face) {
     SceneNode* head = r->findChild("Head");
     if (!head) return;
     const bool picture = !face.empty() && !readSource(face).empty();
-    for (auto& c : head->children)
-        if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) c->visible = !picture;
-    SceneNode* decal = head->findChild("FaceDecal");
-    if (!picture) { if (decal) scene.removeNode(decal); return; }
-    if (!decal) {
-        auto d = std::make_unique<SceneNode>("FaceDecal", NodeKind::Decal);
-        d->face = Face::Back;   // the head's front is +Z
-        decal = head->addChild(std::move(d));
-    }
-    decal->texture = face;
+    removeOldFace(scene, head);
+    head->texture = picture ? face : std::string(Textures::kClassicFace);
     scene.markDirty();
+}
+
+void Player::removeOldFace(Scene& scene, SceneNode* head) {
+    // Faces used to be little 3D shapes (eyes, a smile) or a flat card stuck in front
+    // of the head. Now a face is a picture painted onto the head itself.
+    std::vector<SceneNode*> old;
+    for (auto& c : head->children)
+        if (c->name == "FaceDecal" || c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) old.push_back(c.get());
+    for (SceneNode* o : old) scene.removeNode(o);
 }
 
 void Player::setClothing(const std::string& shirt, const std::string& pants) {
@@ -198,54 +200,23 @@ SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::ve
     return r;
 }
 
-// The classic smiley on the front (+Z) of the head, in head-local space:
-// two small oval eyes and a smooth U-shaped smile.
+// The classic smiley: a flat picture painted onto the front (+Z) of the head
+// (see Textures::kClassicFace and the lit shader's uFace).
 void Player::addFace(SceneNode* head) {
-    auto add = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale, glm::vec3 rotDeg) {
-        auto n = std::make_unique<SceneNode>(name);
-        n->primitiveType      = shape;
-        n->mesh               = MeshLibrary::get(shape);
-        n->transform.position = pos;
-        n->transform.scale    = scale;
-        n->transform.rotation = rotDeg;
-        n->color    = kBlack;
-        n->internal = true;
-        head->addChild(std::move(n));
-    };
-    // Sit on the round head: z follows the cylinder, and each piece turns to face out.
-    auto surfaceZ = [](float x) { return std::sqrt(std::max(0.0f, 0.25f - x * x)) - 0.005f; };
-    auto yawAt = [](float x) { return glm::degrees(std::asin(std::clamp(x / 0.5f, -1.0f, 1.0f))); };
-    for (float x : {-0.1f, 0.1f})
-        add(x < 0 ? "Eye.L" : "Eye.R", PrimitiveType::Sphere, {x, 0.16f, surfaceZ(x)}, {0.065f, 0.13f, 0.05f}, {0, yawAt(x), 0});
-    // The smile: short bars along the curve, each turned along it (ends high, round at the bottom).
-    auto curve = [](float x) { float t = std::abs(x) / 0.2f; return -0.27f + 0.22f * std::pow(t, 1.7f); };
-    const int n = 10;
-    for (int i = 0; i < n; ++i) {
-        float x0 = -0.2f + 0.4f * i / n, x1 = -0.2f + 0.4f * (i + 1) / n;
-        float y0 = curve(x0), y1 = curve(x1);
-        float xm = (x0 + x1) * 0.5f, ym = (y0 + y1) * 0.5f;
-        float len = std::hypot(x1 - x0, y1 - y0) + 0.035f;   // overlap a little so there are no gaps
-        float roll = glm::degrees(std::atan2(y1 - y0, x1 - x0));
-        add("Smile", PrimitiveType::Cube, {xm, ym, surfaceZ(xm)}, {len, 0.055f, 0.05f}, {0, yawAt(xm), roll});
-    }
+    head->texture = Textures::kClassicFace;
 }
 
 void Player::upgradeFace() {
-    // Characters saved with the old block face (5 smile blocks): swap in the new one.
+    // Characters saved with a 3D face (eye and smile parts): swap in the flat picture.
     SceneNode* r = root();
-    SceneNode* head = nullptr;
-    if (r) for (auto& c : r->children) if (c->name == "Head") head = c.get();
+    SceneNode* head = r ? r->findChild("Head") : nullptr;
     if (!head) return;
-    int smiles = 0;
-    std::vector<SceneNode*> old;
+    bool old = false;
     for (auto& c : head->children)
-        if (c->name == "Smile" || c->name == "Eye.L" || c->name == "Eye.R") {
-            old.push_back(c.get());
-            if (c->name == "Smile") ++smiles;
-        }
-    if (smiles != 5) return;   // already the new face (or a custom one)
-    for (SceneNode* o : old) m_scene->removeNode(o);
-    addFace(head);
+        if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) old = true;
+    if (!old && !head->texture.empty()) return;
+    removeOldFace(*m_scene, head);
+    if (head->texture.empty()) addFace(head);
     m_scene->markDirty();
 }
 

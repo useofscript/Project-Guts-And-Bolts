@@ -17,7 +17,11 @@ function loadModel() {
     modelPromise = fetch(new URL('player.obj', import.meta.url)).then((r) => {
       if (!r.ok) throw new Error('no model');
       return r.text();
-    }).then(parseObj);
+    }).then(parseObj).then((parts) => {
+      const hd = parts.Head;
+      if (hd) headBox = { c: hd.min.map((m, i) => (m + hd.max[i]) / 2), s: hd.min.map((m, i) => hd.max[i] - m) };
+      return parts;
+    });
   }
   return modelPromise;
 }
@@ -108,26 +112,12 @@ function pieces(model, av, items) {
   const out = [];
   for (const [name, part] of Object.entries(model)) {
     const key = PART_OF[name];
-    if (key) out.push({ mesh: part, color: col[key] });
+    if (key) out.push({ mesh: part, color: col[key], face: name === 'Head' });
   }
-  // The face (Player::buildRig), in the head's own space.
+  // The face is a flat picture painted onto the front of the head (see FS / faceTexture).
   const head = model.Head;
   const hc = head ? head.min.map((m, i) => (m + head.max[i]) / 2) : [0, 2.325, 0];
   const hs = head ? head.min.map((m, i) => head.max[i] - m) : [0.72, 0.65, 0.72];
-  const onHead = (p, s, c) => out.push({ shape: 'cube', at: [hc[0] + p[0] * hs[0], hc[1] + p[1] * hs[1], hc[2] + p[2] * hs[2]],
-    size: [s[0] * hs[0], s[1] * hs[1], s[2] * hs[2]], color: c });
-  const black = [0.06, 0.06, 0.07];
-  // Two small oval eyes and a smooth U-shaped smile (Player::addFace).
-  const surfaceZ = (x) => Math.sqrt(Math.max(0, 0.25 - x * x)) - 0.005;
-  for (const x of [-0.1, 0.1]) out.push({ shape: 'sphere', at: [hc[0] + x * hs[0], hc[1] + 0.16 * hs[1], hc[2] + surfaceZ(x) * hs[2]],
-    size: [0.065 * hs[0], 0.13 * hs[1], 0.05 * hs[2]], color: black });
-  const curve = (x) => -0.27 + 0.22 * Math.pow(Math.abs(x) / 0.2, 1.7);
-  for (let i = 0; i < 10; i++) {
-    const x0 = -0.2 + 0.04 * i, x1 = x0 + 0.04, xm = (x0 + x1) / 2;
-    const dx = (x1 - x0) * hs[0], dy = (curve(x1) - curve(x0)) * hs[1];
-    out.push({ shape: 'cube', at: [hc[0] + xm * hs[0], hc[1] + (curve(x0) + curve(x1)) / 2 * hs[1], hc[2] + surfaceZ(xm) * hs[2]],
-      size: [Math.hypot(dx, dy) + 0.035 * hs[0], 0.055 * hs[1], 0.05 * hs[2]], roll: Math.atan2(dy, dx), color: black });
-  }
   // The hat (Player::applyHat).
   const top = hc[1] + hs[1] * 0.5, w = hs[0] / 0.72;
   const main = (normal) => hatTint || normal;
@@ -159,7 +149,7 @@ function build(list) {
   for (const p of list) {
     const src = p.mesh || SHAPES[p.shape];
     const at = p.at || [0, 0, 0], size = p.size || [1, 1, 1];
-    const rc = Math.cos(p.roll || 0), rs = Math.sin(p.roll || 0);   // turned about Z (the smile's pieces)
+    const rc = Math.cos(p.roll || 0), rs = Math.sin(p.roll || 0);   // turned about Z
     for (let i = 0; i < src.pos.length; i += 3) {
       let lx = src.pos[i] * size[0], ly = src.pos[i + 1] * size[1];
       if (p.roll) [lx, ly] = [lx * rc - ly * rs, lx * rs + ly * rc];
@@ -170,7 +160,7 @@ function build(list) {
       if (!p.mesh) { nx /= size[0]; ny /= size[1]; nz /= size[2]; }
       if (p.roll) [nx, ny] = [nx * rc - ny * rs, nx * rs + ny * rc];
       const l = Math.hypot(nx, ny, nz) || 1;
-      data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.glow ? 2 : p.shine ? 1 : 0);
+      data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.face ? 3 : p.glow ? 2 : p.shine ? 1 : 0);
     }
   }
   return new Float32Array(data);
@@ -182,25 +172,40 @@ const VS = `
 attribute vec3 aPos; attribute vec3 aNrm; attribute vec3 aCol; attribute float aShine;
 uniform mat4 uMvp; uniform mat3 uRot;
 varying vec3 vNrm; varying vec3 vCol; varying float vShine; varying float vY;
+varying vec3 vPos; varying vec3 vModelNrm;
 void main() {
   vNrm = uRot * aNrm; vCol = aCol; vShine = aShine; vY = aPos.y;
+  vPos = aPos; vModelNrm = aNrm;
   gl_Position = uMvp * vec4(aPos, 1.0);
 }`;
 const FS = `
 precision mediump float;
 varying vec3 vNrm; varying vec3 vCol; varying float vShine; varying float vY;
+varying vec3 vPos; varying vec3 vModelNrm;
 uniform float uShadow;
+uniform sampler2D uFace;       // the face picture
+uniform vec3 uHeadC, uHeadS;   // the head's middle and size
 void main() {
   if (uShadow > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, 0.22 * vCol.r); return; }
   vec3 n = normalize(vNrm);
+  vec3 base = vCol;
+  if (vShine > 2.5) {
+    // The head: its face picture, flat and seen straight on, painted onto the front
+    // of the round head (like the game does).
+    vec3 mn = normalize(vModelNrm);
+    if (mn.z > 0.0) {
+      vec4 px = texture2D(uFace, (vPos.xy - uHeadC.xy) / uHeadS.xy + 0.5);
+      base = mix(base, px.rgb, px.a * smoothstep(0.0, 0.3, mn.z));
+    }
+  }
   vec3 key = normalize(vec3(-0.45, 0.75, 0.6));
   float diff = max(dot(n, key), 0.0);
   float fill = max(dot(n, normalize(vec3(0.6, 0.2, 0.4))), 0.0) * 0.25;
   float sky = 0.5 + 0.5 * n.y;
   vec3 h = normalize(key + vec3(0.0, 0.0, 1.0));
   float spec = pow(max(dot(n, h), 0.0), vShine > 0.5 ? 40.0 : 24.0) * (vShine > 0.5 ? 0.8 : 0.18);
-  vec3 c = vCol * (0.32 + 0.18 * sky + 0.62 * diff + fill) + vec3(spec);
-  if (vShine > 1.5) c = vCol * 1.6;
+  vec3 c = base * (0.32 + 0.18 * sky + 0.62 * diff + fill) + vec3(spec);
+  if (vShine > 1.5 && vShine < 2.5) c = vCol * 1.6;
   gl_FragColor = vec4(pow(c, vec3(0.95)), 1.0);
 }`;
 
@@ -223,6 +228,8 @@ function initGl() {
     col: gl.getAttribLocation(prog, 'aCol'), shine: gl.getAttribLocation(prog, 'aShine'),
     mvp: gl.getUniformLocation(prog, 'uMvp'), rot: gl.getUniformLocation(prog, 'uRot'),
     shadow: gl.getUniformLocation(prog, 'uShadow'),
+    face: gl.getUniformLocation(prog, 'uFace'),
+    headC: gl.getUniformLocation(prog, 'uHeadC'), headS: gl.getUniformLocation(prog, 'uHeadS'),
   };
   vbo = gl.createBuffer();
   // A soft round shadow under the feet (rings fading out).
@@ -252,7 +259,64 @@ function mul(a, b) {
   return o;
 }
 
-function draw(buffer, count, w, h, yaw, pitch) {
+// --- face pictures ---------------------------------------------------------------
+
+// The classic smiley, drawn flat (the same as the game's built-in face picture):
+// two oval eyes and a U-shaped smile, see-through around them. The picture covers
+// the whole front of the head.
+function classicFaceCanvas() {
+  const n = 256, c = document.createElement('canvas');
+  c.width = c.height = n;
+  const g = c.getContext('2d');
+  const X = (x) => (x + 0.5) * n, Y = (y) => (0.5 - y) * n;   // head units -> pixels (y up)
+  g.fillStyle = '#000';
+  for (const ex of [-0.1, 0.1]) {
+    g.beginPath(); g.ellipse(X(ex), Y(0.16), 0.0325 * n, 0.065 * n, 0, 0, Math.PI * 2); g.fill();
+  }
+  g.strokeStyle = '#000'; g.lineWidth = 0.055 * n; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath();
+  for (let k = 0; k <= 40; ++k) {
+    const x = -0.2 + 0.4 * k / 40, y = -0.27 + 0.22 * Math.pow(Math.abs(x) / 0.2, 1.7);
+    if (k) g.lineTo(X(x), Y(y)); else g.moveTo(X(x), Y(y));
+  }
+  g.stroke();
+  return c;
+}
+
+const faceTextures = new Map();   // '' = the classic smiley, else a face item's id
+function faceTexture(id) {
+  if (faceTextures.has(id)) return faceTextures.get(id);
+  const tex = gl.createTexture();
+  const upload = (img) => {
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  };
+  const entry = { tex, ready: null };
+  if (!id) { upload(classicFaceCanvas()); entry.ready = Promise.resolve(); }
+  else {
+    upload(classicFaceCanvas());   // until the picture arrives
+    entry.ready = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => { upload(img); resolve(); };
+      img.onerror = () => resolve();
+      img.src = '/thumb/' + encodeURIComponent(id);
+    });
+  }
+  faceTextures.set(id, entry);
+  return entry;
+}
+// Which face an avatar wears: a face item from the catalog, or the classic smiley.
+const faceOf = (items) => { const f = (items || []).find((i) => i && i.kind === 'face'); return f ? f.id : ''; };
+
+let headBox = null;   // the head's middle and size (from the model)
+
+function draw(buffer, count, w, h, yaw, pitch, face = '') {
   if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
@@ -289,6 +353,10 @@ function draw(buffer, count, w, h, yaw, pitch) {
   gl.disable(gl.BLEND);
   gl.enable(gl.DEPTH_TEST);
   gl.uniform1f(loc.shadow, 0);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, faceTexture(face).tex);
+  gl.uniform1i(loc.face, 0);
+  if (headBox) { gl.uniform3fv(loc.headC, headBox.c); gl.uniform3fv(loc.headS, headBox.s); }
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
   gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
   attrs();
@@ -320,9 +388,10 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   canvas.setAttribute('aria-label', 'Avatar in 3D');
   const ctx = canvas.getContext('2d');
   let buffer = build(pieces(model, avatar, items)), count = buffer.length / 10;
+  let face = faceOf(items);
   let yaw = opts.yaw ?? -0.35, spin = 0, dragging = false, lastX = 0, frame = 0;
   const paint = () => {
-    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12);
+    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(glCanvas, 0, 0);
   };
@@ -350,8 +419,14 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   canvas.addEventListener('dblclick', () => { yaw = opts.yaw ?? -0.35; spin = 0; kick(); });
   el.replaceChildren(canvas);
   paint();
+  faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });   // a face picture arrived
   return {
-    set(av, its = []) { buffer = build(pieces(model, av, its)); count = buffer.length / 10; paint(); },
+    set(av, its = []) {
+      buffer = build(pieces(model, av, its)); count = buffer.length / 10;
+      face = faceOf(its);
+      paint();
+      faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });
+    },
   };
 }
 
@@ -365,7 +440,9 @@ export async function avatarPicture(avatar, items = [], size = 96) {
   if (pictureCache.has(key)) return pictureCache.get(key);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const buffer = build(pieces(model, avatar, items));
-  draw(buffer, buffer.length / 10, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12);
+  const face = faceOf(items);
+  await faceTexture(face).ready;   // (a still picture: wait for the face)
+  draw(buffer, buffer.length / 10, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face);
   const url = glCanvas.toDataURL('image/png');
   pictureCache.set(key, url);
   return url;

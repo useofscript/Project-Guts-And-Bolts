@@ -47,9 +47,13 @@ uniform mat3 uNormalMat;
 out vec3 vNormal;
 out vec3 vWorldPos;
 out vec2 vUV;
+out vec3 vLocalPos;      // in the part's own space (-0.5..0.5): for faces painted on heads
+out vec3 vLocalNormal;
 
 void main() {
     vUV = aUV;
+    vLocalPos = aPos;
+    vLocalNormal = aNormal;
     vec4 world = uModel * vec4(aPos, 1.0);
     vWorldPos  = world.xyz;
     vNormal    = normalize(uNormalMat * aNormal);
@@ -61,8 +65,11 @@ inline const char* litFrag = R"(#version 410 core
 in vec3 vNormal;
 in vec3 vWorldPos;
 in vec2 vUV;
+in vec3 vLocalPos;
+in vec3 vLocalNormal;
 
 uniform bool      uUseDecal;   // drawing a Decal: its picture colours the surface
+uniform bool      uFace;       // a head: its face picture (uDecal) is painted onto the front of it
 uniform bool      uClothing;   // a shirt / pants picture (uDecal) painted over the part's colour
 uniform sampler2D uDecal;
 
@@ -213,6 +220,13 @@ void main() {
     if (uClothing) {   // see-through bits of the clothing show the body colour
         vec4 px = texture(uDecal, vUV);
         albedo = mix(albedo, lin(px.rgb), px.a);
+    }
+    if (uFace && vLocalNormal.z > 0.0) {
+        // Like Roblox: the face picture is flat, seen straight on from the front, and
+        // painted onto the head's own (round) surface, so it hugs the head exactly.
+        // The picture covers the whole front of the head; only the front gets it.
+        vec4 px = texture(uDecal, vLocalPos.xy + 0.5);
+        albedo = mix(albedo, lin(px.rgb), px.a * smoothstep(0.0, 0.3, normalize(vLocalNormal).z));
     }
 
     // --- Material look ---

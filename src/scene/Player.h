@@ -138,7 +138,8 @@ public:
     static bool usePlayerModel(SceneNode& part);
     // A character saved before that model: give it the model's parts.
     static void upgradeRig(SceneNode* rig);
-    static void addFace(SceneNode* head);   // the default smiley (eyes + smile) on a head
+    static void addFace(SceneNode* head);   // the default smiley (a flat picture) on a head
+    static void removeOldFace(Scene& scene, SceneNode* head);   // old 3D / card faces
     void        upgradeFace();              // old saved characters: new face
     static void       applyColors(SceneNode* root, const BodyColors& c);
     // `tint` recolours the hat (catalog hats); negative = its normal colours.
