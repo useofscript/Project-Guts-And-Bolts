@@ -525,8 +525,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (title.empty()) return fail("Give it a name.");
         std::string desc = Online::cleanText(str("description"), 1000, true);
         const bool verified = isVerified(me);
-        if (kind == "hat" && !verified)
-            return fail("Only Verified creators can make hats. Shirts and pants are open to everyone!");
+        if (Online::isAccessory(kind) && !verified && !isStaff(me))
+            return fail("Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!");
         long long price = std::clamp(num("price"), 0LL, 1000000LL);
         if (kind == "game" || Online::alwaysFree(kind)) price = 0;   // games, decals and audio are free
         if (price > 0 && !verified) return fail("Only Verified creators can sell things. Upload it for free, or get Verified!");
@@ -543,7 +543,19 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json meta = args.contains("meta") && args["meta"].is_object() ? args["meta"] : json::object();
         if (meta.dump().size() > 4096) return fail("Too much extra information.");
         meta.erase("image");
-        if (kind == "hat") data.clear();
+        meta.erase("model");
+        if (Online::isAccessory(kind) && !data.empty()) {   // made in Studio's Accessory window
+            json acc = json::parse(data, nullptr, false);
+            if (!acc.is_object() || acc.value("format", std::string()) != "gbaccessory")
+                return fail("That isn't a Guts&Bolts accessory. Make it in Studio's Accessory window.");
+            meta["model"] = true;
+        }
+        if (kind == "face") {
+            if (!isOfficial(me)) return fail("Only Guts can make faces.");
+            if (data.size() < 8 || data.compare(1, 3, "PNG") != 0) return fail("Faces must be .png pictures.");
+            meta["image"] = true;
+            meta["ext"] = "png";
+        }
         if ((kind == "shirt" || kind == "pants") && !data.empty()) {   // a clothing template picture
             auto u = [&](size_t i) { return (uint32_t)(unsigned char)data[i]; };
             if (data.size() < 24 || data.compare(1, 3, "PNG") != 0)

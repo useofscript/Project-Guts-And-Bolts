@@ -949,8 +949,9 @@ Find things in two places:
 
 - **Edit item:** on an item's page on the website, its creator (or staff) can
   change its name, description, price, colour, hat shape or clothing picture.
-- **Limited items:** only the Guts account can make an item Limited with a
-  fixed stock. Each copy gets a number (#1, #2, ...). While there's stock
+- **Limited items:** only the Guts account can make an item Limited, and only
+  its own **accessories and faces** (never shirts, pants, audio, decals or
+  models). A Limited has a fixed stock. Each copy gets a number (#1, #2, ...). While there's stock
   left it sells like normal; once it's **sold out**, the only way to get one
   is from another player.
 - **Resale:** owners of a Limited copy can put it up for sale on the item's
@@ -961,6 +962,25 @@ Find things in two places:
   on the **Trades** page. The swap only happens if both of you still have
   everything.
 
+### Accessories and faces
+
+Besides hats there are **hair**, **face**, **neck**, **shoulder** and **waist**
+accessories. Verified creators make them in **Studio**:
+
+1. Build the accessory (one Model or part).
+2. Open **AVATAR > Accessories**. Press **Add mannequin** to get a character to
+   try it on, pick the **type**, select your model and press **Move to the
+   spot** (it jumps to where that type sits, like the top of the head).
+3. Move, turn and stretch it until it looks right, then **Save position**.
+4. Give it a name, description and price and press **Upload**. Studio takes a
+   picture of it for the catalog.
+
+A worn hat or hair takes the place of the built-in hat.
+
+**Faces** are pictures drawn on the front of the head. Only the Guts account
+can make them: on the website, **Create > Faces**, upload a square .png that's
+see-through around the eyes and mouth.
+
 ### Changing your username
 
 On the website's **Settings** page you can change your username for **1,000
@@ -968,6 +988,9 @@ Bolts**. Your old usernames show on your profile under **Past usernames**.
 Usernames are never reused: nobody else can take one of your old names, but
 you can switch back to it yourself (for the same price). Your password stays
 the same.
+
+The Guts account can also set its **join date** there (for example to when the
+project really started); it shows on the profile.
 
 ### Clothing templates
 

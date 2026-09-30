@@ -398,6 +398,12 @@ void Editor::renderToolbar() {
                 insertObject("Rig", nullptr);
         }
         {
+            Group g("Accessories");
+            if (bigButton("Accessories", Icons::Id::Rig, m_showAccessory, !m_playing,
+                          "Verified creators: put a hat or accessory on a mannequin, save where it sits, and upload it"))
+                m_showAccessory = !m_showAccessory;
+        }
+        {
             Group g("Animation");
             if (bigButton("Animation Editor", Icons::Id::Animation, m_showPanel[kPanelAnimation], !m_playing,
                           "Make animations for a rig: pose its parts on a timeline"))

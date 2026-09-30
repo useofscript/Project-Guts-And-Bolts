@@ -37,7 +37,8 @@ inline constexpr size_t kMaxDecal  = 4u * 1024u * 1024u;   // a .png or .jpg pic
 
 // Kinds of things people upload.
 bool        validKind(const std::string& kind);        // hat, shirt, pants, audio, plugin, game, decal
-bool        isClothing(const std::string& kind);
+bool        isClothing(const std::string& kind);       // anything you wear (clothes, accessories, faces)
+bool        isAccessory(const std::string& kind);      // hat, hair, faceacc, neck, shoulder, waist
 bool        alwaysFree(const std::string& kind);       // decals and audio: free-use assets, never sold
 long long   uploadFee(const std::string& kind);
 size_t      maxSize(const std::string& kind);

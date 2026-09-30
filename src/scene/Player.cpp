@@ -5,6 +5,11 @@
 #include "PlayerModel.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Audio.h"
+#include "../core/Paths.h"
+#include "Serializer.h"
+#include <fstream>
+#include <sstream>
+#include <nlohmann/json.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -60,7 +65,85 @@ void Player::build() {
     m_rootId = r->id;
     setHat(m_hat, m_hatTint);
     applyClothing(r, m_shirt, m_pants);
+    applyAccessories(*m_scene, r, m_accessories);
+    applyFace(*m_scene, r, m_face);
     m_scene->markDirty();
+}
+
+void Player::setAccessories(const Accessories& acc) {
+    m_accessories = acc;
+    if (SceneNode* r = root()) applyAccessories(*m_scene, r, acc);
+}
+
+void Player::setFace(const std::string& face) {
+    m_face = face;
+    if (SceneNode* r = root()) applyFace(*m_scene, r, face);
+}
+
+namespace {
+std::string readSource(const std::string& src) {   // "gb:<id>" (downloaded) or a file
+    std::filesystem::path p = src.rfind("gb:", 0) == 0 ? Paths::downloaded(src.substr(3)) : std::filesystem::path(src);
+    if (p.empty()) return {};
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+} // namespace
+
+std::unique_ptr<SceneNode> Player::accessoryFrom(const std::string& text) {
+    nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object() || j.value("format", std::string()) != "gbaccessory" || !j.contains("node")) return nullptr;
+    auto n = Serializer::nodeFromString(j["node"].dump(), true);
+    if (!n) return nullptr;
+    // Worn things don't bump into anything or fall off.
+    std::vector<SceneNode*> stack{n.get()};
+    while (!stack.empty()) {
+        SceneNode* c = stack.back(); stack.pop_back();
+        c->canCollide = false;
+        c->anchored = true;
+        for (auto& k : c->children) stack.push_back(k.get());
+    }
+    return n;
+}
+
+void Player::applyAccessories(Scene& scene, SceneNode* r, const Accessories& acc) {
+    std::vector<SceneNode*> old;
+    for (auto& c : r->children) if (c->name.rfind("Accessory (", 0) == 0) old.push_back(c.get());
+    for (auto* o : old) scene.removeNode(o);
+    for (const auto& [kind, src] : acc) {
+        if (src.empty()) continue;
+        auto n = accessoryFrom(readSource(src));
+        if (!n) continue;   // not downloaded yet
+        n->name = "Accessory (" + kind + ")";
+        r->addChild(std::move(n));   // placed relative to the feet, like the classic hats
+    }
+    hideBuiltInHat(r);
+    scene.markDirty();
+}
+
+void Player::hideBuiltInHat(SceneNode* r) {
+    // A hat or hair from the catalog takes the place of the built-in hat.
+    bool worn = r->findChild("Accessory (hat)") || r->findChild("Accessory (hair)");
+    for (auto& c : r->children)
+        if (c->name.rfind("Hat", 0) == 0) c->visible = !worn;
+}
+
+void Player::applyFace(Scene& scene, SceneNode* r, const std::string& face) {
+    SceneNode* head = r->findChild("Head");
+    if (!head) return;
+    const bool picture = !face.empty() && !readSource(face).empty();
+    for (auto& c : head->children)
+        if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) c->visible = !picture;
+    SceneNode* decal = head->findChild("FaceDecal");
+    if (!picture) { if (decal) scene.removeNode(decal); return; }
+    if (!decal) {
+        auto d = std::make_unique<SceneNode>("FaceDecal", NodeKind::Decal);
+        d->face = Face::Back;   // the head's front is +Z
+        decal = head->addChild(std::move(d));
+    }
+    decal->texture = face;
+    scene.markDirty();
 }
 
 void Player::setClothing(const std::string& shirt, const std::string& pants) {
@@ -313,6 +396,7 @@ void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style, glm::vec3 tint
         }
         default: break;
     }
+    hideBuiltInHat(r);
     scene.markDirty();
 }
 

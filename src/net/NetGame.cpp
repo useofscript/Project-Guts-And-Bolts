@@ -2,6 +2,7 @@
 #include "../scripting/LuaApi.h"   // SignalKind (UI clicks)
 #include "../scene/PlayerModel.h"
 #include "../online/AssetCache.h"
+#include "../core/Paths.h"
 #include "../game/Badges.h"
 #include "../game/GameSession.h"
 #include "../game/Profile.h"
@@ -127,7 +128,8 @@ json avatarJson(const Profile& p) {
     return {{"head", vec3(c.head)}, {"torso", vec3(c.torso)}, {"leftArm", vec3(c.leftArm)},
             {"rightArm", vec3(c.rightArm)}, {"leftLeg", vec3(c.leftLeg)}, {"rightLeg", vec3(c.rightLeg)},
             {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)},
-            {"shirtImage", p.shirtImage}, {"pantsImage", p.pantsImage}};
+            {"shirtImage", p.shirtImage}, {"pantsImage", p.pantsImage},
+            {"faceImage", p.faceImage}, {"accessories", p.accessories}};
 }
 
 // Everything a joined player needs to see about a (non-character) object.
@@ -594,6 +596,26 @@ void NetServer::handle(Client& c, const std::string& text) {
             };
             Player::applyClothing(rig, cloth("shirtImage"), cloth("pantsImage"));
             Online::fetchSounds(*m_scene);   // download their clothing pictures
+            // Their accessories and face: download them, then dress the rig (if they're still here).
+            Player::Accessories acc;
+            if (a.contains("accessories") && a["accessories"].is_object())
+                for (auto& [k, v] : a["accessories"].items())
+                    if (v.is_string() && v.get<std::string>().rfind("gb:", 0) == 0 && v.get<std::string>().size() < 64)
+                        acc[k] = v.get<std::string>();
+            const std::string face = cloth("faceImage");
+            const uint64_t rigId = rig->id;
+            auto dress = [this, rigId, acc, face]() {
+                if (SceneNode* r = m_scene->findById(rigId)) {
+                    Player::applyAccessories(*m_scene, r, acc);
+                    Player::applyFace(*m_scene, r, face);
+                }
+            };
+            dress();
+            std::vector<std::string> ids;
+            for (auto& [k, v] : acc) ids.push_back(v.substr(3));
+            if (!face.empty()) ids.push_back(face.substr(3));
+            for (const std::string& id : ids)
+                if (Paths::downloaded(id).empty()) Online::download(id, [dress](bool ok, const std::filesystem::path&, const json&) { if (ok) dress(); });
         }
         c.rootId = rig->id;
         RemoteCharacter rc;

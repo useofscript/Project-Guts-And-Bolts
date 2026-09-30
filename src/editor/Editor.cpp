@@ -151,6 +151,7 @@ void Editor::render(float dt) {
     renderServerDialog();
     renderPublishDialog();
     renderPublishModelDialog();
+    renderAccessoryWindow();
     renderMarketplace();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
     renderInsertObject();

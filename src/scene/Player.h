@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <algorithm>
 #include <functional>
 #include <cstdint>
@@ -116,6 +117,18 @@ public:
     // The shirt goes on the torso and arms, pants on the legs (and the torso if no shirt).
     void       setClothing(const std::string& shirt, const std::string& pants);
     static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants);
+    // Accessories made in Studio's Accessory window: kind ("hat", "hair", "faceacc",
+    // "neck", "shoulder", "waist") -> "gb:<id>" or a file holding the accessory.
+    // Ones not downloaded yet are skipped (set them again once they arrive).
+    using Accessories = std::map<std::string, std::string>;
+    void        setAccessories(const Accessories& acc);
+    static void applyAccessories(Scene& scene, SceneNode* root, const Accessories& acc);
+    static void hideBuiltInHat(SceneNode* root);
+    // A face picture instead of the smiley ("gb:<id>" or a file; "" = the smiley).
+    void        setFace(const std::string& face);
+    static void applyFace(Scene& scene, SceneNode* root, const std::string& face);
+    // An accessory file's contents -> its objects (placed relative to the character's feet).
+    static std::unique_ptr<SceneNode> accessoryFrom(const std::string& json);
 
     static const char* hatName(HatStyle s);
 
@@ -165,7 +178,8 @@ private:
     Humanoid m_humanoid;
     HatStyle m_hat = HatStyle::None;
     glm::vec3 m_hatTint = glm::vec3(-1.0f);
-    std::string m_shirt, m_pants;
+    std::string m_shirt, m_pants, m_face;
+    Accessories m_accessories;
 
     glm::vec3 m_spawn{0.0f};
     glm::vec3 m_velocity{0.0f};

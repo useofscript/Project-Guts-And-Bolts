@@ -17,19 +17,27 @@ import wasmModule from '../website/app/gbcrypto.wasm';
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
-const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model'];
-const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0 };
+const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face'];
+const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
+  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0 };
+// Accessories: things worn on the body, made (and placed on a mannequin) in Studio's
+// Accessory window. Verified creators only. Faces are pictures, and only Guts makes them.
+const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
+const isAccessory = (k) => ACCESSORIES.includes(k);
+// Only Guts' own accessories and faces can become Limited.
+const canBeLimited = (k) => isAccessory(k) || k === 'face';
 // Models (objects published from Studio to the Library) are public or private. Verified
 // creators can make as many public as they like; everyone else 5 a week.
 const kPublicModelsPerWeek = 5;
 const weekOf = (t) => Math.floor(t / (7 * 86400));
-const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20 };
+const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20,
+  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20 };
 // Shirts and pants can have a picture: a PNG laid out like the clothing template.
 const kTemplateW = 585, kTemplateH = 559;
 const pngSize = (d) => (d.length > 24 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => d[i] === v)
   ? [(d[16] << 24 | d[17] << 16 | d[18] << 8 | d[19]) >>> 0, (d[20] << 24 | d[21] << 16 | d[22] << 8 | d[23]) >>> 0] : null);
 const maxSize = (k) => MAX_SIZE[k] || 64 * 1024;
-const isClothing = (k) => k === 'hat' || k === 'shirt' || k === 'pants';
+const isClothing = (k) => k === 'shirt' || k === 'pants' || k === 'face' || isAccessory(k);   // anything you wear
 // Decals and audio are free-use assets: anyone can put them in their games.
 const alwaysFree = (k) => k === 'decal' || k === 'audio';
 // Why an account was banned (staff pick one). Shown to the banned player.
@@ -802,7 +810,8 @@ export class GbServerObject extends DurableObject {
       if (!title) return fail('Give it a name.');
       const desc = cleanText(str(args, 'description'), 1000, true);
       const verified = this.isVerified(me);
-      if (kind === 'hat' && !verified) return fail('Only Verified creators can make hats. Shirts and pants are open to everyone!');
+      if (isAccessory(kind) && !verified && !this.isStaff(me)) return fail('Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!');
+      if (kind === 'face' && !this.isOfficial(me)) return fail('Only Guts can make faces.');
       let price = clamp(num(args, 'price'), 0, 1000000);
       if (kind === 'game' || alwaysFree(kind)) price = 0;
       if (price > 0 && !verified) return fail('Only Verified creators can sell things. Upload it for free, or get Verified!');
@@ -835,8 +844,21 @@ export class GbServerObject extends DurableObject {
         access = str(args, 'access') === 'private' ? 'private' : 'public';
         if (access === 'public' && !this.publicModelOk(me)) return fail(this.publicModelLimitText());
       }
-      if (kind === 'hat') data = new Uint8Array(0);
-      delete meta.image;
+      delete meta.image; delete meta.model;
+      if (isAccessory(kind)) {
+        // Made in Studio: the model and where it sits on the body. (Old-style hats have no data.)
+        if (data.length) {
+          let acc = null;
+          try { acc = JSON.parse(new TextDecoder().decode(data)); } catch { acc = null; }
+          if (!acc || acc.format !== 'gbaccessory' || !acc.node) return fail('That isn\'t a Guts&Bolts accessory. Make it in Studio\'s Accessory window.');
+          meta.model = true;
+        } else if (kind !== 'hat') return fail('Make accessories in Studio\'s Accessory window, then upload them from there.');
+      }
+      if (kind === 'face') {
+        if (!pngSize(data)) return fail('Faces must be .png pictures (see-through around the face).');
+        meta.image = true;
+        meta.ext = 'png';
+      }
       if ((kind === 'shirt' || kind === 'pants') && data.length) {
         const size = pngSize(data);
         if (!size) return fail('Clothing pictures must be .png files made from the template.');
@@ -852,6 +874,7 @@ export class GbServerObject extends DurableObject {
         sales: 0, plays: 0, size: data.length, meta };
       if (access) { a.access = access; if (access === 'public') this.countPublicModel(me); }
       this.writeFile(a.id, data);
+      if (kind === 'face' && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }   // the face is its own picture
       this.assets.set(a.id, a);
       this.saveAsset(a);
       if (!me.owned.includes(a.id)) me.owned.push(a.id);
@@ -1022,13 +1045,17 @@ export class GbServerObject extends DurableObject {
       a.meta = a.meta || {};
       if (Array.isArray(args.color) && args.color.length === 3) a.meta.color = args.color.map((v) => clamp(Number(v) | 0, 0, 255));
       if (a.kind === 'hat' && 'style' in args) a.meta.style = clamp(num(args, 'style'), 1, 3);   // the hat's shape
-      if (a.kind !== 'hat' && typeof args.data === 'string' && args.data) {   // a new clothing picture
+      const picture = a.kind === 'shirt' || a.kind === 'pants' || a.kind === 'face';
+      if (picture && typeof args.data === 'string' && args.data) {   // a new clothing / face picture
         let data;
         try { data = b64ToBytes(args.data); } catch { return fail('The upload got scrambled. Try again.'); }
         const size = pngSize(data);
-        if (!size || size[0] !== kTemplateW || size[1] !== kTemplateH) return fail('Clothing pictures must be ' + kTemplateW + ' x ' + kTemplateH + ' .png files.');
+        if (a.kind === 'face') {
+          if (!size) return fail('Faces must be .png pictures.');
+        } else if (!size || size[0] !== kTemplateW || size[1] !== kTemplateH) return fail('Clothing pictures must be ' + kTemplateW + ' x ' + kTemplateH + ' .png files.');
         if (data.length > maxSize(a.kind)) return fail('That\'s too big.');
         this.writeFile(a.id, data);
+        if (a.kind === 'face' && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }
         a.meta.image = true; a.meta.ext = 'png'; a.size = data.length;
       }
       a.updated = t;
@@ -1041,6 +1068,8 @@ export class GbServerObject extends DurableObject {
       if (!this.isOfficial(me)) return fail('Only Guts can make items Limited.');
       const a = this.assets.get(str(args, 'id'));
       if (!a || !isClothing(a.kind)) return fail('That item doesn\'t exist (any more).');
+      if (!canBeLimited(a.kind)) return fail('Only accessories and faces can be Limited (not shirts, pants, audio, decals or models).');
+      if (a.creator !== me.id) return fail('Only accessories and faces Guts made can be Limited.');
       const stock = clamp(num(args, 'stock'), 1, 1000000);
       if (!a.limited) {
         a.copies = [];
@@ -1218,6 +1247,17 @@ export class GbServerObject extends DurableObject {
       const on = !!args.on;
       if (on && !me.emailVerified) return fail('Add and confirm an email first: the codes go there.');
       me.twoStep = on;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.joinDate') {
+      // Guts only: set the account's join date (earlier than it really was, e.g. when
+      // the project started). Everyone sees it on the profile.
+      if (!this.isOfficial(me)) return fail('Only Guts can change a join date.');
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(args, 'date'));
+      const when = m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3], 12) / 1000) : NaN;
+      if (!Number.isFinite(when) || when < Date.UTC(2000, 0, 1) / 1000 || when > now()) return fail('Pick a date in the past (like 2025-09-15).');
+      me.created = when;
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }

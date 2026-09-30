@@ -68,6 +68,12 @@ const char* typeName(Type t) {
         case Type::Hat:   return "Hat";
         case Type::Shirt: return "Shirt";
         case Type::Pants: return "Pants";
+        case Type::Hair:     return "Hair";
+        case Type::FaceAcc:  return "FaceAcc";
+        case Type::Neck:     return "Neck";
+        case Type::Shoulder: return "Shoulder";
+        case Type::Waist:    return "Waist";
+        case Type::Face:     return "Face";
         default:          return "?";
     }
 }
@@ -133,13 +139,17 @@ Item fromServer(const json& a) {
     it.name = a.value("name", std::string());
     it.description = a.value("description", std::string());
     std::string kind = a.value("kind", std::string());
-    it.type = kind == "hat" ? Type::Hat : kind == "shirt" ? Type::Shirt : Type::Pants;
+    it.kind = kind;
+    it.type = kind == "hat" ? Type::Hat : kind == "shirt" ? Type::Shirt : kind == "pants" ? Type::Pants
+            : kind == "hair" ? Type::Hair : kind == "faceacc" ? Type::FaceAcc : kind == "neck" ? Type::Neck
+            : kind == "shoulder" ? Type::Shoulder : kind == "waist" ? Type::Waist : Type::Face;
     it.price = a.value("price", 0LL);
     it.created = a.value("created", 0LL);
     if (a.contains("meta") && a["meta"].is_object()) {
         const json& m = a["meta"];
         it.hat = (HatStyle)std::clamp(m.value("style", 2), 1, 3);
         if (m.value("image", false) && it.type != Type::Hat) it.image = "gb:" + it.id;
+        if (m.value("model", false)) it.model = "gb:" + it.id;
         if (m.contains("color") && m["color"].is_array() && m["color"].size() == 3)
             it.color = {m["color"][0].get<int>() / 255.0f, m["color"][1].get<int>() / 255.0f, m["color"][2].get<int>() / 255.0f};
     }
@@ -173,8 +183,14 @@ void applyLook(const Item& it) {
     Profile& me = Profile::get();
     switch (it.type) {
         case Type::Hat:
-            me.hat = it.hat;
-            me.hatColor = it.color;
+            if (!it.model.empty()) { me.hat = HatStyle::None; me.accessories["hat"] = it.model; }
+            else { me.hat = it.hat; me.hatColor = it.color; me.accessories.erase("hat"); }
+            break;
+        case Type::Hair: case Type::FaceAcc: case Type::Neck: case Type::Shoulder: case Type::Waist:
+            me.accessories[it.kind] = it.model;
+            break;
+        case Type::Face:
+            me.faceImage = it.image;
             break;
         case Type::Shirt:
             if (it.image.empty()) me.colors.torso = me.colors.leftArm = me.colors.rightArm = it.color;

@@ -361,6 +361,8 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
             size_t comma = m_opts.testClothes.find(',');
             p->setClothing(m_opts.testClothes.substr(0, comma), comma == std::string::npos ? "" : m_opts.testClothes.substr(comma + 1));
         }
+        if (testMode() && !m_opts.testAccessory.empty()) p->setAccessories({{"hat", m_opts.testAccessory}});
+        if (testMode() && !m_opts.testFace.empty()) p->setFace(m_opts.testFace);
     }
     m_session->scripts().setPlayerName(Online::playerName());
     *m_soloChat = ChatLog{};
@@ -506,8 +508,29 @@ void PlayerApp::leaveGame() {
 // Frame
 // ---------------------------------------------------------------------------
 
+// Accessories and faces you wear live on the server: fetch any we don't have yet, then
+// put them on (in the game and on the avatar page).
+void PlayerApp::fetchAvatarParts() {
+    if (!Online::online()) return;
+    const Profile& me = Profile::get();
+    std::vector<std::string> want;
+    for (const auto& [kind, src] : me.accessories) want.push_back(src);
+    want.push_back(me.faceImage);
+    for (const std::string& src : want) {
+        if (src.rfind("gb:", 0) != 0) continue;
+        std::string id = src.substr(3);
+        if (!Paths::downloaded(id).empty() || !m_avatarFetching.insert(id).second) continue;
+        Online::download(id, [this](bool ok, const std::filesystem::path&, const nlohmann::json&) {
+            if (!ok) return;
+            if (Player* p = m_scene->player()) Profile::get().applyTo(*p);
+            if (m_avatarScene) if (Player* p = m_avatarScene->player()) Profile::get().applyTo(*p);
+        });
+    }
+}
+
 void PlayerApp::frame(float dt) {
     Online::update();   // replies from the Guts&Bolts server
+    fetchAvatarParts();
     if (m_autoServers && Online::online()) {
         m_autoServers = false;
         const GameCard& g = m_games[m_selected];

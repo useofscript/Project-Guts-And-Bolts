@@ -164,6 +164,12 @@ jobs:
           cp dist/macos/*.zip out/ 2>/dev/null || true
           if [ -d dist/windows ]; then (cd dist && zip -qr ../out/GutsAndBolts-Windows.zip windows); fi
           ls -la out
+      # Re-releasing the same version replaces it: the old release and its tag go first.
+      - name: Replace an older release of this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel.outputs.tag }}

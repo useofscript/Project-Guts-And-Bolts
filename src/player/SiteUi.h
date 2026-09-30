@@ -161,6 +161,20 @@ inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item&
         dl->AddRect(r0, r1, line, 0, 0, t);
         break;
     }
+    case Catalog::Type::Face: {   // a smiley on a yellow head
+        dl->AddRectFilled(ImVec2(c.x - s * 0.34f, c.y - s * 0.34f), ImVec2(c.x + s * 0.34f, c.y + s * 0.34f), IM_COL32(245, 211, 59, 255), s * 0.1f);
+        dl->AddCircleFilled(ImVec2(c.x - s * 0.12f, c.y - s * 0.08f), s * 0.05f, line);
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.12f, c.y - s * 0.08f), s * 0.05f, line);
+        dl->PathArcTo(ImVec2(c.x, c.y + s * 0.02f), s * 0.18f, 0.5f, 2.64f, 16);
+        dl->PathStroke(line, 0, t * 2);
+        break;
+    }
+    case Catalog::Type::Hair: case Catalog::Type::FaceAcc: case Catalog::Type::Neck:
+    case Catalog::Type::Shoulder: case Catalog::Type::Waist:   // made in Studio: a gem in its colour
+        dl->AddCircleFilled(c, s * 0.3f, fill, 32);
+        dl->AddCircle(c, s * 0.3f, line, 32, t);
+        dl->AddCircleFilled(c, s * 0.14f, IM_COL32(255, 255, 255, 90), 24);
+        break;
     default: break;
     }
 }

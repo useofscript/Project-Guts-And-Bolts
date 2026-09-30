@@ -26,8 +26,16 @@ const $ = (sel, root = document) => root.querySelector(sel);
 
 function show(content) { view.innerHTML = content.s; }
 const view = $('#view');
-const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model' };
-const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0 };
+const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
+  hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face' };
+// Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
+const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
+const WEARABLE = ['shirt', 'pants', 'face', ...ACCESSORIES];
+// Only Guts' own accessories and faces can be Limited.
+const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
+// Items with a real picture (Studio accessories, faces) show that instead of a drawing.
+const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || (a.meta && a.meta.model));
+const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0 };
 
 let me = null;          // our account on the server (from "hello")
 let pageToken = 0;      // goes up with every page change; a slower old page must not draw over a newer one
@@ -67,6 +75,7 @@ function gameColors(id) {
 
 // Hats, shirts and pants, drawn in their colour.
 function itemIcon(a) {
+  if (hasPicture(a)) return html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">`;
   const m = a.meta || {};
   const c = Array.isArray(m.color) ? `rgb(${m.color.map((x) => Number(x) | 0).join(',')})` : '#c33';
   const k = a.kind;
@@ -82,6 +91,11 @@ function itemIcon(a) {
     shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="${c}"/>`;
   } else if (k === 'pants') {
     shape = `<path d="M30 18 L70 18 L74 84 L56 84 L50 42 L44 84 L26 84 Z" fill="${c}"/><rect x="30" y="18" width="40" height="7" fill="rgba(0,0,0,.2)"/>`;
+  } else if (k === 'face') {
+    shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
+      <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+  } else if (ACCESSORIES.includes(k)) {
+    shape = `<circle cx="50" cy="50" r="30" fill="${c}"/><circle cx="50" cy="50" r="14" fill="rgba(255,255,255,.35)"/>`;
   } else {
     return html`<span>${KINDS[k] || '?'}</span>`;
   }
@@ -210,10 +224,23 @@ function gameCard(g) {
 const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
   leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
 const items3d = new Map();   // id -> item, for the pictures below
+// Shirts, pants and shape hats: the 3D mannequin can wear them.
+const drawable3d = (a) => ['shirt', 'pants'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
+
+// Fills in <img data-thumb="id"> with the item's picture.
+function loadThumbs(root = view) {
+  root.querySelectorAll('img[data-thumb]').forEach(async (img) => {
+    if (img.src) return;
+    const t = await call('thumb.get', { id: img.dataset.thumb });
+    if (t.ok && t.data) img.src = 'data:image/png;base64,' + t.data;
+  });
+}
+
 function upgradeItemPictures() {
+  loadThumbs();
   view.querySelectorAll('[data-item3d]').forEach(async (el) => {
     const it = items3d.get(el.dataset.item3d);
-    if (!it) return;
+    if (!it || !drawable3d(it)) return;
     const url = await avatarPicture(MANNEQUIN, [it], 150);
     if (url && el.isConnected) el.innerHTML = html`<img class="item3d" src="${url}" alt="${it.name}">`.s;
   });
@@ -460,10 +487,21 @@ async function libraryPage(head) {
     <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>
     ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(card)}</div>` : html`<p class="muted">Nothing here yet.</p>`) : html`<p class="error">${r.error}</p>`}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
-  view.querySelectorAll('img[data-thumb]').forEach(async (img) => {
-    const t = await call('thumb.get', { id: img.dataset.thumb });
-    if (t.ok && t.data) img.src = 'data:image/png;base64,' + t.data;
-  });
+  loadThumbs();
+}
+
+// Create > Accessories: hats, hair and the rest, made and placed in Studio.
+async function myAccessoriesPage(head) {
+  if (!signedIn()) { show(html`${head}${needSignIn('see your accessories')}`); return; }
+  const r = await pageCall('list', { creator: me.id, limit: 100 });
+  const list = (r.assets || []).filter((a) => ACCESSORIES.includes(a.kind));
+  show(html`${head}
+    <div class="box">${me.verified || me.staff ? html`Make accessories in <b>Studio</b>: build it, open <b>Avatar &gt; Accessories</b>, pick the type
+      (hat, hair, face, neck, shoulder or waist), move it into place on the mannequin, <b>Save position</b>, then <b>Upload</b>.`
+      : html`<b>Only Verified creators can make accessories.</b> You can still make <a href="#/create/shirt">shirts</a> and <a href="#/create/pants">pants</a>!`}</div>
+    <h2>My accessories</h2>
+    ${list.length ? html`<div class="grid">${list.map(itemCard)}</div>` : html`<p class="muted">Nothing yet.</p>`}`);
+  upgradeItemPictures();
 }
 
 // Create > Models: the models you published from Studio, public or private.
@@ -545,7 +583,8 @@ pages.catalog = async () => {
   const r = await pageCall('list', { kind, query, limit: 100 });
   const tab = (k, label) => html`<a class="btn ${kind === k ? 'blue' : ''}" href="#/catalog?kind=${k}">${label}</a>`;
   show(html`<h1>Catalog</h1>
-    <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('shirt', 'Shirts')}${tab('pants', 'Pants')}</div>
+    <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('hair', 'Hair')}${tab('face', 'Faces')}${tab('faceacc', 'Face Accessories')}${tab('neck', 'Neck')}
+      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('pants', 'Pants')}</div>
     <form class="row" data-form="catalogSearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the catalog" value="${query}" style="max-width:280px">
       <button class="btn blue">Search</button></form><br>
@@ -568,7 +607,7 @@ pages.item = async (id) => {
   const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
     <div class="hero"><div class="card square"><div class="pic" id="item3d">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}
-      <div class="small muted" style="text-align:center">Drag to turn</div></div>
+      ${drawable3d(a) ? html`<div class="small muted" style="text-align:center">Drag to turn</div>` : ''}</div>
       <div><h1>${a.name}</h1><p>${KINDS[a.kind]} by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</p>
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
         ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
@@ -583,11 +622,13 @@ pages.item = async (id) => {
         <label>Name</label><input type="text" name="name" maxlength="50" value="${a.name}" required>
         <label>Description</label><textarea name="description" maxlength="1000">${a.description || ''}</textarea>
         <label>Price (Bolts)</label><input type="number" name="price" min="0" value="${a.price || 0}" style="max-width:140px">
-        <label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">
-        ${a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
+        ${drawable3d(a) ? html`<label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">` : ''}
+        ${a.kind === 'face' ? html`<label>New picture <span class="muted small">(optional, a .png face)</span></label><input type="file" name="picture" accept="image/png">`
+          : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
+          : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
           : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
         <p><button class="btn green">Save</button> <span id="itemEditMsg"></span></p></form>
-      ${me.official ? html`<form class="form" data-form="itemLimited"><input type="hidden" name="id" value="${a.id}">
+      ${me.official && a.creator === me.id && canBeLimited(a) ? html`<form class="form" data-form="itemLimited"><input type="hidden" name="id" value="${a.id}">
         <label>${L ? 'Change the stock' : 'Make it Limited'} <span class="muted small">(only Guts can do this)</span></label>
         <input type="number" name="stock" min="1" value="${L ? L.stock : 100}" style="max-width:140px">
         <p class="small muted">A Limited has a fixed number of numbered copies. When they're sold out, people buy and sell them from each other, and trade them.</p>
@@ -601,7 +642,8 @@ pages.item = async (id) => {
           <input type="number" name="price" min="0" value="${c.price || ''}" placeholder="Price in Bolts" style="max-width:150px">
           <button class="btn small ${c.price ? '' : 'blue'}">${c.price ? 'Change price' : 'Sell'}</button>
           ${c.price ? html`<span class="muted small">On sale for ${c.price}. Set 0 to take it off sale.</span>` : html`<span class="muted small">You get ${70}% when it sells.</span>`}</form>`)}` : ''}` : ''}`);
-  mountAvatar($('#item3d'), MANNEQUIN, [a], { width: 300, height: 340 }).catch(() => {});   // a turnable 3D view
+  if (drawable3d(a)) mountAvatar($('#item3d'), MANNEQUIN, [a], { width: 300, height: 340 }).catch(() => {});   // a turnable 3D view
+  else loadThumbs();
 };
 
 // Decal pictures: fetched once, shown from memory.
@@ -621,11 +663,12 @@ async function decalPicture(img) {
 }
 
 pages.create = async (tab = 'games') => {
-  const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['shirt', 'Shirts'],
-    ['pants', 'Pants'], ['plugin', 'Plugins'], ['library', 'Library']];
+  const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['accessory', 'Accessories'],
+    ['shirt', 'Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
   if (tab === 'library') { await libraryPage(head); return; }
   if (tab === 'model') { await myModelsPage(head); return; }
+  if (tab === 'accessory') { await myAccessoriesPage(head); return; }
   const r = signedIn() ? await pageCall('list', { creator: me.id, limit: 100 }) : { ok: true, assets: [] };
   const mine = r.ok ? r.assets : [];
   const kind = tab === 'games' ? 'game' : tab;
@@ -635,7 +678,7 @@ pages.create = async (tab = 'games') => {
     : me.verified ? html`<b>You're Verified!</b> Uploading is free, with no daily limit, and you can sell what you make.`
     : html`Uploading costs a few Bolts (decals 5, clothes 10, audio 20, plugins 20; games are free).
       <span class="muted">${me.uploadsLeft} uploads left today.</span>`;
-  const clothing = ['hat', 'shirt', 'pants'].includes(kind);
+  const clothing = ['hat', 'shirt', 'pants'].includes(kind), face = kind === 'face';
   const accept = { decal: '.png,.jpg,.jpeg', audio: '.mp3,.wav,.ogg,.flac', plugin: '.lua', game: '.gbscene' }[kind] || '';
   const form = html`<h2>${kind === 'game' ? 'Publish a game' : 'Upload a new ' + KINDS[kind]}</h2>
     <form class="form" data-form="upload"><input type="hidden" name="kind" value="${kind}">
@@ -648,22 +691,27 @@ pages.create = async (tab = 'games') => {
           <input type="file" name="picture" accept="image/png">
           <p class="small muted">A 585 x 559 .png painted on the
             <a href="templates/${kind}_template.png" download>${kind} template</a>. See-through bits show the colour above.</p>` : ''}`
+      : face ? html`<label>Picture</label><input type="file" name="file" accept="image/png" required>
+        <p class="small muted">A square .png of the face, see-through around the eyes and mouth (like 256 x 256). It's drawn on the front of the head.</p>`
       : html`<label>File</label><input type="file" name="file" accept="${accept}" required>
         <p class="small muted">${{ decal: 'A .png or .jpg picture (up to 4 MB).', audio: 'An .mp3, .wav, .ogg or .flac file (up to 6 MB).',
           plugin: 'A Lua plugin for Studio.', game: 'A .gbscene file saved from Studio (or use File > Publish in Studio).' }[kind]}</p>`}
       ${['decal', 'audio'].includes(kind) ? html`<p class="small muted">${kind === 'decal' ? 'Decals' : 'Sounds'} are always free: anyone can use them in their games.</p>`
-        : me.verified && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
-      ${kind === 'decal' ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
+        : (me.verified || face) && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
+      ${kind === 'decal' || face ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
       <p><button class="btn green">${FEES[kind] && !me.verified ? 'Upload for ' + FEES[kind] + ' Bolts' : 'Upload (free)'}</button>
         <span id="uploadMsg"></span></p></form>`;
   // Hats are for Verified creators; shirts and pants are open to everyone.
   const hatLocked = kind === 'hat' && signedIn() && !me.verified;
   const shownForm = hatLocked ? html`<h2>Upload a new Hat</h2><p class="error">Only Verified creators can make hats.</p>
-    <p class="muted">You can still make <a href="#/create/shirt">shirts</a> and <a href="#/create/pants">pants</a>!</p>` : form;
+    <p class="muted">You can still make <a href="#/create/shirt">shirts</a> and <a href="#/create/pants">pants</a>!</p>`
+    : face && !(signedIn() && me.official) ? html`<p class="error">Only Guts can make faces.</p>`
+    : kind === 'hat' ? html`${form}<p class="small muted">Want a hat that's your own shape? Build it in <b>Studio</b> and use
+      <b>Avatar &gt; Accessories</b> to place it on the head and upload it.</p>` : form;
   const row = (a) => html`<div>
       ${a.kind === 'game' ? gameIcon(a, 48) : ''}
       ${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="">` : ''}
-      ${clothing ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
+      ${clothing || face ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
       <div class="grow"><b>${a.name}</b><br><span class="small muted">
         ${a.kind === 'game' ? html`${a.plays} plays · ${ACCESS_NAMES[a.access || 'public']}` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
         ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID gb:${a.id}` : ''}</span></div>
@@ -677,6 +725,7 @@ pages.create = async (tab = 'games') => {
       : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see what you\'ve made.'}</p>`}
     ${shownForm}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
+  loadThumbs();
   const file = view.querySelector('input[type=file]'), prev = $('#preview');
   if (file && prev) file.addEventListener('change', () => { if (file.files[0]) { prev.src = URL.createObjectURL(file.files[0]); prev.hidden = false; } });
 };
@@ -805,7 +854,7 @@ pages.user = async (id) => {
       : f === 'sent' ? html`<button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${u.id}">Cancel request</button>`
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
           : html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`;
-  const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => ['hat', 'shirt', 'pants'].includes(a.kind));
+  const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => WEARABLE.includes(a.kind));
   // What they wear (older servers don't say: look it up in the catalog).
   let worn = r.wearing;
   if (!worn) {
@@ -1069,7 +1118,11 @@ pages.settings = async () => {
       <div class="box"><h2 class="boxhead">Account</h2>
         <table class="stats"><tr><td>Username</td><td><b>${me.username}</b></td></tr><tr><td>User number</td><td>#${me.userId}</td></tr>
           <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr>
-          ${(me.pastNames || []).length ? html`<tr><td>Past usernames</td><td>${me.pastNames.join(', ')}</td></tr>` : ''}</table>
+          ${(me.pastNames || []).length ? html`<tr><td>Past usernames</td><td>${me.pastNames.join(', ')}</td></tr>` : ''}
+          <tr><td>Joined</td><td>${me.created ? new Date(me.created * 1000).toLocaleDateString() : '?'}</td></tr></table>
+        ${me.official ? html`<form class="form" data-form="joinDate"><label>Join date <span class="muted small">(Guts only)</span></label>
+          <input type="date" name="date" required value="${me.created ? new Date(me.created * 1000).toISOString().slice(0, 10) : ''}" style="max-width:180px">
+          <p><button class="btn blue">Save join date</button> <span id="joinMsg"></span></p></form>` : ''}
         <form class="form" data-form="rename"><label>Change your username <span class="muted small">(1,000 Bolts)</span></label>
           <input type="text" name="username" maxlength="20" required placeholder="3-20 letters or numbers" autocomplete="off">
           <p class="small muted">Your old username stays on your profile under "Past usernames", and nobody else can ever take it.
@@ -1471,14 +1524,20 @@ const forms = {
     render();
   },
   async itemEdit(f) {
-    const hex = f.color.value.replace('#', '');
-    const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0,
-      color: [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)) };
+    const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0 };
+    if (f.color) { const hex = f.color.value.replace('#', ''); args.color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)); }
     if (f.style) args.style = Number(f.style.value);
     if (f.picture && f.picture.files[0]) args.data = await gb.fileBase64(f.picture.files[0]);
     const r = await call('item.edit', args);
     if (!r.ok) { const m = $('#itemEditMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
     toast('Saved!');
+    render();
+  },
+  async joinDate(f) {
+    const r = await call('account.joinDate', { date: f.date.value });
+    if (!r.ok) { const m = $('#joinMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    toast('Join date saved!');
+    await hello();
     render();
   },
   async itemLimited(f) {

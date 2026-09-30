@@ -15,6 +15,7 @@
 #include "../scene/Scene.h"
 #include "../scene/Serializer.h"
 #include "../scene/Physics.h"
+#include "../scene/Player.h"
 #include "../renderer/Textures.h"
 
 #include <imgui.h>
@@ -496,4 +497,193 @@ void Editor::drawToolboxLibrary() {
         }
         ImGui::PopID();
     }
+}
+
+// ---------------------------------------------------------------------------
+// AVATAR > Accessories: make hats and other accessories (Verified creators)
+// ---------------------------------------------------------------------------
+//
+// Put a Model on the mannequin where it should sit, press Save position (it's
+// remembered on the Model, so it survives saving the place), then Upload: the
+// catalog item carries the Model and its spot, relative to the character's feet.
+
+namespace {
+struct AccessoryKind { const char* key; const char* title; const char* where; glm::vec3 spot; };
+const AccessoryKind kAccessoryKinds[] = {
+    {"hat", "Hat", "on top of the head", {0.0f, 2.75f, 0.0f}},
+    {"hair", "Hair", "on the head", {0.0f, 2.55f, -0.05f}},
+    {"faceacc", "Face accessory", "on the front of the face", {0.0f, 2.35f, 0.4f}},
+    {"neck", "Neck accessory", "around the neck", {0.0f, 2.0f, 0.1f}},
+    {"shoulder", "Shoulder accessory", "on a shoulder", {-0.75f, 2.05f, 0.0f}},
+    {"waist", "Waist accessory", "around the waist", {0.0f, 1.05f, 0.0f}},
+};
+
+// The transform that puts `m` (a world matrix) in `root`'s space (rotation order Z*Y*X).
+Transform relativeTo(const glm::mat4& root, const glm::mat4& m) {
+    glm::mat4 r = glm::inverse(root) * m;
+    Transform t;
+    t.position = glm::vec3(r[3]);
+    for (int i = 0; i < 3; ++i) t.scale[i] = glm::length(glm::vec3(r[i]));
+    glm::mat3 R(glm::vec3(r[0]) / t.scale.x, glm::vec3(r[1]) / t.scale.y, glm::vec3(r[2]) / t.scale.z);
+    float sy = std::clamp(-R[0][2], -1.0f, 1.0f);
+    t.rotation.y = glm::degrees(std::asin(sy));
+    if (std::abs(sy) < 0.9999f) {
+        t.rotation.x = glm::degrees(std::atan2(R[1][2], R[2][2]));
+        t.rotation.z = glm::degrees(std::atan2(R[0][1], R[0][0]));
+    } else {   // straight up or down: put all the turn in X
+        t.rotation.x = glm::degrees(std::atan2(-R[2][1], R[1][1]));
+        t.rotation.z = 0.0f;
+    }
+    return t;
+}
+
+void setString(SceneNode& n, const std::string& name, const std::string& value) {
+    for (auto& a : n.attributes) if (a.name == name) { a.type = Attribute::String; a.s = value; return; }
+    Attribute a; a.name = name; a.type = Attribute::String; a.s = value;
+    n.attributes.push_back(a);
+}
+} // namespace
+
+void Editor::renderAccessoryWindow() {
+    if (!m_showAccessory) return;
+    // Opens over the right of the viewport, big enough to see every step.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 470, vp->WorkPos.y + 150), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(440, 520), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Accessories", &m_showAccessory)) { ImGui::End(); return; }
+    onlineLine();
+    const bool allowed = Online::online() && (Online::verified() || Online::staff());
+    if (!allowed) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Hats and accessories are made by Verified creators. Get Verified to make your own!");
+        ImGui::PopTextWrapPos();
+        ImGui::End();
+        return;
+    }
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("1. Add the mannequin.  2. Build your accessory as a Model and select it.  "
+                        "3. Move it into place on the mannequin and press Save position.  4. Upload it to the catalog.");
+    ImGui::PopTextWrapPos();
+
+    // 1. The mannequin.
+    SceneNode* mannequin = m_scene->root()->findChild("Accessory Mannequin");
+    ImGui::SeparatorText("Mannequin");
+    if (!mannequin) {
+        if (ImGui::Button("Add mannequin")) {
+            SceneNode* rig = Player::buildRig(*m_scene, "Accessory Mannequin", glm::vec3(0.0f));
+            m_scene->select(rig);
+            Log::system("Added the accessory mannequin. Build your accessory next to it.");
+        }
+    } else {
+        ImGui::TextDisabled("\"Accessory Mannequin\" is in the Workspace.");
+    }
+
+    // 2. What kind, and which Model.
+    ImGui::SeparatorText("Accessory");
+    ImGui::SetNextItemWidth(220);
+    if (ImGui::BeginCombo("Type", kAccessoryKinds[m_accessoryKind].title)) {
+        for (int i = 0; i < (int)std::size(kAccessoryKinds); ++i)
+            if (ImGui::Selectable(kAccessoryKinds[i].title, i == m_accessoryKind)) m_accessoryKind = i;
+        ImGui::EndCombo();
+    }
+    const AccessoryKind& kind = kAccessoryKinds[m_accessoryKind];
+    SceneNode* model = m_scene->selected();
+    while (model && model->kind != NodeKind::Model && model->parent && model->parent != m_scene->root()) model = model->parent;
+    if (model && (model->kind != NodeKind::Model || model == mannequin || m_scene->isCharacterPart(model))) model = nullptr;
+    if (!model) {
+        ImGui::TextDisabled("Select your accessory: a Model (Ctrl+G groups parts into one).");
+        ImGui::End();
+        return;
+    }
+    ImGui::Text("Accessory: %s", model->name.c_str());
+    const Attribute* saved = model->findAttribute("AccessoryPlacement");
+
+    // 3. Placing it.
+    ImGui::BeginDisabled(!mannequin);
+    if (ImGui::Button("Move to the spot")) {   // a starting point: then fine-tune with the Move / Rotate tools
+        glm::mat4 root = mannequin->worldMatrix();
+        glm::vec3 world = glm::vec3(root * glm::vec4(kind.spot, 1.0f));
+        glm::vec3 local = model->parent ? glm::vec3(glm::inverse(model->parent->worldMatrix()) * glm::vec4(world, 1.0f)) : world;
+        model->transform.position = local;
+        m_scene->markDirty();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Puts it %s. Then move and turn it until it looks right.", kind.where);
+    ImGui::SameLine();
+    if (ImGui::Button("Save position")) {
+        Transform rel = relativeTo(mannequin->worldMatrix(), model->worldMatrix());
+        json j = {{"kind", kind.key}, {"position", {rel.position.x, rel.position.y, rel.position.z}},
+                  {"rotation", {rel.rotation.x, rel.rotation.y, rel.rotation.z}}, {"scale", {rel.scale.x, rel.scale.y, rel.scale.z}}};
+        setString(*model, "AccessoryPlacement", j.dump());
+        m_scene->markDirty();
+        m_accessoryMsg = "Saved where it sits (" + std::string(kind.title) + "). Save your place to keep it.";
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!saved);
+    if (ImGui::Button("Put it back")) {   // back to the saved spot, if it got moved
+        json j = json::parse(saved->s, nullptr, false);
+        if (j.is_object()) {
+            Transform rel;
+            for (int i = 0; i < 3; ++i) {
+                rel.position[i] = j["position"][i].get<float>();
+                rel.rotation[i] = j["rotation"][i].get<float>();
+                rel.scale[i] = j["scale"][i].get<float>();
+            }
+            glm::mat4 world = mannequin->worldMatrix() * rel.matrix();
+            model->transform = relativeTo(model->parent ? model->parent->worldMatrix() : glm::mat4(1.0f), world);
+            m_scene->markDirty();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    if (saved) {
+        json j = json::parse(saved->s, nullptr, false);
+        std::string k = j.is_object() ? j.value("kind", std::string()) : std::string();
+        for (const auto& ak : kAccessoryKinds) if (k == ak.key) ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.4f, 1), "Position saved as a %s.", ak.title);
+    }
+
+    // 4. Uploading.
+    ImGui::SeparatorText("Upload to the catalog");
+    ImGui::SetNextItemWidth(-90);
+    ImGui::InputTextWithHint("Name", model->name.c_str(), &m_accessoryName);
+    ImGui::InputTextMultiline("Description", &m_accessoryDesc, ImVec2(-90, 50));
+    ImGui::SetNextItemWidth(140);
+    if (ImGui::InputInt("Price (Bolts)", &m_accessoryPrice, 5, 50)) m_accessoryPrice = std::clamp(m_accessoryPrice, 0, 1000000);
+    ImGui::BeginDisabled(!saved || m_onlineBusy);
+    if (ImGui::Button("Upload", ImVec2(140, 30))) {
+        json place = json::parse(saved->s, nullptr, false);
+        json node = json::parse(Serializer::nodeToString(*model), nullptr, false);
+        if (place.is_object() && node.is_object()) {
+            // The Model's own transform becomes "where it sits, from the feet".
+            node["pos"] = place["position"];
+            node["rot"] = place["rotation"];
+            node["size"] = place["scale"];
+            json acc = {{"format", "gbaccessory"}, {"version", 1}, {"kind", place.value("kind", std::string("hat"))}, {"node", node}};
+            // A picture of it on the mannequin for the catalog.
+            glm::vec3 lo(1e9f), hi(-1e9f);
+            std::vector<SceneNode*> stack{model};
+            while (!stack.empty()) {
+                SceneNode* c = stack.back(); stack.pop_back();
+                if (c->isPart()) { AABB b = Physics::worldBounds(c); lo = glm::min(lo, b.min); hi = glm::max(hi, b.max); }
+                for (auto& k : c->children) stack.push_back(k.get());
+            }
+            std::string picture = lo.x <= hi.x ? m_viewport->snapshotAround(256, 256, (lo + hi) * 0.5f, std::max(0.8f, glm::length(hi - lo) * 0.6f)) : "";
+            std::string name = m_accessoryName.empty() ? model->name : m_accessoryName;
+            json args = {{"kind", acc["kind"]}, {"name", name}, {"description", m_accessoryDesc}, {"price", m_accessoryPrice},
+                         {"data", Online::base64Encode(acc.dump())}};
+            m_onlineBusy = true;
+            m_accessoryMsg = "Uploading...";
+            Online::request("upload", args, [this, picture, name](const json& r) {
+                m_onlineBusy = false;
+                if (!r.value("ok", false)) { m_accessoryMsg = r.value("error", std::string("The upload didn't work.")); return; }
+                std::string id = r["asset"].value("id", std::string());
+                if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
+                m_accessoryMsg = "Uploaded \"" + name + "\" to the catalog!";
+                Log::system("Uploaded the accessory \"" + name + "\" (" + id + ")");
+            }, 120);
+        }
+    }
+    ImGui::EndDisabled();
+    if (!saved) { ImGui::SameLine(); ImGui::TextDisabled("Save its position first."); }
+    if (!m_accessoryMsg.empty()) { ImGui::PushTextWrapPos(0); ImGui::TextUnformatted(m_accessoryMsg.c_str()); ImGui::PopTextWrapPos(); }
+    ImGui::End();
 }

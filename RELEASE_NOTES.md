@@ -58,6 +58,18 @@
 - The website's Create page has a **Library** tab (all public models, decals,
   audio and plugins) and a **Models** tab to switch yours public or private.
 
+**Accessories and faces**
+- New accessory types: **hair**, **face**, **neck**, **shoulder** and
+  **waist**, next to hats. They have their own tabs in the catalog.
+- Studio's new **AVATAR > Accessories** window (Verified creators): put it on a
+  mannequin, move it into place, **Save position**, and **Upload** straight to
+  the catalog with a picture.
+- **Faces**: pictures drawn on the front of the head. Only Guts can make them
+  (website: Create > Faces).
+- Only Guts' own accessories and faces can be made **Limited**; shirts, pants,
+  audio, decals and models can't.
+- The Guts account can change its join date in Settings.
+
 **Limiteds, resale and trading**
 - Item creators (and staff) get an **Edit item** page: name, description,
   price, colour, hat shape or clothing picture.

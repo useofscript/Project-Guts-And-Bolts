@@ -94,6 +94,7 @@ private:
     void       renderMarketplace();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
     void       drawToolboxLibrary();         // the Toolbox's Library section
+    void       renderAccessoryWindow();      // AVATAR > Accessories (Verified creators)
     void       renderPluginsTab();
     void       insertObject(const std::string& what, SceneNode* parent);
     SceneNode* aiFind(const std::string& ref);   // "#42" or "Workspace.Castle.Door"
@@ -148,6 +149,9 @@ private:
     bool        m_openPublishModel = false, m_modelPublic = true, m_libraryLoaded = false;
     std::string m_modelName, m_modelDesc, m_modelMsg, m_libraryQuery, m_libraryMsg;
     int         m_libraryKind = 0;   // 0 models, 1 decals, 2 audio
+    bool        m_showAccessory = false;
+    int         m_accessoryKind = 0, m_accessoryPrice = 0;
+    std::string m_accessoryName, m_accessoryDesc, m_accessoryMsg;
     nlohmann::json m_library = nlohmann::json::array();
     std::map<std::string, std::string> m_libraryThumbs;   // asset id -> picture file ("" = still coming)
     nlohmann::json m_marketPlugins = nlohmann::json::array(), m_marketAudio = nlohmann::json::array();

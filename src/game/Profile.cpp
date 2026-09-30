@@ -48,6 +48,10 @@ void Profile::load() {
     };
     shirtImage = safeImage(j.value("shirtImage", std::string()));
     pantsImage = safeImage(j.value("pantsImage", std::string()));
+    faceImage = safeImage(j.value("faceImage", std::string()));
+    if (j.contains("accessories") && j["accessories"].is_object())
+        for (auto& [k, v] : j["accessories"].items())
+            if (v.is_string() && !safeImage(v.get<std::string>()).empty()) accessories[k] = v.get<std::string>();
     // Nobody else gets to be called Guts, even by editing profile.json.
     if (Account::nameIsReserved(name) && !Account::iAmStaff()) name = "Player";
     hatColor        = vec(j, "hatColor", hatColor);
@@ -67,6 +71,7 @@ void Profile::save() const {
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
         {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server}, {"serverChecked", true},
         {"avatarUpdated", avatarUpdated}, {"shirtImage", shirtImage}, {"pantsImage", pantsImage},
+        {"faceImage", faceImage}, {"accessories", accessories},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

@@ -137,18 +137,22 @@ void PlayerApp::drawOnlineCatalog() {
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted("Catalog");
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("Hats, shirts and pants made by the Guts&Bolts community.");
+    ImGui::TextDisabled("Hats, hair, faces, accessories and clothes made by the Guts&Bolts community.");
     ImGui::Spacing();
-    const char* tabs[] = {"All", "Hats", "Shirts", "Pants"};
-    const char* kinds[] = {"", "hat", "shirt", "pants"};
-    float tabW = std::min(90.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
-    for (int i = 0; i < 4; ++i) {
-        if (i > 0) ImGui::SameLine();
+    // "Accessories" covers face, neck, shoulder and waist accessories.
+    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "Pants"};
+    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "pants"};
+    const int nTabs = 7;
+    float tabW = std::min(100.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
+    float rowRight = ImGui::GetContentRegionMax().x;
+    for (int i = 0; i < nTabs; ++i) {
+        if (i > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + tabW <= ImGui::GetWindowPos().x + rowRight) ImGui::SameLine();
         bool on = m_itemType == i - 1;
         if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(tabW, 28)) : ImGui::Button(tabs[i], ImVec2(tabW, 28)))
             m_itemType = i - 1;
     }
-    if (portraitScreen()) ImGui::Spacing(); else ImGui::SameLine(ImGui::GetContentRegionMax().x - 140);
+    bool roomForCreate = ImGui::GetItemRectMax().x + 160 <= ImGui::GetWindowPos().x + rowRight;
+    if (portraitScreen() || !roomForCreate) ImGui::Spacing(); else ImGui::SameLine(rowRight - 140);
     if (Classic::button("Create", Classic::kPlay, ImVec2(140, 28))) m_page = Page::Create;
     ImGui::Separator();
     ImGui::Spacing();
@@ -156,7 +160,9 @@ void PlayerApp::drawOnlineCatalog() {
     std::vector<int> list;
     for (int i = 0; i < (int)m_onlineItems.size(); ++i) {
         std::string k = m_onlineItems[i].value("kind", std::string());
-        if (m_itemType < 0 || k == kinds[m_itemType + 1]) list.push_back(i);
+        const std::string want = m_itemType < 0 ? "" : kinds[m_itemType + 1];
+        bool acc = k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
+        if (want.empty() || k == want || (want == "acc" && acc)) list.push_back(i);
     }
     if (list.empty()) {
         ImGui::Dummy(ImVec2(0, 30));

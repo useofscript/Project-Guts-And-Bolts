@@ -293,6 +293,7 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 
 /* Create > Library */
 .lib-thumb { width: 100%; height: 100%; object-fit: cover; }
+.item-thumb { width: 100%; height: 100%; object-fit: contain; }
 .lib-kind { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--muted); font-weight: bold; }
 
 /* Catalog items in 3D */

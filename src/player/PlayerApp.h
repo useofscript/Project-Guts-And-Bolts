@@ -43,6 +43,7 @@ struct PlayerOptions {
     std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
     bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
     bool        privateServer = false; // --private-server (with a game): start a private server once online
+    std::string testAccessory, testFace;   // --test-accessory file.json / --test-face face.png (tests)
     std::string testClothes;           // --test-clothes shirt.png,pants.png: wear these pictures (tests)
     std::string joinCode;              // --join-code <code>: join a private server once online
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
@@ -107,6 +108,8 @@ private:
     // Online (a Guts&Bolts server) — PlayerOnline.cpp
     void drawServerButton(ImVec2 at);
     void drawNoServer();
+    void fetchAvatarParts();                   // download worn accessories / faces, then put them on
+    std::set<std::string> m_avatarFetching;    // asset ids already asked for
     void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
     bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
