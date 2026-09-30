@@ -1044,6 +1044,7 @@ struct XmlWriter {
             case NodeKind::Tool:       cls = "Tool"; break;
             case NodeKind::Decal:      cls = "Decal"; break;
             case NodeKind::Animation:  cls = nullptr; break;   // (Roblox keeps animations online)
+            case NodeKind::FluidSystem: case NodeKind::FluidEmitter: cls = nullptr; break;   // (Guts&Bolts only)
             case NodeKind::Gui:        cls = kGuiClassNames[(int)n.gui.type]; break;
             case NodeKind::Value:
                 cls = n.value.type == Attribute::Vector3 || n.value.type == Attribute::Color3 ? nullptr : n.valueClass();

@@ -4,6 +4,7 @@
 #include "Physics.h"
 #include "PlayerModel.h"
 #include "../renderer/MeshLibrary.h"
+#include "../renderer/Textures.h"
 #include "../core/Audio.h"
 #include "../core/Paths.h"
 #include "Serializer.h"
@@ -133,17 +134,18 @@ void Player::applyFace(Scene& scene, SceneNode* r, const std::string& face) {
     SceneNode* head = r->findChild("Head");
     if (!head) return;
     const bool picture = !face.empty() && !readSource(face).empty();
-    for (auto& c : head->children)
-        if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) c->visible = !picture;
-    SceneNode* decal = head->findChild("FaceDecal");
-    if (!picture) { if (decal) scene.removeNode(decal); return; }
-    if (!decal) {
-        auto d = std::make_unique<SceneNode>("FaceDecal", NodeKind::Decal);
-        d->face = Face::Back;   // the head's front is +Z
-        decal = head->addChild(std::move(d));
-    }
-    decal->texture = face;
+    removeOldFace(scene, head);
+    head->texture = picture ? face : std::string(Textures::kClassicFace);
     scene.markDirty();
+}
+
+void Player::removeOldFace(Scene& scene, SceneNode* head) {
+    // Faces used to be little 3D shapes (eyes, a smile) or a flat card stuck in front
+    // of the head. Now a face is a picture painted onto the head itself.
+    std::vector<SceneNode*> old;
+    for (auto& c : head->children)
+        if (c->name == "FaceDecal" || c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) old.push_back(c.get());
+    for (SceneNode* o : old) scene.removeNode(o);
 }
 
 void Player::setClothing(const std::string& shirt, const std::string& pants) {
@@ -198,54 +200,23 @@ SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::ve
     return r;
 }
 
-// The classic smiley on the front (+Z) of the head, in head-local space:
-// two small oval eyes and a smooth U-shaped smile.
+// The classic smiley: a flat picture painted onto the front (+Z) of the head
+// (see Textures::kClassicFace and the lit shader's uFace).
 void Player::addFace(SceneNode* head) {
-    auto add = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale, glm::vec3 rotDeg) {
-        auto n = std::make_unique<SceneNode>(name);
-        n->primitiveType      = shape;
-        n->mesh               = MeshLibrary::get(shape);
-        n->transform.position = pos;
-        n->transform.scale    = scale;
-        n->transform.rotation = rotDeg;
-        n->color    = kBlack;
-        n->internal = true;
-        head->addChild(std::move(n));
-    };
-    // Sit on the round head: z follows the cylinder, and each piece turns to face out.
-    auto surfaceZ = [](float x) { return std::sqrt(std::max(0.0f, 0.25f - x * x)) - 0.005f; };
-    auto yawAt = [](float x) { return glm::degrees(std::asin(std::clamp(x / 0.5f, -1.0f, 1.0f))); };
-    for (float x : {-0.1f, 0.1f})
-        add(x < 0 ? "Eye.L" : "Eye.R", PrimitiveType::Sphere, {x, 0.16f, surfaceZ(x)}, {0.065f, 0.13f, 0.05f}, {0, yawAt(x), 0});
-    // The smile: short bars along the curve, each turned along it (ends high, round at the bottom).
-    auto curve = [](float x) { float t = std::abs(x) / 0.2f; return -0.27f + 0.22f * std::pow(t, 1.7f); };
-    const int n = 10;
-    for (int i = 0; i < n; ++i) {
-        float x0 = -0.2f + 0.4f * i / n, x1 = -0.2f + 0.4f * (i + 1) / n;
-        float y0 = curve(x0), y1 = curve(x1);
-        float xm = (x0 + x1) * 0.5f, ym = (y0 + y1) * 0.5f;
-        float len = std::hypot(x1 - x0, y1 - y0) + 0.035f;   // overlap a little so there are no gaps
-        float roll = glm::degrees(std::atan2(y1 - y0, x1 - x0));
-        add("Smile", PrimitiveType::Cube, {xm, ym, surfaceZ(xm)}, {len, 0.055f, 0.05f}, {0, yawAt(xm), roll});
-    }
+    head->texture = Textures::kClassicFace;
 }
 
 void Player::upgradeFace() {
-    // Characters saved with the old block face (5 smile blocks): swap in the new one.
+    // Characters saved with a 3D face (eye and smile parts): swap in the flat picture.
     SceneNode* r = root();
-    SceneNode* head = nullptr;
-    if (r) for (auto& c : r->children) if (c->name == "Head") head = c.get();
+    SceneNode* head = r ? r->findChild("Head") : nullptr;
     if (!head) return;
-    int smiles = 0;
-    std::vector<SceneNode*> old;
+    bool old = false;
     for (auto& c : head->children)
-        if (c->name == "Smile" || c->name == "Eye.L" || c->name == "Eye.R") {
-            old.push_back(c.get());
-            if (c->name == "Smile") ++smiles;
-        }
-    if (smiles != 5) return;   // already the new face (or a custom one)
-    for (SceneNode* o : old) m_scene->removeNode(o);
-    addFace(head);
+        if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) old = true;
+    if (!old && !head->texture.empty()) return;
+    removeOldFace(*m_scene, head);
+    if (head->texture.empty()) addFace(head);
     m_scene->markDirty();
 }
 
@@ -714,6 +685,42 @@ bool Player::isWater(const SceneNode* n) {
     return n->isPart() && !n->canCollide && (n->name == "Water" || nameHas(n, "Water") || flagged(n, "Water"));
 }
 
+bool Player::waterAt(Scene& scene, const glm::vec3& p, float* top, glm::vec3* flow, glm::vec3* color) {
+    WaterSystem& waves = scene.water();
+    bool found = false;
+    float best = -1e9f;
+    scene.forEach([&](SceneNode* n) {
+        if (!isWater(n) || scene.isCharacterPart(n)) return;
+        // Water slides and sloping rivers: the real tipped-over box, with its sloping top.
+        if (WaterSystem::tilted(n)) {
+            if (!WaterSystem::insideTilted(n, p)) return;
+            const float t = WaterSystem::tiltedSurface(n, p.x, p.z);
+            if (t < best) return;
+            found = true; best = t;
+            if (flow) { const Attribute* a = n->findAttribute("Flow"); *flow = a && a->type == Attribute::Vector3 ? a->v : glm::vec3(0.0f); }
+            if (color) *color = n->color;
+            return;
+        }
+        const AABB b = Physics::worldBounds(n);
+        // While playing, the surface moves with the waves.
+        const float t = waves.active() ? waves.surfaceOf(n, p.x, p.z) : b.max.y;
+        AABB wetBox = b;
+        wetBox.max.y = t;
+        if (!insideBox(wetBox, p) || t < best) return;
+        found = true; best = t;
+        if (flow) { const WaterSystem::Body* wb = waves.find(n->id); *flow = wb ? wb->flow : glm::vec3(0.0f); }
+        if (color) *color = n->color;
+    });
+    // Flowing water from a WaterSource (floods, rivers).
+    if (!found && waves.active()) {
+        float t;
+        glm::vec3 f;
+        if (waves.at(p, &t, &f)) { found = true; best = t; if (flow) *flow = f; if (color) *color = glm::vec3(0.2f, 0.45f, 0.7f); }
+    }
+    if (found && top) *top = best;
+    return found;
+}
+
 void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics) {
     SceneNode* r = root();
     if (!r) return;
@@ -781,35 +788,34 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     WaterSystem& waves = m_scene->water();
     m_climbCooldown = std::max(0.0f, m_climbCooldown - dt);
     m_scene->forEach([&](SceneNode* n) {
-        if (!n->isPart() || m_scene->isCharacterPart(n)) return;
-        const bool climbable = m_climbCooldown <= 0.0f && isClimbable(n), wet = isWater(n);
-        if (!climbable && !wet) return;
+        if (truss || !n->isPart() || m_scene->isCharacterPart(n)) return;
+        if (m_climbCooldown > 0.0f || !isClimbable(n)) return;
         AABB b = Physics::worldBounds(n);
-        if (climbable && !truss)
-            for (float h : {0.4f, 1.3f, 2.2f})
-                if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
-        if (!wet) return;
-        // While playing, the surface moves with the waves.
-        const glm::vec3 chest = pos + glm::vec3(0.0f, 1.2f, 0.0f);
-        const float top = waves.active() ? waves.surfaceOf(n, chest.x, chest.z) : b.max.y;
-        AABB wetBox = b;
-        wetBox.max.y = top;
-        if (insideBox(wetBox, chest)) {
-            water = true;
-            waterTop = std::max(waterTop, top);
-            if (const WaterSystem::Body* wb = waves.find(n->id)) current = wb->flow;
-        }
+        for (float h : {0.4f, 1.3f, 2.2f})
+            if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
     });
-    // Flowing water from a WaterSource (floods, rivers).
-    if (!water && waves.active()) {
+    // Water parts, waves and floods: is our chest in it?
+    water = waterAt(*m_scene, pos + glm::vec3(0.0f, 1.2f, 0.0f), &waterTop, &current);
+    // Real liquid (FluidSource): a stream carries you along; deep enough, you swim in it.
+    bool stream = false;
+    glm::vec3 streamVel(0.0f);
+    if (waves.liquid().count()) {
         float top;
-        glm::vec3 flow;
-        if (waves.at(pos + glm::vec3(0.0f, 1.2f, 0.0f), &top, &flow)) { water = true; waterTop = top; current = flow; }
+        const int n = waves.liquid().sample(pos + glm::vec3(0.0f, 0.5f, 0.0f), 1.4f, &streamVel, &top);
+        if (n >= 5) {
+            stream = true;
+            m_wet = 2.0f;
+            // (Deep enough to swim: over the chest. Already swimming: deep enough to float in.)
+            if (n >= 25 && top > pos.y + (m_swimming ? kFloatHeight - 0.3f : 1.2f) && !water) {
+                water = true; waterTop = top; current = streamVel;
+            }
+        }
     }
     // Climb when walking into a truss (or when already on one and still touching it).
     const bool wasClimbing = m_climbing;
     m_climbing = truss && (moving || (m_climbing && !m_grounded));
     m_swimming = water && !m_climbing;
+    if (!m_swimming) m_underwater = false;
     float speed = m_humanoid.walkSpeed * (m_swimming ? 0.75f : 1.0f);
 
     // Gravity + jumping.
@@ -824,12 +830,31 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             horiz *= 0.3f;   // (the truss is in the way anyway)
         }
     } else if (m_swimming) {
-        const float g = m_scene->world().gravity;
-        m_velocity.y -= g * 0.12f * dt;                       // almost floating
-        if (pos.y + 1.6f < waterTop) m_velocity.y += 5.0f * dt;   // deep: drift up
-        if (jump) m_velocity.y = std::min(m_velocity.y + 45.0f * dt, 9.0f);   // swim up (and jump out at the top)
-        m_velocity.y *= std::max(0.0f, 1.0f - 2.5f * dt);     // water slows everything
-        m_climbPhase += dt * 6.0f;
+        // Which way we want to go up or down: Space swims up, C / Ctrl dives, and
+        // swimming forward goes where the camera looks (look down to dive, up to rise).
+        float want = 0.0f;
+        if (jump) want = 1.0f;
+        else if (m_swimDown) want = -1.0f;
+        else if (moving && std::abs(m_swimLook) > 0.2f) want = std::clamp(m_swimLook * 1.8f, -1.0f, 1.0f);
+        // How far under the surface the shoulders are (negative = above it).
+        const float depth = waterTop - (pos.y + kFloatHeight);
+        if (want != 0.0f) {
+            // Swimming up or down on purpose.
+            const float target = want * m_humanoid.walkSpeed * 0.7f;
+            m_velocity.y += (target - m_velocity.y) * std::min(1.0f, 4.0f * dt);
+            // At the surface, Space hops out (onto the side of a pool).
+            if (jump && depth < 0.4f) m_velocity.y = std::max(m_velocity.y, m_humanoid.jumpPower * 0.8f);
+        } else {
+            // Floating: people are a bit lighter than water, so we bob up to the surface
+            // and float there with the head out, rising and falling with the waves.
+            const float bob = 0.06f * std::sin(m_bobPhase);
+            const float up = std::clamp((depth + bob) * 7.0f, -m_scene->world().gravity, 10.0f);
+            m_velocity.y += (up - 2.8f * m_velocity.y) * dt;
+            m_velocity.y = std::clamp(m_velocity.y, -12.0f, 3.5f + std::max(0.0f, depth) * 0.5f);
+        }
+        m_bobPhase += dt * 2.2f;
+        m_underwater = depth > 0.5f;
+        m_climbPhase += dt * (moving || want != 0.0f ? 6.0f : 2.5f);
     } else {
         if (m_grounded && jump) {
             // Jumping off something moving keeps its speed (off a train, you fly forward).
@@ -843,16 +868,58 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         m_velocity.y -= m_scene->world().gravity * dt;
     }
 
+    // Wet = slippery: in a stream, or just out of one (the slide is still wet where it went).
+    m_wet = std::max(0.0f, m_wet - dt);
+    bool wet = stream || m_wet > 0.0f;
+    if (!wet && m_grounded && m_groundId) {
+        // Standing on something the liquid ran over lately, or something slippery (tag
+        // "Slippery": a water slide, ice).
+        if (waves.liquid().isWet(m_groundId)) wet = true;
+        else if (SceneNode* g = m_scene->findById(m_groundId))
+            wet = std::find(g->tags.begin(), g->tags.end(), "Slippery") != g->tags.end();
+    }
+    float drag = std::max(0.0f, 1.0f - (m_grounded ? (wet ? 0.3f : 8.0f) : 0.8f) * dt);
+    // (Before working out this frame's move, so the push counts straight away.)
+    const bool sliding = wet && !m_swimming && !m_climbing;
+    if (sliding) {
+        // A wet slope is almost frictionless, so gravity slides you down it (a water
+        // slide) ...
+        if (m_grounded && m_groundId)
+            if (SceneNode* ground = m_scene->findById(m_groundId)) {
+                glm::vec3 n = glm::normalize(glm::vec3(ground->worldMatrix()[1]));
+                if (n.y < 0.0f) n = -n;
+                if (n.y > 0.5f && n.y < 0.9995f) {
+                    const glm::vec3 g(0.0f, -m_scene->world().gravity, 0.0f);
+                    const glm::vec3 downhill = g - glm::dot(g, n) * n;
+                    m_velocity.x += downhill.x * dt;
+                    m_velocity.z += downhill.z * dt;
+                }
+            }
+        // ... and water going faster than you carries you along (a river, a slide's
+        // gush). Slower water doesn't hold you back: it just makes things slippery.
+        if (glm::length(glm::vec2(streamVel.x, streamVel.z)) > glm::length(glm::vec2(m_velocity.x, m_velocity.z))) {
+            const float k = std::min(1.0f, 0.8f * dt);
+            m_velocity.x += (streamVel.x - m_velocity.x) * k;
+            m_velocity.z += (streamVel.z - m_velocity.z) * k;
+        }
+        const float sp = glm::length(glm::vec2(m_velocity.x, m_velocity.z));
+        if (sp > 40.0f) { m_velocity.x *= 40.0f / sp; m_velocity.z *= 40.0f / sp; }
+    }
     // Walking plus any leftover push (from jump pads, etc.), which fades out.
     glm::vec3 delta = horiz * speed * dt + current * (m_swimming ? dt : 0.0f);
     delta.x += m_velocity.x * dt;
     delta.z += m_velocity.z * dt;
     delta.y = m_velocity.y * dt;
-    float drag = std::max(0.0f, 1.0f - (m_grounded ? 8.0f : 0.8f) * dt);
     m_velocity.x *= drag;
     m_velocity.z *= drag;
 
     Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded, r->transform.rotation.y, m_rootId);
+    if (sliding && dt > 0.0f) {
+        // Sliding into a wall takes that speed away, so you follow the bends.
+        const glm::vec3 moved = (res.position - pos) / dt - horiz * speed;
+        m_velocity.x = moved.x;
+        m_velocity.z = moved.z;
+    }
     // Walking into loose parts pushes them (heavier = harder, handled by the solver).
     for (auto& [node, dir] : res.pushed) {
         glm::vec3 want = dir * m_humanoid.walkSpeed * 0.9f;

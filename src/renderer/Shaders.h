@@ -47,9 +47,13 @@ uniform mat3 uNormalMat;
 out vec3 vNormal;
 out vec3 vWorldPos;
 out vec2 vUV;
+out vec3 vLocalPos;      // in the part's own space (-0.5..0.5): for faces painted on heads
+out vec3 vLocalNormal;
 
 void main() {
     vUV = aUV;
+    vLocalPos = aPos;
+    vLocalNormal = aNormal;
     vec4 world = uModel * vec4(aPos, 1.0);
     vWorldPos  = world.xyz;
     vNormal    = normalize(uNormalMat * aNormal);
@@ -61,8 +65,11 @@ inline const char* litFrag = R"(#version 410 core
 in vec3 vNormal;
 in vec3 vWorldPos;
 in vec2 vUV;
+in vec3 vLocalPos;
+in vec3 vLocalNormal;
 
 uniform bool      uUseDecal;   // drawing a Decal: its picture colours the surface
+uniform bool      uFace;       // a head: its face picture (uDecal) is painted onto the front of it
 uniform bool      uClothing;   // a shirt / pants picture (uDecal) painted over the part's colour
 uniform sampler2D uDecal;
 
@@ -85,6 +92,7 @@ uniform vec3  uZenith, uHorizon, uGround;
 uniform bool  uFogEnabled;
 uniform vec3  uFogColor;
 uniform float uFogDensity;
+uniform float uRenderDist;    // render distance: things fade into the sky towards it (0 = no limit)
 uniform float uFogSunGlow;
 
 uniform bool      uShadowsEnabled;
@@ -95,6 +103,11 @@ uniform float     uShadowTexelWorld;  // world size of one shadow-map texel
 uniform float     uShadowDepthRange;  // world distance covered by depth 0..1
 uniform mat4      uLightSpace;
 uniform sampler2D uShadowMap;
+// A second, sharper shadow map close to the camera (a "cascade").
+uniform bool      uNearCascade;
+uniform mat4      uLightSpaceNear;
+uniform sampler2D uShadowMapNear;
+uniform float     uShadowTexelNear;
 
 #define MAX_LIGHTS 32
 uniform int  uLightCount;
@@ -116,18 +129,24 @@ const vec2 POISSON[16] = vec2[](
     vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
     vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790));
 
-// 1 = lit, 0 = in shadow. Soft shadows get softer the further the shadow
-// is from whatever casts it (contact-hardening, like real sunlight).
-float sunVisibility(vec3 N, vec3 L) {
-    vec3 wp = vWorldPos + N * uShadowTexelWorld * 1.5;     // normal offset: no acne
-    vec4 lc = uLightSpace * vec4(wp, 1.0);
+// 1 = lit, 0 = in shadow, from one shadow map. Soft shadows get softer the
+// further the shadow is from whatever casts it (contact-hardening, like real
+// sunlight). `edge` says how close to the side of the map the point is (0 middle, 1 edge).
+float shadowFrom(sampler2D map, mat4 lightSpace, float texelWorld, vec3 N, vec3 L, out float edge) {
+    // Normal offset: move the lookup point off the surface a little (more on surfaces
+    // turned away from the sun), so a surface never shadows itself ("acne"). Small, so
+    // a box sitting on the ground still shadows the ground right up to its edge.
+    float NoL = clamp(dot(N, L), 0.0, 1.0);
+    vec3 wp = vWorldPos + N * texelWorld * (0.5 + 1.5 * (1.0 - NoL));
+    vec4 lc = lightSpace * vec4(wp, 1.0);
     vec3 p  = lc.xyz / lc.w * 0.5 + 0.5;
-    if (p.z > 1.0 || p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
+    edge = max(abs(p.x - 0.5), abs(p.y - 0.5)) * 2.0;
+    if (p.z > 1.0 || edge > 1.0) { edge = 2.0; return 1.0; }
 
-    float bias  = 0.0002 + 0.0006 * (1.0 - max(dot(N, L), 0.0));
-    vec2  texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    float bias  = 0.00004 + 0.0001 * (1.0 - NoL);
+    vec2  texel = 1.0 / vec2(textureSize(map, 0));
     if (uShadowQuality == 0)
-        return texture(uShadowMap, p.xy).r < p.z - bias ? 0.0 : 1.0;
+        return texture(map, p.xy).r < p.z - bias ? 0.0 : 1.0;
 
     float a = hash12(gl_FragCoord.xy) * 6.2831853;
     mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
@@ -137,25 +156,32 @@ float sunVisibility(vec3 N, vec3 L) {
         float search = 3.0 + 8.0 * uShadowSoftness;
         float sum = 0.0; int n = 0;
         for (int i = 0; i < 16; ++i) {
-            float d = texture(uShadowMap, p.xy + rot * POISSON[i] * search * texel).r;
+            float d = texture(map, p.xy + rot * POISSON[i] * search * texel).r;
             if (d < p.z - bias) { sum += d; ++n; }
         }
         if (n == 0) return 1.0;
         float dist = (p.z - sum / float(n)) * uShadowDepthRange;       // world units
-        float penumbra = dist * 0.05 * uShadowSoftness / uShadowTexelWorld;
+        float penumbra = dist * 0.05 * uShadowSoftness / texelWorld;
         radius = clamp(penumbra, 1.0, 24.0);
     }
 
     float lit = 0.0;
     for (int i = 0; i < 16; ++i) {
-        float d = texture(uShadowMap, p.xy + rot * POISSON[i] * radius * texel).r;
+        float d = texture(map, p.xy + rot * POISSON[i] * radius * texel).r;
         lit += (p.z - bias > d) ? 0.0 : 1.0;
     }
-    lit /= 16.0;
+    return lit / 16.0;
+}
 
+float sunVisibility(vec3 N, vec3 L) {
+    float edgeFar, edgeNear;
+    float far = shadowFrom(uShadowMap, uLightSpace, uShadowTexelWorld, N, L, edgeFar);
     // Fade out towards the edge of the shadow area instead of a hard cut.
-    float edge = max(abs(p.x - 0.5), abs(p.y - 0.5)) * 2.0;
-    return mix(lit, 1.0, smoothstep(0.85, 1.0, edge));
+    far = mix(far, 1.0, smoothstep(0.85, 1.0, edgeFar));
+    if (!uNearCascade) return far;
+    float near = shadowFrom(uShadowMapNear, uLightSpaceNear, uShadowTexelNear, N, L, edgeNear);
+    // Close up: the sharp map; blend into the wide one near its edge.
+    return mix(near, far, smoothstep(0.75, 0.95, edgeNear));
 }
 
 // Cook-Torrance GGX specular + Lambert diffuse.
@@ -195,6 +221,13 @@ void main() {
     if (uClothing) {   // see-through bits of the clothing show the body colour
         vec4 px = texture(uDecal, vUV);
         albedo = mix(albedo, lin(px.rgb), px.a);
+    }
+    if (uFace && vLocalNormal.z > 0.0) {
+        // Like Roblox: the face picture is flat, seen straight on from the front, and
+        // painted onto the head's own (round) surface, so it hugs the head exactly.
+        // The picture covers the whole front of the head; only the front gets it.
+        vec4 px = texture(uDecal, vLocalPos.xy + 0.5);
+        albedo = mix(albedo, lin(px.rgb), px.a * smoothstep(0.0, 0.3, normalize(vLocalNormal).z));
     }
 
     // --- Material look ---
@@ -288,6 +321,14 @@ void main() {
         float toward = pow(max(dot(-V, normalize(uSunDir)), 0.0), 8.0);
         fog += lin(uSunColor) * uSunIntensity * toward * uFogSunGlow * 0.6;
         color = mix(color, fog, clamp(f, 0.0, 1.0));
+    }
+    if (uRenderDist > 0.0) {
+        // Near the edge of the render distance, fade into the sky behind (no popping).
+        vec3 away = vWorldPos - uViewPos;
+        float edge = smoothstep(uRenderDist * 0.8, uRenderDist, length(away));
+        vec3 skyBehind = lin(skyGradient(normalize(away), uZenith, uHorizon, uGround)) * uAmbientIntensity;
+        if (uFogEnabled) skyBehind = lin(uFogColor);
+        color = mix(color, skyBehind, edge);
     }
 
     FragColor = vec4(color, alpha);
@@ -547,6 +588,15 @@ uniform float uSaturation;
 uniform float uVignette;
 uniform vec3  uTint;
 uniform bool  uLumaAlpha;   // store luma in alpha for the FXAA pass
+// Underwater (the camera is in water): the view wobbles, and the further away
+// something is the more the water hides it, red first (Beer's law), fading into
+// the water's own colour.
+uniform bool  uUnderwater;
+uniform sampler2D uDepth;
+uniform vec2  uDepthParams;    // proj[3][2], proj[2][2]: distance from the depth picture
+uniform vec3  uWaterSigma;     // how much each colour fades per stud
+uniform vec3  uWaterFog;       // the colour far-away things fade into
+uniform float uTime;
 out vec4 FragColor;
 
 vec3 aces(vec3 x) {
@@ -555,7 +605,16 @@ vec3 aces(vec3 x) {
 }
 
 void main() {
-    vec3 c = texture(uHdr, vUV).rgb;
+    vec2 uv = vUV;
+    if (uUnderwater)
+        uv += vec2(sin(vUV.y * 28.0 + uTime * 1.9), cos(vUV.x * 23.0 + uTime * 1.6)) * 0.0022;
+    vec3 c = texture(uHdr, uv).rgb;
+    if (uUnderwater) {
+        float ndc = texture(uDepth, uv).r * 2.0 - 1.0;
+        float dist = ndc > 0.9999 ? 1e4 : uDepthParams.x / (ndc + uDepthParams.y);
+        vec3 keep = exp(-min(dist, 400.0) * uWaterSigma);
+        c = c * keep + uWaterFog * (1.0 - keep);
+    }
     if (uUseAO) {
         float ao = 0.0;
         ao += texture(uAO, vUV + uAOTexel * vec2(-1.5, -1.5)).r;
@@ -575,7 +634,7 @@ void main() {
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = mix(vec3(l), c, uSaturation) * uTint;
         float v = length(vUV - 0.5) * 1.41421;
-        c *= 1.0 - uVignette * smoothstep(0.35, 1.1, v);
+        c *= 1.0 - (uVignette + (uUnderwater ? 0.35 : 0.0)) * smoothstep(0.35, 1.1, v);
     } else {
         c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
     }
@@ -612,6 +671,399 @@ void main() {
                                texture(uSrc, vUV + dir *  0.5).rgb);
     float lB = dot(b, lw);
     FragColor = vec4((lB < lMin || lB > lMax) ? a : b, 1.0);
+}
+)";
+
+// ---------------------------------------------------------------------------
+// Real liquid (Liquid.cpp), drawn the way film and Blender previews do it in
+// real time: the drops are splatted as little spheres into a depth picture,
+// which is smoothed until they melt into one surface; then that surface is lit
+// with reflections of the sky, the scene bent through it and deeper = bluer.
+// ---------------------------------------------------------------------------
+
+inline const char* fluidVert = R"(#version 410 core
+layout(location=0) in vec4 aDrop;   // position, w (kind x 4096 + neighbours x 64 + speed)
+layout(location=1) in vec4 aShape;  // the axis it's squashed along, and how much (1 = round)
+uniform mat4  uView;
+uniform mat4  uProj;
+uniform float uPointScale;
+uniform float uRadius;
+uniform vec3  uFluidColor[16];      // each kind of liquid's colour
+uniform float uRenderDist;          // drops further away than this aren't drawn (0 = no limit)
+out vec3  vCenter;
+out float vSpeed;
+out float vRadius;
+out vec3  vColor;
+out vec3  vAxis;     // (view space)
+out float vFlat;     // radius along the axis, as a fraction
+out float vLong;     // radius across it, as a fraction
+void main() {
+    vec4 vp = uView * vec4(aDrop.xyz, 1.0);
+    vCenter = vp.xyz;
+    // Squashed along its axis (a flat disc along a surface or a film on the floor),
+    // and wider across it, so the discs overlap into one smooth sheet.
+    float l = length(aShape.xyz);
+    vAxis = l > 1e-4 ? mat3(uView) * (aShape.xyz / l) : vec3(0.0, 1.0, 0.0);
+    vFlat = clamp(aShape.w, 0.2, 1.0);
+    vLong = min(1.7, inversesqrt(vFlat));
+    // w = kind of liquid x 4096 + neighbours x 64 + speed. A drop on its own is a
+    // little droplet; one among others is drawn full size so they all melt into one surface.
+    float kind = floor(aDrop.w / 4096.0);
+    float rest = aDrop.w - kind * 4096.0;
+    float nearby = floor(rest / 64.0);
+    vSpeed = rest - nearby * 64.0;
+    vColor = uFluidColor[int(clamp(kind, 0.0, 15.0))];
+    vRadius = uRadius * mix(0.5, 1.0, clamp(nearby / 5.0, 0.0, 1.0));
+    gl_Position = uProj * vp;
+    gl_PointSize = clamp(2.1 * vRadius * vLong * uPointScale / max(0.05, -vp.z), 1.0, 256.0);
+    if (uRenderDist > 0.0 && -vp.z > uRenderDist) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);   // too far: skipped
+}
+)";
+
+// Where the ray through this pixel goes into and out of the drop (a squashed ball),
+// in view space: hit = ray * t0 .. ray * t1. For the drop passes below.
+inline const char* fluidRay = R"(
+bool hitDrop(out vec3 ray, out float t0, out float t1) {
+    vec2 ndc = gl_FragCoord.xy * uTexel * 2.0 - 1.0;
+    ray = normalize(vec3(ndc.x / uProj[0][0], ndc.y / uProj[1][1], -1.0));
+    // Stretch space so the drop becomes a ball of radius 1, and hit that.
+    float ia = 1.0 / (vRadius * vLong), ib = 1.0 / (vRadius * vFlat);
+    vec3 oc = -vCenter;
+    vec3 o2 = oc * ia + vAxis * (dot(oc, vAxis) * (ib - ia));
+    vec3 d2 = ray * ia + vAxis * (dot(ray, vAxis) * (ib - ia));
+    float A = dot(d2, d2), B = dot(o2, d2), C = dot(o2, o2) - 1.0;
+    float disc = B * B - A * C;
+    if (disc < 0.0) return false;
+    float s = sqrt(disc);
+    t0 = (-B - s) / A;
+    t1 = (-B + s) / A;
+    return t1 > 0.0;
+}
+)";
+
+// Pass 1: how far away the nearest liquid is (in each pixel).
+inline const char* fluidDepthFrag = R"(#version 410 core
+in vec3  vCenter;
+in float vSpeed;
+in float vRadius;
+in vec3  vColor;
+in vec3  vAxis;
+in float vFlat;
+in float vLong;
+uniform mat4  uProj;
+uniform sampler2D uSceneDepth;
+uniform vec2  uTexel;
+out vec4 FragColor;
+#pragma gb_fluidray
+void main() {
+    vec3 ray; float t0, t1;
+    if (!hitDrop(ray, t0, t1)) discard;
+    vec3 pos = ray * max(t0, 0.0);
+    vec4 clip = uProj * vec4(pos, 1.0);
+    float z = clip.z / clip.w * 0.5 + 0.5;
+    if (z > texture(uSceneDepth, gl_FragCoord.xy * uTexel).r) discard;   // behind something solid
+    gl_FragDepth = z;
+    FragColor = vec4(-pos.z, 0.0, 0.0, 1.0);
+}
+)";
+
+// Pass 2: how much liquid there is along each pixel (added up), and how fast it's going.
+inline const char* fluidThickFrag = R"(#version 410 core
+in vec3  vCenter;
+in float vSpeed;
+in float vRadius;
+in vec3  vColor;
+in vec3  vAxis;
+in float vFlat;
+in float vLong;
+uniform mat4  uProj;
+uniform sampler2D uSceneDepth;
+uniform vec2  uTexel;
+out vec4 FragColor;
+#pragma gb_fluidray
+void main() {
+    vec3 ray; float t0, t1;
+    if (!hitDrop(ray, t0, t1)) discard;
+    vec4 clip = uProj * vec4(ray * max(0.5 * (t0 + t1), 0.0), 1.0);
+    if (clip.z / clip.w * 0.5 + 0.5 > texture(uSceneDepth, gl_FragCoord.xy * uTexel).r) discard;
+    float t = (t1 - max(t0, 0.0)) * 0.6;   // how much water this drop puts along the ray (drops overlap)
+    FragColor = vec4(t, vSpeed * t, t, 1.0);
+}
+)";
+
+// Pass 2b (more than one kind of liquid): the colour along each pixel, weighted
+// by how much of each liquid there is.
+inline const char* fluidColorFrag = R"(#version 410 core
+in vec3  vCenter;
+in float vSpeed;
+in float vRadius;
+in vec3  vColor;
+in vec3  vAxis;
+in float vFlat;
+in float vLong;
+uniform mat4  uProj;
+uniform sampler2D uSceneDepth;
+uniform vec2  uTexel;
+out vec4 FragColor;
+#pragma gb_fluidray
+void main() {
+    vec3 ray; float t0, t1;
+    if (!hitDrop(ray, t0, t1)) discard;
+    vec4 clip = uProj * vec4(ray * max(0.5 * (t0 + t1), 0.0), 1.0);
+    if (clip.z / clip.w * 0.5 + 0.5 > texture(uSceneDepth, gl_FragCoord.xy * uTexel).r) discard;
+    float t = (t1 - max(t0, 0.0)) * 0.6;
+    FragColor = vec4(vColor * t, t);
+}
+)";
+
+// Pass 3: smooth the depth so the drops become one surface, keeping the edges
+// sharp. An "a-trous" filter: a small 5x5 blur run several times with the gaps
+// between its samples doubling each time (1, 2, 4, 8...), so it smooths a wide
+// area without skipping any bumps. Nearby depths are averaged, but one far in
+// front or behind (another stream) only counts as if it were at the edge of the
+// range ("narrow range"), so steps stay steps.
+inline const char* fluidBlurFrag = R"(#version 410 core
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2  uTexel;        // one pixel
+uniform float uStep;         // this pass's gap between samples, in world units (doubles each pass)
+uniform float uRange;        // depth differences bigger than this are edges
+uniform float uPointScale;
+out vec4 FragColor;
+void main() {
+    float d = texture(uSrc, vUV).r;
+    if (d <= 0.0) {
+        // A pinhole between drops: fill it if there's liquid on opposite sides of it.
+        float a = texture(uSrc, vUV + vec2(uTexel.x, 0.0)).r, b = texture(uSrc, vUV - vec2(uTexel.x, 0.0)).r;
+        float c = texture(uSrc, vUV + vec2(0.0, uTexel.y)).r, e = texture(uSrc, vUV - vec2(0.0, uTexel.y)).r;
+        if (a > 0.0 && b > 0.0) d = 0.5 * (a + b);
+        else if (c > 0.0 && e > 0.0) d = 0.5 * (c + e);
+        else { FragColor = vec4(0.0); return; }
+    }
+    float px = clamp(uStep * uPointScale / d, 1.0, 24.0);   // the gap in pixels (nearer = wider)
+    const float K[5] = float[](0.0625, 0.25, 0.375, 0.25, 0.0625);
+    float sum = 0.0, wsum = 0.0;
+    for (int y = -2; y <= 2; ++y)
+        for (int x = -2; x <= 2; ++x) {
+            float s = texture(uSrc, vUV + vec2(float(x), float(y)) * px * uTexel).r;
+            if (s <= 0.0) continue;
+            float dz = clamp(s - d, -uRange, uRange);
+            float w = K[x + 2] * K[y + 2] * exp(-(dz * dz) / (uRange * uRange) * 3.0);
+            sum += (d + dz) * w;
+            wsum += w;
+        }
+    FragColor = vec4(sum / max(wsum, 1e-6), 0.0, 0.0, 1.0);
+}
+)";
+
+// Pass 4: light the surface and put it into the picture.
+inline const char* fluidShadeFrag = R"(#version 410 core
+in vec2 vUV;
+uniform sampler2D uDepth;       // smoothed depth
+uniform sampler2D uThick;       // thickness, speed
+uniform sampler2D uScene;       // what's behind the water
+uniform sampler2D uSceneDepth;  // ... and how far away it is
+uniform mat4  uProj;
+uniform mat4  uInvView;
+uniform vec2  uTexel;
+uniform vec3  uSunDir;
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+uniform vec3  uZenith;
+uniform vec3  uHorizon;
+uniform vec3  uGround;
+uniform float uSkyBrightness;
+uniform vec3  uAmbient;
+uniform bool  uTinted;          // more than one kind: the colour comes from uColorTex
+uniform sampler2D uColorTex;    // colour x thickness, thickness
+uniform vec3  uTint;            // (one kind) its colour
+uniform bool  uWaterShadows;    // the sun's shadow map (so shade falls on the water too)
+uniform sampler2D uShadowMap;
+uniform mat4  uLightSpace;
+uniform float uShadowStrength;
+uniform bool  uReflections;     // mirror the scene (not just the sky)
+uniform float uTime;
+out vec4 FragColor;
+#pragma gb_common
+vec3 eyePos(vec2 uv, float d) {
+    vec2 ndc = uv * 2.0 - 1.0;
+    return vec3(ndc.x * d / uProj[0][0], ndc.y * d / uProj[1][1], -d);
+}
+// Distance to the solid scene in a pixel (from the depth picture).
+float sceneDist(vec2 uv) {
+    float ndc = texture(uSceneDepth, uv).r * 2.0 - 1.0;
+    return uProj[3][2] / (ndc + uProj[2][2]);
+}
+const float kIor = 1.333;       // water bends light this much (Snell's law)
+// How much sun reaches this bit of water (1 = all, 0 = in something's shadow).
+float sunLight(vec3 wp) {
+    if (!uWaterShadows) return 1.0;
+    vec4 lc = uLightSpace * vec4(wp, 1.0);
+    vec3 s = lc.xyz / lc.w * 0.5 + 0.5;
+    if (s.z > 1.0 || any(lessThan(s.xy, vec2(0.0))) || any(greaterThan(s.xy, vec2(1.0)))) return 1.0;
+    vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    float lit = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x)
+            lit += texture(uShadowMap, s.xy + vec2(x, y) * texel * 1.5).r < s.z - 0.0002 ? 0.0 : 1.0;
+    return mix(1.0, lit / 9.0, uShadowStrength);
+}
+// Screen-space reflection: walk along the reflected ray through the picture until it
+// goes behind something solid; that's what the water mirrors there. `found` says how
+// sure it is (0 = nothing found: use the sky).
+vec3 mirror(vec3 p, vec3 R, out float found) {
+    found = 0.0;
+    if (!uReflections) return vec3(0.0);
+    float stepLen = 0.25;
+    vec3 q = p + R * 0.1;
+    for (int i = 0; i < 40; ++i) {
+        q += R * stepLen;
+        stepLen *= 1.12;
+        if (q.z > -0.05) return vec3(0.0);                  // came back past the camera
+        vec4 c = uProj * vec4(q, 1.0);
+        vec2 uv = c.xy / c.w * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
+        float behind = -q.z - sceneDist(uv);
+        if (behind > 0.0) {
+            if (behind > stepLen * 2.0 + 0.5) return vec3(0.0);   // went behind a thin thing, not into it
+            // Fade out near the sides of the picture (where the answer suddenly runs out).
+            vec2 e = smoothstep(vec2(0.0), vec2(0.08), uv) * smoothstep(vec2(0.0), vec2(0.08), 1.0 - uv);
+            found = e.x * e.y * (1.0 - float(i) / 40.0);
+            return texture(uScene, uv).rgb;
+        }
+    }
+    return vec3(0.0);
+}
+// Caustics: the wavy surface bunches sunlight into bright moving lines on the floor
+// below it. (Warped grid lines, a few layers drifting different ways.)
+float caustics(vec2 x, float t) {
+    float c = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        float k = 1.0 + 0.6 * float(i);
+        vec2 q = x * k + vec2(t * 0.35, -t * 0.27) * k;
+        q += 0.7 * vec2(sin(q.y * 1.3 + t * 0.9), sin(q.x * 1.1 - t * 0.8));
+        c += pow(1.0 - abs(sin(q.x) * sin(q.y)), 8.0);
+    }
+    return c / 3.0;
+}
+void main() {
+    float d = texture(uDepth, vUV).r;
+    if (d <= 0.0) discard;
+    vec3 p = eyePos(vUV, d);
+    // Normal from the neighbouring depths (whichever side is closer, so edges stay clean).
+    // (Two pixels either side: steadier than the next pixel over.)
+    vec2 tx = vec2(uTexel.x * 2.0, 0.0), ty = vec2(0.0, uTexel.y * 2.0);
+    float dR = texture(uDepth, vUV + tx).r, dL = texture(uDepth, vUV - tx).r;
+    float dU = texture(uDepth, vUV + ty).r, dD = texture(uDepth, vUV - ty).r;
+    // At the edge of the liquid there's no neighbour on one side: treat it as flat there.
+    if (dR <= 0.0) dR = d; if (dL <= 0.0) dL = d; if (dU <= 0.0) dU = d; if (dD <= 0.0) dD = d;
+    // Both sides where the surface carries on smoothly (steady); only the nearer side
+    // at an edge (so the edge of a stream doesn't bend towards what's behind it).
+    vec3 ddx = eyePos(vUV + tx, dR) - p, ddx2 = p - eyePos(vUV - tx, dL);
+    if (abs(ddx.z - ddx2.z) < 0.3) ddx = 0.5 * (ddx + ddx2);
+    else if (abs(ddx2.z) < abs(ddx.z)) ddx = ddx2;
+    vec3 ddy = eyePos(vUV + ty, dU) - p, ddy2 = p - eyePos(vUV - ty, dD);
+    if (abs(ddy.z - ddy2.z) < 0.3) ddy = 0.5 * (ddy + ddy2);
+    else if (abs(ddy2.z) < abs(ddy.z)) ddy = ddy2;
+    vec3 n = normalize(cross(ddx, ddy));
+    if (dot(n, -p) < 0.0) n = -n;
+
+    vec4 th = texture(uThick, vUV);
+    float thick = th.r;
+    float speed = th.g / max(th.b, 1e-4);
+
+    vec3 V = normalize(-p);
+    vec3 nW = normalize(mat3(uInvView) * n);
+    vec3 vW = normalize(mat3(uInvView) * -V);
+    // Reflection of the sky, and the sun glinting off it.
+    vec3 refl = reflect(vW, nW);
+    vec3 sky = lin(skyGradient(refl, uZenith, uHorizon, uGround)) * uSkyBrightness;
+    // Where the surface turns a lot within a pixel, the sun's sharp glint spreads
+    // into a softer sheen (Toksvig): no single-pixel sparkles on small ripples.
+    float wobble = clamp(length(fwidth(nW)) * 3.0, 0.0, 1.0);
+    float shine = mix(600.0, 40.0, wobble);
+    float sd = max(dot(refl, normalize(uSunDir)), 0.0);
+    float sunSpec = pow(sd, shine) * 40.0 * (shine + 2.0) / 602.0 + pow(sd, 60.0) * 0.6;
+    vec3 wp = (uInvView * vec4(p, 1.0)).xyz;
+    float sun = sunLight(wp);
+    float found;
+    vec3 seen = mirror(p, reflect(-V, n), found);
+    vec3 reflCol = mix(sky, seen, found) + uSunColor * uSunIntensity * sunSpec * sun;
+    // Looking through it. How far the light goes through water before it hits
+    // something solid: the water's thickness, or less if the ground is closer.
+    // With the ground right behind the water (a pool), that's the distance from the
+    // surface to the ground: smooth and exact. A stream in mid-air has nothing close
+    // behind it: then it's the water's own thickness (added up from the drops).
+    float solid = sceneDist(vUV);
+    float gap = max(solid - d, 0.0);
+    float path = clamp(gap < thick * 1.6 + 0.4 ? gap : thick, 0.0, 12.0);
+    // Snell's law: the ray bends as it goes from air into water. Follow the bent
+    // ray that far and look up what's there (the "warp" of things underwater).
+    vec3 T = refract(-V, n, 1.0 / kIor);
+    vec4 hitClip = uProj * vec4(p + T * max(path, 0.15), 1.0);
+    vec2 bent = clamp(hitClip.xy / hitClip.w * 0.5 + 0.5, vec2(0.001), vec2(0.999));
+    if (sceneDist(bent) < d) bent = vUV;          // (never show something that's in front of the water)
+    vec3 behind = texture(uScene, bent).rgb;
+    // Where we're looking at the pool floor, the sun's caustics play across it
+    // (stronger in the sun and in shallow water, fading as it gets deeper).
+    if (gap < thick * 1.6 + 0.4) {
+        vec3 floorW = (uInvView * vec4(p + T * path, 1.0)).xyz;
+        float amount = sun * uSunIntensity * smoothstep(0.05, 0.3, path) * exp(-path * 0.2) * max(normalize(uSunDir).y, 0.0);
+        behind *= 1.0 + caustics(floorW.xz * 1.6, uTime) * 1.6 * amount;
+    }
+    // The liquid's colour here (a mix, where different liquids meet).
+    vec3 tint = uTint;
+    if (uTinted) { vec4 ct = texture(uColorTex, vUV); if (ct.a > 1e-4) tint = ct.rgb / ct.a; }
+    vec3 deep = pow(clamp(tint, 0.0, 1.0), vec3(2.2));
+    // Beer's law: the liquid soaks up the colours it isn't, the deeper the more. Water
+    // soaks up red light first, then green, so deep water looks darker and bluer.
+    // (Per stud. Real water is clearer still, but a little tint reads as "water" in a game.)
+    vec3 sigma = 0.03 + 0.25 * -log(max(tint, vec3(0.02)));
+    vec3 absorb = exp(-path * sigma);
+    vec3 scatter = deep * uAmbient * 1.4 + deep * uSunColor * uSunIntensity * 0.25 * max(nW.y, 0.0) * sun;
+    vec3 through = behind * absorb + scatter * (1.0 - absorb);
+    // Fresnel (Schlick): a mirror at grazing angles, clear looking straight in.
+    // Water's straight-on reflectance is ((1.333 - 1) / (1.333 + 1))^2 = 2%.
+    float f0 = ((kIor - 1.0) / (kIor + 1.0)) * ((kIor - 1.0) / (kIor + 1.0));
+    float fres = f0 + (1.0 - f0) * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+    vec3 col = mix(through, reflCol, fres);
+    // White water where it's fast and thin (spray, the front of the stream).
+    float foam = smoothstep(14.0, 30.0, speed) * clamp(1.4 - path, 0.0, 1.0);
+    col = mix(col, (uAmbient * 1.6 + uSunColor * uSunIntensity * 0.5 * sun) * 0.9, foam * 0.7);
+    // Where it's very thin (the edge of a puddle, a lone drop) it fades into what's
+    // behind, instead of ending in a hard rim.
+    col = mix(texture(uScene, vUV).rgb, col, smoothstep(0.02, 0.3, thick));
+    vec4 clip = uProj * vec4(p, 1.0);
+    gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;
+    FragColor = vec4(col, 1.0);
+}
+)";
+
+// Phones without float pictures: each drop drawn as a shiny little ball.
+inline const char* fluidSimpleFrag = R"(#version 410 core
+in vec3  vCenter;
+in float vSpeed;
+in float vRadius;
+in vec3  vColor;
+in vec3  vAxis;
+in float vFlat;
+in float vLong;
+uniform mat4  uProj;
+uniform vec3  uLightDir;     // (view space)
+uniform vec3  uAmbient;
+out vec4 FragColor;
+void main() {
+    vec2 c = gl_PointCoord * 2.0 - 1.0;
+    c.y = -c.y;
+    float r2 = dot(c, c);
+    if (r2 > 1.0) discard;
+    vec3 n = vec3(c, sqrt(1.0 - r2));
+    vec3 pos = vCenter + n * vRadius;
+    vec4 clip = uProj * vec4(pos, 1.0);
+    gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;
+    float diff = max(dot(n, uLightDir), 0.0);
+    float spec = pow(max(dot(reflect(-uLightDir, n), vec3(0, 0, 1)), 0.0), 60.0);
+    FragColor = vec4(pow(vColor, vec3(2.2)) * (uAmbient + diff) + vec3(spec), 0.75);
 }
 )";
 

@@ -532,10 +532,24 @@ Swap in your own .wav files with the same names and rebuild.
   *Ladder*, or one with the tag or attribute `Climbable`. You go up hand over
   hand. Let go of the keys to hang on, and press jump to leap off.
 - **Swim:** a part called **Water** (Insert > Water: see-through, CanCollide
-  off), or one with the tag or attribute `Water`. You float, move a bit slower,
-  and hold jump to swim up. No fall damage when you land in water.
+  off), or one with the tag or attribute `Water`, or deep enough real liquid.
+  You float at the surface with your head out and move a bit slower. Hold
+  **C** (or **Ctrl**) to dive, or swim forward while looking down; look up or
+  hold jump to come back up (jump at the surface hops out). Underwater the
+  view goes blue and hazy. No fall damage when you land in water.
+- **Float or sink:** each part's **Density** (Properties, or `part.Density`)
+  decides. Water is 1.3: lighter parts float (Wood 0.7 floats half under),
+  heavier ones sink (Metal 3.0, Concrete 2.4).
 - Scripts can check with `humanoid:GetState()`, which returns "Climbing",
   "Swimming", "Freefall", "Running" or "Dead".
+
+### Render Distance
+
+Settings > **Render Distance** (1 to 10) is how far away things are drawn.
+Further things fade into the sky and aren't drawn, and water waves, liquid
+taps, lights and effects out there rest until you come closer. Lower numbers
+are faster; the quality presets set it (Low 4, Medium 6, High 8, Ultra 10 =
+everything).
 
 ### Real water
 
@@ -573,6 +587,94 @@ you along.
 - Any part called WaterSource works, or give one the tag `WaterSource`.
 
 Try a flooding-room obby, a dam you blow up, or a sinking ship.
+
+### Real liquid (FluidSource)
+
+For water you can really watch move, like a Blender fluid simulation: a part
+called **FluidSource** (or tagged `FluidSource`) pours out actual liquid from
+its front (the way its LookVector points) while the game runs. See the Mega
+Water Slide sample game.
+
+How it works, in short:
+
+1. **The physics is lots of tiny drops.** Each drop has a position and a
+   speed. Every step, gravity moves them, then they push each other apart
+   wherever they're squashed together (water doesn't squash), so they flow,
+   pile up, fill dips and splash. This is called *Position Based Fluids*. The
+   drops bump into parts of every shape (turned any way), into the real
+   triangles of Mesh parts you build in Modeling mode, and into people.
+2. **It runs on the graphics card** (compute shaders) on computers with OpenGL
+   4.3 and phones with OpenGL ES 3.1: up to about a million drops on a
+   computer and 262,144 on a phone. Older computers (and Macs, which stop at
+   OpenGL 4.1) run the same physics on the processor instead, with up to
+   14,000 drops.
+3. **Drawing it as one liquid, not marbles.** Each frame the drops are drawn
+   as soft balls into a depth picture, which is smoothed until they melt into
+   one surface. From that surface's slope in each pixel the shader lights it
+   like real water:
+   - **Fresnel:** a mirror (reflecting the sky and sun) when you look across
+     it, clear when you look straight down. Straight on it reflects 2%, like
+     real water.
+   - **Refraction (Snell's law):** things under it look bent, using water's
+     real refractive index of 1.333.
+   - **Absorption (Beer's law):** it soaks up red light first, so the deeper
+     it is, the darker and bluer what's behind it looks.
+   - Fast, thin water turns white (foam).
+
+Attributes on the FluidSource:
+
+- **Speed:** how fast it pours out (default 8). 0 turns it off; a script can
+  turn it back on.
+- **Rate:** the most drops it makes each second (default 600). The stream is
+  as wide and tall as the part, so a bigger part pours more.
+
+**From a script (FluidSystem and FluidEmitter).** You never deal with single
+drops: a *FluidSystem* is a kind of liquid, and a *FluidEmitter* pours it out.
+
+```lua
+local water = Instance.new("FluidSystem")
+water.Color = Color3.fromRGB(30, 144, 255)
+water.Viscosity = 0.1          -- 0 runs like water, 1 oozes like honey
+water.SurfaceTension = 0.05    -- how much drops stick together (beads, strands)
+water.Parent = workspace
+
+local tap = Instance.new("FluidEmitter")
+tap.Rate = 500                         -- drops per second
+tap.Velocity = Vector3.new(0, -10, 0)  -- pour straight down
+tap.Size = Vector3.new(1, 1, 1)        -- the box it pours out of
+tap.Position = Vector3.new(0, 20, 0)
+tap.FluidSystem = water                -- (leave it out for plain water)
+tap.Enabled = true
+tap.Parent = workspace
+```
+
+You can also add both from Studio's Insert Object list and set them in
+Properties. Up to 16 kinds of liquid can be in a game at once, each with its
+own colour, thickness and stickiness; where they meet, their colours mix. If a
+small emitter is asked for more drops than fit through it, the stream sprays
+out wider.
+
+**Performance cap.** There are never more than `workspace.MaxFluidParticles`
+drops (100,000 unless a script changes it, and at most what the computer can
+do). When it's full and something is still pouring, the oldest drops are
+recycled first, so new liquid keeps coming and the game stays smooth.
+
+What the liquid does in the game:
+
+- It carries people along when it's faster than them, and if it gets deep
+  enough you swim in it. Loose parts float on it and get pushed around.
+- Anything it runs over stays **wet** (slippery) for 20 seconds.
+- When it pours into a pool of normal Water, it joins it (with ripples and
+  spray).
+- A drop left on its own dries up after a few seconds, so puddle splashes
+  don't pile up forever.
+
+### Slippery parts and tilted water
+
+- Tag a part `Slippery` and people slide on it like a wet water slide or ice:
+  slopes carry you down and you keep your speed.
+- A Water part can be tilted (a sloping river or a water slide). You swim in
+  its real, turned box, and its `Flow` attribute carries you along.
 
 ## NPCs (zombies and other characters)
 

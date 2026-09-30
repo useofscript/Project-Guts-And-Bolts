@@ -1,3 +1,103 @@
+# Guts&Bolts 0.6.1: The Hydromania Update (September 30, 2026)
+
+Real water you can pour, swim in, dive under and float things on.
+
+## New
+
+**Swimming, for real**
+- You float at the surface with your head out, bobbing with the waves.
+- Dive: hold **C** (or **Ctrl**), or swim forward while looking down. Look up
+  (or hold **Space**) to come back up; Space at the surface hops you out.
+  On phones, swimming follows where the camera looks.
+- Underwater, everything goes blue and hazy (the further away, the more the
+  water hides it, red first), darker the deeper you go, with a gentle wobble.
+- Works in Water parts, waves, floods and the new real liquid.
+
+**Floating and sinking (Density)**
+- Every part has a **Density** (Properties, or `part.Density` in scripts).
+  Water is 1.3: anything lighter floats, anything heavier sinks. Wood (0.7)
+  floats half under, Metal (3.0) and Concrete sink. Works in pools and in
+  real liquid.
+
+**Render Distance**
+- A new **Render Distance** bar in the in-game Settings (and a slider in
+  Advanced graphics), from 1 (60 studs, fastest) to 10 (everything). Low /
+  Medium / High / Ultra set it to 4 / 6 / 8 / 10: Ultra is the max.
+- Things past it fade into the sky and aren't drawn, and water waves, liquid
+  taps, lights and effects out there rest until you come closer: less lag and
+  fewer FPS drops on big maps.
+
+**Real liquid, like a Blender fluid simulation**
+- A part called **FluidSource** pours out real liquid made of thousands of
+  tiny drops. It flows downhill, piles up, fills dips, splashes off parts of
+  every shape (and off the real triangles of Mesh parts), and pushes people
+  and floating things along. Attributes: Speed and Rate.
+- On computers with OpenGL 4.3 and phones with OpenGL ES 3.1 the physics runs
+  on the graphics card (compute shaders): up to about a million drops. Other
+  computers (and Macs) run it on the processor, with up to 14,000.
+- It's drawn as one smooth, glassy surface: reflections with real Fresnel,
+  bending with water's real refractive index (1.333), and deeper water soaks
+  up red light first so it looks bluer (Beer's law).
+- Things the liquid runs over stay wet (slippery) for a while. Stray drops
+  dry up after a few seconds.
+
+**Better-looking water ("Glass Lagoon")**
+- Drops are drawn as flat shapes that follow the surface, so calm water looks
+  calm, and you can see the pool floor clearly through it.
+- The water mirrors the scene around it (walls, towers, players), not just
+  the sky (Water Quality Medium and up).
+- Water sits in the shade of things that block the sun, and caustics (wobbly
+  lines of sunlight) play on the bottom of pools.
+- No more glittery sparkles on little ripples.
+
+**Updates page on the website**
+- A new **Updates** tab lists every update, newest first, each with its own
+  name. It checks for new updates by itself, and the tab says NEW when
+  there's one you haven't seen. The home page shows the latest one.
+- Staff can post updates straight from the page.
+
+**Liquid from scripts**
+- New `FluidSystem` (Color, Viscosity, SurfaceTension) and `FluidEmitter`
+  (Rate, Velocity, Size, Position, FluidSystem, Enabled) objects, from
+  `Instance.new` or Studio's Insert Object. Up to 16 kinds of liquid at once;
+  their colours mix where they meet.
+- `workspace.MaxFluidParticles` (default 100,000): when it's full, the oldest
+  drops are recycled.
+
+**Mega Water Slide (new sample game)**
+- A 400-stud tube slide spiralling down an 80-stud tower, with real water
+  running down it, a ride timer, a splash pool full of floating toys, a wave
+  pool and a fountain.
+
+**Graphics settings**
+- New **Graphics API** setting: Auto (the newest OpenGL your graphics card
+  has), OpenGL 4.6, OpenGL 4.3, or OpenGL 4.1 "safe mode" (phones: OpenGL ES
+  3.2 / 3.1 / 3.0). If the one you pick doesn't work it falls back to the next.
+  Settings shows which one is really running, on which graphics card.
+- New **Water Quality** setting (Low / Medium / High / Ultra, set by the quality
+  presets): how sharp the liquid is drawn, how smooth its surface is, and how
+  many drops there can be (25,000 / 60,000 / 100,000 / up to a million).
+
+**Flat faces**
+- Faces are flat pictures painted onto the front of the head (like Roblox),
+  not little 3D shapes: the classic smiley and catalog faces both hug the
+  round head exactly. Old characters and NPCs switch over when a game loads.
+  The website's 3D avatars match.
+
+**Better shadows**
+- No more light leaking under boxes sitting on the ground: shadows start
+  right at an object's base, with no flicker where it touches.
+- Sharper shadows close to you (a second, close-up shadow map).
+
+**Publishing puts games on the website**
+- Saving a published game in Studio updates it online too.
+- The Player's My Games has a Publish button for games that are only on your
+  computer. The staff page can put the sample games online as official games.
+
+**Slippery parts**
+- Tag a part `Slippery` and people slide on it (water slides, ice).
+- Tilted Water parts work: you swim in their real, turned box.
+
 # Guts&Bolts 0.6.0: water, NPCs and Roblox-style controls (September 30, 2026)
 
 ## New

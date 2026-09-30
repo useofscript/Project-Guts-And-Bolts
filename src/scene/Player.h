@@ -138,7 +138,8 @@ public:
     static bool usePlayerModel(SceneNode& part);
     // A character saved before that model: give it the model's parts.
     static void upgradeRig(SceneNode* rig);
-    static void addFace(SceneNode* head);   // the default smiley (eyes + smile) on a head
+    static void addFace(SceneNode* head);   // the default smiley (a flat picture) on a head
+    static void removeOldFace(Scene& scene, SceneNode* head);   // old 3D / card faces
     void        upgradeFace();              // old saved characters: new face
     static void       applyColors(SceneNode* root, const BodyColors& c);
     // `tint` recolours the hat (catalog hats); negative = its normal colours.
@@ -167,6 +168,15 @@ public:
     bool climbing() const { return m_climbing; }
     bool grounded() const { return m_grounded; }
     bool swimming() const { return m_swimming; }
+    bool underwater() const { return m_underwater; }   // swimming with the head under
+    // Swimming controls for the next update: look = the camera's up/down (-1 looking
+    // straight down .. 1 straight up), down = the dive key (C / Ctrl).
+    void setSwimInput(float look, bool down) { m_swimLook = look; m_swimDown = down; }
+    // Is this point in water (a Water part, waves, a flood)? The surface above it, how
+    // the water flows and its colour.
+    static bool waterAt(Scene& scene, const glm::vec3& p, float* top = nullptr, glm::vec3* flow = nullptr,
+                        glm::vec3* color = nullptr);
+    static constexpr float kFloatHeight = 1.45f;   // floating: the water comes up to here (the shoulders)
     // Parts you climb (TrussPart, anything called Ladder, or tagged / attributed "Climbable")
     // and swim in (called Water, or tagged / attributed "Water").
     static bool isClimbable(const SceneNode* n);
@@ -199,10 +209,13 @@ private:
     bool  m_faceLock = false;   // first person: face m_faceYaw next step
     float m_faceYaw = 0.0f;
     // Climbing trusses / ladders, and swimming in water.
-    bool  m_climbing = false, m_swimming = false;
+    bool  m_climbing = false, m_swimming = false, m_underwater = false;
+    float m_swimLook = 0.0f, m_bobPhase = 0.0f;
+    bool  m_swimDown = false;
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
     float m_climbPhase = 0.0f;
     float m_climbCooldown = 0.0f;   // just jumped off: don't grab straight back on
+    float m_wet = 0.0f;              // seconds you stay slippery after leaving a stream of liquid (a wet slide)
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 
     // Rest pose captured when Play starts (local transforms by node id).

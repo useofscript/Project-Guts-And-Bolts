@@ -46,6 +46,8 @@ const char* kindName(NodeKind k) {
         case NodeKind::Decal:  return "Decal";
         case NodeKind::Animation: return "Animation";
         case NodeKind::Gui:    return "Gui";
+        case NodeKind::FluidSystem:  return "FluidSystem";
+        case NodeKind::FluidEmitter: return "FluidEmitter";
         default:               return "Part";
     }
 }
@@ -62,6 +64,8 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Decal")  return NodeKind::Decal;
     if (s == "Animation") return NodeKind::Animation;
     if (s == "Gui")    return NodeKind::Gui;
+    if (s == "FluidSystem")  return NodeKind::FluidSystem;
+    if (s == "FluidEmitter") return NodeKind::FluidEmitter;
     return NodeKind::Part;
 }
 
@@ -227,6 +231,13 @@ json toJson(const SceneNode& n) {
         j["starterTool"] = n.starterTool;
         j["gripPos"] = vec(n.gripPos);
     }
+    if (n.kind == NodeKind::FluidSystem) {
+        j["color"] = vec(n.color); j["viscosity"] = n.viscosity; j["surfaceTension"] = n.surfaceTension;
+    }
+    if (n.kind == NodeKind::FluidEmitter) {
+        j["rate"] = n.fluidRate; j["velocity"] = vec(n.fluidVelocity); j["system"] = n.fluidSystem;
+        j["enabled"] = n.enabled;
+    }
     if (n.kind == NodeKind::Sound) {
         j["soundId"] = n.soundId; j["volume"] = n.volume; j["pitch"] = n.pitch;
         j["looped"] = n.looped; j["autoplay"] = n.autoplay;
@@ -358,6 +369,16 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->starterTool  = get<bool>(j, "starterTool", false);
         n->gripPos      = vec(j, "gripPos", {0, 0, 0});
     }
+    if (n->kind == NodeKind::FluidSystem) {
+        n->color          = vec(j, "color", {0.12f, 0.56f, 1.0f});
+        n->viscosity      = get<float>(j, "viscosity", 0.015f);
+        n->surfaceTension = get<float>(j, "surfaceTension", 0.0f);
+    }
+    if (n->kind == NodeKind::FluidEmitter) {
+        n->fluidRate     = get<float>(j, "rate", 500.0f);
+        n->fluidVelocity = vec(j, "velocity", {0, -10, 0});
+        n->fluidSystem   = get<uint64_t>(j, "system", 0);
+    }
     if (n->kind == NodeKind::Sound) {
         n->soundId  = get<std::string>(j, "soundId", "coin");
         n->volume   = get<float>(j, "volume", 0.6f);
@@ -446,7 +467,7 @@ json settingsJson(Scene& scene) {
                   {"fallDamageSpeed", ws.fallDamageSpeed}, {"spawnForceField", ws.spawnForceField},
                   {"fallDamageScale", ws.fallDamageScale}, {"bloodColor", vec(ws.bloodColor)},
                   {"bloodAmount", ws.bloodAmount}, {"bloodStay", ws.bloodStay},
-                  {"playerCollisions", ws.playerCollisions}};
+                  {"playerCollisions", ws.playerCollisions}, {"maxFluidParticles", ws.maxFluidParticles}};
     if (Player* p = scene.player()) {
         const Humanoid& h = p->humanoid();
         j["player"] = {
@@ -482,11 +503,26 @@ void applySettings(Scene& scene, const json& j) {
         w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
         w.fallDamageScale   = get<float>(j["world"], "fallDamageScale", w.fallDamageScale);
         w.playerCollisions  = get<bool>(j["world"], "playerCollisions", w.playerCollisions);
+        w.maxFluidParticles = std::clamp(get<int>(j["world"], "maxFluidParticles", w.maxFluidParticles), 0, 1 << 20);
         w.bloodColor        = vec(j["world"], "bloodColor", w.bloodColor);
         w.bloodAmount       = get<float>(j["world"], "bloodAmount", w.bloodAmount);
         w.bloodStay         = get<float>(j["world"], "bloodStay", w.bloodStay);
     }
     scene.world() = w;
+
+    // Characters and NPC rigs saved with the old 3D face (eye and smile parts): the flat picture instead.
+    {
+        std::vector<SceneNode*> heads;
+        scene.forEach([&](SceneNode* n) {
+            if (n->name != "Head" || !n->isPart()) return;
+            for (auto& c : n->children)
+                if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) { heads.push_back(n); return; }
+        });
+        for (SceneNode* h : heads) {
+            Player::removeOldFace(scene, h);
+            if (h->texture.empty()) Player::addFace(h);
+        }
+    }
 
     if (Player* p = scene.player()) {
         p->resetSettings();
@@ -586,6 +622,8 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
     dst.length = src->length;       dst.stiffness = src->stiffness; dst.damping = src->damping;
     dst.motorSpeed = src->motorSpeed; dst.motorTorque = src->motorTorque; dst.thickness = src->thickness;
+    dst.viscosity = src->viscosity; dst.surfaceTension = src->surfaceTension;
+    dst.fluidRate = src->fluidRate; dst.fluidVelocity = src->fluidVelocity; dst.fluidSystem = src->fluidSystem;
 }
 
 std::string nodeToString(const SceneNode& node) { return toJson(node).dump(); }
@@ -618,6 +656,8 @@ void remapRefs(SceneNode& n, const std::unordered_map<uint64_t, uint64_t>& map) 
         if (auto it = map.find(n.ref0); it != map.end()) n.ref0 = it->second;
         if (auto it = map.find(n.ref1); it != map.end()) n.ref1 = it->second;
     }
+    if (n.kind == NodeKind::FluidEmitter)   // (a copied emitter uses the copied liquid, if it came along)
+        if (auto it = map.find(n.fluidSystem); it != map.end()) n.fluidSystem = it->second;
     for (auto& c : n.children) remapRefs(*c, map);
 }
 } // namespace

@@ -46,6 +46,10 @@ void Shader::setVec4Array(const char* n, const glm::vec4* v, int count) const {
     if (count > 0) glUniform4fv(loc(n), count, glm::value_ptr(v[0]));
 }
 
+void Shader::setVec3Array(const char* n, const glm::vec3* v, int count) const {
+    if (count > 0) glUniform3fv(loc(n), count, glm::value_ptr(v[0]));
+}
+
 void Shader::bind()   const { glUseProgram(m_id); }
 void Shader::unbind() const { glUseProgram(0); }
 
@@ -64,6 +68,9 @@ GLuint Shader::compile(GLenum type, const char* src) {
     const std::string marker = "#pragma gb_common";
     for (size_t at; (at = text.find(marker)) != std::string::npos;)
         text.replace(at, marker.size(), Shaders::common);   // shared helper functions
+    const std::string rayMarker = "#pragma gb_fluidray";
+    for (size_t at; (at = text.find(rayMarker)) != std::string::npos;)
+        text.replace(at, rayMarker.size(), Shaders::fluidRay);   // hitting a liquid drop (Shaders.h)
 #ifdef GB_GLES
     // Phones: same shaders, OpenGL ES header instead of desktop GLSL 4.1.
     const std::string desktop = "#version 410 core";

@@ -366,6 +366,38 @@ void PlayerApp::renameGame(const std::filesystem::path& path, const std::string&
     }, 120);
 }
 
+void PlayerApp::publishGameFile(const std::filesystem::path& path, const std::string& picture,
+                                const std::function<void(bool, const std::string&)>& done) {
+    if (!Online::online()) { done(false, "You're offline. Connect to the Guts&Bolts server to publish."); return; }
+    const std::string text = readWholeFile(path);
+    json j = json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { done(false, "That game file couldn't be read."); return; }
+    const json info = j.contains("info") && j["info"].is_object() ? j["info"] : json::object();
+    std::string title = info.value("title", std::string());
+    if (title.empty() || title == "My Game") title = path.stem().string();
+    title = Online::cleanText(title, 50);
+    const std::string desc = info.value("description", std::string());
+    json args = {{"kind", "game"}, {"name", title}, {"description", desc}, {"data", Online::base64Encode(text)}};
+    Online::request("upload", args, [this, path, picture, title, done](const json& r) {
+        if (!r.value("ok", false)) { done(false, r.value("error", std::string("Publishing didn't work."))); return; }
+        const std::string id = r.contains("asset") ? r["asset"].value("id", std::string()) : std::string();
+        // Remember in the file that it's published (updates then go to the same game).
+        json f = json::parse(readWholeFile(path), nullptr, false);
+        if (f.is_object() && !id.empty()) {
+            if (!f.contains("info") || !f["info"].is_object()) f["info"] = json::object();
+            f["info"]["published"] = id;
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out << f.dump(2);
+        }
+        if (!picture.empty() && !id.empty())
+            Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, [](const json&) {}, 60);
+        m_gamesDirty = true;
+        refreshOnline("mine");
+        refreshOnline("games");
+        done(true, "\"" + title + "\" is published: it's on the website for everyone now.");
+    }, 120);
+}
+
 void PlayerApp::openInStudio(const std::filesystem::path& path) {
 #if defined(GB_MOBILE)
     (void)path;
@@ -439,6 +471,17 @@ void PlayerApp::myGameRow(const std::string& key, const std::string& title, cons
     ImGui::SameLine();
 #endif
     if (Classic::button("Play", Classic::kPlay, ImVec2(70, 30)) && play) play();
+    if (publishedId.empty() && !path.empty()) {
+        // Only on this computer: one click puts it on the server (and the website).
+        ImGui::SameLine();
+        if (Classic::button("Publish", Classic::kBlue, ImVec2(90, 30))) {
+            std::string picture;
+            for (const GameCard& g : m_games)
+                if (g.path == path && g.thumb) picture = g.thumb->toPng();
+            m_createMsg = "Publishing...";
+            publishGameFile(path, picture, [this](bool, const std::string& msg) { m_createMsg = msg; });
+        }
+    }
     ImGui::EndGroup();
     ImGui::Separator();
     ImGui::PopID();

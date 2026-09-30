@@ -49,6 +49,7 @@ struct PlayerOptions {
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
     float       cameraYaw = -1000.0f;  // --camera-yaw <degrees> (tests: look from another side)
     std::string testRename;            // --test-rename "New name" (tests: rename your first game on the Create page)
+    std::string testPublish;           // --test-publish file.gbscene (tests: publish a game file to the server)
     int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
     std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
     std::string testClick;             // --test-click "x,y" (tests: click there 3 times, 0..1 of the window)
@@ -123,6 +124,10 @@ private:
     void drawMyUploads(const std::string& kind);
     static bool renameGameFile(const std::filesystem::path& path, const std::string& title, std::string& error);
     void renameGame(const std::filesystem::path& path, const std::string& publishedId, const std::string& title);
+    // Put a game file from this computer on the server (so it's on the website for everyone), with
+    // `picture` (a .png) for its card, and remember in the file that it's published.
+    void publishGameFile(const std::filesystem::path& path, const std::string& picture,
+                         const std::function<void(bool ok, const std::string& message)>& done);
     void openInStudio(const std::filesystem::path& path);
     void drawOnlineGames();
     void drawOnlineGameDialog();

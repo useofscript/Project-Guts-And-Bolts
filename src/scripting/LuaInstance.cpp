@@ -3,6 +3,7 @@
 #include "LuaApi.h"
 #include "ScriptEngine.h"
 #include "../scene/Animation.h"
+#include "../scene/Physics.h"
 #include "../scene/Player.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
@@ -86,6 +87,8 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Gui:        return kGuiClassNames[(int)n->gui.type];
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
+        case NodeKind::FluidSystem:  return "FluidSystem";
+        case NodeKind::FluidEmitter: return "FluidEmitter";
         case NodeKind::Constraint:
             switch (n->constraintType) {
                 case ConstraintType::Rope:   return "RopeConstraint";
@@ -248,7 +251,7 @@ int m_Clone(lua_State* L) {
 float partMass(const SceneNode* n) {
     glm::vec3 s(glm::length(glm::vec3(n->worldMatrix()[0])), glm::length(glm::vec3(n->worldMatrix()[1])),
                 glm::length(glm::vec3(n->worldMatrix()[2])));
-    float d = n->density >= 0 ? n->density : 1.0f;
+    float d = Physics::densityOf(n);
     return std::max(0.001f, d * s.x * s.y * s.z);
 }
 int m_ApplyImpulse(lua_State* L) {
@@ -652,7 +655,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Shape"))        { lua_pushstring(L, shapeName(n->primitiveType)); return 1; }
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { LuaApi::pushVector3(L, n->velocity); return 1; }
         if (is(k, "RotVelocity") || is(k, "AssemblyAngularVelocity")) { LuaApi::pushVector3(L, n->angularVelocity); return 1; }
-        if (is(k, "Density"))    { lua_pushnumber(L, n->density); return 1; }
+        if (is(k, "Density"))    { lua_pushnumber(L, Physics::densityOf(n)); return 1; }   // (water is 1.3)
         if (is(k, "Friction"))   { lua_pushnumber(L, n->friction); return 1; }
         if (is(k, "Elasticity")) { lua_pushnumber(L, n->elasticity); return 1; }
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }
@@ -698,6 +701,19 @@ int inst_index(lua_State* L) {
         if (is(k, "Looped"))        { lua_pushboolean(L, n->looped); return 1; }
         if (is(k, "Playing") || is(k, "IsPlaying")) { lua_pushboolean(L, Audio::isPlaying(n->audioHandle)); return 1; }
     }
+    if (n->kind == NodeKind::FluidSystem) {
+        if (is(k, "Color"))          { LuaApi::pushColor3(L, n->color); return 1; }
+        if (is(k, "Viscosity"))      { lua_pushnumber(L, n->viscosity); return 1; }
+        if (is(k, "SurfaceTension")) { lua_pushnumber(L, n->surfaceTension); return 1; }
+    }
+    if (n->kind == NodeKind::FluidEmitter) {
+        if (is(k, "Rate"))        { lua_pushnumber(L, n->fluidRate); return 1; }
+        if (is(k, "Velocity"))    { LuaApi::pushVector3(L, n->fluidVelocity); return 1; }
+        if (is(k, "Size"))        { LuaApi::pushVector3(L, n->transform.scale); return 1; }
+        if (is(k, "Position"))    { LuaApi::pushVector3(L, worldPosition(n)); return 1; }
+        if (is(k, "Enabled"))     { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "FluidSystem")) { LuaApi::pushInstance(L, n->fluidSystem); return 1; }
+    }
     if (n->isLight()) {
         if (is(k, "Enabled"))    { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "Brightness")) { lua_pushnumber(L, n->brightness); return 1; }
@@ -716,6 +732,7 @@ int inst_index(lua_State* L) {
         if (is(k, "PlayerCollisions")) { lua_pushboolean(L, w.playerCollisions); return 1; }
         if (is(k, "BloodColor"))  { LuaApi::pushColor3(L, w.bloodColor); return 1; }
         if (is(k, "BloodAmount")) { lua_pushnumber(L, w.bloodAmount); return 1; }
+        if (is(k, "MaxFluidParticles")) { lua_pushinteger(L, w.maxFluidParticles); return 1; }
     }
     if (is(k, "Humanoid") && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
 
@@ -828,6 +845,25 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Enabled"))  { LuaApi::engine(L)->setScriptEnabled(n, lua_toboolean(L, 3)); return 0; }
         if (is(k, "Disabled")) { LuaApi::engine(L)->setScriptEnabled(n, !lua_toboolean(L, 3)); return 0; }
     }
+    if (n->kind == NodeKind::FluidSystem) {
+        if (is(k, "Color"))          { n->color = LuaApi::checkColor3(L, 3); return 0; }
+        if (is(k, "Viscosity"))      { n->viscosity = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "SurfaceTension")) { n->surfaceTension = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+    }
+    if (n->kind == NodeKind::FluidEmitter) {
+        if (is(k, "Rate"))     { n->fluidRate = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 100000.0f); return 0; }
+        if (is(k, "Velocity")) { n->fluidVelocity = LuaApi::checkVector3(L, 3); return 0; }
+        if (is(k, "Size"))     { n->transform.scale = glm::max(LuaApi::checkVector3(L, 3), glm::vec3(0.1f)); return 0; }
+        if (is(k, "Position")) { setWorldPosition(L, n, LuaApi::checkVector3(L, 3)); return 0; }
+        if (is(k, "Enabled"))  { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "FluidSystem")) {
+            if (lua_isnil(L, 3)) { n->fluidSystem = 0; return 0; }
+            SceneNode* sys = LuaApi::checkNode(L, 3);
+            if (sys->kind != NodeKind::FluidSystem) return luaL_error(L, "FluidEmitter.FluidSystem must be a FluidSystem");
+            n->fluidSystem = sys->id;
+            return 0;
+        }
+    }
     if (n->isSound()) {
         if (is(k, "SoundId"))  { n->soundId = luaL_checkstring(L, 3); return 0; }
         if (is(k, "Volume"))   { n->volume = std::max(0.0f, (float)luaL_checknumber(L, 3)); Audio::setVolume(n->audioHandle, n->volume); return 0; }
@@ -892,6 +928,7 @@ int inst_newindex(lua_State* L) {
         if (is(k, "PlayerCollisions")) { w.playerCollisions = lua_toboolean(L, 3); return 0; }
         if (is(k, "BloodColor"))  { w.bloodColor = LuaApi::checkColor3(L, 3); return 0; }
         if (is(k, "BloodAmount")) { w.bloodAmount = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 5.0f); return 0; }
+        if (is(k, "MaxFluidParticles")) { w.maxFluidParticles = std::clamp((int)luaL_checkinteger(L, 3), 0, 1 << 20); return 0; }
     }
     return luaL_error(L, "'%s' can't be set on %s \"%s\"", k, className(L, n), n->name.c_str());
 }
@@ -929,6 +966,12 @@ int inst_new(lua_State* L) {
                           : cls == "WeldConstraint"   ? ConstraintType::Weld
                           : cls == "HingeConstraint"  ? ConstraintType::Hinge : ConstraintType::Rope;
         n->color = n->constraintType == ConstraintType::Rope ? glm::vec3(0.45f, 0.32f, 0.2f) : glm::vec3(0.6f);
+    } else if (cls == "FluidSystem") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::FluidSystem);
+        n->color = {0.12f, 0.56f, 1.0f};
+    } else if (cls == "FluidEmitter") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::FluidEmitter);
+        n->transform.scale = {1.0f, 1.0f, 1.0f};
     } else if (cls == "Sound") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Sound);
     } else if (cls == "ForceField") {

@@ -26,7 +26,7 @@ public:
     void setFloat(const char* name, float v)             const;
     void setInt  (const char* name, int v)               const;
     void setBool (const char* name, bool v)              const;
-    void setVec4Array(const char* name, const glm::vec4* v, int count) const;
+    void setVec4Array(const char* name, const glm::vec4* v, int count) const;    void setVec3Array(const char* n, const glm::vec3* v, int count) const;
 
 private:
     GLint loc(const char* name) const;   // cached glGetUniformLocation

@@ -19,6 +19,10 @@ constexpr float kFadeEnd   = 0.7f; // and is gone by here
 }
 
 bool firstPerson(const Camera& cam) { return cam.distance < 0.01f; }
+float swimLook(const Camera& cam) {
+    const float y = cam.forward().y;
+    return std::clamp(firstPerson(cam) ? y : y + 0.4f, -1.0f, 1.0f);
+}
 
 void zoom(Camera& cam, float wheel) {
     if (wheel == 0.0f) return;

@@ -12,6 +12,7 @@
 // If you change a rule here, change it in src/server too (and the other way round).
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../website/app/gbcrypto.wasm';
+import { BUILT_IN_UPDATES } from './updates.js';
 
 // --- rules (src/online/Protocol.h) ---------------------------------------------
 const kMaxClockSkew = 600;
@@ -66,7 +67,8 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get']);
+const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
 const isEmail = (e) => typeof e === 'string' && e.length <= 254 && /^[^\s@<>"]{1,64}@[^\s@<>"]{1,190}\.[^\s@<>"]{2,}$/.test(e);
@@ -216,7 +218,7 @@ export class GbServerObject extends DurableObject {
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new Map(); this.groups = new Map();
     // What changed and needs writing (set up first: loading can already change things).
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
     for (const r of this.sql.exec('SELECT id, data FROM assets')) {
       const a = JSON.parse(r.data);
@@ -225,6 +227,7 @@ export class GbServerObject extends DurableObject {
     }
     for (const r of this.sql.exec('SELECT id, data FROM groups')) this.groups.set(r.id, JSON.parse(r.data));
     this.trades = this.getMeta('trades', []);   // trade offers between players (limited items)
+    this.posted = this.getMeta('updates', []);  // updates staff posted on the website (the rest are in updates.js)
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
     this.takenNames = new Set(ids.taken || []);
@@ -276,7 +279,9 @@ export class GbServerObject extends DurableObject {
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'ids',
         JSON.stringify({ next: this.nextUserId, taken: [...this.takenNames] }));
     }
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false };
+    if (this.dirty.updates)
+      this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'updates', JSON.stringify(this.posted));
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false };
   }
   // --- Limited items: numbered copies (a.copies = [{ serial, owner, price }]) ---
   copiesOf(u) {   // every limited copy this account holds
@@ -605,6 +610,7 @@ export class GbServerObject extends DurableObject {
     if (name.startsWith('groups.')) return this.groupOp(name, me, args);
     if (name.startsWith('friends.')) return this.friendOp(name, me, args);
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
+    if (name.startsWith('updates.')) return this.updateOp(name, me, args);
     if (name === 'ping') return okay();
 
     if (name === 'avatar.set') {
@@ -1580,6 +1586,41 @@ export class GbServerObject extends DurableObject {
     }
     return null;
   }
+  // The update log (the website's Updates page): built-in ones (updates.js) and ones staff posted.
+  updateOp(name, me, args) {
+    const t = now();
+    if (name === 'updates.list') {
+      const all = [...this.posted, ...BUILT_IN_UPDATES].sort((a, b) => b.time - a.time);
+      const limit = clamp(Number.isInteger(args.limit) ? args.limit : 50, 1, 100);
+      return okay({ updates: all.slice(0, limit), latest: all.length ? all[0].id : '' });
+    }
+    if (name === 'updates.post') {
+      if (!this.isStaff(me)) return fail('Only staff can post updates.');
+      const title = cleanText(str(args, 'name'), 40);
+      if (!title) return fail('Give the update a name.');
+      const summary = cleanText(str(args, 'summary'), 200);
+      const items = (Array.isArray(args.items) ? args.items : []).filter((x) => typeof x === 'string')
+        .map((x) => cleanText(x, 160)).filter(Boolean).slice(0, 20);
+      if (!summary && !items.length) return fail('Say what changed.');
+      const tag = UPDATE_TAGS.includes(str(args, 'tag')) ? str(args, 'tag') : 'Engine';
+      const u = { id: 'u-' + randomHex(6), name: title, version: cleanText(str(args, 'version'), 12), time: t, tag,
+        summary, items, by: me.username || me.name };
+      this.posted.unshift(u);
+      this.posted = this.posted.slice(0, 300);
+      this.dirty.updates = true;
+      return okay({ update: u });
+    }
+    if (name === 'updates.delete') {
+      if (!this.isStaff(me)) return fail('Only staff can delete updates.');
+      const id = str(args, 'id');
+      if (!this.posted.some((u) => u.id === id)) return fail('That update is built in (or already gone).');
+      this.posted = this.posted.filter((u) => u.id !== id);
+      this.dirty.updates = true;
+      return okay({});
+    }
+    return fail('The server doesn\'t know how to do "' + name + '". It might need updating.');
+  }
+
   serverOp(name, me, args) {
     const game = cleanText(typeof args.game === 'string' ? args.game : '', 80);
     const asset = this.assets.get(game);

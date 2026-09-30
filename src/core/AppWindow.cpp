@@ -32,13 +32,22 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     if (!glfwInit())
         throw std::runtime_error("Failed to initialise GLFW");
 
-    // OpenGL 4.1 core: the newest version every desktop OS (including macOS) supports.
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);   // required on macOS
-
-    m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+    // OpenGL core profile. Settings > Graphics API picks which version to ask for;
+    // if the driver can't do it, try the next one down. 4.1 is the newest every
+    // desktop OS (including macOS) has, so it's always the last try.
+    const int api = GraphicsSettings::get().graphicsApi;
+    std::vector<int> versions = api == GraphicsSettings::ApiSafe   ? std::vector<int>{41}
+                              : api == GraphicsSettings::ApiMiddle ? std::vector<int>{43, 41}
+                                                                   : std::vector<int>{46, 45, 44, 43, 42, 41};
+    for (int v : versions) {
+        glfwDefaultWindowHints();
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, v / 10);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, v % 10);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);   // required on macOS
+        m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+        if (m_window) break;
+    }
     if (!m_window)
         throw std::runtime_error("Failed to create a window. Your graphics driver needs OpenGL 4.1 or newer.");
 
@@ -61,6 +70,11 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     if (glewInit() != GLEW_OK)
         throw std::runtime_error("Failed to initialise GLEW");
     glGetError();   // GLEW can leave a harmless error behind on core profiles
+    {
+        const char* ver = (const char*)glGetString(GL_VERSION);
+        const char* gpu = (const char*)glGetString(GL_RENDERER);
+        GraphicsSettings::activeApi() = std::string("OpenGL ") + (ver ? ver : "?") + " - " + (gpu ? gpu : "?");
+    }
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

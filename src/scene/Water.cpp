@@ -21,18 +21,37 @@ const Attribute* attr(const SceneNode* n, const char* name, Attribute::Type t) {
 
 } // namespace
 
+bool WaterSystem::tilted(const SceneNode* water) {
+    const glm::vec3 up = glm::normalize(glm::vec3(water->worldMatrix()[1]));
+    return up.y < 0.999f;
+}
+
+float WaterSystem::tiltedSurface(const SceneNode* water, float x, float z) {
+    const glm::mat4 m = water->worldMatrix();
+    const glm::vec3 p0 = glm::vec3(m * glm::vec4(0.0f, 0.5f, 0.0f, 1.0f));   // middle of the top face
+    const glm::vec3 n = glm::normalize(glm::transpose(glm::inverse(glm::mat3(m))) * glm::vec3(0.0f, 1.0f, 0.0f));
+    if (std::abs(n.y) < 0.05f) return p0.y;   // on its side: no sensible "top"
+    return p0.y - (n.x * (x - p0.x) + n.z * (z - p0.z)) / n.y;
+}
+
+bool WaterSystem::insideTilted(const SceneNode* water, const glm::vec3& p) {
+    const glm::vec3 l = glm::vec3(glm::inverse(water->worldMatrix()) * glm::vec4(p, 1.0f));
+    return std::abs(l.x) <= 0.5f && std::abs(l.y) <= 0.5f && std::abs(l.z) <= 0.5f;
+}
+
 void WaterSystem::begin(Scene& scene) {
     end();
     m_active = true;
     scan(scene);
     scanSources(scene);
+    m_liquid.begin(scene);
 }
 
 // Find the water parts. Also picks up water scripts make, move (rising tides!) or remove.
 void WaterSystem::scan(Scene& scene) {
     std::vector<Body> keep;
     scene.forEach([&](SceneNode* n) {
-        if (!Player::isWater(n) || n->internal) return;
+        if (!Player::isWater(n) || n->internal || tilted(n)) return;   // slides aren't level: no wave grid
         for (const SceneNode* p = n; p; p = p->parent) if (!p->visible) return;
         AABB box = Physics::worldBounds(n);
         glm::vec3 size = box.max - box.min;
@@ -63,6 +82,7 @@ void WaterSystem::scan(Scene& scene) {
 
 void WaterSystem::end() {
     m_bodies.clear();
+    m_liquid.end();
     m_flood = Flood{};
     m_sources.clear();
     m_lastWet.clear();
@@ -176,6 +196,7 @@ void WaterSystem::update(float dt, Scene& scene) {
     m_splashSound -= dt;
     if ((m_scanTime -= dt) <= 0.0f) { m_scanTime = 0.25f; scan(scene); scanSources(scene); }
     stepFlood(dt, scene);
+    m_liquid.update(dt, scene);
 
     // People (the player and NPCs) splash when they jump in, and leave a wake.
     std::vector<std::pair<uint64_t, glm::vec3>> people;
@@ -201,6 +222,10 @@ void WaterSystem::update(float dt, Scene& scene) {
 
     // The waves themselves.
     for (Body& b : m_bodies) {
+        if (m_viewDist > 0.0f) {   // out past the render distance: the waves wait
+            const glm::vec3 nearest = glm::clamp(m_viewer, b.min, b.max);
+            if (glm::length(nearest - m_viewer) > m_viewDist) continue;
+        }
         const int steps = std::max(1, (int)std::ceil(dt * kWaveSpeed / (0.5f * b.cell)));
         const float hs = dt / steps;
         const float c2 = kWaveSpeed * kWaveSpeed / (b.cell * b.cell);

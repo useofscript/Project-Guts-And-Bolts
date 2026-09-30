@@ -11,6 +11,8 @@ namespace Textures {
 // The GL texture for an image, loading it the first time (0 = not there yet,
 // or not a picture). Cheap to call every frame.
 unsigned get(const std::string& id);
+// The built-in classic smiley face picture (see Player::addFace).
+inline constexpr const char* kClassicFace = "builtin:face";
 bool     size(const std::string& id, int& width, int& height);
 // Forget one image (e.g. a file that was just replaced) or all of them.
 void     forget(const std::string& id);

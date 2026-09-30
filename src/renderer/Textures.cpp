@@ -12,9 +12,12 @@
 #define STBI_NO_PNM
 #include <stb_image.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <map>
+#include <vector>
 
 namespace Textures {
 
@@ -47,7 +50,51 @@ std::filesystem::path locate(const std::string& id) {
     return {};
 }
 
+// The classic smiley, as a flat picture (a 2D drawing, made here): two oval eyes
+// and a U-shaped smile, see-through around them. Laid out like every face picture:
+// the whole front of the head, bottom row first. Same shapes and places as the old
+// 3D face (head-local units: x, y from -0.5 to 0.5).
+void makeClassicFace(Entry& e) {
+    const int n = 512;
+    std::vector<unsigned char> px((size_t)n * n * 4, 0);
+    auto smileY = [](float x) { float t = std::abs(x) / 0.2f; return -0.27f + 0.22f * std::pow(t, 1.7f); };
+    const float aa = 1.2f / n;   // smooth edges (about a pixel)
+    for (int r = 0; r < n; ++r)
+        for (int c = 0; c < n; ++c) {
+            const float x = (c + 0.5f) / n - 0.5f, y = (r + 0.5f) / n - 0.5f;
+            float ink = 0.0f;
+            // Eyes: ovals 0.065 wide and 0.13 tall, at (+-0.1, 0.16).
+            for (float ex : {-0.1f, 0.1f}) {
+                const float dx = (x - ex) / 0.0325f, dy = (y - 0.16f) / 0.065f;
+                const float d = (std::sqrt(dx * dx + dy * dy) - 1.0f) * 0.0325f;   // ~distance to the edge
+                ink = std::max(ink, std::clamp(0.5f - d / aa, 0.0f, 1.0f));
+            }
+            // Smile: a 0.055-thick line along the curve, with round ends.
+            float best = 1e9f;
+            for (int k = 0; k <= 80; ++k) {
+                const float sx = -0.2f + 0.4f * k / 80.0f;
+                best = std::min(best, std::hypot(x - sx, y - smileY(sx)));
+            }
+            ink = std::max(ink, std::clamp(0.5f - (best - 0.0275f) / aa, 0.0f, 1.0f));
+            unsigned char* o = &px[((size_t)r * n + c) * 4];
+            o[0] = o[1] = o[2] = 0;
+            o[3] = (unsigned char)std::lround(ink * 255.0f);
+        }
+    glGenTextures(1, &e.tex);
+    glBindTexture(GL_TEXTURE_2D, e.tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    e.w = e.h = n;
+}
+
 void load(const std::string& id, Entry& e) {
+    if (id == kClassicFace) { makeClassicFace(e); return; }
     std::filesystem::path p = locate(id);
     if (p.empty()) { e.retryAt = now() + 1.0; return; }   // maybe it's still downloading
     stbi_set_flip_vertically_on_load(1);                   // GL wants the bottom row first

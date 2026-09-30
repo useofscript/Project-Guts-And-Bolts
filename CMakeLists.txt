@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.6.0 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.6.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -306,6 +306,8 @@ add_library(gb_engine STATIC
     src/scene/Pathfinding.cpp
     src/scene/Npc.cpp
     src/scene/Water.cpp
+    src/scene/Liquid.cpp
+    src/scene/LiquidGpu.cpp
     src/scene/Flood.cpp
     src/scene/RigidBodies.cpp
     src/scene/Particles.cpp

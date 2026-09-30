@@ -300,3 +300,19 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 
 /* Catalog items in 3D */
 .item3d { width: 100%; height: 100%; object-fit: contain; }
+
+/* Updates page: one box per update, the newest on top */
+.update { position: relative; }
+.update-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.update-head h2 { margin: 0; padding: 0; font-size: 18px; color: var(--headText); background: none; border: 0; box-shadow: none; }
+.update-tag { color: #fff; font-size: 11px; font-weight: bold; padding: 2px 9px; border-radius: 10px; text-transform: uppercase; letter-spacing: .5px; }
+.update-summary { font-size: 13px; margin: 6px 0; }
+.update-items { margin: 6px 0 2px; padding-left: 20px; }
+.update-items li { margin: 3px 0; }
+.update.fresh { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(29, 111, 216, .25); animation: slidein .5s ease-out; }
+@keyframes slidein { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; margin-left: 4px;
+  vertical-align: middle; animation: livepulse 2s infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.latest-update b { font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { .update.fresh, .live-dot { animation: none; } }

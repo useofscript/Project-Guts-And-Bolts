@@ -7,6 +7,9 @@
 #include "Framebuffer.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
+#include "../scene/Player.h"
+#include "../scene/Water.h"
+#include "../scene/Liquid.h"
 #include "../core/Settings.h"
 #include "MeshLibrary.h"
 
@@ -17,6 +20,12 @@
 #include <chrono>
 #include <cmath>
 #include <vector>
+
+// How far a part reaches from its middle (half its diagonal): for render distance.
+static float partRadius(const glm::mat4& m) {
+    return 0.5f * std::sqrt(glm::dot(glm::vec3(m[0]), glm::vec3(m[0])) + glm::dot(glm::vec3(m[1]), glm::vec3(m[1])) +
+                            glm::dot(glm::vec3(m[2]), glm::vec3(m[2])));
+}
 
 namespace {
 
@@ -66,8 +75,8 @@ void createTarget(SceneRenderer::Target& t, int w, int h, GLenum fmt, bool withD
 
     glGenTextures(1, &t.color);
     glBindTexture(GL_TEXTURE_2D, t.color);
-    GLenum base = (fmt == GL_R8) ? GL_RED : GL_RGBA;
-    GLenum type = (fmt == GL_RGBA16F) ? GL_FLOAT : GL_UNSIGNED_BYTE;   // OpenGL ES is strict about this
+    GLenum base = (fmt == GL_R8 || fmt == GL_R32F || fmt == GL_R16F) ? GL_RED : GL_RGBA;
+    GLenum type = (fmt == GL_RGBA16F || fmt == GL_R32F || fmt == GL_R16F) ? GL_FLOAT : GL_UNSIGNED_BYTE;   // OpenGL ES is strict about this
     glTexImage2D(GL_TEXTURE_2D, 0, fmt, t.w, t.h, 0, base, type, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -113,19 +122,30 @@ SceneRenderer::SceneRenderer() {
     m_bloomUp   = std::make_unique<Shader>(fullscreenVert, bloomUpFrag);
     m_composite = std::make_unique<Shader>(fullscreenVert, compositeFrag);
     m_fxaa      = std::make_unique<Shader>(fullscreenVert, fxaaFrag);
+    m_fluidDepth  = std::make_unique<Shader>(fluidVert, fluidDepthFrag);
+    m_fluidThick  = std::make_unique<Shader>(fluidVert, fluidThickFrag);
+    m_fluidColor  = std::make_unique<Shader>(fluidVert, fluidColorFrag);
+    m_fluidBlur   = std::make_unique<Shader>(fullscreenVert, fluidBlurFrag);
+    m_fluidShade  = std::make_unique<Shader>(fullscreenVert, fluidShadeFrag);
+    m_fluidSimple = std::make_unique<Shader>(fluidVert, fluidSimpleFrag);
     buildGrid();
     buildAxes();
+    Liquid::graphicsContext(+1);   // the liquid's physics may use the graphics card now
     // Fullscreen passes make their own vertices, but core GL still needs a VAO.
     glGenVertexArrays(1, &m_emptyVao);
     m_startTime = now();
 }
 
 SceneRenderer::~SceneRenderer() {
+    Liquid::graphicsContext(-1);
     if (m_gridVbo)  glDeleteBuffers(1, &m_gridVbo);
     if (m_gridVao)  glDeleteVertexArrays(1, &m_gridVao);
     if (m_axisVbo)  glDeleteBuffers(1, &m_axisVbo);
     if (m_axisVao)  glDeleteVertexArrays(1, &m_axisVao);
     if (m_emptyVao) glDeleteVertexArrays(1, &m_emptyVao);
+    if (m_fluidVbo) glDeleteBuffers(1, &m_fluidVbo);
+    if (m_fluidVao) glDeleteVertexArrays(1, &m_fluidVao);
+    destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_fColor); destroyTarget(m_sceneCopy);
     destroyTarget(m_hdr);
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
@@ -197,13 +217,16 @@ void SceneRenderer::ensureTargets(int w, int h) {
     }
 }
 
-void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) {
-    m_shadow.bindForWrite();
+void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target) {
+    target.bindForWrite();
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
-    // Cull front faces while filling the shadow map to reduce surface acne.
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_FRONT);
+    // Every face goes in (not just the back ones: then a box standing on the ground
+    // shadows it right up to its edge, with no light leaking under it). Acne is kept
+    // away by pushing the depths back a little, more on steep faces (slope-scaled).
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.25f, 2.0f);
 
     m_depth->bind();
     m_depth->setMat4("uLightSpace", lightSpace);
@@ -211,12 +234,14 @@ void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) 
         if (!node->mesh || !node->visible || !node->castShadow) return;
         for (SceneNode* p = node->parent; p; p = p->parent) if (!p->visible) return;   // inside something hidden (a backpack)
         if (node->kind != NodeKind::Part || node->transparency > 0.5f) return;
-        m_depth->setMat4("uModel", node->worldMatrix());
+        const glm::mat4 m = node->worldMatrix();
+        if (tooFar(glm::vec3(m[3]), partRadius(m))) return;
+        m_depth->setMat4("uModel", m);
         node->mesh->draw();
     });
 
-    glDisable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(0.0f, 0.0f);
     glEnable(GL_BLEND);
 }
 
@@ -225,11 +250,17 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     const Environment& env = scene.environment();
     glm::vec3 sunDir = env.sunDirection();
 
+    // Render distance (10 = no limit). Water and liquid out there rest too (less lag).
+    m_viewPos = camera.position();
+    m_viewDist = gs.renderDistance >= GraphicsSettings::kMaxRenderDistance ? 0.0f : gs.renderDistanceStuds();
+    scene.water().setViewer(m_viewPos, m_viewDist);
+
     int w = std::max(1, (int)(target.width()  * std::clamp(gs.renderScale, 0.25f, 2.0f)));
     int h = std::max(1, (int)(target.height() * std::clamp(gs.renderScale, 0.25f, 2.0f)));
     ensureTargets(w, h);
     if (m_shadowRes != gs.shadowRes) {
         m_shadow.init(gs.shadowRes);
+        m_shadowNear.init(gs.shadowRes);
         m_shadowRes = gs.shadowRes;
     }
 
@@ -247,7 +278,22 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
                                       -lsCenter.z - sunDist, -lsCenter.z + sunDist);
     glm::mat4 lightSpace = lightProj * lightView0;
     bool shadows = env.shadows && env.sunElevation > -5.0f;
-    if (shadows) renderShadowPass(scene, lightSpace);
+    if (shadows) renderShadowPass(scene, lightSpace, m_shadow);
+    m_lightSpace = lightSpace;
+    m_shadowsOn = shadows;
+    // The sharp one: the same, but only ~20 studs round the camera's focus.
+    const float extentNear = std::min(extent, 20.0f);
+    const float texelNear  = (2.0f * extentNear) / (float)m_shadowNear.size();
+    const bool  nearCascade = shadows && gs.shadowQuality > 0 && extentNear < extent * 0.8f;
+    glm::mat4 lightSpaceNear(1.0f);
+    if (nearCascade) {
+        glm::vec3 c = glm::vec3(lightView0 * glm::vec4(camera.pivot, 1.0f));
+        c.x = std::floor(c.x / texelNear) * texelNear;
+        c.y = std::floor(c.y / texelNear) * texelNear;
+        lightSpaceNear = glm::ortho(c.x - extentNear, c.x + extentNear, c.y - extentNear, c.y + extentNear,
+                                    -c.z - sunDist, -c.z + sunDist) * lightView0;
+        renderShadowPass(scene, lightSpaceNear, m_shadowNear);
+    }
 
     // --- Main HDR pass ---
     bindTarget(m_hdr);
@@ -307,9 +353,11 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     // --- Lit geometry ---
     m_lit->bind();
     m_lit->setBool("uClothing", false);
+    m_lit->setBool("uFace", false);
     m_lit->setMat4("uView", view);
     m_lit->setMat4("uProj", proj);
     m_lit->setVec3("uViewPos", camera.position());
+    m_lit->setFloat("uRenderDist", m_viewDist);
     m_lit->setFloat("uTime", time);
     m_lit->setVec3("uSunDir", sunDir);
     m_lit->setVec3("uSunColor", env.sunColor);
@@ -334,6 +382,11 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     m_lit->setMat4("uLightSpace", lightSpace);
     m_shadow.bindForRead(0);
     m_lit->setInt("uShadowMap", 0);
+    m_lit->setBool("uNearCascade", nearCascade);
+    m_lit->setMat4("uLightSpaceNear", lightSpaceNear);
+    m_lit->setFloat("uShadowTexelNear", texelNear);
+    m_shadowNear.bindForRead(6);
+    m_lit->setInt("uShadowMapNear", 6);
 
     // Collect point / spot lights; keep the ones closest to the camera.
     struct LightItem { glm::vec4 pos, col, dir; float dist; };
@@ -344,6 +397,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
         for (SceneNode* p = n; p; p = p->parent) if (!p->visible) return;
         glm::mat4 m = n->worldMatrix();
         glm::vec3 pos(m[3]);
+        if (tooFar(pos, n->range)) return;   // its light can't reach anything we draw
         glm::vec3 dir = glm::normalize(glm::vec3(m * glm::vec4(0, -1, 0, 0)));
         float cosHalf = std::cos(glm::radians(std::clamp(n->spotAngle, 1.0f, 179.0f) * 0.5f));
         glm::vec3 col = glm::pow(n->color, glm::vec3(2.2f)) * n->brightness;
@@ -361,6 +415,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
 
     drawGeometry(scene, camera, showGrid);
     glBindVertexArray(0);
+    renderLiquid(scene, camera);
 
     postProcess(scene, camera, target);
 }
@@ -586,8 +641,10 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         for (auto& c : node->children) stack.push_back({c.get(), ff});
         if (node->isDecal() && !node->texture.empty() && node->shownTransparency() < 0.99f &&
             node->parent && node->parent->kind == NodeKind::Part)
-            decals.push_back({node, decalMatrix(*node), 0.0f});
+            if (!tooFar(glm::vec3(node->parent->worldMatrix()[3]), partRadius(node->parent->worldMatrix())))
+                decals.push_back({node, decalMatrix(*node), 0.0f});
         if (!node->mesh || node->kind != NodeKind::Part) continue;
+        if (tooFar(glm::vec3(node->worldMatrix()[3]), partRadius(node->worldMatrix()))) continue;   // past the render distance
         if (ff && !node->internal && node->shownTransparency() < 0.99f) shielded.push_back({node, node->worldMatrix(), 0.0f});
         float alpha = 1.0f - node->shownTransparency();
         if (alpha <= 0.001f) continue;   // fully transparent — nothing to draw
@@ -624,13 +681,15 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         } else {
             // Clothing: a shirt / pants picture (the template layout) over the body colour.
             unsigned cloth = !node->texture.empty() && !node->isDecal() ? Textures::get(node->texture) : 0;
+            // A character's head: the texture is its face, painted on the front.
+            const bool face = cloth && node->name == "Head";
             if (cloth) {
                 bindTex(5, cloth);
                 m_lit->setInt("uDecal", 5);
-                m_lit->setBool("uClothing", true);
+                m_lit->setBool(face ? "uFace" : "uClothing", true);
             }
             node->mesh->draw();
-            if (cloth) m_lit->setBool("uClothing", false);
+            if (cloth) m_lit->setBool(face ? "uFace" : "uClothing", false);
         }
         if (water) glEnable(GL_CULL_FACE);
     };
@@ -673,6 +732,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
             (p.kind == Particle::Bolt || p.kind == Particle::Splat || (p.kind == Particle::Drop && p.wet) ? cyl : cube)->draw();
         };
         for (const Particle& p : parts) {
+            if (tooFar(p.pos, 1.0f)) continue;
             bool fade = p.kind == Particle::Smoke || p.kind == Particle::Spray || (p.kind == Particle::Splat && p.life < 1.0f);
             if (fade) fading.push_back(&p);
             else      drawParticle(p, 1.0f);
@@ -762,6 +822,198 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
     glDepthMask(GL_TRUE);
 }
 
+void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
+    const Liquid& liquid = scene.water().liquid();
+    const std::vector<glm::vec4>& drops = liquid.drawList();
+    // With the physics on the graphics card the drops never leave it: they're
+    // drawn straight from its buffer, as many as it says (an indirect draw).
+    const bool onGpu = liquid.onGpu() && liquid.gpuDrawBuffer();
+    if (onGpu ? liquid.count() == 0 : drops.empty()) return;
+    const Environment& env = scene.environment();
+    const int w = m_hdr.w, h = m_hdr.h;
+    if (!m_fluidVao) {
+        glGenVertexArrays(1, &m_fluidVao);
+        glGenBuffers(1, &m_fluidVbo);
+        glBindVertexArray(m_fluidVao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_fluidVbo);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+    }
+    glBindVertexArray(m_fluidVao);
+    if (onGpu) {
+        glBindBuffer(GL_ARRAY_BUFFER, liquid.gpuDrawBuffer());
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, liquid.gpuCommandBuffer());
+    } else {
+        glBindBuffer(GL_ARRAY_BUFFER, m_fluidVbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(drops.size() * sizeof(glm::vec4)), drops.data(), GL_STREAM_DRAW);
+    }
+    // Two vec4s a drop: (position, w) and (shape axis, flatness).
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::vec4), nullptr);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 2 * sizeof(glm::vec4), (const void*)sizeof(glm::vec4));
+    auto drawDrops = [&]() {
+        if (onGpu) glDrawArraysIndirect(GL_POINTS, (const void*)(uintptr_t)Liquid::gpuDrawCommandOffset());
+        else glDrawArrays(GL_POINTS, 0, (GLsizei)(drops.size() / 2));
+    };
+    auto done = [&]() {
+        if (onGpu) glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+        glBindVertexArray(0);
+    };
+#ifndef GB_GLES
+    glEnable(GL_PROGRAM_POINT_SIZE);
+#endif
+    const glm::mat4 view = camera.view(), proj = camera.projection();
+    const float pointScale = proj[1][1] * 0.5f * (float)h;
+    const float radius = Liquid::kRadius * 1.25f;   // drawn a bit fatter so they join up
+    const glm::vec3 ambient = env.ambientColor * env.ambientIntensity;
+    // Each kind of liquid's colour (FluidSystem.Color; number 0 is plain water).
+    glm::vec3 palette[Liquid::kMaxFluids];
+    for (int k = 0; k < Liquid::kMaxFluids; ++k) palette[k] = glm::vec3(0.12f, 0.42f, 0.62f);
+    const auto& fluids = liquid.fluids();
+    for (size_t k = 0; k < fluids.size() && k < (size_t)Liquid::kMaxFluids; ++k) palette[k] = fluids[k].color;
+    const bool tinted = fluids.size() > 1;
+    auto setDrops = [&](Shader& s) {
+        s.bind();
+        s.setMat4("uView", view);
+        s.setMat4("uProj", proj);
+        s.setFloat("uPointScale", pointScale);
+        s.setFloat("uRenderDist", m_viewDist);
+        s.setFloat("uRadius", radius);
+        s.setVec3Array("uFluidColor", palette, Liquid::kMaxFluids);
+    };
+
+    // Without float pictures (some phones): shiny balls straight into the scene.
+    if (hdrFormat() != (GLenum)GL_RGBA16F) {
+        bindTarget(m_hdr);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        setDrops(*m_fluidSimple);
+        m_fluidSimple->setVec3("uLightDir", glm::normalize(glm::vec3(view * glm::vec4(env.sunDirection(), 0.0f))));
+        m_fluidSimple->setVec3("uAmbient", ambient);
+        drawDrops();
+        glDisable(GL_BLEND);
+        done();
+        return;
+    }
+
+    // Water Quality: lower draws the liquid at a lower resolution (then smooths it),
+    // which is much faster; higher smooths it more.
+    const GraphicsSettings& gq = GraphicsSettings::get();
+    const int fw = std::max(1, (int)std::lround(w * gq.waterScale())), fh = std::max(1, (int)std::lround(h * gq.waterScale()));
+    if (m_fDepth.w != fw || m_fDepth.h != fh || m_sceneCopy.w != w || m_sceneCopy.h != h || !m_fDepth.fbo) {
+#ifdef GB_GLES
+        const GLenum depthFmt = GL_RGBA16F;
+#else
+        const GLenum depthFmt = GL_R32F;
+#endif
+        createTarget(m_fDepth, fw, fh, depthFmt, true);
+        createTarget(m_fTmp, fw, fh, depthFmt, false);
+        createTarget(m_fThick, fw, fh, GL_RGBA16F, false);
+        createTarget(m_fColor, fw, fh, GL_RGBA16F, false);
+        createTarget(m_sceneCopy, w, h, hdrFormat(), true);   // colour and depth of what's behind
+    }
+    const glm::vec2 texel(1.0f / fw, 1.0f / fh);
+    const float fluidScale = pointScale * (float)fh / (float)h;   // drop sizes in the liquid's (maybe smaller) pictures
+    auto setDropsSmall = [&](Shader& s) { setDrops(s); s.setFloat("uPointScale", fluidScale); };
+
+    // 1. Nearest liquid in each pixel.
+    bindTarget(m_fDepth);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    setDropsSmall(*m_fluidDepth);
+    bindTex(0, m_hdr.depth);
+    m_fluidDepth->setInt("uSceneDepth", 0);
+    m_fluidDepth->setVec2("uTexel", texel);
+    drawDrops();
+
+    // 2. How much liquid is along each pixel.
+    bindTarget(m_fThick);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    setDropsSmall(*m_fluidThick);
+    bindTex(0, m_hdr.depth);
+    m_fluidThick->setInt("uSceneDepth", 0);
+    m_fluidThick->setVec2("uTexel", texel);
+    drawDrops();
+    // 2b. With more than one kind of liquid: which colour, where.
+    if (tinted) {
+        bindTarget(m_fColor);
+        glClear(GL_COLOR_BUFFER_BIT);
+        setDropsSmall(*m_fluidColor);
+        bindTex(0, m_hdr.depth);
+        m_fluidColor->setInt("uSceneDepth", 0);
+        m_fluidColor->setVec2("uTexel", texel);
+        drawDrops();
+    }
+    glDisable(GL_BLEND);
+
+    // 3. Smooth the surface (twice across, twice down).
+    if (onGpu) glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+    glBindVertexArray(m_emptyVao);
+    m_fluidBlur->bind();
+    m_fluidBlur->setInt("uSrc", 0);
+    m_fluidBlur->setFloat("uRange", 0.45f);   // studs: bigger depth jumps are edges
+    m_fluidBlur->setFloat("uPointScale", fluidScale);
+    m_fluidBlur->setVec2("uTexel", texel);
+    float step = 0.06f;   // studs; doubles every pass (4 passes reach ~1.8 studs)
+    for (int pass = 0; pass < gq.waterBlurPasses(); ++pass) {
+        bindTarget(m_fTmp);
+        bindTex(0, m_fDepth.color);
+        m_fluidBlur->setFloat("uStep", step);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        step *= 2.0f;
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fDepth.fbo);
+        glViewport(0, 0, fw, fh);
+        bindTex(0, m_fTmp.color);
+        m_fluidBlur->setFloat("uStep", step);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        step *= 2.0f;
+    }
+
+    // 4. The scene behind the water (and how far away it is), then the lit surface on top of it.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_hdr.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_sceneCopy.fbo);
+    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    bindTarget(m_hdr);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);   // (the depth pass already kept it in front of solid things)
+    glDepthMask(GL_TRUE);
+    m_fluidShade->bind();
+    bindTex(0, m_fDepth.color);  m_fluidShade->setInt("uDepth", 0);
+    bindTex(1, m_fThick.color);  m_fluidShade->setInt("uThick", 1);
+    bindTex(2, m_sceneCopy.color); m_fluidShade->setInt("uScene", 2);
+    bindTex(3, m_sceneCopy.depth); m_fluidShade->setInt("uSceneDepth", 3);
+    m_fluidShade->setMat4("uProj", proj);
+    m_fluidShade->setMat4("uInvView", glm::inverse(view));
+    m_fluidShade->setVec2("uTexel", texel);
+    m_fluidShade->setVec3("uSunDir", env.sunDirection());
+    m_fluidShade->setVec3("uSunColor", env.sunColor);
+    m_fluidShade->setFloat("uSunIntensity", std::max(0.0f, env.sunIntensity));
+    m_fluidShade->setVec3("uZenith", env.skyZenith);
+    m_fluidShade->setVec3("uHorizon", env.skyHorizon);
+    m_fluidShade->setVec3("uGround", env.skyGround);
+    m_fluidShade->setFloat("uSkyBrightness", env.skyBrightness);
+    m_fluidShade->setVec3("uAmbient", ambient);
+    m_fluidShade->setBool("uTinted", tinted);
+    m_fluidShade->setVec3("uTint", palette[0]);
+    bindTex(4, m_fColor.color); m_fluidShade->setInt("uColorTex", 4);
+    m_fluidShade->setBool("uWaterShadows", m_shadowsOn);
+    m_shadow.bindForRead(5); m_fluidShade->setInt("uShadowMap", 5);
+    m_fluidShade->setMat4("uLightSpace", m_lightSpace);
+    m_fluidShade->setFloat("uShadowStrength", env.shadowStrength);
+    m_fluidShade->setBool("uReflections", gq.waterReflections());
+    m_fluidShade->setFloat("uTime", (float)(now() - m_startTime));
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDepthFunc(GL_LESS);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
+}
+
 void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer& target) {
     GraphicsSettings& gs = GraphicsSettings::get();
     const Environment& env = scene.environment();
@@ -840,6 +1092,34 @@ void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer&
     m_composite->setFloat("uSaturation", env.saturation);
     m_composite->setFloat("uVignette", env.vignette);
     m_composite->setVec3("uTint", env.tint);
+    // Is the camera under water?
+    {
+        const glm::vec3 eye = camera.position();
+        float top = 0.0f;
+        glm::vec3 color(0.2f, 0.45f, 0.7f);
+        bool under = Player::waterAt(scene, eye, &top, nullptr, &color);
+        if (!under && scene.water().liquid().count()) {   // real liquid (FluidSource) deep enough to be in
+            const int n = scene.water().liquid().sample(eye, 0.9f, nullptr, &top);
+            under = n >= 12 && top > eye.y + 0.1f;
+            const auto& kinds = scene.water().liquid().fluids();
+            if (under) color = kinds.empty() ? glm::vec3(0.12f, 0.42f, 0.62f) : kinds[0].color;
+        }
+        m_composite->setBool("uUnderwater", under);
+        if (under) {
+            const glm::mat4 proj = camera.projection();
+            bindTex(3, m_hdr.depth);
+            m_composite->setInt("uDepth", 3);
+            m_composite->setVec2("uDepthParams", glm::vec2(proj[3][2], proj[2][2]));
+            const glm::vec3 tint = glm::clamp(color, glm::vec3(0.02f), glm::vec3(1.0f));
+            m_composite->setVec3("uWaterSigma", 0.035f + 0.1f * -glm::log(tint));
+            // The deeper you are, the less light gets down there.
+            const float deep = std::exp(-std::max(0.0f, top - eye.y) * 0.04f);
+            const glm::vec3 light = env.ambientColor * env.ambientIntensity * 1.2f +
+                                    env.sunColor * std::max(0.0f, env.sunIntensity) * 0.25f;
+            m_composite->setVec3("uWaterFog", glm::pow(tint, glm::vec3(2.2f)) * light * deep);
+            m_composite->setFloat("uTime", (float)(now() - m_startTime));
+        }
+    }
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
     if (useFxaa) {

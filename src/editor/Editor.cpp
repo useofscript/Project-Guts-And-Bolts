@@ -4,6 +4,7 @@
 #include "../game/Profile.h"
 #include "../scene/EditMesh.h"
 #include "../online/OnlineClient.h"
+#include "../online/Protocol.h"
 #include "Plugins.h"
 #include "../scene/Physics.h"
 #include "../scripting/ScriptEngine.h"
@@ -138,7 +139,7 @@ void Editor::render(float dt) {
     checkModeling();
     if (m_playing && (!m_state.simPaused || m_state.simStep)) {
         // F6 pauses the world; F7 moves it on by one frame.
-        m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true);
+        m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true, m_viewport->swimLook());
         m_state.simStep = false;
         Player* p = m_scene->player();
         if (p && !m_session->runOnly()) m_viewport->followPlayer(*p, dt);   // Run: the camera stays free
@@ -702,7 +703,7 @@ void Editor::exportRoblox(bool selectionOnly) {
     }
 }
 
-void Editor::saveFile(const std::string& path) {
+void Editor::saveFile(const std::string& path, bool sync) {
     if (m_playing) togglePlay();
     // A new game is signed by whoever made it (it shows on the site's Create page).
     GameInfo& info = m_scene->info();
@@ -711,7 +712,24 @@ void Editor::saveFile(const std::string& path) {
     if (Serializer::writeFile(path, Serializer::saveScene(*m_scene, true))) {
         m_path  = path;
         m_dirty = false;
-        Log::system("Saved to " + path + "  (it now shows up in Guts&BoltsPlayer)");
+        const std::string& published = info.publishedId;
+        if (published.empty()) {
+            Log::system("Saved to " + path + ". It's only on this computer: use File > Publish to put it online "
+                        "for everyone (and on the website).");
+        } else if (sync && Online::online()) {
+            // Published: send the new version to the server, so the website and everyone playing it get it.
+            Log::system("Saved to " + path + ". Updating the published game...");
+            nlohmann::json args = {{"id", published}, {"name", info.title}, {"description", info.description},
+                         {"data", Online::base64Encode(Serializer::saveScene(*m_scene))}};
+            Online::request("update", args, [](const nlohmann::json& r) {
+                if (r.value("ok", false)) Log::system("The published game is up to date on the server.");
+                else Log::warn("Saved, but the server didn't take the update: " + r.value("error", std::string()) +
+                               " (File > Publish to try again.)");
+            }, 120);
+        } else {
+            Log::system("Saved to " + path + ". You're offline, so the published game wasn't updated: "
+                        "save again (or File > Publish) when you're back online.");
+        }
     } else {
         Log::error("Couldn't save to " + path);
     }
@@ -963,6 +981,18 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     }
     else if (what == "Sound") { m_scene->select(parent); addSound(); }
     else if (what == "Attachment") put(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment));
+    else if (what == "FluidSystem") {
+        auto f = std::make_unique<SceneNode>("FluidSystem", NodeKind::FluidSystem);
+        f->color = {0.12f, 0.56f, 1.0f};
+        put(std::move(f));
+    }
+    else if (what == "FluidEmitter") {
+        // In front of the camera, a bit up, pouring down.
+        auto f = std::make_unique<SceneNode>("FluidEmitter", NodeKind::FluidEmitter);
+        f->transform.position = spawnPoint() + glm::vec3(0.0f, 8.0f, 0.0f);
+        SceneNode* e = m_scene->insert(std::move(f), m_scene->root());
+        m_scene->select(e);
+    }
     else if (what == "ForceField") put(std::make_unique<SceneNode>("ForceField", NodeKind::ForceField));
     else if (what == "IntValue" || what == "NumberValue" || what == "StringValue" || what == "BoolValue") {
         auto v = std::make_unique<SceneNode>(what, NodeKind::Value);
@@ -1049,7 +1079,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},

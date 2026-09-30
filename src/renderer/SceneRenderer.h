@@ -29,11 +29,12 @@ public:
     };
 
 private:
-    void renderShadowPass(Scene& scene, const glm::mat4& lightSpace);
+    void renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target);
     void drawGeometry(Scene& scene, const Camera& camera, bool editing);
     static glm::mat4 decalMatrix(const SceneNode& decal);
     void drawConstraints(Scene& scene, bool editing);
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
+    void renderLiquid(Scene& scene, const Camera& camera);   // real liquid (Liquid.cpp)
     void ensureTargets(int w, int h);
     void buildGrid();
 public:
@@ -45,8 +46,20 @@ private:
 
     std::unique_ptr<Shader> m_lit, m_grid, m_sky, m_depth;
     std::unique_ptr<Shader> m_ssao, m_bloomPre, m_bloomDown, m_bloomUp, m_composite, m_fxaa;
-    ShadowMap               m_shadow;
+    std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidColor, m_fluidBlur, m_fluidShade, m_fluidSimple;
+    Target m_fDepth, m_fTmp, m_fThick, m_fColor, m_sceneCopy;   // liquid: depth, blur scratch, thickness, the scene behind
+    unsigned int m_fluidVao = 0, m_fluidVbo = 0;
+    ShadowMap               m_shadow, m_shadowNear;   // wide, and sharp close to the camera
     int                     m_shadowRes = 0;
+    glm::mat4               m_lightSpace{1.0f};       // (the wide shadow map's, for the water)
+    bool                    m_shadowsOn = false;
+    // Render distance (GraphicsSettings::renderDistance) for this frame: things further
+    // than m_viewDist from m_viewPos aren't drawn. 0 = no limit.
+    glm::vec3               m_viewPos{0.0f};
+    float                   m_viewDist = 0.0f;
+    bool tooFar(const glm::vec3& p, float radius) const {
+        return m_viewDist > 0.0f && glm::length(p - m_viewPos) - radius > m_viewDist;
+    }
 
     static constexpr int kBloomLevels = 6;
     Target m_hdr, m_ao, m_ldr, m_bloom[kBloomLevels];

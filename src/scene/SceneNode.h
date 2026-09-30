@@ -26,7 +26,8 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Decal      — a picture on one side of the part it's inside
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
-enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui };
+enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui,
+                      FluidSystem, FluidEmitter };
 
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
 // buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
@@ -195,6 +196,15 @@ public:
     bool        canBeDropped = true;       // Backspace drops it
     bool        starterTool  = false;      // everyone gets one when they spawn (like Roblox's StarterPack)
     glm::vec3   gripPos{0.0f};             // the point on the Handle (Handle's own space) that sits in the hand
+
+    // Real liquid (see Liquid.h). A FluidSystem is a kind of liquid: `color`, how thick
+    // it is and how much it sticks together. A FluidEmitter pours it out: its
+    // transform's position and scale are its Position and Size; `enabled` turns it on and off.
+    float       viscosity      = 0.015f;   // FluidSystem: 0 = runny like water, 1 = thick like honey
+    float       surfaceTension = 0.0f;     // FluidSystem: 0..1, how much drops pull together (beads, strands)
+    float       fluidRate      = 500.0f;   // FluidEmitter: drops per second
+    glm::vec3   fluidVelocity{0.0f, -10.0f, 0.0f};   // FluidEmitter: how fast (and which way) it pours
+    uint64_t    fluidSystem    = 0;        // FluidEmitter: its FluidSystem (0 = plain water)
 
     // Runtime-only physics state (not saved).
     glm::vec3   angularVelocity = {0.0f, 0.0f, 0.0f};

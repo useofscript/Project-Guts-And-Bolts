@@ -236,6 +236,15 @@ void PlayerApp::run() {
                     break;
                 }
         }
+        // Test helper: publish a game file (like the Publish button on My Games).
+        if (!m_opts.testPublish.empty() && m_frame == 60) {
+            std::printf("PUBLISH %s (online %d)\n", m_opts.testPublish.c_str(), (int)Online::online());
+            std::fflush(stdout);
+            publishGameFile(m_opts.testPublish, std::string(), [](bool ok, const std::string& msg) {
+                std::printf("PUBLISHED %d %s\n", (int)ok, msg.c_str());
+                std::fflush(stdout);
+            });
+        }
         // Test helper: drive the tool hotbar, one step every 25 frames.
         if (!m_opts.testTools.empty() && m_page == Page::Game && m_frame > 40 && m_frame % 25 == 0) {
             size_t sp = m_opts.testTools.find(' ');
@@ -302,6 +311,19 @@ void PlayerApp::run() {
             if (Player* p = m_scene->player()) {
                 glm::vec3 q = p->position();
                 std::printf("POS me %.2f %.2f %.2f\n", q.x, q.y, q.z);
+            }
+            Liquid& liquid = m_scene->water().liquid();
+            const Liquid::Stats st = liquid.stats();
+            if (st.count) {   // real liquid: how much, where and how fast
+                std::printf("LIQUID %zu drops (%s), from %.1f %.1f %.1f to %.1f %.1f %.1f, fastest %.1f, %.1f ms\n", st.count,
+                            liquid.backend(), st.lo.x, st.lo.y, st.lo.z, st.hi.x, st.hi.y, st.hi.z, st.fastest, liquid.lastStepMs());
+                if (const char* dump = std::getenv("GB_LIQUID_DUMP"))   // every drop, for looking at in a script
+                    if (FILE* f = std::fopen(dump, "w")) {
+                        for (const glm::vec4& d : liquid.debugDrops()) std::fprintf(f, "%.2f %.2f %.2f %.2f\n", d.x, d.y, d.z, d.w);
+                        std::fclose(f);
+                    }
+                const float* pr = m_scene->water().liquid().profile();
+                std::printf("LIQUID ms: move %.1f, neighbours %.1f, solve %.1f, velocity %.1f, scan %.1f\n", pr[0], pr[1], pr[2], pr[3], pr[4]);
             }
             for (const RemoteCharacter& rc : m_scene->remotes())
                 if (SceneNode* n = m_scene->findById(rc.rootId))
@@ -1363,7 +1385,7 @@ void PlayerApp::drawGame(float dt) {
     const bool touch = GraphicsSettings::get().touchEnabled();
     if (touch) updateTouch(pos, max, acceptInput);
     else       m_session->setTouchInput(glm::vec2(0.0f), false);
-    m_session->update(dt, m_camera.yaw, acceptInput);
+    m_session->update(dt, m_camera.yaw, acceptInput, PlayCamera::swimLook(m_camera));
 
     // BadgeService:AwardBadge from the game's scripts: the server checks we're this
     // game's host and the player is here, then everyone hears about it.
@@ -1873,6 +1895,51 @@ void PlayerApp::drawPauseMenu() {
         static const char* q[] = {"Low", "Medium", "High", "Ultra", "Custom"};
         int qi = std::clamp(gs.quality, 0, 4);
         if (ImGui::Combo("##quality", &qi, q, 5)) { if (qi < 4) gs.applyPreset(qi); else gs.quality = qi; changed = true; }
+        {
+            // Render distance, like the old graphics bar: - [][][][][][][][][][] +
+            row("Render Distance");
+            ImGui::PushID("renderdist");
+            const int maxRd = GraphicsSettings::kMaxRenderDistance;
+            int rd = std::clamp(gs.renderDistance, 1, maxRd);
+            const float h = ImGui::GetFrameHeight();
+            if (ImGui::Button("-", ImVec2(h, h)) && rd > 1) rd--;
+            ImGui::SameLine(0, 6);
+            const float gap = 3.0f;
+            const float barW = std::max(40.0f, ImGui::GetContentRegionAvail().x - h - 6.0f);
+            const float cell = (barW - gap * (maxRd - 1)) / maxRd;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            for (int i = 0; i < maxRd; ++i) {
+                ImGui::SetCursorScreenPos(ImVec2(at.x + i * (cell + gap), at.y));
+                ImGui::PushID(i);
+                if (ImGui::InvisibleButton("seg", ImVec2(cell, h))) rd = i + 1;
+                const bool hover = ImGui::IsItemHovered();
+                ImGui::PopID();
+                const ImU32 col = i < rd ? (i == maxRd - 1 ? IM_COL32(90, 200, 120, 255) : IM_COL32(80, 160, 240, 255))
+                                         : (hover ? IM_COL32(80, 84, 95, 255) : IM_COL32(55, 58, 66, 255));
+                dl->AddRectFilled(ImVec2(at.x + i * (cell + gap), at.y + 2), ImVec2(at.x + i * (cell + gap) + cell, at.y + h - 2), col, 3.0f);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(at.x + barW + 6.0f, at.y));
+            if (ImGui::Button("+", ImVec2(h, h)) && rd < maxRd) rd++;
+            ImGui::PopID();
+            if (rd != gs.renderDistance) { gs.renderDistance = rd; gs.quality = GraphicsSettings::Custom; changed = true; }
+            ImGui::SetCursorPosX(labelW);
+            if (rd >= maxRd) ImGui::TextDisabled("Max: everything is drawn");
+            else ImGui::TextDisabled("%d studs (lower = faster)", (int)gs.renderDistanceStuds());
+        }
+        row("Water Quality");
+        static const char* wq[] = {"Low", "Medium", "High", "Ultra"};
+        if (ImGui::Combo("##water", &gs.waterQuality, wq, 4)) { gs.quality = GraphicsSettings::Custom; changed = true; }
+        row("Graphics API");
+        static const int startedApi = gs.graphicsApi;
+        changed |= ImGui::Combo("##api", &gs.graphicsApi, GraphicsSettings::apiNames(), 4);
+        if (!GraphicsSettings::activeApi().empty()) {
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("Using %s", GraphicsSettings::activeApi().c_str());
+            ImGui::PopTextWrapPos();
+        }
+        if (gs.graphicsApi != startedApi)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Close and reopen Guts&Bolts to switch.");
         onOff("Show FPS", gs.showFps);
         ImGui::SeparatorText("Other");
         onOff("Blood and Gore", gs.allowGore);
@@ -1892,6 +1959,7 @@ void PlayerApp::drawPauseMenu() {
         key("W A S D", "Walk");
         key("Space", "Jump (again in the air to double-jump, if the game allows it)");
         key("Shift", "Shift Lock: camera over your shoulder (turn on in Settings)");
+        key("C / Ctrl", "Swimming: dive (or swim forward looking down; Space goes up)");
         ImGui::SeparatorText("Camera");
         key("Right mouse", "Hold and drag to look around");
         key("Mouse wheel", "Zoom in and out; all the way in is first person");
@@ -2059,6 +2127,30 @@ void PlayerApp::drawStaff() {
 
     if (Online::online()) drawOnlineStaff();   // verify people straight from the server
     if (!official) return;   // the rest is for the official account only
+
+    // The sample games that come with Guts&Bolts, put on the server as official games
+    // (so the website has them for everyone, not just people who installed the apps).
+    if (Online::online()) {
+        ImGui::SeparatorText("Official games on the website");
+        int waiting = 0;
+        for (const GameCard& g : m_games)
+            if (!g.broken && g.info.author == "Guts and Bolts" && g.info.publishedId.empty()) ++waiting;
+        ImGui::PushTextWrapPos(0);
+        if (waiting)
+            ImGui::TextDisabled("%d sample game%s on this computer %s not on the server yet.", waiting,
+                                waiting == 1 ? "" : "s", waiting == 1 ? "is" : "are");
+        else
+            ImGui::TextDisabled("All the sample games on this computer are on the server.");
+        ImGui::PopTextWrapPos();
+        if (waiting && Classic::button("Put the sample games online", Classic::kPlay, ImVec2(240, 30))) {
+            m_staffMsg = "Publishing the sample games...";
+            for (const GameCard& g : m_games) {
+                if (g.broken || g.info.author != "Guts and Bolts" || !g.info.publishedId.empty()) continue;
+                publishGameFile(g.path, g.thumb ? g.thumb->toPng() : std::string(),
+                                [this](bool, const std::string& msg) { m_staffMsg = msg; });
+            }
+        }
+    }
 
     ImGui::SeparatorText("Give someone Bolts");
     ImGui::PushTextWrapPos(0);

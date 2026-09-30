@@ -13,6 +13,9 @@ namespace PlayCamera {
 constexpr float kMaxZoom = 60.0f;
 
 bool firstPerson(const Camera& cam);
+// Up/down for swimming, from where the camera looks: -1 straight down .. 1 straight up.
+// (The normal over-the-shoulder view looks down a little: that counts as level.)
+float swimLook(const Camera& cam);
 // Mouse wheel (or pinch): closer / further, snapping into and out of first person.
 void zoom(Camera& cam, float wheel);
 // Move the camera with the character (call every frame while playing).

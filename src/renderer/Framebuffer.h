@@ -1,5 +1,6 @@
 #pragma once
 #include "GL.h"
+#include <string>
 
 class Framebuffer {
 public:
@@ -16,6 +17,8 @@ public:
     GLuint colorTexture() const { return m_color; }
     int width()  const { return m_w; }
     int height() const { return m_h; }
+    // What it shows, as a .png file (no see-through pixels). For thumbnails.
+    std::string toPng() const;
 
 private:
     void create(int w, int h);

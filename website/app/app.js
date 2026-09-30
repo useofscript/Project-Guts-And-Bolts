@@ -421,6 +421,13 @@ pages.home = async () => {
       <a href="#/catalog" style="float:right">See more &raquo;</a></h2>
     ${items.ok && items.assets.length ? html`<div class="grid">${items.assets.map(itemCard)}</div>`
       : html`<p class="muted small">Nothing here yet.</p>`}</div>`;
+  const upd = await pageCall('updates.list', { limit: 1 });
+  const latest = upd.ok && upd.updates.length ? upd.updates[0] : null;
+  const updateBox = latest ? html`<div class="box latest-update"><h2 class="boxhead">Latest update
+      <a href="#/updates" style="float:right">All updates &raquo;</a></h2>
+    <p><b>${latest.name}</b>${latest.version ? html` <span class="small muted">v${latest.version}</span>` : ''}
+      <span class="small muted">&middot; ${ago(latest.time)}</span></p>
+    ${latest.summary ? html`<p class="small">${latest.summary}</p>` : ''}</div>` : '';
   if (!signedIn()) {
     show(html`<div class="welcome">
         <div><h1>Welcome to Guts&amp;Bolts!</h1>
@@ -429,7 +436,7 @@ pages.home = async () => {
           <p><a class="btn green big" href="#/signup">Sign Up and Play</a>
             <a class="btn" href="#/login">Login</a></p></div>
         <div class="welcome-guy" id="homeAvatar">${avatarSvg(defaultAvatar(), 150)}</div></div>
-      ${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}`);
+      ${updateBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}`);
     mountAvatar($('#homeAvatar'), defaultAvatar(), [], { width: 170 }).catch(() => {});
     return;
   }
@@ -450,9 +457,86 @@ pages.home = async () => {
               <span class="dot on"></span><a class="grow" href="#/user/${p.userId}">${p.username || p.name}</a></div>`)}</div>`
             : html`<p class="small muted">${friends.length ? 'None of your friends are on right now.' : html`No friends yet. <a href="#/people">Find some!</a>`}</p>`}</div>
       </div>
-      <div class="home-right">${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
+      <div class="home-right">${updateBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
     </div>`);
   mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), [], { width: 170 }).catch(() => {});
+};
+
+// --- Updates: the update log, newest first. It checks for new ones by itself while
+// you're looking, and the Updates link lights up when there's one you haven't seen.
+const UPDATE_TAG_COLORS = { Engine: '#2a7de1', Studio: '#8a4fd1', Website: '#1f9d55', Player: '#e08a00', Server: '#4a5a70', Fix: '#d33c3c' };
+function seenUpdate() { try { return localStorage.getItem('gb.seenUpdate') || ''; } catch { return ''; } }
+function markUpdateSeen(id) { try { localStorage.setItem('gb.seenUpdate', id); } catch { /* private window */ } }
+function updateCard(u, fresh) {
+  const color = UPDATE_TAG_COLORS[u.tag] || '#4a5a70';
+  return html`<article class="box update${fresh ? ' fresh' : ''}" id="upd-${u.id}">
+    <div class="update-head">
+      <h2>${u.name}${fresh ? html` <span class="badge">NEW</span>` : ''}</h2>
+      <span class="update-tag" style="background:${color}">${u.tag}</span>
+    </div>
+    <p class="small muted">${u.version ? html`Version ${u.version} &middot; ` : ''}${new Date(u.time * 1000).toLocaleDateString()} (${ago(u.time)})${u.by ? html` &middot; posted by ${u.by}` : ''}</p>
+    ${u.summary ? html`<p class="update-summary">${u.summary}</p>` : ''}
+    ${(u.items || []).length ? html`<ul class="update-items">${u.items.map((i) => html`<li>${i}</li>`)}</ul>` : ''}
+    ${me && me.staff && u.id.startsWith('u-') ? html`<p><button class="btn small" data-act="deleteUpdate" data-id="${u.id}">Delete</button></p>` : ''}
+  </article>`;
+}
+function setUpdatesLink(latest) {
+  const link = $('#nav a[data-page=updates]');
+  if (link) link.innerHTML = 'Updates' + (latest && latest !== seenUpdate() ? ' <span class="badge">NEW</span>' : '');
+}
+async function checkUpdates() {
+  const r = await gb.call('updates.list', { limit: 1 });
+  if (r.ok) setUpdatesLink(r.latest);
+  return r;
+}
+
+pages.updates = async () => {
+  const r = await pageCall('updates.list', { limit: 100 });
+  if (!r.ok) { show(html`<h1>Updates</h1><p class="error">${r.error}</p>`); return; }
+  const before = seenUpdate();
+  let known = new Set(r.updates.map((u) => u.id));
+  const staffForm = me && me.staff ? html`<details class="box"><summary><b>Post an update</b> (staff)</summary>
+      <form data-form="postUpdate" class="form">
+        <label>Name <input type="text" name="name" maxlength="40" required placeholder="Give it a cool name, like Glass Lagoon"></label>
+        <label>Version <input type="text" name="version" maxlength="12" placeholder="0.6.1"></label>
+        <label>Kind <select name="tag">${['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'].map((t) => html`<option>${t}</option>`)}</select></label>
+        <label>Summary <input type="text" name="summary" maxlength="200" placeholder="One line about it"></label>
+        <label>What changed (one per line) <textarea name="items" rows="5"></textarea></label>
+        <p><button class="btn green">Post update</button></p>
+      </form></details>` : '';
+  // The newest one you hadn't seen yet (and anything newer) is marked NEW.
+  const firstSeen = r.updates.findIndex((u) => u.id === before);
+  const isFresh = (i) => before && (firstSeen < 0 ? false : i < firstSeen);
+  show(html`<h1>Updates</h1>
+    <p class="muted">What's new in Guts&amp;Bolts, newest first. This page checks for new updates by itself.
+      <span class="live-dot" title="Live"></span></p>
+    ${staffForm}
+    <div id="updateList">${r.updates.map((u, i) => updateCard(u, isFresh(i)))}</div>`);
+  if (r.latest) { markUpdateSeen(r.latest); setUpdatesLink(r.latest); }
+  // Live: look again every 20 seconds while this page is open; new ones slide in on top.
+  const token = pageToken;
+  const poll = setInterval(async () => {
+    if (token !== pageToken) { clearInterval(poll); return; }
+    if (document.visibilityState !== 'visible') return;
+    const n = await gb.call('updates.list', { limit: 20 });
+    if (token !== pageToken || !n.ok) return;
+    const list = $('#updateList');
+    if (!list) return;
+    const added = n.updates.filter((u) => !known.has(u.id));
+    for (const u of added.reverse()) {
+      list.insertAdjacentHTML('afterbegin', updateCard(u, true).s);
+      toast('New update: ' + u.name + '!');
+    }
+    // (and ones staff deleted disappear)
+    const now = new Set(n.updates.map((u) => u.id));
+    const oldest = n.updates.length ? n.updates[n.updates.length - 1].time : 0;
+    for (const id of known) if (!now.has(id) && id.startsWith('u-')) {
+      const u = r.updates.find((x) => x.id === id);
+      if (!u || u.time >= oldest) { const el = document.getElementById('upd-' + id); if (el) el.remove(); }
+    }
+    known = new Set([...known, ...now]);
+    if (n.latest) { markUpdateSeen(n.latest); setUpdatesLink(n.latest); }
+  }, 20000);
 };
 
 pages.games = async () => {
@@ -1210,6 +1294,12 @@ function loginPage(signup) {
 // --- clicks and forms ----------------------------------------------------------
 
 const actions = {
+  async deleteUpdate(d) {
+    if (!confirm('Delete this update?')) return;
+    const r = await call('updates.delete', { id: d.id });
+    toast(r.ok ? 'Deleted.' : r.error);
+    if (r.ok) render();
+  },
   async logout() {
     if (!confirm('Log out? You can log back in with your username and password.')) return;
     await gb.forgetKey();
@@ -1385,6 +1475,12 @@ const actions = {
 };
 
 const forms = {
+  async postUpdate(f) {
+    const r = await call('updates.post', { name: f.name.value, version: f.version.value, tag: f.tag.value,
+      summary: f.summary.value, items: f.items.value.split('\n').map((x) => x.trim()).filter(Boolean) });
+    toast(r.ok ? 'Posted "' + r.update.name + '"!' : r.error);
+    if (r.ok) render();
+  },
   async forgot(f) {
     const msg = $('#forgotMsg');
     msg.className = 'muted'; msg.textContent = 'Sending...';
@@ -1654,5 +1750,6 @@ window.addEventListener('hashchange', () => {
   await hello();
   render();
   checkRequests();
-  setInterval(() => { if (document.visibilityState === 'visible') checkRequests(); }, 60000);
+  checkUpdates();
+  setInterval(() => { if (document.visibilityState === 'visible') { checkRequests(); checkUpdates(); } }, 60000);
 })();
