@@ -21,6 +21,14 @@
 - The camera follows your head. Scroll all the way in for first person: your
   character fades out as the camera gets close, and the mouse looks around.
 
+**In-game menu and Shift Lock, like Roblox**
+- Esc opens a new menu with Players, Settings and Help tabs, and Reset / Leave
+  / Resume buttons along the bottom (R and L keys work too, and ask first).
+- New settings: Shift Lock Switch, camera sensitivity, invert camera, volume
+  and fullscreen, next to graphics quality, FPS, gore and touch controls.
+- Shift Lock: press Shift and the camera sits over your right shoulder while
+  your character faces wherever you look. Works in Studio's play test too.
+
 **Assistant and MCP (AI in Studio)**
 - New Assistant tab: chat with Claude (your own API key) and it builds,
   scripts, playtests and takes screenshots in your game. Everything is undoable.

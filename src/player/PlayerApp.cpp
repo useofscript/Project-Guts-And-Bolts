@@ -256,6 +256,7 @@ void PlayerApp::run() {
             }
             if (!m_opts.holdKey.empty() && m_frame > 3) {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
+                           : m_opts.holdKey == "Shift" ? ImGuiKey_LeftShift
                            : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
                 ImGui::GetIO().AddKeyEvent(k, true);
             }
@@ -1110,7 +1111,17 @@ void PlayerApp::drawAvatar(float dt) {
 
 void PlayerApp::drawGame(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-    if (!io.WantTextInput && !m_chatOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_paused = !m_paused;
+    if (!io.WantTextInput && !m_chatOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (m_menuConfirm) m_menuConfirm = 0;   // Esc backs out of "Are you sure?"
+        else { m_paused = !m_paused; m_menuTab = 0; }
+    }
+
+    // Test helper: "--page menu" / "menu-settings" / "menu-help" / "menu-leave" opens the in-game menu.
+    if (m_frame == 60 && m_opts.page.rfind("menu", 0) == 0) {
+        m_paused = true;
+        m_menuTab = m_opts.page == "menu-settings" ? 1 : m_opts.page == "menu-help" ? 2 : 0;
+        m_menuConfirm = m_opts.page == "menu-leave" ? 2 : 0;
+    }
 
     ImVec2 pos  = ImGui::GetCursorScreenPos();
     ImVec2 size = ImGui::GetContentRegionAvail();
@@ -1165,25 +1176,40 @@ void PlayerApp::drawGame(float dt) {
 
     // Camera: follow the character's head; right-drag to look around, wheel to
     // zoom, all the way in for first person (where the mouse looks around by itself).
+    // Shift toggles Shift Lock (like Roblox): the mouse is locked in the middle
+    // and turns the camera, which sits over the right shoulder.
     bool hovered = ImGui::IsWindowHovered();
     const bool firstPerson = PlayCamera::firstPerson(m_camera);
+    const bool typing = io.WantTextInput || m_chatOpen;
+    if (!GraphicsSettings::get().shiftLockSwitch || touch) m_shiftLock = false;
+    else if (acceptInput && !typing && !firstPerson &&
+             (ImGui::IsKeyPressed(ImGuiKey_LeftShift, false) || ImGui::IsKeyPressed(ImGuiKey_RightShift, false)))
+        m_shiftLock = !m_shiftLock;
     if (acceptInput && hovered) {
-        if (firstPerson && !m_paused && !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+        const bool locked = (firstPerson || m_shiftLock) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+        if (locked) {
             ImVec2 c = ImGui::GetCursorScreenPos();
             ImVec2 mid(c.x + size.x * 0.5f, c.y + size.y * 0.5f);
             AppWindow::lockMouse(mid.x, mid.y);
-            m_camera.orbit(AppWindow::mouseLookX(), AppWindow::mouseLookY());
-            // The pointer is hidden: a little dot in the middle shows what you'd click.
+            PlayCamera::turn(m_camera, AppWindow::mouseLookX(), AppWindow::mouseLookY());
             ImDrawList* fg = ImGui::GetForegroundDrawList();
-            fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
-            fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+            if (m_shiftLock && !firstPerson) {
+                // Roblox's Shift Lock cursor: a ring with a dot.
+                fg->AddCircle(mid, 11.0f, IM_COL32(0, 0, 0, 120), 24, 4.0f);
+                fg->AddCircle(mid, 11.0f, IM_COL32(255, 255, 255, 235), 24, 2.0f);
+                fg->AddCircleFilled(mid, 2.5f, IM_COL32(255, 255, 255, 235));
+            } else {
+                // The pointer is hidden: a little dot in the middle shows what you'd click.
+                fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
+                fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+            }
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-            m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
+            PlayCamera::turn(m_camera, io.MouseDelta.x, io.MouseDelta.y);
         }
         PlayCamera::zoom(m_camera, io.MouseWheel);
     }
     if (Player* p = m_scene->player()) {
-        PlayCamera::follow(m_camera, *p, dt);
+        PlayCamera::follow(m_camera, *p, dt, m_shiftLock);
         PlayCamera::fade(*m_scene, *p, m_camera);
     }
 
@@ -1234,10 +1260,7 @@ void PlayerApp::drawGame(float dt) {
         m_session->selectToolSlot(slot);
     Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
-    if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
-    else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
-    else Hud::drawPlayerList(dl, pos, max, {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
-                                             m_session->scripts().leaderstats(Online::playerName())}});
+    Hud::drawPlayerList(dl, pos, max, currentPlayers());
     if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
 
     // "+5 Bolts for playing!" popup, top middle.
@@ -1503,41 +1526,181 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ImGui::End();
 }
 
+std::vector<PlayerEntry> PlayerApp::currentPlayers() const {
+    if (m_server) return m_server->players();
+    if (m_client) return m_client->players();
+    return {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+             m_session->scripts().leaderstats(Online::playerName())}};
+}
+
+// The in-game menu, laid out like Roblox's: tabs along the top (Players,
+// Settings, Help) and Reset / Leave / Resume along the bottom, each with its key.
 void PlayerApp::drawPauseMenu() {
+    ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    // Darken the game behind the menu (not the menu itself).
     ImGui::GetWindowDrawList()->AddRectFilled(vp->WorkPos,
-        ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y), IM_COL32(0, 0, 0, 120));
+        ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y), IM_COL32(0, 0, 0, 150));
+
+    // Keys, like Roblox: R resets, L leaves (both ask first), Esc resumes.
+    if (!io.WantTextInput) {
+        if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_menuConfirm = 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_L, false)) m_menuConfirm = 2;
+    }
+
+    const float w = fitWidth(640), h = std::min(470.0f, vp->WorkSize.y - 24.0f);
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(fitWidth(320), 0));
+    ImGui::SetNextWindowSize(ImVec2(w, h));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.13f, 0.15f, 0.96f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 14));
     ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoSavedSettings);
-    ImGui::SetWindowFontScale(1.3f);
-    ImGui::TextUnformatted(m_currentTitle.c_str());
-    ImGui::SetWindowFontScale(1.0f);
-    if (m_server && m_server->relayed()) {
-        if (!m_server->relayCode().empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1), "Private server - code: %s", m_server->relayCode().c_str());
-            ImGui::TextDisabled("Friends can also join from their Friends list.");
-        } else {
-            ImGui::TextDisabled(m_server->relayReady() ? "Public server" : "Starting the server...");
+
+    if (m_menuConfirm != 0) {
+        // "Are you sure?" page, like Roblox's.
+        const bool reset = m_menuConfirm == 1;
+        ImGui::Dummy(ImVec2(0, h * 0.22f));
+        ImGui::SetWindowFontScale(1.5f);
+        const char* q = reset ? "Are you sure you want to reset your character?" : "Are you sure you want to leave the game?";
+        ImVec2 qs = ImGui::CalcTextSize(q);
+        ImGui::SetCursorPosX(std::max(16.0f, (w - qs.x) * 0.5f));
+        ImGui::TextUnformatted(q);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::Dummy(ImVec2(0, 30));
+        const float bw = std::min(200.0f, (w - 60) * 0.5f);
+        ImGui::SetCursorPosX((w - bw * 2 - 16) * 0.5f);
+        bool yes = bigButton(reset ? "Reset" : "Leave", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(bw, 44));
+        ImGui::SameLine(0, 16);
+        bool no = bigButton(reset ? "Don't Reset" : "Don't Leave",
+                            ImVec4(0.3f, 0.3f, 0.35f, 1), ImVec2(bw, 44));
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) yes = true;
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+        if (no) m_menuConfirm = 0;
+        else if (yes) {
+            m_menuConfirm = 0;
+            m_paused = false;
+            if (reset) { if (Player* p = m_scene->player()) p->kill(); }
+            else leaveGame();
         }
-    } else if (m_server) {
-        ImGui::TextDisabled("Local network server");
-    } else if (!m_client) {
-        ImGui::TextDisabled("Offline - just you");
+        return;
     }
-    ImGui::Separator();
+
+    // Tabs along the top.
+    const char* tabs[] = {"Players", "Settings", "Help"};
+    const float tw = (w - 32 - 16) / 3.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (i) ImGui::SameLine(0, 8);
+        bool on = m_menuTab == i;
+        if (bigButton(tabs[i], on ? kAccent : ImVec4(0.2f, 0.21f, 0.24f, 1), ImVec2(tw, 34))) m_menuTab = i;
+    }
     ImGui::Spacing();
-    const ImVec2 full(-1, 40);
-    if (bigButton("Resume", kGreen, full)) m_paused = false;
-    if (bigButton("Reset Character", ImVec4(0.3f, 0.3f, 0.35f, 1), full)) {
-        if (Player* p = m_scene->player()) p->kill();
-        m_paused = false;
+
+    const float bottom = 52.0f;
+    ImGui::BeginChild("##menuBody", ImVec2(0, -bottom), false);
+    if (m_menuTab == 0) {
+        ImGui::TextDisabled("%s", m_currentTitle.c_str());
+        if (m_server && m_server->relayed()) {
+            if (!m_server->relayCode().empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1), "Private server - code: %s", m_server->relayCode().c_str());
+            else ImGui::TextDisabled(m_server->relayReady() ? "Public server" : "Starting the server...");
+        } else if (m_server) ImGui::TextDisabled("Local network server");
+        else if (!m_client) ImGui::TextDisabled("Offline - just you");
+        ImGui::Spacing();
+        for (const PlayerEntry& e : currentPlayers()) {
+            ImGui::PushID(e.name.c_str());
+            ImVec2 a = ImGui::GetCursorScreenPos();
+            ImVec2 z(a.x + ImGui::GetContentRegionAvail().x, a.y + 40);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(a, z, IM_COL32(40, 42, 48, 255), 6.0f);
+            dl->AddCircleFilled(ImVec2(a.x + 22, a.y + 20), 13, IM_COL32(90, 150, 230, 255));
+            float x = a.x + 44;
+            dl->AddText(ImVec2(x, a.y + 12), IM_COL32(255, 255, 255, 255), e.name.c_str());
+            x += ImGui::CalcTextSize(e.name.c_str()).x + 8;
+            if (e.verified) { dl->AddText(ImVec2(x, a.y + 12), IM_COL32(80, 170, 255, 255), "[Verified]"); x += 74; }
+            if (e.admin)    dl->AddText(ImVec2(x, a.y + 12), IM_COL32(255, 200, 70, 255), "[Staff]");
+            if (e.name == Online::playerName()) {
+                const char* you = "(you)";
+                dl->AddText(ImVec2(z.x - ImGui::CalcTextSize(you).x - 12, a.y + 12), IM_COL32(170, 170, 180, 255), you);
+            }
+            ImGui::Dummy(ImVec2(0, 44));
+            ImGui::PopID();
+        }
+    } else if (m_menuTab == 1) {
+        GraphicsSettings& gs = GraphicsSettings::get();
+        bool changed = false;
+        const float labelW = 190.0f;
+        auto row = [&](const char* label) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine(labelW);
+            ImGui::SetNextItemWidth(-1);
+        };
+        auto onOff = [&](const char* label, bool& v) {
+            row(label);
+            ImGui::PushID(label);
+            const float bw = (ImGui::GetContentRegionAvail().x - 8) * 0.5f;
+            if (bigButton("On", v ? kGreen : ImVec4(0.2f, 0.21f, 0.24f, 1), ImVec2(bw, 0)) && !v) { v = true; changed = true; }
+            ImGui::SameLine(0, 8);
+            if (bigButton("Off", !v ? ImVec4(0.55f, 0.25f, 0.25f, 1) : ImVec4(0.2f, 0.21f, 0.24f, 1), ImVec2(bw, 0)) && v) { v = false; changed = true; }
+            ImGui::PopID();
+        };
+        ImGui::SeparatorText("Camera");
+        onOff("Shift Lock Switch", gs.shiftLockSwitch);
+        row("Camera Sensitivity");
+        changed |= ImGui::SliderFloat("##sens", &gs.mouseSensitivity, 0.1f, 4.0f, "%.1f");
+        onOff("Invert Camera", gs.invertCamera);
+        ImGui::SeparatorText("Sound and screen");
+        row("Volume");
+        int vol = (int)std::lround(gs.volume * 10.0f);
+        if (ImGui::SliderInt("##vol", &vol, 0, 10)) { gs.volume = vol / 10.0f; changed = true; }
+#ifndef GB_MOBILE
+        onOff("Fullscreen", gs.fullscreen);
+#endif
+        row("Graphics Quality");
+        static const char* q[] = {"Low", "Medium", "High", "Ultra", "Custom"};
+        int qi = std::clamp(gs.quality, 0, 4);
+        if (ImGui::Combo("##quality", &qi, q, 5)) { if (qi < 4) gs.applyPreset(qi); else gs.quality = qi; changed = true; }
+        onOff("Show FPS", gs.showFps);
+        ImGui::SeparatorText("Other");
+        onOff("Blood and Gore", gs.allowGore);
+        row("Touch Controls");
+        static const char* tm[] = {"Automatic", "Always on", "Off"};
+        changed |= ImGui::Combo("##touch", &gs.touchControls, tm, 3);
+        ImGui::Spacing();
+        if (bigButton("Advanced graphics...", ImVec4(0.3f, 0.3f, 0.35f, 1))) m_showSettings = true;
+        if (changed) gs.save();
+    } else {
+        auto key = [](const char* k, const char* what) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1), "%-12s", k);
+            ImGui::SameLine(130);
+            ImGui::TextUnformatted(what);
+        };
+        ImGui::SeparatorText("Moving");
+        key("W A S D", "Walk");
+        key("Space", "Jump (again in the air to double-jump, if the game allows it)");
+        key("Shift", "Shift Lock: camera over your shoulder (turn on in Settings)");
+        ImGui::SeparatorText("Camera");
+        key("Right mouse", "Hold and drag to look around");
+        key("Mouse wheel", "Zoom in and out; all the way in is first person");
+        ImGui::SeparatorText("Other");
+        key("/ or Enter", "Chat  (/w name message whispers to one player)");
+        key("1 - 9", "Equip a tool from your hotbar");
+        key("Esc", "Open or close this menu");
     }
-    if (bigButton("Settings", ImVec4(0.3f, 0.3f, 0.35f, 1), full)) m_showSettings = true;
-    if (bigButton("Leave Game", ImVec4(0.75f, 0.25f, 0.25f, 1), full)) leaveGame();
+    ImGui::EndChild();
+
+    // Bottom buttons, like Roblox: [R] Reset Character, [L] Leave Game, [Esc] Resume Game.
+    const float bw = (w - 32 - 16) / 3.0f;
+    if (bigButton("[R]  Reset Character", ImVec4(0.3f, 0.3f, 0.35f, 1), ImVec2(bw, 40))) m_menuConfirm = 1;
+    ImGui::SameLine(0, 8);
+    if (bigButton("[L]  Leave Game", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(bw, 40))) m_menuConfirm = 2;
+    ImGui::SameLine(0, 8);
+    if (bigButton("[Esc]  Resume Game", kGreen, ImVec2(bw, 40))) m_paused = false;
     ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
 }
 
 // ---------------------------------------------------------------------------

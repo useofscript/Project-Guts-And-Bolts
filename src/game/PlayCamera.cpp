@@ -3,6 +3,7 @@
 #include "../scene/Player.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
+#include "../core/Settings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -30,8 +31,20 @@ void zoom(Camera& cam, float wheel) {
     if (cam.distance < kSnapIn) cam.distance = 0.0f;
 }
 
-void follow(Camera& cam, Player& player, float dt) {
+void turn(Camera& cam, float dx, float dy) {
+    const GraphicsSettings& gs = GraphicsSettings::get();
+    cam.orbit(dx * gs.mouseSensitivity, (gs.invertCamera ? -dy : dy) * gs.mouseSensitivity);
+}
+
+void follow(Camera& cam, Player& player, float dt, bool shiftLock) {
     glm::vec3 target = player.focusPoint();
+    if (shiftLock && !firstPerson(cam)) {
+        // Over the right shoulder (Roblox moves the camera 1.75 studs right).
+        glm::vec3 f = cam.forward();
+        glm::vec3 right = glm::normalize(glm::cross(f, glm::vec3(0, 1, 0)) + glm::vec3(1e-6f));
+        target += right * 0.875f;
+        if (!player.isDead() && f.x * f.x + f.z * f.z > 1e-6f) player.faceYaw(glm::degrees(std::atan2(f.x, f.z)));
+    }
     if (firstPerson(cam)) {
         cam.pivot = target;   // right in the head, no lag
         if (!player.isDead()) {

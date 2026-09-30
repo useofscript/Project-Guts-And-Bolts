@@ -669,6 +669,25 @@ still see the tool you're holding), your character turns to face where you
 look, and the mouse looks around by itself with a dot in the middle of the
 screen. Scroll out to go back. On phones, pinch to zoom in and out.
 
+**Shift Lock**: press Shift to lock the mouse in the middle of the screen. The
+camera moves over your right shoulder and your character always faces where
+you look (a ring shows in the middle). Press Shift again to turn it off. It
+works in the Player and in Studio's play test, and you can switch it off in
+the in-game menu.
+
+### The in-game menu
+
+Press **Esc** (or the Menu button) for a Roblox-style menu with three tabs:
+
+- **Players**: everyone in the server, with Verified and Staff tags.
+- **Settings**: Shift Lock Switch, camera sensitivity, invert camera, volume,
+  fullscreen, graphics quality, show FPS, blood and gore, touch controls, and
+  a button for the advanced graphics settings.
+- **Help**: the controls.
+
+Along the bottom: **[R] Reset Character**, **[L] Leave Game** (both ask "Are
+you sure?" first) and **[Esc] Resume Game**.
+
 ## Death, ragdolls and gore
 
 **Game Settings > Damage & Blood** (also in the Player panel) has all of it:

@@ -18,6 +18,13 @@ struct GraphicsSettings {
     enum TouchMode { TouchAuto, TouchOn, TouchOff };
     int   touchControls = TouchAuto;   // on-screen joystick + buttons (Auto = on phones and tablets)
     float touchSize     = 1.0f;        // how big the on-screen controls are
+    bool  shiftLockSwitch = true;      // Shift toggles Shift Lock (camera over the shoulder, body faces where you look)
+    float mouseSensitivity = 1.0f;     // how fast the camera turns
+    bool  invertCamera  = false;       // moving the mouse up looks down
+
+    // Sound and screen
+    float volume        = 1.0f;        // everything's loudness, 0..1
+    bool  fullscreen    = false;
     bool  touchEnabled() const;
 
     // Graphics

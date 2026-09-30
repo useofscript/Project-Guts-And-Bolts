@@ -59,6 +59,8 @@ void GraphicsSettings::load() {
     rd("ssao", ssao); rd("bloom", bloom); rd("fxaa", fxaa); rd("postFx", postFx);
     rd("renderScale", renderScale); rd("maxLights", maxLights); rd("allowGore", allowGore); rd("checkUpdates", checkUpdates);
     rd("touchControls", touchControls); rd("touchSize", touchSize);
+    rd("shiftLockSwitch", shiftLockSwitch); rd("mouseSensitivity", mouseSensitivity); rd("invertCamera", invertCamera);
+    rd("volume", volume); rd("fullscreen", fullscreen);
 }
 
 bool GraphicsSettings::touchEnabled() const {
@@ -78,6 +80,8 @@ void GraphicsSettings::save() const {
         {"ssao", ssao}, {"bloom", bloom}, {"fxaa", fxaa}, {"postFx", postFx},
         {"renderScale", renderScale}, {"maxLights", maxLights}, {"allowGore", allowGore}, {"checkUpdates", checkUpdates},
         {"touchControls", touchControls}, {"touchSize", touchSize},
+        {"shiftLockSwitch", shiftLockSwitch}, {"mouseSensitivity", mouseSensitivity}, {"invertCamera", invertCamera},
+        {"volume", volume}, {"fullscreen", fullscreen},
     };
     std::ofstream f(settingsFile());
     if (f) f << j.dump(2);

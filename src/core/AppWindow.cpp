@@ -120,6 +120,28 @@ void updateMouseLock(GLFWwindow* w) {
 }
 } // namespace
 
+namespace {
+// Fullscreen and volume follow the settings (the in-game menu changes them).
+void applyScreenAndSound(GLFWwindow* w) {
+    const GraphicsSettings& gs = GraphicsSettings::get();
+    static float volume = -1.0f;
+    if (gs.volume != volume) { volume = gs.volume; Audio::setMasterVolume(volume); }
+    static bool full = false;
+    static int wx = 100, wy = 100, ww = 1280, wh = 720;
+    if (gs.fullscreen == full) return;
+    full = gs.fullscreen;
+    if (full) {
+        glfwGetWindowPos(w, &wx, &wy);
+        glfwGetWindowSize(w, &ww, &wh);
+        GLFWmonitor* m = glfwGetPrimaryMonitor();
+        if (const GLFWvidmode* mode = m ? glfwGetVideoMode(m) : nullptr)
+            glfwSetWindowMonitor(w, m, 0, 0, mode->width, mode->height, mode->refreshRate);
+    } else {
+        glfwSetWindowMonitor(w, nullptr, wx, wy, ww, wh, 0);
+    }
+}
+} // namespace
+
 void  AppWindow::lockMouse(float x, float y) { g_lock.want = true; g_lock.x = x; g_lock.y = y; }
 float AppWindow::mouseLookX() { return g_lock.dx; }
 float AppWindow::mouseLookY() { return g_lock.dy; }
@@ -137,6 +159,7 @@ float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     glfwPollEvents();
     Audio::update();
     updateMouseLock(m_window);
+    applyScreenAndSound(m_window);
 
     int w, h;
     glfwGetFramebufferSize(m_window, &w, &h);

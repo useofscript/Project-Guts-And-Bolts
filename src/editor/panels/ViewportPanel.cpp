@@ -1,4 +1,5 @@
 #include "ViewportPanel.h"
+#include "../../core/Settings.h"
 #include "../../game/GameGui.h"
 #include <stb_image_write.h>   // (its code is in renderer/Textures.cpp)
 #include <string>
@@ -124,7 +125,7 @@ void ViewportPanel::stopAtCollisions(Scene& scene, const std::vector<SceneNode*>
 void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; }
 
 void ViewportPanel::followPlayer(Player& p, float dt) {
-    PlayCamera::follow(m_camera, p, dt);
+    PlayCamera::follow(m_camera, p, dt, m_shiftLock);
     PlayCamera::fade(*m_scene, p, m_camera);
 }
 
@@ -165,18 +166,31 @@ void ViewportPanel::handleInput(float dt) {
     bool playing = m_session != nullptr && !m_session->runOnly();   // Run: fly around like when editing
     bool focused = ImGui::IsWindowFocused();
 
+    if (!playing) m_shiftLock = false;
     if (playing) {
         if (!m_hovered) return;
-        if (PlayCamera::firstPerson(m_camera) && !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
-            // First person: the hidden mouse looks around (Esc / F5 stops playing as usual).
+        const bool firstPerson = PlayCamera::firstPerson(m_camera);
+        // Shift toggles Shift Lock, same as in the Player app.
+        if (!GraphicsSettings::get().shiftLockSwitch) m_shiftLock = false;
+        else if (!io.WantTextInput && !firstPerson &&
+                 (ImGui::IsKeyPressed(ImGuiKey_LeftShift, false) || ImGui::IsKeyPressed(ImGuiKey_RightShift, false)))
+            m_shiftLock = !m_shiftLock;
+        if ((firstPerson || m_shiftLock) && !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+            // First person / Shift Lock: the hidden mouse looks around (Esc / F5 stops playing as usual).
             ImVec2 mid(m_viewMin.x + (m_viewMax.x - m_viewMin.x) * 0.5f, m_viewMin.y + (m_viewMax.y - m_viewMin.y) * 0.5f);
             AppWindow::lockMouse(mid.x, mid.y);
-            m_camera.orbit(AppWindow::mouseLookX(), AppWindow::mouseLookY());
+            PlayCamera::turn(m_camera, AppWindow::mouseLookX(), AppWindow::mouseLookY());
             ImDrawList* fg = ImGui::GetForegroundDrawList();
-            fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
-            fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+            if (m_shiftLock && !firstPerson) {
+                fg->AddCircle(mid, 11.0f, IM_COL32(0, 0, 0, 120), 24, 4.0f);
+                fg->AddCircle(mid, 11.0f, IM_COL32(255, 255, 255, 235), 24, 2.0f);
+                fg->AddCircleFilled(mid, 2.5f, IM_COL32(255, 255, 255, 235));
+            } else {
+                fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
+                fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+            }
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-            m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
+            PlayCamera::turn(m_camera, io.MouseDelta.x, io.MouseDelta.y);
         }
         PlayCamera::zoom(m_camera, io.MouseWheel);
         return;

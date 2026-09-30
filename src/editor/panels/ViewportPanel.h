@@ -82,6 +82,7 @@ private:
 
     int  m_viewW = 0, m_viewH = 0;
     bool m_hovered = false;
+    bool m_shiftLock = false;   // play test: Roblox Shift Lock
     // Game UI: pointer state in Play, and dragging a UI object while building.
     GameGui::Input m_guiInput;
     int       m_guiDrag = 0;                  // 1 = moving, 2 = resizing
