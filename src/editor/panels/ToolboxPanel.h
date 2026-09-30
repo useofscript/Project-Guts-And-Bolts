@@ -21,7 +21,7 @@ struct ToolboxTile {
     std::function<void()> use;
 };
 
-// A palette of insertable things, laid out like Roblox's Toolbox: Marketplace /
+// A palette of insertable things, laid out like Roblox's Toolbox: Library /
 // Inventory / Recent tabs, a category menu with a search box, and a grid of
 // pictures with blue names. Official things carry a gold badge.
 class ToolboxPanel {
@@ -53,8 +53,8 @@ private:
     void remember(const ToolboxTile& t);
 
     Actions m_do;
-    int m_tab = 0;             // 0 Marketplace, 1 Inventory, 2 Recent
-    int m_category = 0;        // Marketplace: see kCategories; Inventory: 0..2
+    int m_tab = 0;             // 0 Library, 1 Inventory, 2 Recent
+    int m_category = 0;        // Library: see kCategories; Inventory: 0..2
     int m_invCategory = 0;
     std::string m_query, m_status;
     bool m_reload = true;

@@ -90,10 +90,10 @@ private:
     void       meshOp(MeshOp op);
     void       handleModelingKeys();
     void       addMeshPart();
-    // Online: the Guts&Bolts server, publishing and the Marketplace (EditorOnline.cpp)
+    // Online: the Guts&Bolts server, publishing and the Library (EditorOnline.cpp)
     void       renderServerDialog();
     void       renderPublishDialog();
-    void       renderMarketplace();
+    void       renderPluginLibrary();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
     // The Toolbox's Library tiles (everyone's public models, decals and audio, or your own).
     std::vector<ToolboxTile> libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status);
@@ -147,7 +147,7 @@ private:
     std::unique_ptr<TeamCreate>        m_team;
     std::unique_ptr<Plugins>           m_plugins;
     // Online
-    bool        m_openServer = false, m_openPublish = false, m_showMarketplace = false;
+    bool        m_openServer = false, m_openPublish = false, m_showPluginLibrary = false;
     std::string m_serverInput, m_publishName, m_publishDesc, m_publishMsg, m_marketMsg, m_marketQuery;
     int         m_marketTab = 0, m_publishPluginIndex = 0, m_publishPluginPrice = 0;
     bool        m_marketLoaded = false, m_onlineBusy = false;

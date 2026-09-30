@@ -485,7 +485,7 @@ void Editor::renderToolbar() {
     ImGui::Dummy(ImVec2(0, 0));
 }
 
-// The PLUGINS tab: every plugin's buttons, plus the Marketplace.
+// The PLUGINS tab: every plugin's buttons, plus the plugin and audio Library.
 void Editor::renderPluginsTab() {
     auto& list = m_plugins->list();
     for (size_t i = 0; i < list.size(); ++i) {
@@ -504,8 +504,8 @@ void Editor::renderPluginsTab() {
         }
     }
     Group g("Manage");
-    if (bigButton("Marketplace", Icons::Id::Toolbox, m_showMarketplace, true, "Get plugins and audio people uploaded"))
-        m_showMarketplace = !m_showMarketplace;
+    if (bigButton("Library", Icons::Id::Toolbox, m_showPluginLibrary, true, "Get plugins and audio people uploaded"))
+        m_showPluginLibrary = !m_showPluginLibrary;
     if (bigButton("Reload", Icons::Id::Rotate, false, true, "Load the plugins folder again")) m_plugins->reload();
     std::string where = "Plugins folder:\n" + Plugins::folder().string() + "\n\nPut .lua plugin files there.";
     bigButton("Folder", Icons::Id::Folder, false, true, where.c_str());

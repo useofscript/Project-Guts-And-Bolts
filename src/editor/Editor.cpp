@@ -159,7 +159,7 @@ void Editor::render(float dt) {
     renderPublishDialog();
     renderPublishModelDialog();
     renderAccessoryWindow();
-    renderMarketplace();
+    renderPluginLibrary();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
     renderInsertObject();
     renderDialogs();
@@ -1314,7 +1314,7 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
         if (ImGui::MenuItem("Publish Selection to Library...", nullptr, false, m_scene->selected() != nullptr)) m_openPublishModel = true;
         if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
-        if (ImGui::MenuItem("Marketplace (plugins, audio)")) m_showMarketplace = true;
+        if (ImGui::MenuItem("Library (plugins, audio)")) m_showPluginLibrary = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Play in Guts&BoltsPlayer")) {
             if (m_path.empty()) {

@@ -489,7 +489,7 @@ async function libraryPage(head) {
       <div class="by small"><button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button></div></div>`;
   show(html`${head}
     <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> (the
-      <b>Marketplace</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
+      <b>Library</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
     <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
     <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>

@@ -9,7 +9,7 @@
 #include <cmath>
 
 namespace {
-// Marketplace categories: the first three come from the online Library.
+// Library categories: the first three come from the online Library, the rest are built into Studio.
 const char* const kCategories[] = {"Models", "Decals", "Audio", "Parts", "Ready-made", "Objects", "Lights", "Constraints"};
 const int kCategoryCount = 8;
 const char* const kInventory[] = {"My Models", "My Decals", "My Audio"};
@@ -61,12 +61,13 @@ void tileName(ImDrawList* dl, ImVec2 p, float width, const std::string& name, Im
     if (!rest.empty()) dl->AddText(ImVec2(p.x, p.y + ImGui::GetTextLineHeight()), col, rest.c_str());
 }
 
-// The three tab icons: a shopping bag, a grid of boxes, a clock.
+// The three tab icons: a book (Library), a grid of boxes (Inventory), a clock (Recent).
 void tabIcon(ImDrawList* dl, ImVec2 c, float s, int which, ImU32 col) {
-    if (which == 0) {
-        dl->AddRectFilled(ImVec2(c.x - s * 0.4f, c.y - s * 0.15f), ImVec2(c.x + s * 0.4f, c.y + s * 0.45f), col, 2);
-        dl->PathArcTo(ImVec2(c.x, c.y - s * 0.15f), s * 0.22f, 3.14159f, 6.28318f, 12);
-        dl->PathStroke(col, 0, std::max(1.5f, s * 0.1f));
+    if (which == 0) {   // an open book: two pages with a spine
+        dl->AddQuadFilled(ImVec2(c.x - s * 0.48f, c.y - s * 0.3f), ImVec2(c.x - s * 0.04f, c.y - s * 0.22f),
+                          ImVec2(c.x - s * 0.04f, c.y + s * 0.42f), ImVec2(c.x - s * 0.48f, c.y + s * 0.34f), col);
+        dl->AddQuadFilled(ImVec2(c.x + s * 0.04f, c.y - s * 0.22f), ImVec2(c.x + s * 0.48f, c.y - s * 0.3f),
+                          ImVec2(c.x + s * 0.48f, c.y + s * 0.34f), ImVec2(c.x + s * 0.04f, c.y + s * 0.42f), col);
     } else if (which == 1) {
         float g = s * 0.08f, h = s * 0.4f;
         for (int y = 0; y < 2; ++y)
@@ -184,11 +185,11 @@ std::vector<ToolboxTile> ToolboxPanel::builtIn(int category) {
 }
 
 void ToolboxPanel::drawTabs() {
-    static const char* names[] = {"Marketplace", "Inventory", "Recent"};
+    static const char* names[] = {"Library", "Inventory", "Recent"};
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float h = ImGui::GetFrameHeight() + 10.0f;
     const float w = ImGui::GetContentRegionAvail().x / 3.0f;
-    const bool narrow = w < ImGui::CalcTextSize("Marketplace").x + 34.0f;   // icons only
+    const bool narrow = w < ImGui::CalcTextSize("Inventory").x + 34.0f;   // icons only
     ImVec2 start = ImGui::GetCursorScreenPos();
     for (int i = 0; i < 3; ++i) {
         ImGui::PushID(i);

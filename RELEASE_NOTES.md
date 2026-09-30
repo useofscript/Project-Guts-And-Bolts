@@ -59,7 +59,7 @@
   audio and plugins) and a **Models** tab to switch yours public or private.
 
 **A Toolbox like Roblox's**
-- Marketplace / Inventory / Recent tabs, a category menu with a search box, and
+- Library / Inventory / Recent tabs, a category menu with a search box, and
   a grid of pictures with blue names.
 - Every model and asset has a picture. Studio photographs objects on their own
   (on a plain background) when you publish them, and takes one itself for any

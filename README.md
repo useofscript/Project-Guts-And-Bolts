@@ -82,7 +82,7 @@ The panels:
   Roblox's search words: `c:Script` (kind of object), `is:Script`, `tag:Enemy`,
   `name:Door`, property checks like `Anchored=false` or `Transparency>0.5`, and
   `or` to match either side.
-- **Toolbox** (laid out like Roblox's): **Marketplace** (everyone's public
+- **Toolbox** (laid out like Roblox's): **Library** (everyone's public
   models, decals and audio, plus Studio's own parts and ready-made objects),
   **Inventory** (your own uploads, private ones too) and **Recent** (what you
   inserted lately). Pick a category, search, and click a picture to insert it.
@@ -213,7 +213,7 @@ end)
 ```
 
 Anything a plugin changes can be undone with Ctrl+Z. With a server,
-**PLUGINS > Marketplace** lets you install plugins other people published
+**PLUGINS > Library** lets you install plugins other people published
 (buying them first if they cost Bolts), add uploaded audio to your game, and
 publish your own plugins.
 
@@ -850,10 +850,10 @@ On another computer, start the server once with `--official <your account ID>`
   its history.
 - **Uploads:**
   - hats, shirts and pants (the online **Catalog**);
-  - audio (in Studio's **Marketplace**; sounds play as `gb:<id>`);
+  - audio (in Studio's **PLUGINS > Library**; sounds play as `gb:<id>`);
   - **decals**, pictures for Decal objects (`.png` or `.jpg`, up to 4 MB;
     used as `gb:<id>`);
-  - **plugins** (Studio's Marketplace);
+  - **plugins** (Studio's PLUGINS > Library);
   - **games** (Studio's **File > Publish to Guts&Bolts**; they show up under
     **Online Games** on the site's home page).
 - **Who owns what.**
@@ -946,7 +946,7 @@ count). Studio takes a picture of the model for its thumbnail.
 
 Find things in two places:
 
-- **Studio's Toolbox > Marketplace:** everyone's public models, decals and
+- **Studio's Toolbox > Library:** everyone's public models, decals and
   audio, with pictures and a search box (your own are under **Inventory**).
   Models uploaded without a picture get one taken when someone views them. Click a model to insert it, a decal to put
   it on the selected part, or a sound to add it.

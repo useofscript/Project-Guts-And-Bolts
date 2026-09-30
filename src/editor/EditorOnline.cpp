@@ -1,5 +1,5 @@
 // Studio's online side: connecting to a Guts&Bolts server, publishing the
-// game, and the Marketplace (plugins and audio people uploaded).
+// game, and the Library (plugins and audio people uploaded).
 #include "Editor.h"
 #include "panels/ViewportPanel.h"
 #include "Plugins.h"
@@ -155,13 +155,13 @@ void Editor::renderPublishDialog() {
 }
 
 // ---------------------------------------------------------------------------
-// The Marketplace: plugins and audio from the server
+// The plugin and audio Library: plugins and audio from the server
 // ---------------------------------------------------------------------------
 
-void Editor::renderMarketplace() {
-    if (!m_showMarketplace) return;
+void Editor::renderPluginLibrary() {
+    if (!m_showPluginLibrary) return;
     ImGui::SetNextWindowSize(ImVec2(620, 480), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Marketplace", &m_showMarketplace)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Plugin & Audio Library", &m_showPluginLibrary)) { ImGui::End(); return; }
     onlineLine();
     if (!Online::online()) {
         if (ImGui::Button("Pick a server...")) m_openServer = true;
@@ -305,7 +305,7 @@ void Editor::renderMarketplace() {
                                                {"data", Online::base64Encode(readFile(p.file))}},
                                     [this](const json& r) {
                         m_onlineBusy = false;
-                        m_marketMsg = r.value("ok", false) ? "Published! Others can install it from the Marketplace."
+                        m_marketMsg = r.value("ok", false) ? "Published! Others can install it from the Library."
                                                            : r.value("error", std::string());
                         m_marketLoaded = false;
                     });
