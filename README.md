@@ -929,6 +929,22 @@ make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
 sharing personal info, exploiting, spam and so on) and an optional note; the
 banned player sees them when they try to sign in.
 
+### Limiteds, resale and trading
+
+- **Edit item:** on an item's page on the website, its creator (or staff) can
+  change its name, description, price, colour, hat shape or clothing picture.
+- **Limited items:** only the Guts account can make an item Limited with a
+  fixed stock. Each copy gets a number (#1, #2, ...). While there's stock
+  left it sells like normal; once it's **sold out**, the only way to get one
+  is from another player.
+- **Resale:** owners of a Limited copy can put it up for sale on the item's
+  page, at any price. The seller gets 70% of the price. The cheapest copies
+  show first under **Resellers**.
+- **Trading:** press **Trade** on someone's profile, pick up to 4 of your
+  Limiteds and up to 4 of theirs, and send the offer. They accept or decline
+  on the **Trades** page. The swap only happens if both of you still have
+  everything.
+
 ### Changing your username
 
 On the website's **Settings** page you can change your username for **1,000

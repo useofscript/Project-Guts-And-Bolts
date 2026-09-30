@@ -144,6 +144,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
                 nlohmann::json shown = r;
                 if (shown.contains("data")) shown["data"] = "(" + std::to_string(shown["data"].get<std::string>().size()) + " base64 chars)";
                 if (shown.contains("me")) shown["me"] = {{"name", r["me"].value("name", "")}, {"bolts", r["me"].value("bolts", 0)},
+                                                         {"id", r["me"].value("id", "")},
                                                          {"verified", r["me"].value("verified", false)},
                                                          {"staff", r["me"].value("staff", false)},
                                                          {"username", r["me"].value("username", "")},

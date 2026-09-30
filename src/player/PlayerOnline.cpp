@@ -271,6 +271,14 @@ void PlayerApp::drawOnlineItemDialog() {
     else if (owned) ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "You own this");
     else Bolts::amount(it.price, 20.0f);
     ImGui::TextDisabled("%lld sold  -  made %s", a.value("sales", 0LL), ago(a.value("created", 0LL)).c_str());
+    const json lim = a.value("limited", json());
+    const bool soldOut = lim.is_object() && lim.value("left", 0) <= 0;
+    if (lim.is_object()) {
+        ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.22f, 1), "LIMITED");
+        ImGui::SameLine();
+        if (soldOut) ImGui::TextColored(ImVec4(0.75f, 0.2f, 0.15f, 1), "Sold out - resellers and trading are on the website");
+        else ImGui::Text("%d of %d left", lim.value("left", 0), lim.value("stock", 0));
+    }
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(it.description.c_str());
     ImGui::PopTextWrapPos();
@@ -284,7 +292,8 @@ void PlayerApp::drawOnlineItemDialog() {
     };
     if (!owned) {
         std::string label = it.price > 0 ? "Buy for " + Bolts::format(it.price) : std::string("Get it");
-        ImGui::BeginDisabled(m_busy || Online::bolts() < it.price);
+        if (soldOut) label = "Sold out";
+        ImGui::BeginDisabled(m_busy || soldOut || Online::bolts() < it.price);
         if (bigButton(label.c_str(), kGreen, ImVec2(170, 34))) {
             m_busy = true;
             Online::request("buy", {{"id", it.id}}, [this, wearIt](const json& r) {

@@ -54,7 +54,7 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get']);
+const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get']);
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
 const isEmail = (e) => typeof e === 'string' && e.length <= 254 && /^[^\s@<>"]{1,64}@[^\s@<>"]{1,190}\.[^\s@<>"]{2,}$/.test(e);
@@ -203,6 +203,8 @@ export class GbServerObject extends DurableObject {
     this.official = lower(env.OFFICIAL || '');
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new Map(); this.groups = new Map();
+    // What changed and needs writing (set up first: loading can already change things).
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
     for (const r of this.sql.exec('SELECT id, data FROM assets')) {
       const a = JSON.parse(r.data);
@@ -210,6 +212,7 @@ export class GbServerObject extends DurableObject {
       this.assets.set(r.id, a);
     }
     for (const r of this.sql.exec('SELECT id, data FROM groups')) this.groups.set(r.id, JSON.parse(r.data));
+    this.trades = this.getMeta('trades', []);   // trade offers between players (limited items)
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
     this.takenNames = new Set(ids.taken || []);
@@ -226,7 +229,6 @@ export class GbServerObject extends DurableObject {
     this.canMail = !!(env.BREVO_API_KEY || env.RESEND_API_KEY || env.MAIL_DEBUG);
     this.failedLogins = new Map();
     this.lastPost = new Map();
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false };
     // The relay (in memory: a restart closes every game, like the C++ server).
     this.conns = new Map();      // conn id -> { ws, mode, account, session, ticket, peer, since, lastActive, closing }
     this.sessions = new Map();   // session id -> { id, game, title, host, code, priv, max, created, control, players:Set }
@@ -254,11 +256,38 @@ export class GbServerObject extends DurableObject {
       if (g) this.sql.exec('INSERT OR REPLACE INTO groups (id, data) VALUES (?, ?)', id, JSON.stringify(g));
       else this.sql.exec('DELETE FROM groups WHERE id = ?', id);
     }
+    if (this.dirty.trades) {
+      this.trades = this.trades.filter((x) => x.status === 'open' || now() - x.updated < 30 * 86400).slice(-3000);
+      this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'trades', JSON.stringify(this.trades));
+    }
     if (this.dirty.ids) {
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'ids',
         JSON.stringify({ next: this.nextUserId, taken: [...this.takenNames] }));
     }
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false };
+  }
+  // --- Limited items: numbered copies (a.copies = [{ serial, owner, price }]) ---
+  copiesOf(u) {   // every limited copy this account holds
+    const out = [];
+    for (const a of this.assets.values())
+      if (a.limited) for (const c of a.copies || []) if (c.owner === u.id) out.push({ id: a.id, name: a.name, kind: a.kind, serial: c.serial, price: c.price || 0 });
+    return out;
+  }
+  // After copies change hands: `owned` (what you can wear) follows the copies you hold.
+  syncOwned(u, a) {
+    const has = (a.copies || []).some((c) => c.owner === u.id);
+    if (has && !u.owned.includes(a.id)) u.owned.push(a.id);
+    if (!has && a.creator !== u.id) {
+      u.owned = u.owned.filter((x) => x !== a.id);
+      if (u.avatar && Array.isArray(u.avatar.wearing)) u.avatar.wearing = u.avatar.wearing.filter((x) => x !== a.id);
+    }
+    this.saveUser(u);
+  }
+  limitedJson(a) {   // what the catalog shows about a limited
+    if (!a.limited) return undefined;
+    const listed = (a.copies || []).filter((c) => c.price > 0);
+    return { stock: a.stock, sold: a.sales, left: Math.max(0, a.stock - a.sales),
+      resellers: listed.length, lowest: listed.length ? Math.min(...listed.map((c) => c.price)) : 0 };
   }
   saveUser(...us) { for (const u of us) if (u) this.dirty.users.add(u.id); }
   saveAsset(a) { this.dirty.assets.add(a.id); }
@@ -411,7 +440,7 @@ export class GbServerObject extends DurableObject {
       genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
-      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined };
+      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a) };
   }
   playingIn(gameId) {   // people in the game's servers right now
     let n = 0;
@@ -915,6 +944,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
+      if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
       if (a.price > 0) {
         if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
         this.add(me, -a.price, 'Bought ' + a.name, 'buy:' + a.id);
@@ -925,14 +955,150 @@ export class GbServerObject extends DurableObject {
         }
       }
       a.sales++;
+      if (a.limited) { a.copies = a.copies || []; a.copies.push({ serial: a.sales, owner: me.id, price: 0 }); }
       me.owned.push(a.id);
       this.saveAsset(a); this.saveUser(me);
       return okay({ me: this.meJson(me) });
+    }
+    // --- Editing items (their creator or staff) ---
+    if (name === 'item.edit') {
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || !isClothing(a.kind)) return fail('That item doesn\'t exist (any more).');
+      if (a.creator !== me.id && !this.isStaff(me)) return fail('Only the item\'s creator or staff can change it.');
+      if ('name' in args) {
+        const title = cleanText(str(args, 'name'), 50);
+        if (!title) return fail('Give it a name.');
+        a.name = title;
+      }
+      if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
+      if ('price' in args) {
+        const price = clamp(num(args, 'price'), 0, 1000000);
+        if (price > 0 && !this.isVerified(this.users.get(a.creator) || me) && !this.isStaff(me)) return fail('Only Verified creators can sell things.');
+        a.price = price;
+      }
+      a.meta = a.meta || {};
+      if (Array.isArray(args.color) && args.color.length === 3) a.meta.color = args.color.map((v) => clamp(Number(v) | 0, 0, 255));
+      if (a.kind === 'hat' && 'style' in args) a.meta.style = clamp(num(args, 'style'), 1, 3);   // the hat's shape
+      if (a.kind !== 'hat' && typeof args.data === 'string' && args.data) {   // a new clothing picture
+        let data;
+        try { data = b64ToBytes(args.data); } catch { return fail('The upload got scrambled. Try again.'); }
+        const size = pngSize(data);
+        if (!size || size[0] !== kTemplateW || size[1] !== kTemplateH) return fail('Clothing pictures must be ' + kTemplateW + ' x ' + kTemplateH + ' .png files.');
+        if (data.length > maxSize(a.kind)) return fail('That\'s too big.');
+        this.writeFile(a.id, data);
+        a.meta.image = true; a.meta.ext = 'png'; a.size = data.length;
+      }
+      a.updated = t;
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a, me) });
+    }
+    if (name === 'item.limited') {
+      // Only Guts makes items Limited: a fixed number of numbered copies. People who
+      // already have it get the first serial numbers.
+      if (!this.isOfficial(me)) return fail('Only Guts can make items Limited.');
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || !isClothing(a.kind)) return fail('That item doesn\'t exist (any more).');
+      const stock = clamp(num(args, 'stock'), 1, 1000000);
+      if (!a.limited) {
+        a.copies = [];
+        let serial = 0;
+        for (const u of this.users.values())
+          if (u.owned.includes(a.id) && u.id !== a.creator) a.copies.push({ serial: ++serial, owner: u.id, price: 0 });
+        a.sales = serial;
+        a.limited = true;
+      }
+      if (stock < a.sales) return fail(a.sales + ' copies are already out there: the stock can\'t be less than that.');
+      a.stock = stock;
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a, me) });
+    }
+    if (name === 'item.copies') {
+      // A limited item's copies: who has which number, and which are for sale.
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || !a.limited) return okay({ copies: [] });
+      const copies = (a.copies || []).map((c) => { const u = this.users.get(c.owner); return { serial: c.serial, price: c.price || 0, owner: c.owner, ownerName: u ? u.name : '?', mine: c.owner === me.id }; });
+      return okay({ copies });
+    }
+    if (name === 'resale.list') {
+      // Put your copy of a limited up for sale (price 0 = take it off sale).
+      const a = this.assets.get(str(args, 'id'));
+      const c = a && a.limited && (a.copies || []).find((x) => x.serial === num(args, 'serial'));
+      if (!c || c.owner !== me.id) return fail('You don\'t have that copy.');
+      c.price = clamp(num(args, 'price'), 0, 10000000);
+      this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a, me) });
+    }
+    if (name === 'resale.buy') {
+      const a = this.assets.get(str(args, 'id'));
+      const c = a && a.limited && (a.copies || []).find((x) => x.serial === num(args, 'serial'));
+      if (!c || !(c.price > 0)) return fail('That copy isn\'t for sale (any more).');
+      if (c.owner === me.id) return fail('That\'s your own copy.');
+      if (this.balance(me) < c.price) return fail('You need ' + (c.price - this.balance(me)) + ' more Bolts for that.');
+      const seller = this.users.get(c.owner);
+      this.add(me, -c.price, 'Bought ' + a.name + ' #' + c.serial, 'resale:' + a.id + ':' + c.serial + ':' + randomHex(4));
+      if (seller) this.add(seller, Math.floor(c.price * kCreatorSharePercent / 100), 'Sold ' + a.name + ' #' + c.serial, 'resold:' + a.id + ':' + c.serial + ':' + randomHex(4));
+      c.owner = me.id;
+      c.price = 0;
+      this.saveAsset(a);
+      this.syncOwned(me, a);
+      if (seller) this.syncOwned(seller, a);
+      return okay({ me: this.meJson(me) });
+    }
+    // --- Trading limited copies ---
+    if (name === 'trade.inventory') {
+      const u = this.findUser(str(args, 'user')) || this.findUserId(num(args, 'user'));
+      if (!u) return fail('There\'s no account with that ID on this server.');
+      return okay({ user: this.publicUser(u), items: this.copiesOf(u) });
+    }
+    if (name === 'trade.send') {
+      const to = this.findUser(str(args, 'to'));
+      if (!to || to.userId === 0) return fail('There\'s no account with that ID on this server.');
+      if (to.id === me.id) return fail('You can\'t trade with yourself.');
+      const pick = (list) => (Array.isArray(list) ? list : []).slice(0, 4).map((x) => ({ id: String(x && x.id || ''), serial: Number(x && x.serial) | 0 }));
+      const give = pick(args.give), get = pick(args.get);
+      if (!give.length || !get.length) return fail('Pick at least one of your limiteds and one of theirs.');
+      const holds = (u, list) => list.every((x) => { const a = this.assets.get(x.id); return a && a.limited && (a.copies || []).some((c) => c.serial === x.serial && c.owner === u.id); });
+      if (!holds(me, give)) return fail('You don\'t have all of those.');
+      if (!holds(to, get)) return fail('They don\'t have all of those.');
+      if (this.trades.filter((x) => x.from === me.id && x.status === 'open').length >= 20) return fail('You have 20 trades waiting already.');
+      const trade = { id: 'tr-' + randomHex(6), from: me.id, to: to.id, give, get, status: 'open', created: t, updated: t };
+      this.trades.push(trade);
+      this.dirty.trades = true;
+      return okay({ trade });
+    }
+    if (name === 'trade.list') {
+      const named = (x) => {
+        const f = this.users.get(x.from), to = this.users.get(x.to);
+        const label = (l) => l.map((i) => { const a = this.assets.get(i.id); return Object.assign({ name: a ? a.name : '(gone)', kind: a ? a.kind : '' }, i); });
+        return Object.assign({}, x, { fromName: f ? f.name : '?', toName: to ? to.name : '?', give: label(x.give), get: label(x.get) });
+      };
+      const mine = this.trades.filter((x) => x.from === me.id || x.to === me.id).slice(-100).reverse().map(named);
+      return okay({ trades: mine, items: this.copiesOf(me) });
+    }
+    if (name === 'trade.accept' || name === 'trade.decline' || name === 'trade.cancel') {
+      const tr = this.trades.find((x) => x.id === str(args, 'id'));
+      if (!tr || tr.status !== 'open') return fail('That trade isn\'t open (any more).');
+      if (name === 'trade.cancel' ? tr.from !== me.id : tr.to !== me.id) return fail('That isn\'t your trade to answer.');
+      tr.updated = t;
+      this.dirty.trades = true;
+      if (name !== 'trade.accept') { tr.status = name === 'trade.cancel' ? 'cancelled' : 'declined'; return okay({ trade: tr }); }
+      const from = this.users.get(tr.from);
+      const copy = (x) => { const a = this.assets.get(x.id); return a && a.limited ? (a.copies || []).find((c) => c.serial === x.serial) : null; };
+      const ok = from && tr.give.every((x) => { const c = copy(x); return c && c.owner === from.id; }) &&
+        tr.get.every((x) => { const c = copy(x); return c && c.owner === me.id; });
+      if (!ok) { tr.status = 'failed'; return fail('Someone doesn\'t have those items any more, so the trade can\'t happen.'); }
+      const touched = new Set();
+      for (const x of tr.give) { const c = copy(x); c.owner = me.id; c.price = 0; touched.add(x.id); }
+      for (const x of tr.get) { const c = copy(x); c.owner = from.id; c.price = 0; touched.add(x.id); }
+      for (const id of touched) { const a = this.assets.get(id); this.saveAsset(a); this.syncOwned(me, a); this.syncOwned(from, a); }
+      tr.status = 'accepted';
+      return okay({ trade: tr, me: this.meJson(me) });
     }
     if (name === 'delete') {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only delete your own things.');
+      if (a.limited && (a.copies || []).length && !this.isOfficial(me)) return fail('People own copies of this Limited, so it can\'t be deleted.');
       this.sql.exec('DELETE FROM files WHERE id = ? OR id = ? OR id = ?', a.id, 'thumb:' + a.id, 'icon:' + a.id);
       this.assets.delete(a.id);
       this.dirty.assets.add(a.id);

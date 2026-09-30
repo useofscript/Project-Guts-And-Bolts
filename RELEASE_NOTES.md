@@ -41,6 +41,13 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Limiteds, resale and trading**
+- Item creators (and staff) get an **Edit item** page: name, description,
+  price, colour, hat shape or clothing picture.
+- Only **Guts** can make an item **Limited**, with a fixed stock. Copies are
+  numbered (#1, #2, ...); when it sells out, owners can **resell** their copy
+  (they get 70%) and **trade** Limiteds with each other (the new Trades page).
+
 **Username changes**
 - Change your username for 1,000 Bolts on the website's Settings page.
 - Old usernames show on your profile under "Past usernames" and stay yours:

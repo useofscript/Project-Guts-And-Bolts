@@ -207,9 +207,10 @@ function gameCard(g) {
 
 function itemCard(a) {
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic">${itemIcon(a)}</div>
+    <div class="pic">${itemIcon(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
     <div class="name">${a.name}</div>
-    <div class="by">${a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
+    <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
+      : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
 }
 
 // A game badge: a coloured medal with a star (games' own badges, made by their creators).
@@ -497,13 +498,47 @@ pages.item = async (id) => {
   const a = r.ok && r.assets.find((x) => x.id === id);
   if (!a) { show(html`<h1>Item not found</h1>`); return; }
   const owned = signedIn() && (me.owned || []).includes(a.id);
+  const canEdit = signedIn() && (a.creator === me.id || me.staff);
+  const L = a.limited;
+  const copies = L ? ((await pageCall('item.copies', { id: a.id })).copies || []) : [];
+  const forSale = copies.filter((c) => c.price > 0 && !c.mine).sort((x, y) => x.price - y.price);
+  const mineCopies = copies.filter((c) => c.mine);
+  const soldOut = L && L.left <= 0;
+  const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
-    <div class="hero"><div class="card square"><div class="pic">${itemIcon(a)}</div></div>
+    <div class="hero"><div class="card square"><div class="pic">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}</div>
       <div><h1>${a.name}</h1><p>${KINDS[a.kind]} by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</p>
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
-        ${owned ? html`<p class="ok"><b>You own this.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
+        ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
+          ${L.resellers ? html` · ${L.resellers} for resale from ${bolts(L.lowest)}` : ''}</p>` : ''}
+        ${owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
+          : soldOut ? html`<button class="btn big" disabled>Sold out</button>`
           : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
-        <p style="white-space:pre-wrap">${a.description}</p></div></div>`);
+        ${canEdit ? html` <button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button>` : ''}
+        <p style="white-space:pre-wrap">${a.description}</p></div></div>
+    ${canEdit ? html`<div class="box" id="itemEdit" hidden><h2 class="boxhead">Edit item</h2>
+      <form class="form" data-form="itemEdit"><input type="hidden" name="id" value="${a.id}">
+        <label>Name</label><input type="text" name="name" maxlength="50" value="${a.name}" required>
+        <label>Description</label><textarea name="description" maxlength="1000">${a.description || ''}</textarea>
+        <label>Price (Bolts)</label><input type="number" name="price" min="0" value="${a.price || 0}" style="max-width:140px">
+        <label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">
+        ${a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
+          : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
+        <p><button class="btn green">Save</button> <span id="itemEditMsg"></span></p></form>
+      ${me.official ? html`<form class="form" data-form="itemLimited"><input type="hidden" name="id" value="${a.id}">
+        <label>${L ? 'Change the stock' : 'Make it Limited'} <span class="muted small">(only Guts can do this)</span></label>
+        <input type="number" name="stock" min="1" value="${L ? L.stock : 100}" style="max-width:140px">
+        <p class="small muted">A Limited has a fixed number of numbered copies. When they're sold out, people buy and sell them from each other, and trade them.</p>
+        <p><button class="btn gold">${L ? 'Save stock' : 'Make Limited'}</button></p></form>` : ''}</div>` : ''}
+    ${L ? html`<h2>Resellers</h2>${forSale.length ? html`<table class="stats resellers"><tr><th>Seller</th><th>Copy</th><th>Price</th><th></th></tr>
+        ${forSale.map((c) => html`<tr><td><a href="#/user/${c.owner}">${c.ownerName}</a></td><td>#${c.serial}</td><td>${bolts(c.price)}</td>
+          <td><button class="btn green small" data-act="resaleBuy" data-id="${a.id}" data-serial="${c.serial}" data-price="${c.price}">Buy</button></td></tr>`)}</table>`
+        : html`<p class="muted">Nobody is selling a copy right now.</p>`}
+      ${mineCopies.length ? html`<h2>Your copies</h2>${mineCopies.map((c) => html`<form class="row" data-form="resaleList"><input type="hidden" name="id" value="${a.id}">
+          <input type="hidden" name="serial" value="${c.serial}"><b>#${c.serial}</b>
+          <input type="number" name="price" min="0" value="${c.price || ''}" placeholder="Price in Bolts" style="max-width:150px">
+          <button class="btn small ${c.price ? '' : 'blue'}">${c.price ? 'Change price' : 'Sell'}</button>
+          ${c.price ? html`<span class="muted small">On sale for ${c.price}. Set 0 to take it off sale.</span>` : html`<span class="muted small">You get ${70}% when it sells.</span>`}</form>`)}` : ''}` : ''}`);
 };
 
 // Decal pictures: fetched once, shown from memory.
@@ -646,6 +681,44 @@ pages.configure = async (id) => {
   }));
 };
 
+// Trades: offers of your limited copies for someone else's.
+pages.trades = async () => {
+  if (!signedIn()) { show(html`<h1>Trades</h1>${needSignIn('trade Limited items')}`); return; }
+  const r = await pageCall('trade.list', {});
+  const list = (items) => items.map((i) => html`<a href="#/item/${i.id}">${i.name} #${i.serial}</a>`).reduce((acc, x, k) => html`${acc}${k ? ', ' : ''}${x}`, html``);
+  const row = (tr) => {
+    const incoming = tr.to === me.id;
+    return html`<div><span class="grow">${incoming ? html`<b><a href="#/user/${tr.from}">${tr.fromName}</a></b> offers ${list(tr.give)} for your ${list(tr.get)}`
+        : html`You offered ${list(tr.give)} to <b><a href="#/user/${tr.to}">${tr.toName}</a></b> for their ${list(tr.get)}`}
+      <br><span class="small muted">${ago(tr.created)} · ${tr.status}</span></span>
+      ${tr.status === 'open' ? (incoming ? html`<button class="btn green small" data-act="tradeAnswer" data-op="trade.accept" data-id="${tr.id}">Accept</button>
+          <button class="btn small" data-act="tradeAnswer" data-op="trade.decline" data-id="${tr.id}">Decline</button>`
+        : html`<button class="btn small" data-act="tradeAnswer" data-op="trade.cancel" data-id="${tr.id}">Cancel</button>`) : ''}</div>`;
+  };
+  const open = r.ok ? r.trades.filter((x) => x.status === 'open') : [], done = r.ok ? r.trades.filter((x) => x.status !== 'open') : [];
+  show(html`<h1>Trades</h1>
+    <p class="muted">Trade your Limited items with other players. Open someone's profile and press <b>Trade</b> to make an offer.</p>
+    <h2>Your Limiteds</h2>${r.ok && r.items.length ? html`<div class="row">${r.items.map((i) => html`<a class="chip" href="#/item/${i.id}">${i.name} #${i.serial}</a>`)}</div>`
+      : html`<p class="muted">You don't have any Limited items yet.</p>`}
+    <h2>Open</h2>${open.length ? html`<div class="list">${open.map(row)}</div>` : html`<p class="muted">No open trades.</p>`}
+    <h2>History</h2>${done.length ? html`<div class="list">${done.slice(0, 30).map(row)}</div>` : html`<p class="muted">Nothing yet.</p>`}`);
+};
+
+pages.trade = async (id) => {
+  if (!signedIn()) { show(html`<h1>Trade</h1>${needSignIn('trade Limited items')}`); return; }
+  const [theirs, mine] = await Promise.all([pageCall('trade.inventory', { user: id }), pageCall('trade.inventory', { user: me.id })]);
+  if (!theirs.ok) { show(html`<h1>Trade</h1><p class="error">${theirs.error}</p>`); return; }
+  const pickList = (items, side) => items.length ? html`<div class="trade-pick">${items.map((i) => html`<label class="choice">
+      <input type="checkbox" name="${side}" value="${i.id}|${i.serial}"> ${i.name} <b>#${i.serial}</b></label>`)}</div>`
+    : html`<p class="muted">No Limited items.</p>`;
+  show(html`<p><a href="#/user/${theirs.user.userId}">&lt; ${theirs.user.name}</a></p><h1>Trade with ${theirs.user.name}</h1>
+    <form class="trade" data-form="tradeSend"><input type="hidden" name="to" value="${theirs.user.id}">
+      <div class="trade-cols"><div class="box"><h2 class="boxhead">You give</h2>${pickList(mine.ok ? mine.items : [], 'give')}</div>
+        <div class="box"><h2 class="boxhead">You get</h2>${pickList(theirs.items, 'get')}</div></div>
+      <p class="small muted">Up to 4 on each side. They can accept or decline; the swap only happens if you both still have everything.</p>
+      <p><button class="btn green">Send trade offer</button> <span id="tradeMsg"></span></p></form>`);
+};
+
 pages.people = async () => {
   const query = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
   const r = await pageCall('users.search', { query });
@@ -679,7 +752,8 @@ pages.user = async (id) => {
   show(html`<div class="profile-head">
       <h1>${u.username}${verified(u.verified)}</h1>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
-      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>` : ''}</div>
+      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
+        : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
     ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
       <div class="profile-left">
@@ -1038,6 +1112,21 @@ const actions = {
     catch { prompt('Copy this link:', link); }
   },
   serverPage(d) { serverPage = Number(d.to) || 1; render(); },
+  toggle(d) { const el = $(d.target); if (el) el.hidden = !el.hidden; },
+  async resaleBuy(d) {
+    if (!signedIn()) { loginPopup('buy items'); return; }
+    if (!confirm('Buy copy #' + d.serial + ' for ' + d.price + ' Bolts?')) return;
+    const r = await call('resale.buy', { id: d.id, serial: Number(d.serial) });
+    if (r.ok) setMe(r.me);
+    toast(r.ok ? 'It\'s yours!' : r.error);
+    render();
+  },
+  async tradeAnswer(d) {
+    const r = await call(d.op, { id: d.id });
+    if (r.ok && r.me) setMe(r.me);
+    toast(r.ok ? ({ 'trade.accept': 'Trade done!', 'trade.decline': 'Declined.', 'trade.cancel': 'Cancelled.' }[d.op]) : r.error);
+    render();
+  },
   async vote(d) {
     if (!signedIn()) { loginPopup('vote on games'); return; }
     const r = await call('game.vote', { id: d.id, vote: Number(d.vote) });
@@ -1307,6 +1396,34 @@ const forms = {
     if (!r.ok) { msg.className = 'error'; msg.textContent = ' ' + r.error; return; }
     toast('Uploaded "' + r.asset.name + '"!' + (r.fee ? ' (' + r.fee + ' Bolts)' : ''));
     render();
+  },
+  async itemEdit(f) {
+    const hex = f.color.value.replace('#', '');
+    const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0,
+      color: [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)) };
+    if (f.style) args.style = Number(f.style.value);
+    if (f.picture && f.picture.files[0]) args.data = await gb.fileBase64(f.picture.files[0]);
+    const r = await call('item.edit', args);
+    if (!r.ok) { const m = $('#itemEditMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    toast('Saved!');
+    render();
+  },
+  async itemLimited(f) {
+    const r = await call('item.limited', { id: f.id.value, stock: Number(f.stock.value) || 0 });
+    toast(r.ok ? 'It\'s Limited now!' : r.error);
+    render();
+  },
+  async resaleList(f) {
+    const r = await call('resale.list', { id: f.id.value, serial: Number(f.serial.value), price: Number(f.price.value) || 0 });
+    toast(r.ok ? (Number(f.price.value) > 0 ? 'On sale!' : 'Taken off sale.') : r.error);
+    render();
+  },
+  async tradeSend(f) {
+    const pick = (side) => [...f.querySelectorAll('input[name=' + side + ']:checked')].map((x) => { const [id, serial] = x.value.split('|'); return { id, serial: Number(serial) }; });
+    const r = await call('trade.send', { to: f.to.value, give: pick('give'), get: pick('get') });
+    if (!r.ok) { const m = $('#tradeMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    toast('Trade offer sent!');
+    location.hash = '#/trades';
   },
   async rename(f) {
     const want = f.username.value.trim();
