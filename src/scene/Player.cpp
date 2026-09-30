@@ -768,7 +768,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed &&
         !hasForceField() && !m_swimming) {
         float over = impact - world.fallDamageSpeed;
-        float damage = over * 7.0f;
+        float damage = over * 7.0f * world.fallDamageScale;
         m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
         if (m_humanoid.health <= 0.0f)
             kill(std::clamp(over / 15.0f, 0.0f, 1.0f), glm::vec3(m_velocity.x, 2.0f, m_velocity.z));

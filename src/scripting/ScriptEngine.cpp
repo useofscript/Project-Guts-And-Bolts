@@ -525,7 +525,14 @@ int fx_spray(lua_State* L, GoreKind kind) {
     if (!s->goreEnabled()) return 0;
     int n = (int)luaL_optinteger(L, 2, 20);
     glm::vec3 pos = LuaApi::checkVector3(L, 1);
-    s->particles().spray(kind, pos, glm::vec3(0, 1, 0), std::clamp(n, 1, 300), 3.0f);
+    // Optional third argument: which way (and how hard) it sprays, e.g. Vector3.new(0, 2, -8).
+    glm::vec3 dir(0, 1, 0);
+    float speed = 3.0f;
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
+        glm::vec3 d = LuaApi::checkVector3(L, 3);
+        if (glm::length(d) > 1e-3f) { speed = std::min(glm::length(d), 40.0f); dir = d / glm::length(d); }
+    }
+    s->particles().spray(kind, pos, dir, std::clamp(n, 1, 300), speed);
     s->pushFx(kind == GoreKind::Blood ? FxEvent::Blood : FxEvent::Oil, pos, (float)n);
     return 0;
 }

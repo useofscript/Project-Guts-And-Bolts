@@ -209,6 +209,10 @@ void main() {
         rough = 0.95;
     }
     else if (uMaterial == 6) { rough = 0.08; albedo = mix(albedo, vec3(0.8, 0.9, 1.0), 0.2); }
+    else if (uMaterial == 8) {                                    // wet liquid (blood, oil): glossy, a bit darker in the middle
+        rough = 0.15;
+        albedo *= 0.7;
+    }
     else if (uMaterial == 7) {                                    // water: little moving ripples on top
         rough = 0.02;
         if (N.y > 0.3) {
@@ -260,7 +264,7 @@ void main() {
         vec3  env = lin(skyGradient(R, uZenith, uHorizon, uGround));
         vec3  avg = lin((uZenith + uHorizon + uGround) / 3.0);
         env = mix(env, avg, rough);
-        color += env * F * (uMaterial == 7 ? max(uReflections, 0.8) : uReflections) * (1.0 - rough * 0.7);
+        color += env * F * (uMaterial == 7 ? max(uReflections, 0.8) : uMaterial == 8 ? uReflections * 0.2 : uReflections) * (1.0 - rough * 0.7);
 
         // Glass & ice get more opaque at glancing angles.
         if (uMaterial == 4 || uMaterial == 6 || uMaterial == 7)

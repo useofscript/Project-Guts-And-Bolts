@@ -16,6 +16,12 @@ struct Particle {
     glm::vec3 rot{0.0f}, spin{0.0f};    // degrees, degrees / second
     float     life = 1.0f, maxLife = 1.0f;
     bool      glossy = false;           // oil / bolts shine like metal
+    bool      wet = false;              // liquid (blood, oil): shiny and wet-looking
+    // Liquid pools and splats (Splat):
+    float     spread = 0.0f;            // how wide a pool grows to as it spreads out
+    float     slide = 0.0f;             // seconds left running down a wall
+    float     trail = 0.0f;             // (how far it's run since leaving the last drip mark)
+    glm::vec3 normal{0.0f, 1.0f, 0.0f}; // the surface it's on
 };
 
 enum class GoreKind { Blood, Oil };
@@ -23,6 +29,8 @@ enum class GoreKind { Blood, Oil };
 class ParticleSystem {
 public:
     void update(float dt, float gravity, const Physics& physics);
+    // The game's blood (Game Settings > Damage & Blood).
+    void setBlood(const glm::vec3& color, float amount, float stay) { m_bloodColor = color; m_bloodAmount = amount; m_bloodStay = stay; }
     void clear() { m_items.clear(); }
     const std::vector<Particle>& items() const { return m_items; }
 
@@ -42,6 +50,8 @@ public:
 private:
     void add(const Particle& p);
     std::vector<Particle> m_items;
+    glm::vec3 m_bloodColor{0.50f, 0.02f, 0.03f};
+    float     m_bloodAmount = 1.0f, m_bloodStay = 30.0f;
     int m_splats = 0;
     float m_splatSound = 0.0f;
 };

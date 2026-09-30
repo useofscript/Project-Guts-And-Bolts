@@ -26,6 +26,12 @@ struct WorldSettings {
     bool       dismemberment   = true;      // big hits can knock limbs off
     bool       fallDamage      = true;
     float      fallDamageSpeed = 20.0f;     // landing faster than this hurts
+    float      fallDamageScale = 1.0f;      // how much it hurts (2 = twice as much)
+
+    // What blood looks like (games can make it green slime, blue alien blood...).
+    glm::vec3  bloodColor  = {0.50f, 0.02f, 0.03f};
+    float      bloodAmount = 1.0f;          // how much sprays out (0.2 = a little, 3 = buckets)
+    float      bloodStay   = 30.0f;         // seconds pools and splats stay before drying up
     float      spawnForceField = 4.0f;      // seconds of ForceField after spawning (0 = none)
 };
 

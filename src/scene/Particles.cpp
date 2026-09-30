@@ -15,8 +15,6 @@ glm::vec3 rndDir() {
     return l > 1e-4f ? d / l : glm::vec3(0, 1, 0);
 }
 
-const glm::vec3 kBlood    = {0.50f, 0.02f, 0.03f};
-const glm::vec3 kBloodDark = {0.32f, 0.01f, 0.02f};
 const glm::vec3 kOil      = {0.06f, 0.06f, 0.07f};
 } // namespace
 
@@ -33,16 +31,17 @@ void ParticleSystem::add(const Particle& p) {
 }
 
 void ParticleSystem::spray(GoreKind kind, const glm::vec3& pos, const glm::vec3& dir, int count, float speed) {
+    count = (int)std::round(count * m_bloodAmount);
     for (int i = 0; i < count; ++i) {
         Particle p;
         p.kind   = Particle::Drop;
         p.pos    = pos + rndDir() * 0.05f;
         p.vel    = (dir + rndDir() * 0.6f) * speed * rnd(0.4f, 1.2f) + glm::vec3(0, rnd(0.5f, 2.0f), 0);
-        p.color  = kind == GoreKind::Blood ? glm::mix(kBlood, kBloodDark, rnd(0, 1)) : kOil;
+        p.color  = kind == GoreKind::Blood ? m_bloodColor * rnd(0.62f, 1.0f) : kOil;
         float s  = rnd(0.04f, 0.11f);
         p.size   = glm::vec3(s);
         p.life   = p.maxLife = rnd(1.5f, 3.0f);
-        p.glossy = kind == GoreKind::Oil;
+        p.wet    = true;
         add(p);
     }
 }
@@ -69,7 +68,9 @@ void ParticleSystem::gibs(GoreKind kind, const glm::vec3& pos, const glm::vec3& 
         Particle p;
         if (kind == GoreKind::Blood) {
             p.kind  = Particle::Chunk;
-            p.color = glm::mix(glm::vec3(0.55f, 0.05f, 0.06f), glm::vec3(0.75f, 0.35f, 0.35f), rnd(0, 0.5f));
+            p.color = glm::mix(glm::mix(glm::vec3(0.55f, 0.05f, 0.06f), glm::vec3(0.75f, 0.35f, 0.35f), rnd(0, 0.5f)),
+                               m_bloodColor, 0.35f);   // stained with the game's blood colour
+            p.wet   = true;
             p.size  = glm::vec3(rnd(0.12f, 0.25f), rnd(0.08f, 0.2f), rnd(0.1f, 0.22f));
         } else {
             p.kind   = Particle::Bolt;
@@ -127,9 +128,38 @@ void ParticleSystem::explosion(const glm::vec3& pos, float radius) {
 
 void ParticleSystem::update(float dt, float gravity, const Physics& physics) {
     m_splatSound -= dt;
-    for (auto& p : m_items) {
+    std::vector<Particle> born;   // made during the loop (added after, so the list doesn't move under us)
+    for (size_t i = 0; i < m_items.size(); ++i) {
+        Particle& p = m_items[i];
         p.life -= dt;
-        if (p.kind == Particle::Splat) continue;
+        if (p.kind == Particle::Splat) {
+            // Liquid spreads out into a pool over a second or two...
+            if (p.spread > p.size.x) {
+                float ratio = p.size.z / std::max(p.size.x, 1e-4f);
+                p.size.x += (p.spread - p.size.x) * std::min(1.0f, dt * 1.8f);
+                p.size.z = p.size.x * ratio;
+            }
+            // ...and on a wall it runs down, leaving a trail, thinning as it goes.
+            if (p.slide > 0.0f) {
+                p.slide -= dt;
+                float d = 0.35f * dt * std::min(1.0f, p.slide * 1.5f);
+                p.pos.y -= d;
+                p.trail += d;
+                p.size.x *= 1.0f - 0.12f * dt;
+                if (p.trail > 0.14f) {
+                    p.trail = 0.0f;
+                    Particle mark = p;
+                    mark.slide = 0.0f;
+                    mark.spread = 0.0f;
+                    mark.size.x *= 0.55f;
+                    mark.size.z *= 0.8f;
+                    born.push_back(mark);
+                }
+                if (!physics.solidAt(p.pos - p.normal * 0.06f) || physics.solidAt(p.pos + glm::vec3(0, -0.04f, 0) + p.normal * 0.03f))
+                    p.slide = 0.0f;   // ran off the wall, or reached the floor
+            }
+            continue;
+        }
 
         switch (p.kind) {
             case Particle::Fire:
@@ -157,20 +187,55 @@ void ParticleSystem::update(float dt, float gravity, const Physics& physics) {
         bool hitWall = physics.solidAt(p.pos);
         if (push > 0.0f || hitWall) {
             if (p.kind == Particle::Drop) {
-                // Splat! Flatten into a puddle that stays for a while.
                 if (push > 0.0f) {
-                    p.pos.y += push - h.y + 0.012f;
-                    float s = p.size.x * rnd(2.5f, 4.5f);
-                    p.size = glm::vec3(s, 0.02f, s * rnd(0.7f, 1.3f));
-                    p.rot  = glm::vec3(0, rnd(0, 360), 0);
+                    // Splash onto the floor. Landing in a pool makes the pool bigger instead.
+                    glm::vec3 at(p.pos.x, p.pos.y + push - h.y + 0.012f, p.pos.z);
+                    float r = p.size.x * rnd(4.0f, 6.0f) * (0.8f + 0.02f * glm::length(p.vel));
+                    Particle* pool = nullptr;
+                    for (size_t k = 0; k < m_items.size() && !pool; ++k) {
+                        Particle& q = m_items[k];
+                        if (k == i || q.kind != Particle::Splat || q.slide > 0.0f || q.normal.y < 0.9f) continue;
+                        if (std::abs(q.pos.y - at.y) > 0.08f || q.life < 1.0f) continue;
+                        glm::vec2 d(q.pos.x - at.x, q.pos.z - at.z);
+                        float reach = std::max(q.size.x, q.spread) * 0.5f + r * 0.5f;
+                        if (glm::dot(d, d) < reach * reach) pool = &q;
+                    }
+                    if (pool) {
+                        float a = std::max(pool->spread, pool->size.x);
+                        pool->spread = std::min(2.6f, std::sqrt(a * a + r * r * 0.5f));
+                        pool->color = glm::mix(pool->color, p.color, 0.15f);
+                        pool->life = std::max(pool->life, m_bloodStay * 0.8f);
+                        p.life = 0.0f;
+                    } else {
+                        p.pos = at;
+                        float s = r * 0.35f;
+                        p.size = glm::vec3(s, 0.02f, s * rnd(0.7f, 1.3f));
+                        p.spread = r;
+                        p.rot = glm::vec3(0, rnd(0, 360), 0);
+                        p.normal = glm::vec3(0, 1, 0);
+                        p.kind = Particle::Splat;
+                    }
                 } else {
-                    p.pos -= glm::normalize(p.vel + glm::vec3(1e-4f)) * 0.03f;   // stick to the wall
-                    p.size = glm::vec3(p.size.x * 2.0f);
+                    // Splat on a wall: it sticks, then runs down.
+                    glm::vec3 v = p.vel;
+                    v.y = 0.0f;
+                    glm::vec3 n = glm::length(v) > 1e-3f ? -glm::normalize(v) : glm::vec3(0, 0, 1);
+                    // Snap to the wall's facing (walls are mostly straight up and down).
+                    n = std::abs(n.x) > std::abs(n.z) ? glm::vec3(n.x > 0 ? 1.0f : -1.0f, 0, 0) : glm::vec3(0, 0, n.z > 0 ? 1.0f : -1.0f);
+                    p.normal = n;
+                    p.pos += n * 0.02f;
+                    for (int step = 0; step < 6 && physics.solidAt(p.pos); ++step) p.pos += n * 0.03f;   // out onto the surface
+                    float s = p.size.x * rnd(2.0f, 3.0f);
+                    p.size = glm::vec3(s, 0.02f, s * rnd(0.8f, 1.4f));
+                    p.rot = std::abs(n.x) > 0.5f ? glm::vec3(0, 0, 90) : glm::vec3(90, 0, 0);
+                    p.slide = rnd(0.6f, 2.2f);
+                    p.kind = Particle::Splat;
                 }
-                p.kind = Particle::Splat;
-                p.vel = p.spin = glm::vec3(0.0f);
-                p.life = p.maxLife = rnd(25.0f, 40.0f);
-                ++m_splats;
+                if (p.kind == Particle::Splat) {
+                    p.vel = p.spin = glm::vec3(0.0f);
+                    p.life = p.maxLife = m_bloodStay * rnd(0.8f, 1.2f);
+                    ++m_splats;
+                }
                 if (m_splatSound <= 0.0f) {    // a few squelches, not hundreds
                     Audio::play("splat", 0.25f, 0.8f + 0.4f * (rnd(0, 1)), false, &p.pos);
                     m_splatSound = 0.07f;
@@ -186,10 +251,14 @@ void ParticleSystem::update(float dt, float gravity, const Physics& physics) {
         }
         if (p.pos.y < -200.0f) p.life = 0.0f;
     }
+    for (Particle& b : born) add(b);
 
     // Too many puddles: fade the oldest.
-    if (m_splats > kMaxSplats) {
-        int over = m_splats - kMaxSplats;
+    // (Only count the ones not already fading, or it would fade them all, a batch each frame.)
+    int fading = 0;
+    for (auto& p : m_items) if (p.kind == Particle::Splat && p.life <= 1.0f) ++fading;
+    if (m_splats - fading > kMaxSplats) {
+        int over = m_splats - fading - kMaxSplats;
         for (auto& p : m_items)
             if (over > 0 && p.kind == Particle::Splat && p.life > 1.0f) { p.life = 1.0f; --over; }
     }

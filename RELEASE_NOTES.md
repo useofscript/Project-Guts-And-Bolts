@@ -21,6 +21,13 @@
 - The camera follows your head. Scroll all the way in for first person: your
   character fades out as the camera gets close, and the mouse looks around.
 
+**Damage and blood settings**
+- Game Settings has a new Damage & Blood tab: fall damage on/off, safe fall
+  speed, fall damage strength, gore, and blood color, amount and how long it stays.
+- Blood is now liquid: streaking drops, pools that spread and merge, drips down walls.
+- Scripts: `workspace.BloodColor`, `BloodAmount`, `SafeFallSpeed`,
+  `FallDamageScale`, and `Effects.Blood(pos, amount, direction)`.
+
 **Smooth multiplayer**
 - Other players move smoothly instead of jittering: their movement is shown a
   tenth of a second behind, gliding between updates, and it adapts to bumpy

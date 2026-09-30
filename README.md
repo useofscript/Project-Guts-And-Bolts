@@ -648,6 +648,22 @@ screen. Scroll out to go back. On phones, pinch to zoom in and out.
 
 ## Death, ragdolls and gore
 
+**Game Settings > Damage & Blood** (also in the Player panel) has all of it:
+death style, fall damage on or off, how hard a fall has to be to hurt (Safe
+Fall Speed) and how much it hurts (Fall Damage Strength), gore (off, oil &
+bolts, or blood), dismemberment, and the blood itself: its **color** (red,
+slime green, alien blue, ink, or anything), how much sprays out, and how long
+pools last.
+
+Blood is a liquid: drops stretch as they fly, splash into pools that spread
+out and join together, and blood that hits a wall runs down it in drips.
+
+Scripts can change these too: `workspace.FallDamage = false`,
+`workspace.SafeFallSpeed`, `workspace.FallDamageScale`,
+`workspace.BloodColor = Color3.new(0.2, 0.7, 0.1)`, `workspace.BloodAmount`, and
+`Effects.Blood(position, amount, direction)` sprays blood (the direction is
+optional, e.g. `Vector3.new(0, 2, -8)` to splatter a wall).
+
 Each game picks its own rules in the Player panel (**Death & Gore**):
 
 - **Death style:** *Classic* makes the character fall to pieces like in

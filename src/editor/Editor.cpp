@@ -1517,12 +1517,25 @@ void Editor::renderDialogs() {
     // --- Game settings (shown in the Player app) ---
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal("Game Settings", nullptr)) {
-        GameInfo& info = m_scene->info();
-        ImGui::TextDisabled("How your game shows up in Guts&BoltsPlayer");
-        ImGui::InputText("Title",  &info.title);
-        ImGui::InputText("Author", &info.author);
-        ImGui::InputTextMultiline("Description", &info.description, ImVec2(-1, 90));
+        if (ImGui::BeginTabBar("##gamesettings")) {
+            if (ImGui::BeginTabItem("Basic Info")) {
+                GameInfo& info = m_scene->info();
+                ImGui::TextDisabled("How your game shows up in Guts&BoltsPlayer");
+                ImGui::InputText("Title",  &info.title);
+                ImGui::InputText("Author", &info.author);
+                ImGui::InputTextMultiline("Description", &info.description, ImVec2(-1, 90));
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Damage & Blood")) {
+                ImGui::TextDisabled("Fall damage, deaths and gore in your game");
+                drawGameRules(m_scene->world());
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::Separator();
         if (ImGui::Button("Done", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }

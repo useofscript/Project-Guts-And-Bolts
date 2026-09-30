@@ -441,7 +441,9 @@ json settingsJson(Scene& scene) {
     j["world"] = {{"gravity", ws.gravity}, {"fallenPartsHeight", ws.fallenPartsHeight},
                   {"deathStyle", (int)ws.deathStyle}, {"gore", (int)ws.gore},
                   {"dismemberment", ws.dismemberment}, {"fallDamage", ws.fallDamage},
-                  {"fallDamageSpeed", ws.fallDamageSpeed}, {"spawnForceField", ws.spawnForceField}};
+                  {"fallDamageSpeed", ws.fallDamageSpeed}, {"spawnForceField", ws.spawnForceField},
+                  {"fallDamageScale", ws.fallDamageScale}, {"bloodColor", vec(ws.bloodColor)},
+                  {"bloodAmount", ws.bloodAmount}, {"bloodStay", ws.bloodStay}};
     if (Player* p = scene.player()) {
         const Humanoid& h = p->humanoid();
         j["player"] = {
@@ -475,6 +477,10 @@ void applySettings(Scene& scene, const json& j) {
         w.fallDamage        = get<bool>(j["world"], "fallDamage", w.fallDamage);
         w.fallDamageSpeed   = get<float>(j["world"], "fallDamageSpeed", w.fallDamageSpeed);
         w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
+        w.fallDamageScale   = get<float>(j["world"], "fallDamageScale", w.fallDamageScale);
+        w.bloodColor        = vec(j["world"], "bloodColor", w.bloodColor);
+        w.bloodAmount       = get<float>(j["world"], "bloodAmount", w.bloodAmount);
+        w.bloodStay         = get<float>(j["world"], "bloodStay", w.bloodStay);
     }
     scene.world() = w;
 

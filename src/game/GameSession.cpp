@@ -229,6 +229,8 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
     });
 
     // Blood, oil, sparks, smoke...
+    const WorldSettings& ws = m_scene->world();
+    m_scene->particles().setBlood(ws.bloodColor, ws.bloodAmount, ws.bloodStay);
     m_scene->particles().update(dt, m_scene->world().gravity, m_physics);
 
     // 4. Touched events (after everything has moved).

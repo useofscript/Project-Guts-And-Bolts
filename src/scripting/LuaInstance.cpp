@@ -711,6 +711,10 @@ int inst_index(lua_State* L) {
         if (is(k, "DeathStyle")) { lua_pushstring(L, w.deathStyle == DeathStyle::Ragdoll ? "Ragdoll" : "Classic"); return 1; }
         if (is(k, "Gore"))       { lua_pushstring(L, w.gore == GoreLevel::Blood ? "Blood" : w.gore == GoreLevel::OilAndBolts ? "Oil" : "Off"); return 1; }
         if (is(k, "FallDamage")) { lua_pushboolean(L, w.fallDamage); return 1; }
+        if (is(k, "SafeFallSpeed"))   { lua_pushnumber(L, w.fallDamageSpeed); return 1; }
+        if (is(k, "FallDamageScale")) { lua_pushnumber(L, w.fallDamageScale); return 1; }
+        if (is(k, "BloodColor"))  { LuaApi::pushColor3(L, w.bloodColor); return 1; }
+        if (is(k, "BloodAmount")) { lua_pushnumber(L, w.bloodAmount); return 1; }
     }
     if (is(k, "Humanoid") && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
 
@@ -882,6 +886,10 @@ int inst_newindex(lua_State* L) {
             return 0;
         }
         if (is(k, "FallDamage")) { w.fallDamage = lua_toboolean(L, 3); return 0; }
+        if (is(k, "SafeFallSpeed"))   { w.fallDamageSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "FallDamageScale")) { w.fallDamageScale = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "BloodColor"))  { w.bloodColor = LuaApi::checkColor3(L, 3); return 0; }
+        if (is(k, "BloodAmount")) { w.bloodAmount = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 5.0f); return 0; }
     }
     return luaL_error(L, "'%s' can't be set on %s \"%s\"", k, className(L, n), n->name.c_str());
 }

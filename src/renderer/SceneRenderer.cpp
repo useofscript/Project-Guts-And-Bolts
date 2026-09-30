@@ -639,18 +639,29 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         m_lit->setBool("uSelected", false);
         auto drawParticle = [&](const Particle& p, float alpha) {
             glm::mat4 m = glm::translate(glm::mat4(1.0f), p.pos);
-            m = glm::rotate(m, glm::radians(p.rot.z), {0, 0, 1});
-            m = glm::rotate(m, glm::radians(p.rot.y), {0, 1, 0});
-            m = glm::rotate(m, glm::radians(p.rot.x), {1, 0, 0});
-            m = glm::scale(m, p.size);
+            const float speed = glm::length(p.vel);
+            if (p.kind == Particle::Drop && speed > 0.5f) {
+                // Flying liquid stretches into a streak along the way it's going.
+                glm::vec3 y = p.vel / speed;
+                glm::vec3 x = glm::normalize(glm::cross(std::abs(y.y) < 0.95f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0), y));
+                glm::vec3 z = glm::cross(x, y);
+                m = m * glm::mat4(glm::vec4(x, 0), glm::vec4(y, 0), glm::vec4(z, 0), glm::vec4(0, 0, 0, 1));
+                m = glm::scale(m, glm::vec3(p.size.x * 0.8f, p.size.y * std::min(3.5f, 1.0f + speed * 0.12f), p.size.z * 0.8f));
+            } else {
+                m = glm::rotate(m, glm::radians(p.rot.z), {0, 0, 1});
+                m = glm::rotate(m, glm::radians(p.rot.y), {0, 1, 0});
+                m = glm::rotate(m, glm::radians(p.rot.x), {1, 0, 0});
+                m = glm::scale(m, p.size);
+            }
             m_lit->setMat4("uModel", m);
             m_lit->setMat3("uNormalMat", glm::transpose(glm::inverse(glm::mat3(m))));
             m_lit->setVec3("uColor", p.color);
             int mat = (p.kind == Particle::Fire || p.kind == Particle::Spark) ? (int)Material::Neon
+                    : p.wet ? 8   // wet liquid (see the shader)
                     : p.glossy ? (int)Material::Metal : (int)Material::Plastic;
             m_lit->setInt("uMaterial", mat);
             m_lit->setFloat("uAlpha", alpha);
-            (p.kind == Particle::Bolt || p.kind == Particle::Splat ? cyl : cube)->draw();
+            (p.kind == Particle::Bolt || p.kind == Particle::Splat || (p.kind == Particle::Drop && p.wet) ? cyl : cube)->draw();
         };
         for (const Particle& p : parts) {
             bool fade = p.kind == Particle::Smoke || p.kind == Particle::Spray || (p.kind == Particle::Splat && p.life < 1.0f);
