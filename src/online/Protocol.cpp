@@ -12,6 +12,20 @@ bool validKind(const std::string& k) {
     return k == "hat" || k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal";
 }
 bool isClothing(const std::string& k) { return k == "hat" || k == "shirt" || k == "pants"; }
+bool alwaysFree(const std::string& k) { return k == "decal" || k == "audio"; }
+
+const char* banReasonTitle(const std::string& key) {
+    for (const BanReason& r : kBanReasons) if (key == r.key) return r.title;
+    return nullptr;
+}
+
+std::string banMessage(const std::string& reason, const std::string& note) {
+    std::string m = "This account has been banned";
+    if (const char* t = banReasonTitle(reason)) m += std::string(" for: ") + t;
+    m += ".";
+    if (!note.empty()) m += " Note from staff: " + note;
+    return m;
+}
 
 long long uploadFee(const std::string& k) {
     if (isClothing(k)) return kFeeClothing;

@@ -247,6 +247,8 @@ private:
     nlohmann::json m_foundUsers = nlohmann::json::array();
     int            m_openOnlineItem = -1, m_openOnlineGame = -1;
     std::string    m_onlineMsg, m_createMsg, m_staffMsg, m_findQuery;
+    std::string    m_banTarget, m_banTargetName, m_banNote;   // the "Ban account" popup
+    int            m_banReason = 0;                           // index into Online::kBanReasons
     int            m_createKind = 0, m_createStyle = 2, m_createPrice = 0, m_giveServerBolts = 100;
     std::string    m_createName, m_createDesc, m_createPath;
     glm::vec3      m_createColor{0.9f, 0.2f, 0.2f};

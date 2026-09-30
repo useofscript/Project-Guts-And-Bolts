@@ -912,9 +912,19 @@ Uploading costs:
 - **Everyone else:** a small fee (5 Bolts for decals, 10 for clothes, 20 for
   audio and plugins), 5 uploads a day, and everything they make is free.
 
+Who can make what:
+
+- **Hats** are for Verified creators only. **Shirts and pants** can be made by
+  anyone with an account. Guests can only play games.
+- **Decals and audio are always free**, even from Verified creators: they're
+  free-use assets anyone can put in their games.
+
 The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also
-make people **Staff**, give or take Bolts, and ban.
+make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
+(sexual content, violent extremism, harassment, hate speech, threats, scams,
+sharing personal info, exploiting, spam and so on) and an optional note; the
+banned player sees them when they try to sign in.
 
 ### Signing up and logging in
 

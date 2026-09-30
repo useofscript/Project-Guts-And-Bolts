@@ -121,7 +121,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
 
     User& me = user(account);
     me.lastSeen = now;
-    if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
+    if (me.banned && opName != "hello") return fail(Online::banMessage(me.banReason, me.banNote));
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
@@ -195,7 +195,8 @@ bool GbServer::isVerified(const User& u) const {
 json GbServer::publicUser(const User& u) const {
     return {{"id", u.id}, {"name", u.name}, {"username", u.username}, {"userId", u.userId},
             {"verified", isVerified(u)}, {"staff", isStaff(u)},
-            {"official", isOfficial(u)}, {"created", u.created}, {"banned", u.banned}};
+            {"official", isOfficial(u)}, {"created", u.created}, {"banned", u.banned},
+            {"banReason", u.banned ? u.banReason : std::string()}};
 }
 
 json GbServer::meJson(const User& u) const {
@@ -482,7 +483,18 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         if (name == "admin.ban") {
             if (isOfficial(*to)) return fail("You can't ban yourself.");
-            to->banned = args.value("on", true);
+            const bool on = args.value("on", true);
+            if (on) {
+                std::string reason = str("reason");
+                if (!Online::banReasonTitle(reason)) return fail("Pick a reason for the ban.");
+                to->banReason = reason;
+                to->banNote = Online::cleanText(str("note"), 200);
+            } else {
+                to->banReason.clear();
+                to->banNote.clear();
+            }
+            to->banned = on;
+            log(me.name + (on ? " banned " + to->name + " (" + to->banReason + ")" : " unbanned " + to->name));
             saveUsers();
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
@@ -497,8 +509,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (title.empty()) return fail("Give it a name.");
         std::string desc = Online::cleanText(str("description"), 1000, true);
         const bool verified = isVerified(me);
+        if (kind == "hat" && !verified)
+            return fail("Only Verified creators can make hats. Shirts and pants are open to everyone!");
         long long price = std::clamp(num("price"), 0LL, 1000000LL);
-        if (kind == "game") price = 0;   // games are free to play
+        if (kind == "game" || Online::alwaysFree(kind)) price = 0;   // games, decals and audio are free
         if (price > 0 && !verified) return fail("Only Verified creators can sell things. Upload it for free, or get Verified!");
         if (!verified) {
             if (me.uploadDay != today) { me.uploadDay = today; me.uploadsToday = 0; }
@@ -560,7 +574,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         std::string title = Online::cleanText(str("name"), 50);
         if (!title.empty()) a.name = title;
         if (args.contains("description")) a.description = Online::cleanText(str("description"), 1000, true);
-        if (args.contains("price") && a.kind != "game") {
+        if (args.contains("price") && a.kind != "game" && !Online::alwaysFree(a.kind)) {
             long long price = std::clamp(num("price"), 0LL, 1000000LL);
             if (price > 0 && !isVerified(me)) return fail("Only Verified creators can sell things.");
             a.price = price;
@@ -659,6 +673,7 @@ void GbServer::saveUsers() {
         all[id] = {{"name", u.name}, {"created", u.created}, {"lastSeen", u.lastSeen}, {"ledger", ledger},
                    {"grants", u.grants}, {"owned", u.owned}, {"uploadDay", u.uploadDay}, {"uploadsToday", u.uploadsToday},
                    {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned},
+                   {"banReason", u.banReason}, {"banNote", u.banNote},
                    {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut},
                    {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}};
@@ -700,6 +715,8 @@ void GbServer::load() {
                 u.playEarned = j.value("playEarned", 0LL);
                 u.lastPlay = j.value("lastPlay", 0LL);
                 u.banned = j.value("banned", false);
+                u.banReason = j.value("banReason", std::string());
+                u.banNote = j.value("banNote", std::string());
                 u.username = j.value("username", std::string());
                 u.userId = j.value("userId", 0LL);
                 u.pwSalt = j.value("pwSalt", std::string());
@@ -724,7 +741,7 @@ void GbServer::load() {
                 a.name = j.value("name", std::string());
                 a.description = j.value("description", std::string());
                 a.creator = j.value("creator", std::string());
-                a.price = j.value("price", 0LL);
+                a.price = Online::alwaysFree(a.kind) ? 0LL : j.value("price", 0LL);
                 a.created = j.value("created", 0LL);
                 a.sales = j.value("sales", 0LL);
                 a.plays = j.value("plays", 0LL);

@@ -132,7 +132,7 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
     }
     if (name == "account.login") {
         if (!u || u->keyBlob.empty()) return fail(noLogin(u));
-        if (u->banned) return fail("That account has been banned from this server.");
+        if (u->banned) return fail(Online::banMessage(u->banReason, u->banNote));
         long long now = Online::unixNow();
         auto& fails = m_failedLogins[lower(username)];
         fails.erase(std::remove_if(fails.begin(), fails.end(), [&](long long t) { return now - t > kLockoutSeconds; }), fails.end());

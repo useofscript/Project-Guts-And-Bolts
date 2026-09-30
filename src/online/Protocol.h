@@ -38,9 +38,32 @@ inline constexpr size_t kMaxDecal  = 4u * 1024u * 1024u;   // a .png or .jpg pic
 // Kinds of things people upload.
 bool        validKind(const std::string& kind);        // hat, shirt, pants, audio, plugin, game, decal
 bool        isClothing(const std::string& kind);
+bool        alwaysFree(const std::string& kind);       // decals and audio: free-use assets, never sold
 long long   uploadFee(const std::string& kind);
 size_t      maxSize(const std::string& kind);
 const char* kindTitle(const std::string& kind);        // "Hat", "Audio", ...
+
+// Why staff banned an account: {key, what the player sees}. Staff pick one.
+struct BanReason { const char* key; const char* title; };
+inline constexpr BanReason kBanReasons[] = {
+    {"sexual", "Sexual content"},
+    {"extremism", "Violent extremism"},
+    {"harassment", "Harassment or bullying"},
+    {"hate", "Hate speech or discrimination"},
+    {"threats", "Threats of violence"},
+    {"selfharm", "Promoting self-harm"},
+    {"scam", "Scamming or phishing"},
+    {"personal", "Sharing personal information"},
+    {"exploit", "Cheating or exploiting"},
+    {"spam", "Spam"},
+    {"impersonation", "Impersonation"},
+    {"inappropriate", "Inappropriate content"},
+    {"underage", "Underage safety violation"},
+    {"other", "Breaking the rules"},
+};
+const char* banReasonTitle(const std::string& key);   // null if it isn't one
+// "This account has been banned for: Spam. Note from staff: ..."
+std::string banMessage(const std::string& reason, const std::string& note);
 
 // The exact text a request's signature covers.
 std::string requestText(const std::string& op, const std::string& account, long long time,

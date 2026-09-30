@@ -33,6 +33,14 @@
 - Players bump into each other (and can stand on each other's heads). Games
   can turn it off in Game Settings or with `workspace.PlayerCollisions`.
 
+**Creating and moderation**
+- Hats are for Verified creators; shirts and pants can be made by anyone
+  signed up (guests can only play).
+- Decals and audio are always free, so anyone can use them in their games.
+- Staff pick a reason when banning (sexual content, violent extremism,
+  harassment, scams, exploiting and more), with an optional note. The banned
+  player sees why.
+
 **Assistant and MCP (AI in Studio)**
 - New Assistant tab: chat with Claude (your own API key) and it builds,
   scripts, playtests and takes screenshots in your game. Everything is undoable.

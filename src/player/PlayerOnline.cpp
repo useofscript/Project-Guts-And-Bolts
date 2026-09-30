@@ -529,6 +529,14 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
     float fieldW = std::min(360.0f, ImGui::GetContentRegionAvail().x - 110);
 
     ImGui::SeparatorText(("Upload a new " + std::string(Online::kindTitle(kind))).c_str());
+    if (kind == "hat" && !verified) {
+        // Hats are for Verified creators; shirts and pants are open to everyone.
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.1f, 1), "Only Verified creators can make hats.");
+        ImGui::TextDisabled("You can still make shirts and pants! Get Verified to make hats too.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
     ImGui::BeginGroup();
     ImGui::SetNextItemWidth(fieldW);
     ImGui::InputTextWithHint("Name", "Give it a name", &m_createName);
@@ -565,7 +573,10 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
                           : kind == "audio" ? "An .mp3, .wav, .ogg or .flac file (up to 6 MB)."
                                             : "A Lua plugin for Studio (see the README for how plugins work).");
     }
-    if (verified) {
+    const bool canPrice = verified && !Online::alwaysFree(kind);
+    if (Online::alwaysFree(kind)) {
+        ImGui::TextDisabled("%s are always free: anyone can use them in their games.", kind == "decal" ? "Decals" : "Sounds");
+    } else if (canPrice) {
         ImGui::SetNextItemWidth(fieldW);
         if (ImGui::InputInt("Price (Bolts)", &m_createPrice, 5, 50)) m_createPrice = std::clamp(m_createPrice, 0, 1000000);
         ImGui::TextDisabled("0 = free. You get %d%% of every sale.", Online::kCreatorSharePercent);
@@ -604,7 +615,7 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
     std::string label = fee > 0 ? "Upload for " + std::to_string(fee) + " Bolts" : std::string("Upload (free)");
     ImGui::BeginDisabled(m_busy);
     if (Classic::button(m_busy ? "Uploading..." : label.c_str(), Classic::kPlay, ImVec2(200, 34))) {
-        json args = {{"kind", kind}, {"name", m_createName}, {"description", m_createDesc}, {"price", verified ? m_createPrice : 0}};
+        json args = {{"kind", kind}, {"name", m_createName}, {"description", m_createDesc}, {"price", canPrice ? m_createPrice : 0}};
         bool ok = true;
         if (clothing) {
             args["meta"] = {{"color", {(int)std::lround(m_createColor.r * 255), (int)std::lround(m_createColor.g * 255),
@@ -1010,8 +1021,33 @@ void PlayerApp::drawOnlineStaff() {
                     Online::request("admin.giveBolts", {{"to", id}, {"amount", m_giveServerBolts}}, updateRow);
                 ImGui::SameLine();
                 bool banned = u.value("banned", false);
-                if (ImGui::SmallButton(banned ? "Unban" : "Ban"))
-                    Online::request("admin.ban", {{"to", id}, {"on", !banned}}, updateRow);
+                if (ImGui::SmallButton(banned ? "Unban" : "Ban")) {
+                    if (banned) Online::request("admin.ban", {{"to", id}, {"on", false}}, updateRow);
+                    else {   // pick why first (they'll see the reason)
+                        m_banTarget = id;
+                        m_banTargetName = u.value("name", std::string());
+                        m_banReason = 0;
+                        m_banNote.clear();
+                        ImGui::OpenPopup("Ban account");
+                    }
+                }
+                if (ImGui::BeginPopupModal("Ban account", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::Text("Ban %s?", m_banTargetName.c_str());
+                    ImGui::TextDisabled("Pick why. They'll see this reason.");
+                    for (int i = 0; i < (int)std::size(Online::kBanReasons); ++i)
+                        ImGui::RadioButton(Online::kBanReasons[i].title, &m_banReason, i);
+                    ImGui::SetNextItemWidth(320);
+                    ImGui::InputTextWithHint("##banNote", "Note for them (optional)", &m_banNote);
+                    if (Classic::button("Ban", ImVec4(0.75f, 0.25f, 0.25f, 1))) {
+                        Online::request("admin.ban", {{"to", m_banTarget}, {"on", true},
+                                                      {"reason", Online::kBanReasons[m_banReason].key},
+                                                      {"note", m_banNote}}, updateRow);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (Classic::button("Cancel", Classic::kBlue)) ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
             }
         }
         ImGui::PopID();

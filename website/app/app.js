@@ -203,6 +203,15 @@ function itemCard(a) {
     <div class="by">${a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
 }
 
+// Why staff can ban someone (the server has the same list).
+const BAN_REASONS = [
+  ['sexual', 'Sexual content'], ['extremism', 'Violent extremism'], ['harassment', 'Harassment or bullying'],
+  ['hate', 'Hate speech or discrimination'], ['threats', 'Threats of violence'], ['selfharm', 'Promoting self-harm'],
+  ['scam', 'Scamming or phishing'], ['personal', 'Sharing personal information'], ['exploit', 'Cheating or exploiting'],
+  ['spam', 'Spam'], ['impersonation', 'Impersonation'], ['inappropriate', 'Inappropriate content'],
+  ['underage', 'Underage safety violation'], ['other', 'Breaking the rules'],
+];
+
 // A classic white popup over a dark page. `body` is html``; returns the box.
 function popup(body, cls = '') {
   document.querySelectorAll('.modal').forEach((m) => m.remove());
@@ -481,10 +490,15 @@ pages.create = async (tab = 'games') => {
       : html`<label>File</label><input type="file" name="file" accept="${accept}" required>
         <p class="small muted">${{ decal: 'A .png or .jpg picture (up to 4 MB).', audio: 'An .mp3, .wav, .ogg or .flac file (up to 6 MB).',
           plugin: 'A Lua plugin for Studio.', game: 'A .gbscene file saved from Studio (or use File > Publish in Studio).' }[kind]}</p>`}
-      ${me.verified && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
+      ${['decal', 'audio'].includes(kind) ? html`<p class="small muted">${kind === 'decal' ? 'Decals' : 'Sounds'} are always free: anyone can use them in their games.</p>`
+        : me.verified && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
       ${kind === 'decal' ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
       <p><button class="btn green">${FEES[kind] && !me.verified ? 'Upload for ' + FEES[kind] + ' Bolts' : 'Upload (free)'}</button>
         <span id="uploadMsg"></span></p></form>`;
+  // Hats are for Verified creators; shirts and pants are open to everyone.
+  const hatLocked = kind === 'hat' && signedIn() && !me.verified;
+  const shownForm = hatLocked ? html`<h2>Upload a new Hat</h2><p class="error">Only Verified creators can make hats.</p>
+    <p class="muted">You can still make <a href="#/create/shirt">shirts</a> and <a href="#/create/pants">pants</a>!</p>` : form;
   const row = (a) => html`<div>
       ${a.kind === 'game' ? gameIcon(a, 48) : ''}
       ${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="">` : ''}
@@ -500,7 +514,7 @@ pages.create = async (tab = 'games') => {
     ${kind === 'game' ? html`<h2>My published games</h2>` : html`<h2>My ${KINDS[kind]}${kind === 'pants' ? '' : 's'}</h2>`}
     ${list.length ? html`<div class="list">${list.map(row)}</div>`
       : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see what you\'ve made.'}</p>`}
-    ${form}`);
+    ${shownForm}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
   const file = view.querySelector('input[type=file]'), prev = $('#preview');
   if (file && prev) file.addEventListener('change', () => { if (file.files[0]) { prev.src = URL.createObjectURL(file.files[0]); prev.hidden = false; } });
@@ -601,7 +615,7 @@ pages.user = async (id) => {
             <tr><td>Friends</td><td>${r.friendCount}</td></tr>
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
-          ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned</p>` : ''}</div>
+          ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
         ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Badges</h2><div class="row">
           ${u.badges.map((b) => html`<span class="badge-pill">${badgeNames[b] || b}</span>`)}</div></div>` : ''}
       </div>
@@ -989,10 +1003,26 @@ const actions = {
       if (!amount) return;
       r = await call('admin.giveBolts', { to: d.id, amount, reason: '' });
     } else if (d.op === 'ban') {
-      if (d.on && !confirm('Ban this account?')) return;
-      r = await call('admin.ban', { to: d.id, on: !!d.on });
+      if (d.on) {   // pick why first (the banned player sees it)
+        popup(html`<h1 class="popup-title">Ban this account</h1>
+          <p>Why are they being banned? They'll see this reason.</p>
+          <p><select id="banReason">${BAN_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
+          <p><input id="banNote" maxlength="200" placeholder="Note for them (optional)"></p>
+          <p><button class="btn red" data-act="doBan" data-id="${d.id}">Ban</button>
+             <button class="btn" data-act="closeModal">Cancel</button></p>`);
+        return;
+      }
+      r = await call('admin.ban', { to: d.id, on: false });
     }
     toast(r && r.ok ? 'Done.' : (r && r.error) || 'That didn\'t work.');
+    render();
+  },
+  async doBan(d) {
+    const reason = document.getElementById('banReason').value;
+    const note = document.getElementById('banNote').value;
+    const r = await call('admin.ban', { to: d.id, on: true, reason, note });
+    document.querySelectorAll('.modal').forEach((m) => m.remove());
+    toast(r && r.ok ? 'Banned.' : (r && r.error) || 'That didn\'t work.');
     render();
   },
   async friend(d) {

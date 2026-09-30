@@ -22,6 +22,27 @@ const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, dec
 const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20 };
 const maxSize = (k) => MAX_SIZE[k] || 64 * 1024;
 const isClothing = (k) => k === 'hat' || k === 'shirt' || k === 'pants';
+// Decals and audio are free-use assets: anyone can put them in their games.
+const alwaysFree = (k) => k === 'decal' || k === 'audio';
+// Why an account was banned (staff pick one). Shown to the banned player.
+const BAN_REASONS = {
+  sexual: 'Sexual content',
+  extremism: 'Violent extremism',
+  harassment: 'Harassment or bullying',
+  hate: 'Hate speech or discrimination',
+  threats: 'Threats of violence',
+  selfharm: 'Promoting self-harm',
+  scam: 'Scamming or phishing',
+  personal: 'Sharing personal information',
+  exploit: 'Cheating or exploiting',
+  spam: 'Spam',
+  impersonation: 'Impersonation',
+  inappropriate: 'Inappropriate content',
+  underage: 'Underage safety violation',
+  other: 'Breaking the rules',
+};
+const banMessage = (u) => 'This account has been banned' + (u.banReason && BAN_REASONS[u.banReason]
+  ? ' for: ' + BAN_REASONS[u.banReason] + '.' : '.') + (u.banNote ? ' Note from staff: ' + u.banNote : '');
 const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
@@ -173,7 +194,11 @@ export class GbServerObject extends DurableObject {
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new Map(); this.groups = new Map();
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
-    for (const r of this.sql.exec('SELECT id, data FROM assets')) this.assets.set(r.id, JSON.parse(r.data));
+    for (const r of this.sql.exec('SELECT id, data FROM assets')) {
+      const a = JSON.parse(r.data);
+      if (alwaysFree(a.kind)) a.price = 0;   // decals and audio are always free now
+      this.assets.set(r.id, a);
+    }
     for (const r of this.sql.exec('SELECT id, data FROM groups')) this.groups.set(r.id, JSON.parse(r.data));
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
@@ -293,7 +318,8 @@ export class GbServerObject extends DurableObject {
 
   publicUser(u) {
     return { id: u.id, name: u.name, username: u.username, userId: u.userId, verified: this.isVerified(u),
-      staff: this.isStaff(u), official: this.isOfficial(u), created: u.created, banned: u.banned };
+      staff: this.isStaff(u), official: this.isOfficial(u), created: u.created, banned: u.banned,
+      banReason: u.banned ? (u.banReason || '') : undefined };
   }
   meJson(u) {
     const today = utcDay(now());
@@ -419,7 +445,7 @@ export class GbServerObject extends DurableObject {
       return { bad: fail('This device was logged out because the account\'s password was reset. Log in again with the new password.') };
     me.lastSeen = t;
     this.saveUser(me);
-    if (me.banned && opName !== 'hello') return { bad: fail('This account has been banned from this server.') };
+    if (me.banned && opName !== 'hello') return { bad: fail(banMessage(me)) };
     if (me.userId === 0 && opName !== 'hello' && opName !== 'ping' && !opName.startsWith('account.') && !GUEST_OK.has(opName))
       return { bad: fail('Sign up or log in first.') };
     return { me, args, opName };
@@ -652,7 +678,17 @@ export class GbServerObject extends DurableObject {
       }
       if (name === 'admin.ban') {
         if (this.isOfficial(to)) return fail('You can\'t ban yourself.');
-        to.banned = args.on === undefined ? true : !!args.on;
+        const on = args.on === undefined ? true : !!args.on;
+        if (on) {
+          const reason = str(args, 'reason');
+          if (!BAN_REASONS[reason]) return fail('Pick a reason for the ban.');
+          to.banReason = reason;
+          to.banNote = cleanText(str(args, 'note'), 200);
+          to.bannedAt = now();
+        } else {
+          delete to.banReason; delete to.banNote; delete to.bannedAt;
+        }
+        to.banned = on;
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -666,8 +702,9 @@ export class GbServerObject extends DurableObject {
       if (!title) return fail('Give it a name.');
       const desc = cleanText(str(args, 'description'), 1000, true);
       const verified = this.isVerified(me);
+      if (kind === 'hat' && !verified) return fail('Only Verified creators can make hats. Shirts and pants are open to everyone!');
       let price = clamp(num(args, 'price'), 0, 1000000);
-      if (kind === 'game') price = 0;
+      if (kind === 'game' || alwaysFree(kind)) price = 0;
       if (price > 0 && !verified) return fail('Only Verified creators can sell things. Upload it for free, or get Verified!');
       if (!verified) {
         if (me.uploadDay !== today) { me.uploadDay = today; me.uploadsToday = 0; }
@@ -718,7 +755,7 @@ export class GbServerObject extends DurableObject {
       const title = cleanText(str(args, 'name'), 50);
       if (title) a.name = title;
       if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
-      if ('price' in args && a.kind !== 'game') {
+      if ('price' in args && a.kind !== 'game' && !alwaysFree(a.kind)) {
         const price = clamp(num(args, 'price'), 0, 1000000);
         if (price > 0 && !this.isVerified(me)) return fail('Only Verified creators can sell things.');
         a.price = price;
@@ -899,7 +936,7 @@ export class GbServerObject extends DurableObject {
     }
     if (name === 'account.login') {
       if (!u || !u.keyBlob) return fail(noLogin(u));
-      if (u.banned) return fail('That account has been banned from this server.');
+      if (u.banned) return fail(banMessage(u));
       const t = now(), key = lower(username);
       const fails = (this.failedLogins.get(key) || []).filter((x) => t - x <= kLockoutSeconds);
       this.failedLogins.set(key, fails);
