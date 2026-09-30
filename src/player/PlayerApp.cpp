@@ -262,6 +262,14 @@ void PlayerApp::run() {
                 int t = m_frame - 50;
                 if (t >= 0 && t < 30 && t % 10 == 0) io.AddMouseButtonEvent(0, true);
                 if (t >= 0 && t < 30 && t % 10 == 2) io.AddMouseButtonEvent(0, false);
+                // "x,y;x2,y2": then one more click somewhere else (e.g. outside a popup it opened).
+                float c2x = 0, c2y = 0;
+                size_t semi = m_opts.testClick.find(';');
+                if (semi != std::string::npos && std::sscanf(m_opts.testClick.c_str() + semi + 1, "%f,%f", &c2x, &c2y) == 2 && t >= 60) {
+                    io.AddMousePosEvent(c2x * io.DisplaySize.x, c2y * io.DisplaySize.y);
+                    if (t == 62) io.AddMouseButtonEvent(0, true);
+                    if (t == 64) io.AddMouseButtonEvent(0, false);
+                }
             }
             if (!m_opts.holdKey.empty() && m_frame > 3) {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
@@ -626,7 +634,6 @@ void PlayerApp::frame(float dt) {
     drawServersDialog();
     drawItemDialog();
     drawCreateItemDialog();
-    drawServerDialog();
     drawOnlineItemDialog();
     drawOnlineGameDialog();
     drawNotice();
@@ -2185,6 +2192,7 @@ void PlayerApp::drawNotice() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(620), 0));
     if (ImGui::BeginPopupModal("Guts&Bolts##notice", nullptr, ImGuiWindowFlags_NoResize)) {
+        if (tappedOutside()) { m_notice.clear(); ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
         ImGui::TextWrapped("%s", m_notice.c_str());
         ImGui::Spacing();
         if (ImGui::Button("Copy my account ID", ImVec2(200, 32))) ImGui::SetClipboardText(Account::id().c_str());
@@ -2276,6 +2284,7 @@ void PlayerApp::drawItemDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(520), 0));
     if (!ImGui::BeginPopupModal("Catalog Item", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (tappedOutside()) m_openItem = -1;
     if (m_openItem < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     Catalog::Item it = m_items[m_openItem];
 

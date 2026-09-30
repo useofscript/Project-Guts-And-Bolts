@@ -91,59 +91,6 @@ void PlayerApp::drawServerButton(ImVec2 at) {
     if (hover) ImGui::SetTooltip("%s%s", Online::statusText().c_str(), st == Online::Status::Online ? "" : "\nClick to try again");
 }
 
-void PlayerApp::drawServerDialog() {
-    if (m_showServer) { ImGui::OpenPopup("Guts&Bolts Server"); m_showServer = false; }
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(fitWidth(560), 0));
-    if (!ImGui::BeginPopupModal("Guts&Bolts Server", nullptr, ImGuiWindowFlags_NoResize)) return;
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextUnformatted("A Guts&Bolts server keeps your Bolts, badges and everything people upload (clothes, "
-                           "audio, plugins and games) in one place, so everyone sees the same site.");
-    ImGui::Spacing();
-    ImGui::TextDisabled("The official server runs on Cloudflare, so it's always on. You can also run your own "
-                        "GutsAndBoltsServer on a computer and type its address here, like 192.168.1.20 or "
-                        "myserver.com:7780.");
-    ImGui::PopTextWrapPos();
-    ImGui::Spacing();
-    ImGui::SetNextItemWidth(-1);
-    bool enter = ImGui::InputTextWithHint("##addr", "server address", &m_serverInput, ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::Spacing();
-    if (bigButton("Connect", kGreen, ImVec2(130, 32)) || enter) {
-        Online::setServerAddress(m_serverInput);
-        m_loaded.clear();
-        m_serverMsg = m_serverInput.empty() ? "Playing offline." : "Connecting...";
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Official server", ImVec2(130, 32))) {
-        m_serverInput = Online::kOfficialServer;
-        Online::setServerAddress(m_serverInput);
-        m_loaded.clear();
-        m_serverMsg = "Connecting...";
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(110, 32))) {
-        m_serverInput.clear();
-        Online::setServerAddress("");
-        m_loaded.clear();
-        m_serverMsg = "Playing offline.";
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Close", ImVec2(100, 32))) ImGui::CloseCurrentPopup();
-    ImGui::Spacing();
-    ImVec4 col = Online::online() ? ImVec4(0.3f, 0.85f, 0.4f, 1) : Online::status() == Online::Status::Failed
-                 ? ImVec4(1.0f, 0.45f, 0.4f, 1) : ImVec4(0.8f, 0.8f, 0.85f, 1);
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextColored(col, "%s", Online::configured() ? Online::statusText().c_str() : "Offline (no server)");
-    ImGui::PopTextWrapPos();
-    if (Online::online()) {
-        const json& me = Online::me();
-        ImGui::Text("Signed in as %s", me.value("name", std::string()).c_str());
-        if (me.value("verified", false)) { ImGui::SameLine(0, 4); Badges::check(); }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%s Bolts)", Bolts::format(Online::bolts()).c_str());
-    }
-    ImGui::EndPopup();
-}
 
 // Fetch a list from the server (once per visit to a page, or again on request).
 void PlayerApp::refreshOnline(const std::string& what) {
@@ -251,6 +198,7 @@ void PlayerApp::drawOnlineItemDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(540), 0));
     if (!ImGui::BeginPopupModal("Item##online", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (tappedOutside()) m_openOnlineItem = -1;
     if (m_openOnlineItem < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     const json a = m_onlineItems[m_openOnlineItem];
     Catalog::Item it = Catalog::fromServer(a);
@@ -276,8 +224,10 @@ void PlayerApp::drawOnlineItemDialog() {
     if (lim.is_object()) {
         ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.22f, 1), "LIMITED");
         ImGui::SameLine();
-        if (soldOut) ImGui::TextColored(ImVec4(0.75f, 0.2f, 0.15f, 1), "Sold out - resellers and trading are on the website");
+        ImGui::PushTextWrapPos(0);
+        if (soldOut) ImGui::TextColored(ImVec4(0.75f, 0.2f, 0.15f, 1), "Sold out. Buy one from a reseller, or trade, on the website.");
         else ImGui::Text("%d of %d left", lim.value("left", 0), lim.value("stock", 0));
+        ImGui::PopTextWrapPos();
     }
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(it.description.c_str());
@@ -861,6 +811,7 @@ void PlayerApp::drawOnlineGameDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(520), 0));
     if (!ImGui::BeginPopupModal("Game##online", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (tappedOutside()) m_openOnlineGame = -1;
     if (m_openOnlineGame < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     const json g = m_onlineGames[m_openOnlineGame];
     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1068,6 +1019,7 @@ void PlayerApp::drawOnlineStaff() {
                     }
                 }
                 if (ImGui::BeginPopupModal("Ban account", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    if (tappedOutside()) ImGui::CloseCurrentPopup();
                     ImGui::Text("Ban %s?", m_banTargetName.c_str());
                     ImGui::TextDisabled("Pick why. They'll see this reason.");
                     for (int i = 0; i < (int)std::size(Online::kBanReasons); ++i)

@@ -106,7 +106,6 @@ private:
 
     // Online (a Guts&Bolts server) — PlayerOnline.cpp
     void drawServerButton(ImVec2 at);
-    void drawServerDialog();
     void drawNoServer();
     void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
     bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
@@ -242,8 +241,6 @@ private:
     std::string m_buyMsg;                          // catalog item dialog
 
     // Online
-    bool           m_showServer = false;
-    std::string    m_serverInput, m_serverMsg;
     nlohmann::json m_onlineItems = nlohmann::json::array();   // server hats / shirts / pants
     nlohmann::json m_onlineGames = nlohmann::json::array();
     nlohmann::json m_myCreations = nlohmann::json::array();

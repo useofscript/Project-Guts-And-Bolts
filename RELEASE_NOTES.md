@@ -41,6 +41,10 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**Phones**
+- Popups in the app close when you tap outside them (phones have no Esc key).
+- The old server picker popup (which couldn't be closed on phones) is gone.
+
 **3D catalog**
 - Hats, shirts and pants in the catalog are shown in 3D, worn by a grey
   mannequin, and an item's page has a 3D view you can drag to turn.

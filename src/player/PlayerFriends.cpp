@@ -124,6 +124,7 @@ void PlayerApp::drawServersDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(560), 0));
     if (!ImGui::BeginPopupModal("Servers##dlg", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) return;
+    if (tappedOutside()) m_serversOpen = false;
     if (!m_serversOpen) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     const bool online = Online::online();
     auto start = [this](HostMode mode) {

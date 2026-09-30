@@ -2,6 +2,7 @@
 // The Guts&Bolts site's look (2011-style): colours, buttons and drawings shared
 // by the site's pages (PlayerApp.cpp, PlayerOnline.cpp).
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include "../game/Catalog.h"
@@ -20,6 +21,18 @@ inline bool bigButton(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0))
     bool r = ImGui::Button(label, size);
     ImGui::PopStyleColor(3);
     return r;
+}
+
+// Inside a popup: was it just tapped / clicked outside? (Phones have no Esc key, so
+// tapping the dark area around a popup should close it.) Only for the top popup,
+// and not on the frame it opened (that click is the one that opened it).
+inline bool tappedOutside() {
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (ImGui::IsWindowAppearing() || g.OpenPopupStack.empty() || g.OpenPopupStack.back().Window != w) return false;
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return false;
+    ImVec2 m = ImGui::GetIO().MousePos;
+    return m.x < w->Pos.x || m.y < w->Pos.y || m.x > w->Pos.x + w->Size.x || m.y > w->Pos.y + w->Size.y;
 }
 
 // Tall (portrait) phone screen?
