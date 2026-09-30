@@ -199,6 +199,7 @@ AABB Physics::characterBox(const glm::vec3& f) {
 
 void Physics::reset() {
     m_colliders.clear();
+    m_bodies.clear();
     m_touching.clear();
 }
 
@@ -221,6 +222,19 @@ void Physics::gather(Scene& scene) {
         }
         for (auto& c : n->children) stack.push_back(c.get());
     }
+
+    // Characters as solid bodies, so players (and NPCs) bump into each other
+    // instead of walking through. Only the character movement uses these.
+    m_bodies.clear();
+    if (!scene.world().playerCollisions) return;
+    auto addBody = [&](SceneNode* root) {
+        if (!root || !root->visible) return;
+        OBB o = charOBB(root->transform.position, root->transform.rotation.y);
+        m_bodies.push_back({root, bounds(o), true, false, true, o});
+    };
+    if (Player* p = scene.player(); p && !p->isDead()) addBody(p->root());
+    for (const RemoteCharacter& rc : scene.remotes())
+        if (rc.alive) addBody(scene.findById(rc.rootId));
 }
 
 bool Physics::blocked(const AABB& box) const {
@@ -328,15 +342,21 @@ bool Physics::resolveSphere(glm::vec3& c, float r, glm::vec3* normal) const {
 // Every solid part is tested against it with the separating-axis test, so it
 // fits through gaps sideways, brushes past corners and stands on ramps.
 Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec3& delta,
-                                           bool wasGrounded, float yaw) const {
+                                           bool wasGrounded, float yaw, uint64_t self) const {
     MoveResult r;
     glm::vec3 pos = feet;
+    // Parts, then the other characters' bodies (never our own).
+    std::vector<const Collider*> solids;
+    solids.reserve(m_colliders.size() + m_bodies.size());
+    for (const auto& c : m_colliders) if (c.solid) solids.push_back(&c);
+    for (const auto& c : m_bodies) if (c.node->id != self) solids.push_back(&c);
     auto boxOf = [](const Collider& c) { return c.rotated ? c.obb : OBB::fromAABB(c.box); };
     auto fits = [&](const glm::vec3& p) {
         OBB me = charOBB(p, yaw);
         AABB mine = bounds(me);
-        for (const auto& c : m_colliders) {
-            if (!c.solid || !mine.overlaps(c.box)) continue;
+        for (const Collider* cp : solids) {
+            const Collider& c = *cp;
+            if (!mine.overlaps(c.box)) continue;
             glm::vec3 n; float d;
             if (obbOverlap(me, boxOf(c), n, d)) return false;
         }
@@ -348,8 +368,8 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
     auto resolve = [&](bool stepUp, bool falling) {
         for (int iter = 0; iter < 4; ++iter) {
             bool any = false;
-            for (const auto& c : m_colliders) {
-                if (!c.solid) continue;
+            for (const Collider* cp : solids) {
+                const Collider& c = *cp;
                 OBB me = charOBB(pos, yaw);
                 if (!bounds(me).overlaps(c.box)) continue;
                 glm::vec3 n; float d;
@@ -407,8 +427,8 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
         OBB me = charOBB(probe, yaw);
         float bestY = -1e30f;
         uint64_t bestId = 0;
-        for (const auto& c : m_colliders) {
-            if (!c.solid) continue;
+        for (const Collider* cp : solids) {
+            const Collider& c = *cp;
             glm::vec3 n; float d;
             if (!bounds(me).overlaps(c.box) || !obbOverlap(me, boxOf(c), n, d) || n.y <= 0.55f) continue;
             float y = probe.y + d / n.y;

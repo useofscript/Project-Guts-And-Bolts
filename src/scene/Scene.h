@@ -33,6 +33,7 @@ struct WorldSettings {
     float      bloodAmount = 1.0f;          // how much sprays out (0.2 = a little, 3 = buckets)
     float      bloodStay   = 30.0f;         // seconds pools and splats stay before drying up
     float      spawnForceField = 4.0f;      // seconds of ForceField after spawning (0 = none)
+    bool       playerCollisions = true;     // characters bump into each other (off = walk through)
 };
 
 // Another player's character in a multiplayer game. On the host, scripts can

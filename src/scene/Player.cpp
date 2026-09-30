@@ -754,7 +754,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_velocity.x *= drag;
     m_velocity.z *= drag;
 
-    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded, r->transform.rotation.y);
+    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded, r->transform.rotation.y, m_rootId);
     // Walking into loose parts pushes them (heavier = harder, handled by the solver).
     for (auto& [node, dir] : res.pushed) {
         glm::vec3 want = dir * m_humanoid.walkSpeed * 0.9f;

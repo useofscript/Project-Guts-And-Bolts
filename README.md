@@ -688,6 +688,13 @@ Press **Esc** (or the Menu button) for a Roblox-style menu with three tabs:
 Along the bottom: **[R] Reset Character**, **[L] Leave Game** (both ask "Are
 you sure?" first) and **[Esc] Resume Game**.
 
+### Player collisions
+
+Players bump into each other like in Roblox, and you can stand on someone's
+head. Turn it off in **Game Settings > Damage & Blood > Player Collisions**
+(or from a script: `workspace.PlayerCollisions = false`) and everyone walks
+straight through each other.
+
 ## Death, ragdolls and gore
 
 **Game Settings > Damage & Blood** (also in the Player panel) has all of it:

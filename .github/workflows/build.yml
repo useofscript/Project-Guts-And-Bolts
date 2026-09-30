@@ -35,7 +35,8 @@ jobs:
         env:
           MSG: ${{ github.event.head_commit.message }}
         run: |
-          v="0.4.0-dev"
+          # The version in CMakeLists.txt (so the app never shows an old number).
+          v="$(sed -n 's/^project(GutsAndBolts VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)-dev"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; fi
           if [[ "$MSG" =~ \[release\ v([0-9][0-9A-Za-z.\-]*)\] ]]; then v="${BASH_REMATCH[1]}"; fi
           echo "name=$v" >> "$GITHUB_OUTPUT"

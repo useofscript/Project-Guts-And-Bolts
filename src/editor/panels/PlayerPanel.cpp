@@ -96,6 +96,12 @@ void drawGameRules(WorldSettings& w) {
         ImGui::SetTooltip("A glowing shield for a few seconds after spawning.\n"
                           "Blocks damage from TakeDamage, explosions and falls.");
 
+    ImGui::SeparatorText("Players");
+    ImGui::Checkbox("Player Collisions", &w.playerCollisions);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On: players bump into each other (and can stand on each other's heads).\n"
+                          "Off: players walk right through each other.");
+
     ImGui::SeparatorText("Fall damage");
     ImGui::Checkbox("Fall Damage", &w.fallDamage);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn off and players can fall from any height unhurt.");

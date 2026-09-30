@@ -1,4 +1,4 @@
-# Guts&Bolts 0.5.3: the 2011 look
+# Guts&Bolts 0.6.0: water, NPCs and Roblox-style controls
 
 ## New
 
@@ -28,6 +28,10 @@
   and fullscreen, next to graphics quality, FPS, gore and touch controls.
 - Shift Lock: press Shift and the camera sits over your right shoulder while
   your character faces wherever you look. Works in Studio's play test too.
+
+**Player collisions**
+- Players bump into each other (and can stand on each other's heads). Games
+  can turn it off in Game Settings or with `workspace.PlayerCollisions`.
 
 **Assistant and MCP (AI in Studio)**
 - New Assistant tab: chat with Claude (your own API key) and it builds,

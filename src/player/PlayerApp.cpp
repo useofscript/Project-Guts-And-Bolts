@@ -281,6 +281,17 @@ void PlayerApp::run() {
         frame(dt);
         if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
+        if (shoot && m_scene) {   // test output: where everyone's character ended up
+            if (Player* p = m_scene->player()) {
+                glm::vec3 q = p->position();
+                std::printf("POS me %.2f %.2f %.2f\n", q.x, q.y, q.z);
+            }
+            for (const RemoteCharacter& rc : m_scene->remotes())
+                if (SceneNode* n = m_scene->findById(rc.rootId))
+                    std::printf("POS %s %.2f %.2f %.2f\n", rc.name.c_str(), n->transform.position.x,
+                                n->transform.position.y, n->transform.position.z);
+            std::fflush(stdout);
+        }
         m_window->endFrame(shoot ? m_opts.screenshot : std::string());
         if (shoot) m_window->close();
     }

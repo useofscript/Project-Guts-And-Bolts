@@ -79,7 +79,10 @@ public:
     void gather(Scene& scene);          // collect this frame's parts
 
     // `yaw` (degrees) = which way the character faces: its box turns with it.
-    MoveResult moveCharacter(const glm::vec3& feet, const glm::vec3& delta, bool wasGrounded, float yaw = 0.0f) const;
+    // `self`: the moving character's root id, so it doesn't bump into itself
+    // (other characters are solid when the game has Player Collisions on).
+    MoveResult moveCharacter(const glm::vec3& feet, const glm::vec3& delta, bool wasGrounded, float yaw = 0.0f,
+                             uint64_t self = 0) const;
     static OBB  charOBB(const glm::vec3& feet, float yaw);   // the character's body box
     // Loose parts moving into the character: which way each one shoves it and how
     // hard (the speed it gives), heavier and faster parts shoving harder.
@@ -121,5 +124,6 @@ private:
     bool blocked(const AABB& box) const;
 
     std::vector<Collider>                  m_colliders;
+    std::vector<Collider>                  m_bodies;   // characters' body boxes (players bumping into players)
     std::set<std::pair<uint64_t, uint64_t>> m_touching;
 };
