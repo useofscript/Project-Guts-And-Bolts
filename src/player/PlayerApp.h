@@ -9,6 +9,8 @@
 #include "../renderer/Camera.h"
 #include "../renderer/Framebuffer.h"
 #include "../scene/Scene.h"
+
+namespace Catalog { struct Item; }
 #include "../game/Catalog.h"
 #include "../game/PlayerEntry.h"
 #include "../game/TouchControls.h"
@@ -114,6 +116,8 @@ private:
     void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
     bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
+    void drawWardrobe();                            // Avatar page: what you own, click to wear (PlayerOnline.cpp)
+    void wardrobeToggle(const Catalog::Item& it);
     void drawOnlineItemDialog();
     void drawCreate();
     void drawMyGames();
@@ -250,6 +254,10 @@ private:
 
     // Online
     nlohmann::json m_onlineItems = nlohmann::json::array();   // server hats / shirts / pants
+    nlohmann::json m_wardrobe = nlohmann::json::array();      // the Avatar page: items you own
+    double      m_wardrobeAt = -100.0;                         // when it was last asked for
+    int         m_avatarTab = 0;                               // 0 Wardrobe, 1 Body
+    int         m_wardrobeKind = 0;                            // which kind of item it shows
     nlohmann::json m_onlineGames = nlohmann::json::array();
     nlohmann::json m_myCreations = nlohmann::json::array();
     nlohmann::json m_onlineHistory = nlohmann::json::array();

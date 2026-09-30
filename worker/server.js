@@ -457,6 +457,12 @@ export class GbServerObject extends DurableObject {
       }
     }
   }
+  // What someone is wearing (their avatar's items), as the catalog shows them.
+  wornItems(u) {
+    const ids = u && u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
+    return ids.map((id) => this.assets.get(id)).filter(Boolean).map((a) => this.publicAsset(a));
+  }
+
   publicAsset(a, me = null) {
     const c = this.users.get(a.creator);
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
@@ -585,10 +591,9 @@ export class GbServerObject extends DurableObject {
       const friendship = u.id === me.id ? 'self' : me.friends.includes(u.id) ? 'friends'
         : me.friendOut.includes(u.id) ? 'sent' : me.friendIn.includes(u.id) ? 'received' : 'none';
       // Like a Roblox profile: what they're wearing, some friends, visits to their games.
-      const wornIds = u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
-      const wearing = wornIds.map((id) => this.assets.get(id)).filter(Boolean).map((a) => this.publicAsset(a));
+      const wearing = this.wornItems(u);
       const friends = u.friends.slice(0, 9).map((id) => this.users.get(id)).filter(Boolean)
-        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.isOnline(f) }));
+        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.isOnline(f), wearing: this.wornItems(f) }));
       const placeVisits = creations.filter((a) => a.kind === 'game').reduce((n, a) => n + (a.plays || 0), 0);
       // Game badges (made by game creators, earned by playing) - separate from the
       // Guts&Bolts badges above, which only staff give out.
@@ -980,8 +985,10 @@ export class GbServerObject extends DurableObject {
     if (name === 'list') {
       const kind = str(args, 'kind'), q = lower(cleanText(str(args, 'query'), 64)), creator = lower(str(args, 'creator'));
       const sort = str(args, 'sort'), genre = str(args, 'genre');
+      const ownedOnly = args.owned === true;   // your inventory (the Avatar page)
       const found = [...this.assets.values()].filter((a) =>
         (!kind || a.kind === kind || (kind === 'clothing' && isClothing(a.kind))) &&
+        (!ownedOnly || me.owned.includes(a.id)) &&
         (!creator || a.creator === creator) && this.canPlay(a, me) &&
         (!genre || (a.genres || []).includes(genre)) &&
         (!q || lower(a.name).includes(q) || lower(a.description || '').includes(q) || (a.genres || []).some((g) => lower(g) === q)));

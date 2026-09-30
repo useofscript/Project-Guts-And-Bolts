@@ -224,6 +224,26 @@ void applyLook(const Item& it) {
     me.save();
 }
 
+void takeOff(const Item& it) {
+    Profile& me = Profile::get();
+    switch (it.type) {
+        case Type::Hat:
+            if (!it.model.empty()) me.accessories.erase("hat");
+            else { me.hat = HatStyle::None; me.hatColor = glm::vec3(-1.0f); }
+            break;
+        case Type::Hair: case Type::FaceAcc: case Type::Neck: case Type::Shoulder: case Type::Waist:
+            if (auto a = me.accessories.find(it.kind); a != me.accessories.end() && a->second == it.model) me.accessories.erase(a);
+            break;
+        case Type::Face:   if (me.faceImage == it.image) me.faceImage.clear(); break;
+        case Type::TShirt: if (me.tshirtImage == it.image) me.tshirtImage.clear(); break;
+        case Type::Shirt:  if (me.shirtImage == it.image) me.shirtImage.clear(); break;
+        case Type::Pants:  if (me.pantsImage == it.image) me.pantsImage.clear(); break;
+        default: break;
+    }
+    me.wearing.erase(std::remove(me.wearing.begin(), me.wearing.end(), it.id), me.wearing.end());
+    me.save();
+}
+
 bool isWearing(const Item& it) {
     const auto& w = Profile::get().wearing;
     return std::find(w.begin(), w.end(), it.id) != w.end();

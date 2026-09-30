@@ -281,12 +281,16 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         r["friendship"] = u->id == me.id ? "self" : me.friends.count(u->id) ? "friends"
                         : me.friendOut.count(u->id) ? "sent" : me.friendIn.count(u->id) ? "received" : "none";
         // Like a Roblox profile: what they're wearing, some friends, visits to their games.
-        json wearing = json::array();
-        if (u->avatar.is_object() && u->avatar.contains("wearing") && u->avatar["wearing"].is_array())
-            for (const auto& id : u->avatar["wearing"])
-                if (id.is_string())
-                    if (auto it = m_assets.find(id.get<std::string>()); it != m_assets.end()) wearing.push_back(publicAsset(it->second));
-        r["wearing"] = wearing;
+        // (friends get theirs too, so their little pictures are dressed)
+        auto wornItems = [&](const User& who) {
+            json out = json::array();
+            if (who.avatar.is_object() && who.avatar.contains("wearing") && who.avatar["wearing"].is_array())
+                for (const auto& id : who.avatar["wearing"])
+                    if (id.is_string())
+                        if (auto it = m_assets.find(id.get<std::string>()); it != m_assets.end()) out.push_back(publicAsset(it->second));
+            return out;
+        };
+        r["wearing"] = wornItems(*u);
         json friends = json::array();
         for (const std::string& fid : u->friends) {
             if (friends.size() >= 9) break;
@@ -295,6 +299,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             json f = publicUser(it->second);
             f["avatar"] = it->second.avatar;
             f["online"] = isOnline(it->second);
+            f["wearing"] = wornItems(it->second);
             friends.push_back(f);
         }
         r["friends"] = friends;
@@ -699,9 +704,11 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name == "list") {
         std::string kind = str("kind"), q = lower(Online::cleanText(str("query"), 64)), creator = lower(str("creator"));
         std::string sort = str("sort");
+        const bool ownedOnly = args.value("owned", false);   // your inventory (the Avatar page)
         std::vector<const Asset*> found;
         for (const auto& [id, a] : m_assets) {
             if (!kind.empty() && a.kind != kind && !(kind == "clothing" && Online::isClothing(a.kind))) continue;
+            if (ownedOnly && !me.owned.count(a.id)) continue;
             if (!creator.empty() && a.creator != creator) continue;
             if (!q.empty() && lower(a.name).find(q) == std::string::npos) continue;
             found.push_back(&a);

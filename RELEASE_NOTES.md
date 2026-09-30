@@ -1,3 +1,17 @@
+# Next version (not released yet): Dress Code
+
+## New
+- The app's Avatar page has a **Wardrobe**: everything you own, by kind
+  (Shirts, Pants, T-Shirts, Faces, Hats, Hair, Accessories). Click to wear,
+  click again to take off, or take everything off. No trip to the Catalog
+  needed. Colours and the classic hats are on the **Body & Colours** tab.
+
+## Fixed
+- Your character on the home screen (the app's banner and the website's home
+  page) showed up wearing nothing: shirts and pants are now downloaded and
+  worn there too.
+- Friends' pictures on profiles wear their outfits.
+
 # Guts&Bolts 0.6.2: Hotfixes, Headaches & Hand Grenades (September 30, 2026)
 
 ## New

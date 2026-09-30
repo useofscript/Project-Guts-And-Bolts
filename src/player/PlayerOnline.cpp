@@ -99,6 +99,14 @@ void PlayerApp::refreshOnline(const std::string& what) {
         Online::request("list", {{"kind", "clothing"}, {"limit", 100}}, [this](const json& r) {
             if (r.value("ok", false)) m_onlineItems = r["assets"];
         });
+    } else if (what == "wardrobe") {
+        m_wardrobeAt = ImGui::GetTime();
+        // Only your own things (older servers send everything: those are filtered below).
+        Online::request("list", {{"kind", "clothing"}, {"owned", true}, {"limit", 100}}, [this](const json& r) {
+            if (!r.value("ok", false)) return;
+            m_wardrobe = json::array();
+            for (const json& a : r["assets"]) if (Online::owns(a.value("id", std::string()))) m_wardrobe.push_back(a);
+        });
     } else if (what == "games") {
         Online::request("list", {{"kind", "game"}, {"sort", "popular"}, {"limit", 30}}, [this](const json& r) {
             if (r.value("ok", false)) m_onlineGames = r["assets"];
@@ -1091,4 +1099,140 @@ void PlayerApp::drawOnlineStaff() {
         }
         ImGui::PopID();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Avatar page: your wardrobe (everything you own, click to wear or take off)
+// ---------------------------------------------------------------------------
+
+void PlayerApp::wardrobeToggle(const Catalog::Item& it) {
+    if (Catalog::isWearing(it)) Catalog::takeOff(it);
+    else Catalog::applyLook(it);
+    Profile& me = Profile::get();
+    if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+    if (m_scene) if (Player* p = m_scene->player()) me.applyTo(*p);
+    if (m_avatarScene) Online::fetchSounds(*m_avatarScene);   // download its picture / model if it's new
+    me.save();
+    m_avatarPushAt = ImGui::GetTime() + 1.5;   // saved on the server once you stop clicking
+}
+
+void PlayerApp::drawWardrobe() {
+    const bool signedUp = Online::online() && Online::me().value("userId", 0LL) > 0;
+    if (!signedUp) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("Log in to keep clothes, hats and faces and wear them here.");
+        if (Classic::button("Log in or sign up", Classic::kBlue, ImVec2(200, 30))) m_page = Page::Login;
+        return;
+    }
+    if (ImGui::GetTime() - m_wardrobeAt > 20.0) refreshOnline("wardrobe");   // new things you just got show up
+
+    // What kinds there are ("acc" = face, neck, shoulder and waist accessories).
+    static const char* tabs[] = {"All", "Shirts", "Pants", "T-Shirts", "Faces", "Hats", "Hair", "Accessories"};
+    static const char* kinds[] = {"", "shirt", "pants", "tshirt", "face", "hat", "hair", "acc"};
+    const int nTabs = 8;
+    auto matches = [&](const std::string& k, int tab) {
+        const std::string want = kinds[tab];
+        bool acc = k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
+        return want.empty() || k == want || (want == "acc" && acc);
+    };
+
+    // --- What you have on (click one to take it off) ---
+    std::vector<int> worn;
+    for (int i = 0; i < (int)m_wardrobe.size(); ++i)
+        if (Catalog::isWearing(Catalog::fromServer(m_wardrobe[i]))) worn.push_back(i);
+    ImGui::SeparatorText("Wearing");
+    // Always the same height, so the things below don't jump when you put something on.
+    const float small = 64.0f;
+    ImGui::BeginChild("##wearing", ImVec2(0, small + 8), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    if (worn.empty()) {
+        ImGui::Dummy(ImVec2(0, 20));
+        ImGui::TextDisabled("Nothing from your wardrobe yet. Pick something below!");
+    }
+    for (size_t k = 0; k < worn.size(); ++k) {
+        Catalog::Item it = Catalog::fromServer(m_wardrobe[worn[k]]);
+        if (k > 0) ImGui::SameLine(0, 8);
+        ImGui::PushID(("w" + it.id).c_str());
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##worn", ImVec2(small, small))) wardrobeToggle(it);
+        bool hover = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + small, p.y + small), IM_COL32(255, 255, 255, 255), 4);
+        dl->AddRect(p, ImVec2(p.x + small, p.y + small), IM_COL32(30, 150, 70, 255), 4, 0, 2.0f);
+        drawItemIcon(dl, ImVec2(p.x + small * 0.5f, p.y + small * 0.5f), small * 0.8f, it);
+        if (hover) {   // a little x in the corner: click to take it off
+            ImVec2 c(p.x + small - 9, p.y + 9);
+            dl->AddCircleFilled(c, 8, IM_COL32(200, 50, 50, 255));
+            dl->AddLine(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y + 3), IM_COL32_WHITE, 2);
+            dl->AddLine(ImVec2(c.x - 3, c.y + 3), ImVec2(c.x + 3, c.y - 3), IM_COL32_WHITE, 2);
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::BeginDisabled(worn.empty());
+    if (ImGui::Button("Take everything off")) {
+        for (int i : worn) Catalog::takeOff(Catalog::fromServer(m_wardrobe[i]));
+        Profile& me = Profile::get();
+        if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+        if (m_scene) if (Player* p = m_scene->player()) me.applyTo(*p);
+        m_avatarPushAt = ImGui::GetTime() + 1.5;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(click a picture to take it off)");
+
+    // --- Everything you own, by kind ---
+    ImGui::SeparatorText("My stuff");
+    float tabW = std::min(96.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
+    const float rowRight = ImGui::GetWindowPos().x + ImGui::GetContentRegionMax().x;
+    for (int i = 0; i < nTabs; ++i) {
+        int count = 0;
+        for (const json& a : m_wardrobe) if (matches(a.value("kind", std::string()), i)) ++count;
+        std::string label = std::string(tabs[i]) + (count ? " (" + std::to_string(count) + ")" : "");
+        if (i > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + tabW <= rowRight) ImGui::SameLine();
+        ImGui::PushID(i);
+        bool on = m_wardrobeKind == i;
+        if (on ? Classic::button(label.c_str(), Classic::kBlue, ImVec2(tabW, 26)) : ImGui::Button(label.c_str(), ImVec2(tabW, 26)))
+            m_wardrobeKind = i;
+        ImGui::PopID();
+    }
+    ImGui::Spacing();
+
+    std::vector<int> list;
+    for (int i = 0; i < (int)m_wardrobe.size(); ++i)
+        if (matches(m_wardrobe[i].value("kind", std::string()), m_wardrobeKind)) list.push_back(i);
+    if (list.empty()) {
+        ImGui::TextDisabled(Online::pending() && m_wardrobe.empty() ? "Loading your stuff..." : "You don't have any of these yet.");
+    } else {
+        const float tile = 104.0f;
+        int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 10) / (tile + 10)));
+        for (size_t k = 0; k < list.size(); ++k) {
+            Catalog::Item it = Catalog::fromServer(m_wardrobe[list[k]]);
+            const bool on = Catalog::isWearing(it);
+            if (k % perRow != 0) ImGui::SameLine(0, 10);
+            ImGui::PushID(list[k]);
+            ImGui::BeginGroup();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("##own", ImVec2(tile, tile))) wardrobeToggle(it);
+            bool hover = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255), 4);
+            ImU32 edge = on ? IM_COL32(30, 150, 70, 255) : hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(170, 175, 185, 255);
+            dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), edge, 4, 0, on || hover ? 2.5f : 1.0f);
+            drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+            if (on) {
+                ImVec2 t(p.x + 5, p.y + tile - 20);
+                dl->AddRectFilled(t, ImVec2(t.x + 60, t.y + 16), IM_COL32(30, 150, 70, 255), 3);
+                dl->AddText(ImVec2(t.x + 6, t.y + 1), IM_COL32_WHITE, "Wearing");
+            }
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+            ImGui::TextUnformatted(it.name.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            ImGui::PopID();
+        }
+    }
+    ImGui::Spacing();
+    ImGui::TextDisabled("Want more?");
+    ImGui::SameLine();
+    if (Classic::button("Shop the Catalog", Classic::kPlay, ImVec2(160, 26))) { m_page = Page::Catalog; m_itemType = -1; }
 }

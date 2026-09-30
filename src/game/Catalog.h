@@ -48,5 +48,7 @@ void applyLook(const Item& item);
 // A catalog item from a server upload (hat / shirt / pants).
 Item fromServer(const nlohmann::json& asset);
 bool isWearing(const Item& item);
+// Take it off (shirts and pants go back to the body colour, hats to none).
+void takeOff(const Item& item);
 
 } // namespace Catalog

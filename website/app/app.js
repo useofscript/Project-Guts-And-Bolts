@@ -464,7 +464,10 @@ pages.home = async () => {
       </div>
       <div class="home-right">${updateBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
     </div>`);
-  mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), [], { width: 170 }).catch(() => {});
+  // Dressed in what you're wearing (the server says which items those are).
+  const mine = await pageCall('profile', { id: me.id });
+  const worn = mine.ok ? mine.wearing || [] : [];
+  if ($('#homeAvatar')) mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), worn, { width: 170 }).catch(() => {});
 };
 
 // --- Updates: the update log, newest first. It checks for new ones by itself while
@@ -1011,7 +1014,7 @@ pages.user = async (id) => {
   // The 3D avatar (the flat one stays if the browser can't do 3D).
   mountAvatar($('#profileAvatar'), u.avatar, worn, { width: 220 }).catch(() => {});
   for (const p of friends) {
-    avatarPicture(p.avatar, [], 60).then((url) => {
+    avatarPicture(p.avatar, p.wearing || [], 60).then((url) => {
       const box = view.querySelector(`[data-friend-avatar="${p.id}"]`);
       if (url && box) box.innerHTML = html`<img src="${url}" alt="" width="60" height="75">`.s;
     }).catch(() => {});
@@ -1107,7 +1110,7 @@ pages.group = async (id) => {
 let avatarDraft = null;   // the avatar being edited (saved with the Save button)
 
 pages.avatar = async () => {
-  const r = signedIn() ? await pageCall('list', { kind: 'clothing', limit: 100 }) : { ok: true, assets: [] };
+  const r = signedIn() ? await pageCall('list', { kind: 'clothing', owned: true, limit: 100 }) : { ok: true, assets: [] };
   const owned = (r.ok ? r.assets : []).filter((a) => (me.owned || []).includes(a.id));
   if (!avatarDraft) avatarDraft = Object.assign(defaultAvatar(), JSON.parse(JSON.stringify(me.avatar || {})));
   const a = avatarDraft;

@@ -542,6 +542,8 @@ void PlayerApp::fetchAvatarParts() {
     std::vector<std::string> want;
     for (const auto& [kind, src] : me.accessories) want.push_back(src);
     want.push_back(me.faceImage);
+    want.push_back(me.shirtImage);   // (without these the character showed up in no clothes)
+    want.push_back(me.pantsImage);
     want.push_back(me.tshirtImage);
     for (const std::string& src : want) {
         if (src.rfind("gb:", 0) != 0) continue;
@@ -1281,7 +1283,22 @@ void PlayerApp::drawAvatar(float dt) {
     }
     if (!m_nameError.empty()) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_nameError.c_str());
 
-    ImGui::SeparatorText("Outfits");
+    // Two tabs: your wardrobe (what you own: wear it right here, no trip to the
+    // catalog) and your body (colours and the classic hats).
+    ImGui::Spacing();
+    {
+        const char* tabNames[] = {"Wardrobe", "Body & Colours"};
+        for (int t = 0; t < 2; ++t) {
+            if (t) ImGui::SameLine();
+            bool on = m_avatarTab == t;
+            if (on ? Classic::button(tabNames[t], Classic::kBlue, ImVec2(150, 30)) : ImGui::Button(tabNames[t], ImVec2(150, 30)))
+                m_avatarTab = t;
+        }
+    }
+    if (m_avatarTab == 0) {
+        drawWardrobe();
+    } else {
+    ImGui::SeparatorText("Colour sets");
     int i = 0;
     for (const auto& [name, colors] : Player::colorPresets()) {
         // Three per row, shrinking to fit narrow (phone) screens.
@@ -1315,6 +1332,7 @@ void PlayerApp::drawAvatar(float dt) {
         }
         if (h % 4 != 3 && h + 1 < kHatStyleCount) ImGui::SameLine();   // four to a row
     }
+    }   // Body & Colours
 
     drawAccount();
 

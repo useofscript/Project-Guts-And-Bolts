@@ -1167,6 +1167,16 @@ Create page (**T-Shirts**), then wear it from the Avatar page. Anyone with an
 account can make them (10 Bolts, free for Verified creators). Square pictures
 fit best; see-through bits show the shirt underneath.
 
+### Getting dressed (the Avatar page)
+
+In the app, the Avatar page's **Wardrobe** tab shows everything you own,
+sorted into Shirts, Pants, T-Shirts, Faces, Hats, Hair and Accessories. Click
+something to wear it, and click it again (or its picture in the **Wearing**
+row) to take it off. **Take everything off** clears the lot. Body colours,
+colour sets and the classic hats are on the **Body & Colours** tab. What you
+wear is saved on the server, so it's the same on the website and in every
+game.
+
 ### Finding games: genres, votes and sorting
 
 On the website, a game's **Configure** page lets its creator pick up to 3

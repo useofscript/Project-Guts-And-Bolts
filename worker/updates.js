@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'dress-code', name: 'Dress Code', version: '', time: 1790812100, tag: 'Player',
+    summary: 'Get dressed right on the Avatar page, and your character finally wears its clothes everywhere.',
+    items: [
+      'New Wardrobe on the app\'s Avatar page: everything you own, sorted into Shirts, Pants, T-Shirts, Faces, Hats, Hair and Accessories',
+      'Click something to wear it, click it again (or in the Wearing row) to take it off, or take everything off at once',
+      'Fix: your character on the home screen (app and website) showed up in no clothes',
+      'Friends\' little pictures on profiles wear their outfits too',
+    ],
+  },
+  {
     id: 'hotfixes-headaches-hand-grenades', name: 'Hotfixes, Headaches & Hand Grenades', version: '0.6.2', time: 1790810194, tag: 'Studio',
     summary: 'Bring 3D models from Blender and friends into Studio, just drag files in, and catalog clothes show their real pictures.',
     items: [
