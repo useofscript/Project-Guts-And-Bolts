@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 // Tiny cross-platform TCP layer. Messages are length-prefixed strings (we send
 // JSON). Everything is non-blocking so the game never freezes on the network.
@@ -33,7 +34,8 @@ public:
 private:
     struct Web;                    // the WebSocket (and TLS) side, for wss:// hosts
     bool webPoll();
-    friend bool httpPost(const std::string&, int, const std::string&, const std::string&, std::string&, std::string&, int);
+    friend bool httpPost(const std::string&, int, const std::string&, const std::string&, std::string&, std::string&, int,
+                         const std::string&, int*);
 
     intptr_t    m_sock;
     std::string m_address;
@@ -47,8 +49,36 @@ bool isWebAddress(const std::string& host);
 
 // One HTTP(S) POST to a web server (host "wss://example.com" means https, like
 // above; port 443 usually). Fills `reply` with the answer's body.
+// `extraHeaders`: more header lines, each ending in "\r\n". `status` gets the HTTP status.
 bool httpPost(const std::string& host, int port, const std::string& path, const std::string& body,
-              std::string& reply, std::string& error, int timeoutMs = 30000);
+              std::string& reply, std::string& error, int timeoutMs = 30000,
+              const std::string& extraHeaders = "", int* status = nullptr);
+
+// A tiny web server for this computer only (127.0.0.1): other programs on the
+// same computer can talk to us, nobody on the network can. Polled every frame,
+// so requests are handled on the main thread. One request per connection.
+class HttpServer {
+public:
+    struct Request {
+        int         id;
+        std::string method, path, body;
+        std::string headers;   // lower-case, one per line
+    };
+    ~HttpServer();
+    bool open(int port, std::string& error);
+    void close();
+    bool isOpen() const { return m_sock >= 0; }
+    // Read what's arrived; complete requests come out of next().
+    void poll();
+    bool next(Request& out);
+    void respond(int id, int status, const std::string& contentType, const std::string& body);
+
+private:
+    struct Client { int id; intptr_t sock; std::string in, out; bool answered = false, handed = false; double since; };
+    intptr_t m_sock = -1;
+    int      m_nextId = 1;
+    std::vector<Client> m_clients;
+};
 
 class Listener {
 public:

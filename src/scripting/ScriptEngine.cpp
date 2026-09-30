@@ -684,6 +684,13 @@ void ScriptEngine::start(bool runScripts) {
         lua_pop(L, 1);
     }
     --m_depth;
+    // For Studio's AI tools: an object by its id number (they refer to objects that way).
+    lua_register(L, "__gb_byId", [](lua_State* L) -> int {
+        uint64_t id = (uint64_t)luaL_checkinteger(L, 1);
+        if (LuaApi::engine(L)->scene()->findById(id)) LuaApi::pushInstance(L, id);
+        else lua_pushnil(L);
+        return 1;
+    });
     // obj:GetAttributeChangedSignal(name) is built in Lua (see the prelude).
     lua_getglobal(L, "__gb_attrSignal");
     lua_setfield(L, LUA_REGISTRYINDEX, "GB.attrSignal");

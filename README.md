@@ -166,6 +166,29 @@ between four modes:
 **Stop** (`Shift+F5` or `Esc`) goes back to Build mode, and everything goes
 back exactly how it was before you pressed Simulate or Play.
 
+### Assistant (AI help)
+
+The **Assistant** tab (HOME > Assistant) is Studio's AI helper, like Roblox
+Studio's Assistant. Two ways to use it:
+
+- **Chat with Claude.** Paste your Anthropic API key (from
+  console.anthropic.com) into Chat settings. It stays on your computer. Then ask
+  for things like "make an obby with 10 jumps" or "why doesn't my door script
+  work?". The Assistant can look at your game, build, write and fix scripts,
+  run Lua, playtest, read the Output and take screenshots to check its work.
+  Ctrl+Z undoes anything it does.
+- **Connect AI apps with MCP.** Tick "Let AI apps use Studio (MCP)" and apps
+  on your computer that speak MCP (the Model Context Protocol) can use the same
+  tools: Claude Code, Claude Desktop, and other AI coding tools. Only programs
+  on this computer can connect. The tab shows copy-and-paste set-up for each:
+  - Claude Code: `claude mcp add --transport http guts-and-bolts http://127.0.0.1:44755/mcp`
+  - Claude Desktop and apps that start a program: run `GutsAndBolts --mcp` (it
+    passes messages to the Studio that's open).
+
+The tools: `get_game_tree`, `get_object`, `set_property`, `insert_object`,
+`delete_object`, `create_script`, `read_script`, `edit_script`, `run_lua`,
+`get_output`, `playtest`, `screenshot`, `select` and `undo`.
+
 ### Plugins
 
 Plugins are small Lua files that add buttons to Studio's **PLUGINS** tab.

@@ -664,17 +664,20 @@ bool ViewportPanel::drawModeMenu(ImVec2 imgPos) {
 // A picture of the game for the site (Studio sends it when you publish)
 // ---------------------------------------------------------------------------
 
-std::string ViewportPanel::snapshotPng(int width, int height) {
+std::string ViewportPanel::snapshotPng(int width, int height, bool fromView) {
     // Look at the spawn point, like the Player's game cards do.
     Camera cam;
+    if (fromView) cam = m_camera;
     cam.resize(width, height);
-    glm::vec3 target(0.0f, 1.0f, 0.0f);
-    if (SceneNode* spawn = m_scene->root()->findChild("SpawnLocation", true))
-        target = glm::vec3(spawn->worldMatrix()[3]) + glm::vec3(0.0f, 1.5f, 0.0f);
-    cam.pivot = target;
-    cam.yaw = 45.0f;
-    cam.pitch = 28.0f;
-    cam.distance = 22.0f;
+    if (!fromView) {
+        glm::vec3 target(0.0f, 1.0f, 0.0f);
+        if (SceneNode* spawn = m_scene->root()->findChild("SpawnLocation", true))
+            target = glm::vec3(spawn->worldMatrix()[3]) + glm::vec3(0.0f, 1.5f, 0.0f);
+        cam.pivot = target;
+        cam.yaw = 45.0f;
+        cam.pitch = 28.0f;
+        cam.distance = 22.0f;
+    }
 
     // No selection outlines in the picture.
     std::vector<SceneNode*> selected;

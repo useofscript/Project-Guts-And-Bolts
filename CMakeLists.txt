@@ -414,6 +414,9 @@ set(EDITOR_SOURCES
     src/main.cpp
     src/Application.cpp
     src/editor/Editor.cpp
+    src/editor/AiTools.cpp
+    src/editor/StudioMcp.cpp
+    src/editor/panels/AssistantPanel.cpp
     src/editor/EditorRibbon.cpp
     src/editor/Icons.cpp
     src/editor/panels/ViewportModeling.cpp

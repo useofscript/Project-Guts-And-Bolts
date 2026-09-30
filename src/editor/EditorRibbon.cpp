@@ -287,6 +287,9 @@ void Editor::renderToolbar() {
             Group g("Settings");
             if (bigButton("Game Settings", Icons::Id::Settings, false, !m_playing, "Title, description and more")) m_openInfo = true;
             if (bigButton("Team Create", Icons::Id::Team, false, true, "Edit together with friends")) m_openTeam = true;
+            if (bigButton("Assistant", Icons::Id::CommandBar, m_showPanel[kPanelAssistant], true,
+                          "AI help: chat with Claude, or let AI apps (MCP) build with you"))
+                m_showPanel[kPanelAssistant] = true;
         }
         break;
     }
@@ -456,7 +459,8 @@ void Editor::renderToolbar() {
                                 {"Toolbox", Icons::Id::Toolbox, kPanelToolbox}, {"Output", Icons::Id::Output, kPanelOutput},
                                 {"Command Bar", Icons::Id::CommandBar, kPanelCommandBar}, {"Script Editor", Icons::Id::Script, kPanelScript},
                                 {"Lighting", Icons::Id::Lighting, kPanelLighting}, {"Player", Icons::Id::Player, kPanelPlayer},
-                                {"Team Chat", Icons::Id::Team, kPanelTeam}, {"Animation", Icons::Id::Animation, kPanelAnimation}};
+                                {"Team Chat", Icons::Id::Team, kPanelTeam}, {"Animation", Icons::Id::Animation, kPanelAnimation},
+                                {"Assistant", Icons::Id::CommandBar, kPanelAssistant}};
             for (const P& p : panels)
                 if (bigButton(p.label, p.icon, m_showPanel[p.panel], true, "Show / hide")) m_showPanel[p.panel] = !m_showPanel[p.panel];
         }

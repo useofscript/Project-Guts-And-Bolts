@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "core/CrashHandler.h"
+#include "editor/StudioMcp.h"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -30,6 +31,11 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-insert")) opts.testInsert = next();
         else if (!std::strcmp(argv[i], "--export-roblox")) opts.exportRoblox = next();
         else if (!std::strcmp(argv[i], "--test-snapshot")) opts.testSnapshot = next();
+        else if (!std::strcmp(argv[i], "--mcp")) {
+            // An AI app started us as its MCP server: pass messages on to the Studio that's open (no window).
+            int port = i + 1 < argc && argv[i + 1][0] != '-' ? std::atoi(argv[i + 1]) : StudioMcp::kDefaultPort;
+            return StudioMcp::runStdioBridge(port);
+        }
         else if (argv[i][0] != '-')                     opts.openFile   = argv[i];  // double-clicked file
     }
 

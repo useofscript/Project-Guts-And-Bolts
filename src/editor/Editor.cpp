@@ -16,6 +16,7 @@
 #include "panels/EnvironmentPanel.h"
 #include "panels/ToolboxPanel.h"
 #include "panels/PlayerPanel.h"
+#include "panels/AssistantPanel.h"
 #include "panels/OutputPanel.h"
 #include "panels/ScriptEditorPanel.h"
 #include "panels/AnimationEditor.h"
@@ -80,6 +81,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_output       = std::make_unique<OutputPanel>();
     m_scriptEditor = std::make_unique<ScriptEditorPanel>(scene);
     m_animEditor   = std::make_unique<AnimationEditor>(scene, &m_state);
+    m_assistant    = std::make_unique<AssistantPanel>(*this);
     m_team         = std::make_unique<TeamCreate>(scene);
     m_viewport->setTeam(m_team.get());
 
@@ -153,6 +155,8 @@ void Editor::render(float dt) {
     renderDialogs();
     renderShortcuts();
     if (m_showPanel[kPanelTeam]) renderTeamPanel();
+    m_assistant->update();
+    if (m_showPanel[kPanelAssistant]) m_assistant->render(&m_showPanel[kPanelAssistant]);
     if (m_showPanel[kPanelAnimation] && !m_playing) {
         // A tab next to Output (like Roblox's, along the bottom), in front when just opened.
         if (ImGuiWindow* out = ImGui::FindWindowByName("Output"); out && out->DockId)
@@ -1254,6 +1258,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderDockWindow("Animation Editor", bottomLeft);
         ImGui::DockBuilderDockWindow("Command Bar",   bottomRight);
         ImGui::DockBuilderDockWindow("Team",          bottomRight);
+        ImGui::DockBuilderDockWindow("Assistant",     bottomRight);
         ImGui::DockBuilderDockWindow("Explorer",      rightTop);
         ImGui::DockBuilderDockWindow("Properties",    rightBottom);
         ImGui::DockBuilderDockWindow("Lighting",      rightBottom);

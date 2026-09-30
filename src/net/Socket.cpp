@@ -469,7 +469,7 @@ std::unique_ptr<Connection> Connection::connectTo(const std::string& host, int p
 
 
 bool httpPost(const std::string& host, int port, const std::string& path, const std::string& body,
-              std::string& reply, std::string& error, int timeoutMs) {
+              std::string& reply, std::string& error, int timeoutMs, const std::string& extraHeaders, int* statusOut) {
     bool tls = false;
     std::string name = isWebAddress(host) ? webHostName(host, tls) : host;
     auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMs);
@@ -483,7 +483,7 @@ bool httpPost(const std::string& host, int port, const std::string& path, const 
     std::string hostHeader = name + ((tls && port == 443) || (!tls && port == 80) ? "" : ":" + std::to_string(port));
     std::string request = "POST " + path + " HTTP/1.1\r\nHost: " + hostHeader + "\r\nUser-Agent: GutsAndBolts\r\n"
                           "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) +
-                          "\r\nConnection: close\r\n\r\n";
+                          "\r\n" + extraHeaders + "Connection: close\r\n\r\n";
     std::string headers;
     if (!w.writeAll(request, deadline) || !w.writeAll(body, deadline) || !w.readHeaders(headers, deadline)) {
         error = "The server at " + name + " didn't answer in time.";
@@ -533,6 +533,7 @@ bool httpPost(const std::string& host, int port, const std::string& path, const 
         all.resize((size_t)want);
     }
     int status = statusCode(headers);
+    if (statusOut) *statusOut = status;
     if (status != 200 && all.empty()) {
         error = "The server at " + name + " answered " + std::to_string(status) + ".";
         return false;
@@ -724,6 +725,107 @@ std::string localAddresses() {
     freeifaddrs(list);
 #endif
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// HttpServer (this computer only)
+// ---------------------------------------------------------------------------
+
+HttpServer::~HttpServer() { close(); }
+
+bool HttpServer::open(int port, std::string& error) {
+    close();
+    if (!initSockets()) { error = "Networking isn't available on this computer."; return false; }
+    auto s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if ((intptr_t)s < 0) { error = "Couldn't create a network socket."; return false; }
+    int one = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);   // 127.0.0.1 only
+    addr.sin_port = htons((unsigned short)port);
+    if (bind(s, (sockaddr*)&addr, sizeof(addr)) != 0 || listen(s, 8) != 0) {
+        GB_CLOSE(s);
+        error = "Port " + std::to_string(port) + " is already in use (is another Studio open?).";
+        return false;
+    }
+    setNonBlocking((intptr_t)s);
+    m_sock = (intptr_t)s;
+    return true;
+}
+
+void HttpServer::close() {
+    for (auto& c : m_clients) GB_CLOSE((decltype(socket(0, 0, 0)))c.sock);
+    m_clients.clear();
+    if (m_sock >= 0) GB_CLOSE((decltype(socket(0, 0, 0)))m_sock);
+    m_sock = -1;
+}
+
+void HttpServer::poll() {
+    if (m_sock < 0) return;
+    const double now = std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+    for (;;) {
+        auto c = ::accept((decltype(socket(0, 0, 0)))m_sock, nullptr, nullptr);
+        if ((intptr_t)c < 0) break;
+        setNonBlocking((intptr_t)c);
+        m_clients.push_back({m_nextId++, (intptr_t)c, {}, {}, false, false, now});
+    }
+    char buf[16384];
+    for (size_t i = 0; i < m_clients.size();) {
+        Client& c = m_clients[i];
+        bool dead = false;
+        if (!c.answered) {
+            for (;;) {
+                auto n = recv((decltype(socket(0, 0, 0)))c.sock, buf, sizeof(buf), 0);
+                if (n > 0) { c.in.append(buf, (size_t)n); if (c.in.size() > 32u * 1024u * 1024u) { dead = true; break; } continue; }
+                if (n == 0 || !GB_WOULDBLOCK) dead = !c.handed;   // closed before asking anything
+                break;
+            }
+        } else if (!c.out.empty()) {
+            auto n = ::send((decltype(socket(0, 0, 0)))c.sock, c.out.data(), (int)c.out.size(), 0);
+            if (n > 0) c.out.erase(0, (size_t)n);
+            else if (!GB_WOULDBLOCK) dead = true;
+        }
+        if (c.answered && c.out.empty()) dead = true;       // sent everything: done
+        if (now - c.since > 120.0) dead = true;             // stuck
+        if (dead) { GB_CLOSE((decltype(socket(0, 0, 0)))c.sock); m_clients.erase(m_clients.begin() + (long)i); continue; }
+        ++i;
+    }
+}
+
+bool HttpServer::next(Request& out) {
+    for (auto& c : m_clients) {
+        if (c.handed || c.answered) continue;
+        size_t end = c.in.find("\r\n\r\n");
+        if (end == std::string::npos) continue;
+        std::string head = lowerCase(c.in.substr(0, end + 2));
+        size_t lenAt = head.find("\ncontent-length:");
+        size_t len = lenAt == std::string::npos ? 0 : (size_t)std::atoll(head.c_str() + lenAt + 16);
+        if (c.in.size() < end + 4 + len) continue;           // body still arriving
+        std::string first = c.in.substr(0, c.in.find("\r\n"));
+        size_t sp1 = first.find(' '), sp2 = first.find(' ', sp1 + 1);
+        out.id = c.id;
+        out.method = first.substr(0, sp1);
+        out.path = sp1 == std::string::npos ? "/" : first.substr(sp1 + 1, sp2 - sp1 - 1);
+        out.headers = head;
+        out.body = c.in.substr(end + 4, len);
+        c.handed = true;
+        return true;
+    }
+    return false;
+}
+
+void HttpServer::respond(int id, int status, const std::string& contentType, const std::string& body) {
+    for (auto& c : m_clients) {
+        if (c.id != id || c.answered) continue;
+        const char* text = status == 200 ? "OK" : status == 202 ? "Accepted" : status == 400 ? "Bad Request"
+                         : status == 403 ? "Forbidden" : status == 404 ? "Not Found" : status == 405 ? "Method Not Allowed" : "Error";
+        c.out = "HTTP/1.1 " + std::to_string(status) + " " + text + "\r\n";
+        if (!contentType.empty()) c.out += "Content-Type: " + contentType + "\r\n";
+        c.out += "Content-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+        c.answered = true;
+        return;
+    }
 }
 
 } // namespace Net

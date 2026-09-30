@@ -38,7 +38,8 @@ public:
     void      followPlayer(Player& p, float dt);   // Play: the camera follows the head (first person too)
     bool      hovered() const { return m_hovered; }
     // A picture of the game from its spawn point, as a PNG file (for publishing).
-    std::string snapshotPng(int width, int height);
+    // `fromView`: from where the Studio camera is now (else a nice view of the spawn).
+    std::string snapshotPng(int width, int height, bool fromView = false);
     bool      gizmoInUse() const;
     // F: glide the camera to the selected things (only ones with a body:
     // parts, and models / tools with parts in them). False if none.

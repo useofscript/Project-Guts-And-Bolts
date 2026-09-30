@@ -1,4 +1,5 @@
 #pragma once
+#include "AiTools.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -12,6 +13,7 @@ struct GLFWwindow;
 class Scene;
 class GameSession;
 class ViewportPanel;
+class AssistantPanel;
 class OutlinerPanel;
 class PropertiesPanel;
 class EnvironmentPanel;
@@ -31,6 +33,8 @@ public:
     void openFile(const std::string& path);
     void togglePlay();
     void runCommand(const std::string& code);   // Command Bar
+    // AI helpers (Assistant tab and MCP): run one of Studio's tools (see AiTools.h).
+    AiToolResult runAiTool(const std::string& name, const nlohmann::json& args);
     // Test / command-line helpers.
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);
@@ -89,6 +93,7 @@ private:
     void       renderMarketplace();
     void       renderPluginsTab();
     void       insertObject(const std::string& what, SceneNode* parent);
+    SceneNode* aiFind(const std::string& ref);   // "#42" or "Workspace.Castle.Door"
     void       renderInsertObject();
     void       renderCommandBar();
     void       ungroupSelected();
@@ -125,6 +130,7 @@ private:
     std::unique_ptr<EnvironmentPanel>  m_environment;
     std::unique_ptr<ToolboxPanel>      m_toolbox;
     std::unique_ptr<PlayerPanel>       m_player;
+    std::unique_ptr<AssistantPanel>    m_assistant;   // AI chat + MCP for outside AI apps
     std::unique_ptr<OutputPanel>       m_output;
     std::unique_ptr<ScriptEditorPanel> m_scriptEditor;
     std::unique_ptr<AnimationEditor>   m_animEditor;
@@ -161,8 +167,8 @@ private:
     std::vector<std::string> m_cmdHistory;
     int                      m_cmdHistoryPos = -1;
     enum Panel { kPanelExplorer, kPanelProperties, kPanelToolbox, kPanelOutput, kPanelCommandBar, kPanelScript,
-                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelAnimation, kPanelCount };
-    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true, false};
+                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelAnimation, kPanelAssistant, kPanelCount };
+    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true, false, true};
     void                     openAnimationEditor();
     bool                     m_focusAnim = false;
     std::function<void()>    m_deferred;       // tree changes asked for while the Explorer was drawing

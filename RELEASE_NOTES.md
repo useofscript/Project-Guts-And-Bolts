@@ -21,6 +21,12 @@
 - The camera follows your head. Scroll all the way in for first person: your
   character fades out as the camera gets close, and the mouse looks around.
 
+**Assistant and MCP (AI in Studio)**
+- New Assistant tab: chat with Claude (your own API key) and it builds,
+  scripts, playtests and takes screenshots in your game. Everything is undoable.
+- MCP support: let Claude Code, Claude Desktop and other AI tools on your
+  computer work in Studio (HTTP at 127.0.0.1:44755/mcp, or `GutsAndBolts --mcp`).
+
 **Damage and blood settings**
 - Game Settings has a new Damage & Blood tab: fall damage on/off, safe fall
   speed, fall damage strength, gore, and blood color, amount and how long it stays.
