@@ -16,6 +16,8 @@
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <chrono>
 #include <cstdio>
 #include <set>
@@ -194,6 +196,31 @@ void ChatLog::add(const std::string& from, const std::string& text, bool system,
     if (!system) bubbles[from] = {text, 6.0f};
 }
 
+void ChatLog::addWhisper(const std::string& from, const std::string& to, const std::string& text, bool admin,
+                         bool verified) {
+    Line l{from, text, false, admin, verified};
+    l.whisper = true;
+    l.to = to;
+    lines.push_back(l);
+    if (lines.size() > 100) lines.erase(lines.begin());
+}
+
+bool ChatLog::parseWhisper(const std::string& text, std::string& to, std::string& message) {
+    std::string lower = text;
+    for (char& ch : lower) ch = (char)std::tolower((unsigned char)ch);
+    size_t skip = 0;
+    for (const char* p : {"/whisper ", "/w "})
+        if (lower.rfind(p, 0) == 0) { skip = std::strlen(p); break; }
+    if (!skip) { to.clear(); message.clear(); return lower == "/w" || lower == "/whisper"; }
+    size_t start = text.find_first_not_of(' ', skip);
+    if (start == std::string::npos) { to.clear(); message.clear(); return true; }
+    size_t end = text.find(' ', start);
+    to = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    size_t rest = end == std::string::npos ? std::string::npos : text.find_first_not_of(' ', end);
+    message = rest == std::string::npos ? std::string() : text.substr(rest);
+    return true;
+}
+
 void ChatLog::update(float dt) {
     for (auto it = bubbles.begin(); it != bubbles.end();) {
         it->second.second -= dt;
@@ -297,8 +324,41 @@ void NetServer::say(const std::string& text) {
     if (t.empty()) return;
     if (Online::isGuest() && Online::online()) { m_chat.add("", Online::kGuestChatText, true); return; }
     bool admin = Account::iAmStaff(), ver = Badges::iHave(Badges::Id::Verified);
+    std::string to, msg;
+    if (ChatLog::parseWhisper(t, to, msg)) {
+        if (to.empty() || msg.empty()) { m_chat.add("", ChatLog::kWhisperHelp, true); return; }
+        Client* target = findClient(to);
+        if (!target) {
+            m_chat.add("", sameName(to, Online::playerName()) ? "You can't whisper to yourself."
+                                                             : "There's no player called " + to + " in this game.", true);
+            return;
+        }
+        target->conn->send(json{{"t", "chat"}, {"from", Online::playerName()}, {"to", target->name}, {"text", msg},
+                                {"wh", true}, {"adm", admin}, {"ver", ver}}.dump());
+        m_chat.addWhisper(Online::playerName(), target->name, msg, admin, ver);
+        return;
+    }
     m_chat.add(Online::playerName(), t, false, admin, ver);
     broadcast(json{{"t", "chat"}, {"from", Online::playerName()}, {"text", t}, {"adm", admin}, {"ver", ver}}.dump());
+}
+
+NetServer::Client* NetServer::findClient(const std::string& name) {
+    // Exact name first (any capitals), then the only name that starts with it.
+    Client* prefix = nullptr;
+    int matches = 0;
+    for (auto& c : m_clients) {
+        if (!c->joined) continue;
+        if (sameName(c->name, name)) return c.get();
+        if (c->name.size() > name.size() && sameName(c->name.substr(0, name.size()), name)) { prefix = c.get(); ++matches; }
+    }
+    return matches == 1 ? prefix : nullptr;
+}
+
+bool NetServer::sameName(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
 }
 
 void NetServer::dropClient(size_t index, const char* reason) {
@@ -501,6 +561,26 @@ void NetServer::handle(Client& c, const std::string& text) {
         if (msg.empty()) return;
         if (c.guest) {   // guests don't chat: tell just them why
             c.conn->send(json{{"t", "chat"}, {"from", ""}, {"text", Online::kGuestChatText}, {"sys", true}}.dump());
+            return;
+        }
+        std::string to, said;
+        if (ChatLog::parseWhisper(msg, to, said)) {
+            auto tell = [&](const std::string& text) {
+                c.conn->send(json{{"t", "chat"}, {"from", ""}, {"text", text}, {"sys", true}}.dump());
+            };
+            if (to.empty() || said.empty()) { tell(ChatLog::kWhisperHelp); return; }
+            json w{{"t", "chat"}, {"from", c.name}, {"text", said}, {"wh", true}, {"adm", c.admin}, {"ver", c.verified}};
+            if (sameName(to, Online::playerName())) {          // to the host
+                w["to"] = Online::playerName();
+                m_chat.addWhisper(c.name, Online::playerName(), said, c.admin, c.verified);
+            } else if (Client* target = findClient(to); target && target != &c) {
+                w["to"] = target->name;
+                target->conn->send(w.dump());
+            } else {
+                tell(target == &c ? "You can't whisper to yourself." : "There's no player called " + to + " in this game.");
+                return;
+            }
+            c.conn->send(w.dump());   // their own copy ("To ...")
             return;
         }
         m_chat.add(c.name, msg, false, c.admin, c.verified);
@@ -778,8 +858,12 @@ void NetClient::handle(const std::string& text) {
         return;
     }
     if (t == "chat") {
-        m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false),
-                   m.value("adm", false), m.value("ver", false));
+        if (m.value("wh", false))
+            m_chat.addWhisper(m.value("from", std::string()), m.value("to", std::string()), m.value("text", std::string()),
+                              m.value("adm", false), m.value("ver", false));
+        else
+            m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false),
+                       m.value("adm", false), m.value("ver", false));
         return;
     }
     if (m_state != State::Joined) return;

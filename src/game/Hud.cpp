@@ -5,6 +5,7 @@
 #include "Badges.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -88,7 +89,7 @@ void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm
         if (it == bubbles.end()) return;
         SceneNode* head = root->findChild("Head");
         glm::vec3 p = head ? glm::vec3(head->worldMatrix()[3]) : root->transform.position + glm::vec3(0, 2.4f, 0);
-        glm::vec4 c = viewProj * glm::vec4(p + glm::vec3(0, 1.1f, 0), 1.0f);
+        glm::vec4 c = viewProj * glm::vec4(p + glm::vec3(0, 1.45f, 0), 1.0f);   // above the name tag
         if (c.w <= 0.1f) return;
         glm::vec2 ndc = glm::vec2(c) / c.w;
         ImVec2 sp(min.x + (ndc.x * 0.5f + 0.5f) * (max.x - min.x), min.y + (0.5f - ndc.y * 0.5f) * (max.y - min.y));
@@ -105,6 +106,51 @@ void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm
     };
     if (Player* p = scene.player()) drawFor(p->root());
     for (auto& rc : scene.remotes()) drawFor(scene.findById(rc.rootId));
+}
+
+void drawNameTags(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm::mat4& viewProj,
+                  const glm::vec3& cameraPos) {
+    constexpr float kShowUntil = 60.0f, kFadeFrom = 45.0f;   // units away
+    ImFont* font = ImGui::GetFont();
+    const float size = ImGui::GetFontSize();
+    auto drawFor = [&](SceneNode* root, const std::string& name, const Humanoid* hum, bool me) {
+        if (!root || name.empty()) return;
+        SceneNode* head = root->findChild("Head");
+        if (!head || head->shownTransparency() > 0.5f) return;   // faded out (first person), or headless
+        glm::vec3 top = glm::vec3(head->worldMatrix()[3]) + glm::vec3(0.0f, 0.75f, 0.0f);
+        float dist = glm::length(top - cameraPos);
+        if (dist > kShowUntil) return;
+        float alpha = std::clamp((kShowUntil - dist) / (kShowUntil - kFadeFrom), 0.0f, 1.0f);
+        glm::vec4 c = viewProj * glm::vec4(top, 1.0f);
+        if (c.w <= 0.1f) return;
+        glm::vec2 ndc = glm::vec2(c) / c.w;
+        if (std::abs(ndc.x) > 1.2f || std::abs(ndc.y) > 1.2f) return;
+        ImVec2 sp(min.x + (ndc.x * 0.5f + 0.5f) * (max.x - min.x), min.y + (0.5f - ndc.y * 0.5f) * (max.y - min.y));
+        ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, name.c_str());
+        ImVec2 at(std::floor(sp.x - ts.x * 0.5f), std::floor(sp.y - ts.y));
+        // White with a dark outline, readable on any background.
+        const ImU32 edge = IM_COL32(0, 0, 0, (int)(200 * alpha));
+        for (int dx = -1; dx <= 1; ++dx)
+            for (int dy = -1; dy <= 1; ++dy)
+                if (dx || dy) dl->AddText(font, size, ImVec2(at.x + dx, at.y + dy), edge, name.c_str());
+        dl->AddText(font, size, at, IM_COL32(255, 255, 255, (int)(255 * alpha)), name.c_str());
+        // Someone else's health, when they've been hurt.
+        if (!me && hum && hum->health < hum->maxHealth && hum->maxHealth > 0.0f) {
+            float f = std::clamp(hum->health / hum->maxHealth, 0.0f, 1.0f);
+            float w = std::max(40.0f, ts.x), y = at.y + ts.y + 2.0f;
+            ImVec2 a(std::floor(sp.x - w * 0.5f), y), b(a.x + w, y + 5.0f);
+            dl->AddRectFilled(a, b, IM_COL32(40, 0, 0, (int)(200 * alpha)), 2.0f);
+            ImU32 col = f > 0.5f ? IM_COL32(60, 220, 80, (int)(255 * alpha))
+                      : f > 0.25f ? IM_COL32(240, 200, 40, (int)(255 * alpha)) : IM_COL32(240, 60, 50, (int)(255 * alpha));
+            dl->AddRectFilled(a, ImVec2(a.x + w * f, b.y), col, 2.0f);
+        }
+    };
+    if (Player* p = scene.player(); p && !p->isDead()) drawFor(p->root(), p->root() ? p->root()->name : "", &p->humanoid(), true);
+    for (auto& rc : scene.remotes())
+        if (rc.alive) drawFor(scene.findById(rc.rootId), rc.name, &rc.humanoid, false);
+    for (const auto& n : scene.npcs().all())
+        if (!n->dead)
+            if (SceneNode* r = scene.findById(n->rootId)) drawFor(r, r->name, &n->humanoid, false);
 }
 
 namespace {

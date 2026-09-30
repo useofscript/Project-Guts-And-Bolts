@@ -625,6 +625,17 @@ Constraints join parts together through **Attachments** (little points on a part
 - **Moving platforms:** they carry you, spinning ones turn you with them, and
   jumping off keeps their speed.
 
+### Names and whispers
+
+Everyone's name floats above their head (NPCs too, like "Zombie"), with a
+small health bar when they're hurt. Your own name hides when you zoom into
+first person.
+
+To send a private message, type `/w PlayerName message` (or `/whisper`) in
+chat. Only you and that player see it, with no speech bubble. Capitals don't
+matter, and the start of a name is enough if only one player's name starts
+that way.
+
 ### The play camera
 
 Like Roblox, the camera orbits your character's **head**. Right-drag to look

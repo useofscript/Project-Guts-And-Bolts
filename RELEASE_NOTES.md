@@ -21,6 +21,10 @@
 - The camera follows your head. Scroll all the way in for first person: your
   character fades out as the camera gets close, and the mouse looks around.
 
+**Names and whispers**
+- Players' (and NPCs') names float above their heads, with a health bar when hurt.
+- Private chat: `/w PlayerName message` or `/whisper PlayerName message`.
+
 **Real water**
 - Water now has moving waves and ripples that bounce off the pool's sides.
 - Loose parts float or sink by material (wood floats, metal sinks), tip over

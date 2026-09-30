@@ -410,6 +410,11 @@ ChatLog& PlayerApp::chat() {
 void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
     if (Online::isGuest() && Online::online()) { chat().add("", Online::kGuestChatText, true); return; }
+    std::string to, msg;
+    if (!m_server && !m_client && ChatLog::parseWhisper(text, to, msg)) {   // playing alone
+        m_soloChat->add("", to.empty() || msg.empty() ? ChatLog::kWhisperHelp : "There's nobody else here to whisper to.", true);
+        return;
+    }
     if (m_server)      m_server->say(text);
     else if (m_client) m_client->say(text);
     else               m_soloChat->add(Online::playerName(), text, false, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified));
@@ -1227,6 +1232,7 @@ void PlayerApp::drawGame(float dt) {
     Hud::draw(dl, pos, max, *m_scene, m_session->gui(), labelsAt);
     if (int slot = Hud::drawHotbar(dl, pos, max, *m_scene, tapped && onHotbar ? &tapAt : nullptr); slot >= 0 && acceptInput)
         m_session->selectToolSlot(slot);
+    Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
     if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
     else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
@@ -1437,6 +1443,16 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
         if (l.system) {
             ImGui::PushTextWrapPos(0);
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "%s", l.text.c_str());
+            ImGui::PopTextWrapPos();
+        } else if (l.whisper) {
+            // Private messages: "{To Bob}" for ones you sent, "{From Alice}" for ones you got.
+            const bool mine = l.from == Online::playerName();
+            const ImVec4 pink(0.95f, 0.6f, 1.0f, 1);
+            ImGui::TextColored(pink, "{%s %s}", mine ? "To" : "From", (mine ? l.to : l.from).c_str());
+            if (!mine && (l.verified || l.admin)) { ImGui::SameLine(0, 3); Badges::check(ImGui::GetTextLineHeight() * 0.9f); }
+            ImGui::SameLine();
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextColored(ImVec4(0.98f, 0.88f, 1.0f, 1), "%s", l.text.c_str());
             ImGui::PopTextWrapPos();
         } else {
             if (l.admin) {

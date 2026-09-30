@@ -14,13 +14,25 @@ class GameSession;
 
 // Chat messages and the speech bubbles above characters' heads.
 struct ChatLog {
-    struct Line { std::string from, text; bool system = false; bool admin = false; bool verified = false; };
+    struct Line {
+        std::string from, text;
+        bool system = false; bool admin = false; bool verified = false;
+        bool whisper = false; std::string to;   // a private message (/w name message): only the two see it
+    };
     std::vector<Line> lines;
     std::unordered_map<std::string, std::pair<std::string, float>> bubbles;   // name -> text, seconds left
 
     void add(const std::string& from, const std::string& text, bool system = false, bool admin = false,
              bool verified = false);
+    // Private messages get no speech bubble (everyone would see it).
+    void addWhisper(const std::string& from, const std::string& to, const std::string& text, bool admin = false,
+                    bool verified = false);
     void update(float dt);
+
+    // "/w name message" or "/whisper name message" (like Roblox). True if `text` is
+    // a whisper command; `to` and `message` may be empty if it's incomplete.
+    static bool parseWhisper(const std::string& text, std::string& to, std::string& message);
+    static constexpr const char* kWhisperHelp = "To whisper to someone: /w PlayerName your message";
 };
 
 inline constexpr int kDefaultPort = 7777;
@@ -51,6 +63,8 @@ private:
     struct Client;
     struct NodeState;
     void handle(Client& c, const std::string& msg);
+    Client* findClient(const std::string& name);                        // a joined player, by name (any capitals)
+    static bool sameName(const std::string& a, const std::string& b);
     void addClient(std::unique_ptr<Net::Connection> conn);
     void updateRelay(float dt);
     void sendTick();

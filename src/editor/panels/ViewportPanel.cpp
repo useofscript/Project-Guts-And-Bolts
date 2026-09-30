@@ -417,6 +417,7 @@ void ViewportPanel::render(float dt) {
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd, nullptr, character);
                 m_session->click(hit ? hit->id : 0);
             }
+            Hud::drawNameTags(dl, imgPos, imgMax, *m_scene, proj * view, m_camera.position());
             GameGui::draw(dl, imgPos, imgMax, *m_scene, &m_guiInput);
             Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
             if (int slot = Hud::drawHotbar(dl, imgPos, imgMax, *m_scene); slot >= 0 && m_hovered) m_session->selectToolSlot(slot);
