@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'deep-end', name: 'The Deep End', version: '', time: 1790805900, tag: 'Engine',
+    summary: 'Pools, lakes and rivers get real ocean waves, crystal-clear shallows and splashes that throw real water.',
+    items: [
+      'Gerstner waves: sharp crests and wide troughs, with whitecaps on big ones; floating things ride the exact waves you see',
+      'Water fades from crystal clear at the shore to deep blue in the deep, with the new Clarity setting',
+      'Things under the water are bent by it (refraction), and sunlight dances on the bottom',
+      'Reflections of the world, and foam where water meets the shore',
+      'Big splashes and waves slapping walls throw real liquid drops that fall back in',
+      'New FluidVolume for scripts: FlowVelocity, Clarity, WaveScale, and :ParentTo()',
+    ],
+  },
+  {
     id: 'crisp-edges', name: 'Crisp Edges', version: '', time: 1790804476, tag: 'Fix',
     summary: 'No more flickering stripes where water touches walls.',
     items: [

@@ -1,3 +1,29 @@
+# Next version (not released yet): The Deep End
+
+## New
+
+**Water parts, like real water**
+- Gerstner waves (the `Waves` attribute, or `WaveScale` on a FluidVolume):
+  sharp crests, wide troughs, whitecaps on big waves. Swimmers and floating
+  things ride exactly the waves you see.
+- The water reads how deep it is at every pixel: crystal clear at the shore,
+  fading to deep blue in the deep (Beer-Lambert), set by the new `Clarity`
+  (0 murky .. 1 clear).
+- Things under the water are bent by it (refraction, index 1.333); reflections
+  of the sky and the world; the sun's glint; caustics on the bottom; foam where
+  it meets the shore; seen from underwater, the surface bends the world above
+  and turns into a mirror at low angles.
+- Big splashes and waves slapping walls throw real liquid drops that fall back
+  and soak in, and leave a ring of foam.
+
+**FluidVolume**
+- `Instance.new("FluidVolume")` (or Insert Object): a block of water with
+  `FlowVelocity`, `Clarity` and `WaveScale`. Any instance also has
+  `:ParentTo(parent)`.
+
+## Fixed
+- Water no longer flickers in stripes where it touches walls (z-fighting).
+
 # Guts&Bolts 0.6.1: The Hydromania Update (September 30, 2026)
 
 Real water you can pour, swim in, dive under and float things on.

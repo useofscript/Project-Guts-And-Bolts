@@ -50,6 +50,10 @@ void Shader::setVec3Array(const char* n, const glm::vec3* v, int count) const {
     if (count > 0) glUniform3fv(loc(n), count, glm::value_ptr(v[0]));
 }
 
+void Shader::setFloatArray(const char* n, const float* v, int count) const {
+    if (count > 0) glUniform1fv(loc(n), count, v);
+}
+
 void Shader::bind()   const { glUseProgram(m_id); }
 void Shader::unbind() const { glUseProgram(0); }
 

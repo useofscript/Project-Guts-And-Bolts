@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include <memory>
 #include <unordered_map>
 #include <glm/glm.hpp>
@@ -31,6 +32,8 @@ public:
 private:
     void renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target);
     void drawGeometry(Scene& scene, const Camera& camera, bool editing);
+    struct WaterItem { SceneNode* node; glm::mat4 model; };
+    void drawWater(Scene& scene, const Camera& camera, const std::vector<WaterItem>& waters);
     static glm::mat4 decalMatrix(const SceneNode& decal);
     void drawConstraints(Scene& scene, bool editing);
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
@@ -46,7 +49,9 @@ private:
 
     std::unique_ptr<Shader> m_lit, m_grid, m_sky, m_depth;
     std::unique_ptr<Shader> m_ssao, m_bloomPre, m_bloomDown, m_bloomUp, m_composite, m_fxaa;
+    std::unique_ptr<Shader> m_water;   // water parts (see Shaders::waterFrag)
     std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidColor, m_fluidBlur, m_fluidShade, m_fluidSimple;
+    Target m_waterCopy;   // water parts: the solid scene behind them (colour and depth)
     Target m_fDepth, m_fTmp, m_fThick, m_fColor, m_sceneCopy;   // liquid: depth, blur scratch, thickness, the scene behind
     unsigned int m_fluidVao = 0, m_fluidVbo = 0;
     ShadowMap               m_shadow, m_shadowNear;   // wide, and sharp close to the camera

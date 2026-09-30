@@ -564,13 +564,34 @@ Water isn't just a see-through box you can swim in. While the game runs:
   part's Density to choose exactly. A long plank tips over and floats flat, and
   boats rock on the waves.
 - **Splashes.** Things (and people) that fall in throw up spray, make a splash
-  sound and a dip in the water.
+  sound and a dip in the water. Big splashes, and waves slapping a wall, throw
+  real liquid drops into the air that fall back and soak in, and leave a ring
+  of foam.
 - **Ocean swell.** Give a water part a number attribute called `Waves` (like
-  `0.5`) for big rolling waves that lift everything floating on them.
+  `0.5`) for big rolling waves that lift everything floating on them. They're
+  Gerstner waves: sharp crests and wide troughs, with whitecaps on big ones.
+  Floating things and swimmers ride exactly the waves you see.
+- **Clarity.** A number attribute from 0 (murky) to 1 (crystal clear). The water
+  is clear where it's shallow and fades to deep blue where it's deep, things
+  under it are bent by the water (like real refraction), and sunlight makes
+  wobbly bright lines (caustics) on the bottom.
 - **Currents.** Give it a Vector3 attribute called `Flow` (like `4, 0, 0`) and
   it carries swimmers and floating things along: rivers, rapids, lazy rivers.
 
 Scripts can make, move or resize water while playing (a rising flood works).
+
+**FluidVolume** (Insert Object, or from a script) is a block of water with
+these settings ready to change:
+
+```lua
+local river = Instance.new("FluidVolume")
+river.Size = Vector3.new(100, 5, 20)
+river.Position = Vector3.new(0, 10, 0)
+river.FlowVelocity = Vector3.new(5, 0, 0)   -- a current along X
+river.Clarity = 0.8                         -- 0 murky .. 1 crystal clear
+river.WaveScale = 1.2                       -- how tall the waves are (1 = half a stud)
+river:ParentTo(workspace)                   -- (same as river.Parent = workspace)
+```
 
 ### Flowing water (WaterSource)
 

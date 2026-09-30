@@ -533,6 +533,15 @@ void Liquid::forNeighbours(const glm::vec3& p, F&& f) const {
 // time the water has moved one drop-spacing out of it (so they never pile up).
 void Liquid::emit(float dt, size_t room, std::vector<glm::vec4>* out) {
     size_t made = 0;
+    // Spray thrown in by the water (splashes, waves hitting walls).
+    for (size_t i = 0; i + 1 < m_spray.size() && made < room; i += 2, ++made) {
+        const glm::vec3 p(m_spray[i]), v(m_spray[i + 1]);
+        if (out) { out->push_back(m_spray[i]); out->push_back(m_spray[i + 1]); continue; }
+        m_x.push_back(p); m_v.push_back(v); m_p.push_back(p);
+        m_lambda.push_back(0.0f); m_age.push_back(0.0f); m_near.push_back(0.0f);
+        m_kind.push_back((uint8_t)m_spray[i].w);
+    }
+    m_spray.clear();
     for (Source& s : m_sources) {
         if (s.rate <= 0.0f || (s.part && s.speed <= 0.0f)) continue;
         if (m_viewDist > 0.0f && glm::length(s.pos - m_viewer) > m_viewDist + 10.0f) continue;   // past the render distance
@@ -803,7 +812,7 @@ void Liquid::update(float dt, Scene& scene) {
     scan(scene);
     budget(scene, m_x.size(), dt);
     m_prof[4] = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    if (m_sources.empty() && m_x.empty()) { m_draw.clear(); return; }
+    if (m_sources.empty() && m_x.empty() && m_spray.empty()) { m_draw.clear(); return; }
     dt = std::min(dt, 1.0f / 30.0f);
     const int steps = std::clamp((int)std::ceil(dt * 90.0f), 1, 3);
     const float h = dt / steps;
@@ -917,7 +926,7 @@ void Liquid::updateGpu(float dt, Scene& scene) {
     }
     m_prof[4] = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t1).count();
 
-    if (!m_sources.empty() || res.count > 0) {
+    if (!m_sources.empty() || res.count > 0 || !m_spray.empty()) {
         dt = std::min(dt, 1.0f / 30.0f);
         const int steps = std::clamp((int)std::ceil(dt * 90.0f), 1, 3);
         const float h = dt / steps;

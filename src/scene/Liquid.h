@@ -92,6 +92,11 @@ public:
     // The camera and the render distance (0 = no limit): taps further away than that
     // stop pouring until you come closer.
     void setViewer(const glm::vec3& p, float dist) { m_viewer = p; m_viewDist = dist; }
+    // Throw one drop of liquid (spray from a splash or a wave slapping a wall). It
+    // joins the rest next step, falls back and soaks into the pool it lands in.
+    void spray(const glm::vec3& p, const glm::vec3& v, int fluid = 0) {
+        if (m_active && m_spray.size() < 4000) { m_spray.push_back(glm::vec4(p, (float)fluid)); m_spray.push_back(glm::vec4(v, 0.0f)); }
+    }
 
 private:
     struct Collider {
@@ -136,6 +141,7 @@ private:
     float m_maxAge = 120.0f;                       // drops older than this go (lower while it's full: recycling)
     std::vector<glm::vec4> m_draw;
     std::vector<Source> m_sources;
+    std::vector<glm::vec4> m_spray;   // drops thrown in since the last step (position + kind, velocity)
     glm::vec3 m_viewer{0.0f};
     float m_viewDist = 0.0f;
     std::vector<Collider> m_colliders;

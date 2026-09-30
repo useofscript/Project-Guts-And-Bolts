@@ -3,6 +3,7 @@
 #include "SceneNode.h"
 #include "Physics.h"
 #include "Player.h"
+#include "Gerstner.h"
 #include "../core/Audio.h"
 
 #include <algorithm>
@@ -13,6 +14,8 @@ namespace {
 constexpr float kWaveSpeed = 6.0f;    // how fast ripples spread (units / second)
 constexpr float kCalm      = 0.55f;   // how quickly waves die down
 constexpr int   kMaxPoints = 96;      // grid points along the longest side
+
+float rnd01() { static uint32_t s = 0x9e3779b9u; s ^= s << 13; s ^= s >> 17; s ^= s << 5; return (s & 0xffffff) / 16777216.0f; }
 
 const Attribute* attr(const SceneNode* n, const char* name, Attribute::Type t) {
     const Attribute* a = n->findAttribute(name);
@@ -71,7 +74,10 @@ void WaterSystem::scan(Scene& scene) {
         }
         b.swell = 0.0f;
         b.flow = glm::vec3(0.0f);
+        if (const Attribute* a = attr(n, "WaveScale", Attribute::Number)) b.swell = std::max(0.0f, (float)a->n) * 0.5f;
         if (const Attribute* a = attr(n, "Waves", Attribute::Number)) b.swell = std::max(0.0f, (float)a->n);
+        b.clarity = std::clamp(0.2f + n->transparency, 0.0f, 1.0f);
+        if (const Attribute* a = attr(n, "Clarity", Attribute::Number)) b.clarity = std::clamp((float)a->n, 0.0f, 1.0f);
         if (const Attribute* a = attr(n, "Flow", Attribute::Vector3)) b.flow = a->v;
         b.color = n->color;
         b.transparency = n->transparency;
@@ -118,13 +124,16 @@ float WaterSystem::heightAt(const Body& b, float x, float z) const {
     return (H(x0, z0) * (1 - tx) + H(x0 + 1, z0) * tx) * (1 - tz) + (H(x0, z0 + 1) * (1 - tx) + H(x0 + 1, z0 + 1) * tx) * tz;
 }
 
+float WaterSystem::churn(const Body& b, float x, float z) const {
+    const int i = std::clamp((int)std::lround((x - b.min.x) / b.cell), 0, b.nx - 1);
+    const int k = std::clamp((int)std::lround((z - b.min.z) / b.cell), 0, b.nz - 1);
+    return std::abs(b.v[(size_t)k * b.nx + i]);
+}
+
 float WaterSystem::swellAt(const Body& b, float x, float z) const {
     if (b.swell <= 0.0f) return 0.0f;
-    const float t = m_time;
-    // A few long waves rolling in from different directions.
-    return b.swell * (0.5f * std::sin(x * 0.31f + z * 0.12f + t * 1.1f) +
-                      0.3f * std::sin(z * 0.43f - x * 0.2f + t * 1.7f) +
-                      0.2f * std::sin((x + z) * 0.77f + t * 2.3f));
+    // Gerstner waves (the same ones the water is drawn with).
+    return Gerstner::heightAt(x, z, m_time, b.swell, edgeFade(b, x, z));
 }
 
 float WaterSystem::surfaceOf(const SceneNode* water, float x, float z) const {
@@ -168,6 +177,15 @@ void WaterSystem::splash(Scene& scene, const glm::vec3& p, float speed, float si
     if (b) disturb(p, std::min(0.6f, speed * 0.02f * size), 0.5f + size * 0.7f);
     int count = (int)std::clamp(speed * size * 4.0f, 8.0f, 90.0f);
     scene.particles().waterSpray(p, count, std::clamp(speed * 0.45f, 2.0f, 10.0f), b ? b->color : m_flood.color, size * 0.6f);
+    // A big splash also throws real liquid up (it falls back and soaks in).
+    const int drops = (int)std::clamp((speed - 6.0f) * size * 1.5f, 0.0f, 40.0f);
+    for (int i = 0; i < drops; ++i) {
+        const float a = rnd01() * 6.2831853f, r = rnd01();
+        const glm::vec3 out(std::cos(a) * r, 0.0f, std::sin(a) * r);
+        m_liquid.spray(p + out * size * 0.6f + glm::vec3(0.0f, 0.2f, 0.0f),
+                       out * std::clamp(speed * 0.12f, 1.0f, 5.0f) +
+                       glm::vec3(0.0f, std::clamp(speed * 0.3f, 4.0f, 14.0f) * (0.6f + 0.4f * rnd01()), 0.0f));
+    }
     if (m_splashSound <= 0.0f) {
         Audio::play("splash", std::clamp(speed * size / 12.0f, 0.15f, 1.0f), std::clamp(1.3f - size * 0.15f, 0.7f, 1.3f), false, &p);
         m_splashSound = 0.08f;
@@ -244,6 +262,19 @@ void WaterSystem::update(float dt, Scene& scene) {
             for (size_t id = 0; id < b.h.size(); ++id)
                 b.h[id] = std::clamp(b.h[id] + b.v[id] * hs, -2.0f, 2.0f) * (1.0f - 0.02f * hs);
         }
+        // White water: where the surface shoots up fast (a wave slapping a wall, the
+        // middle of a splash) it throws real liquid drops into the air.
+        int thrown = 0;
+        for (int k = 1; k + 1 < b.nz && thrown < 12; k += 2)
+            for (int i = 1; i + 1 < b.nx && thrown < 12; i += 2) {
+                const size_t id = (size_t)k * b.nx + i;
+                const float rise = b.v[id];
+                if (rise < 1.4f || b.h[id] < 0.12f || rnd01() > 0.25f) continue;
+                const glm::vec3 p(b.min.x + i * b.cell, b.max.y + b.h[id], b.min.z + k * b.cell);
+                const glm::vec3 side((rnd01() - 0.5f) * 2.0f, 0.0f, (rnd01() - 0.5f) * 2.0f);
+                m_liquid.spray(p, side + glm::vec3(0.0f, std::min(rise * 2.2f, 9.0f), 0.0f));
+                ++thrown;
+            }
     }
 
     // Forget things that left the water long ago.

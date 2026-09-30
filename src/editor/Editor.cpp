@@ -950,6 +950,21 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         w->canCollide = false;
         w->castShadow = false;
     }
+    else if (what == "FluidVolume") {   // water with waves, clarity and a current (attributes)
+        SceneNode* w = part("FluidVolume", PrimitiveType::Cube);
+        w->transform.scale = {20, 5, 20};
+        w->transform.position.y += 2.0f;
+        w->color = {0.13f, 0.45f, 0.62f};
+        w->transparency = 0.45f;
+        w->material = Material::Glass;
+        w->canCollide = false;
+        w->castShadow = false;
+        w->tags = {"Water", "FluidVolume"};
+        auto num = [&](const char* name, double v) { Attribute a; a.name = name; a.type = Attribute::Number; a.n = v; w->attributes.push_back(a); };
+        num("Clarity", 0.8);
+        num("WaveScale", 1.0);
+        Attribute flow; flow.name = "Flow"; flow.type = Attribute::Vector3; flow.v = glm::vec3(0.0f); w->attributes.push_back(flow);
+    }
     else if (what == "WaterSource") {   // pours water that flows downhill and fills things up
         SceneNode* w = part("WaterSource", PrimitiveType::Cylinder);
         w->transform.scale = {1.2f, 0.4f, 1.2f};
@@ -1079,7 +1094,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
