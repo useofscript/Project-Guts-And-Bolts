@@ -203,6 +203,7 @@ private:
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
     float m_climbPhase = 0.0f;
     float m_climbCooldown = 0.0f;   // just jumped off: don't grab straight back on
+    float m_wet = 0.0f;              // seconds you stay slippery after leaving a stream of liquid (a wet slide)
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 
     // Rest pose captured when Play starts (local transforms by node id).

@@ -574,6 +574,63 @@ you along.
 
 Try a flooding-room obby, a dam you blow up, or a sinking ship.
 
+### Real liquid (FluidSource)
+
+For water you can really watch move, like a Blender fluid simulation: a part
+called **FluidSource** (or tagged `FluidSource`) pours out actual liquid from
+its front (the way its LookVector points) while the game runs. See the Mega
+Water Slide sample game.
+
+How it works, in short:
+
+1. **The physics is lots of tiny drops.** Each drop has a position and a
+   speed. Every step, gravity moves them, then they push each other apart
+   wherever they're squashed together (water doesn't squash), so they flow,
+   pile up, fill dips and splash. This is called *Position Based Fluids*. The
+   drops bump into parts of every shape (turned any way), into the real
+   triangles of Mesh parts you build in Modeling mode, and into people.
+2. **It runs on the graphics card** (compute shaders) on computers with OpenGL
+   4.3 and phones with OpenGL ES 3.1: up to about a million drops on a
+   computer and 262,144 on a phone. Older computers (and Macs, which stop at
+   OpenGL 4.1) run the same physics on the processor instead, with up to
+   14,000 drops.
+3. **Drawing it as one liquid, not marbles.** Each frame the drops are drawn
+   as soft balls into a depth picture, which is smoothed until they melt into
+   one surface. From that surface's slope in each pixel the shader lights it
+   like real water:
+   - **Fresnel:** a mirror (reflecting the sky and sun) when you look across
+     it, clear when you look straight down. Straight on it reflects 2%, like
+     real water.
+   - **Refraction (Snell's law):** things under it look bent, using water's
+     real refractive index of 1.333.
+   - **Absorption (Beer's law):** it soaks up red light first, so the deeper
+     it is, the darker and bluer what's behind it looks.
+   - Fast, thin water turns white (foam).
+
+Attributes on the FluidSource:
+
+- **Speed:** how fast it pours out (default 8). 0 turns it off; a script can
+  turn it back on.
+- **Rate:** the most drops it makes each second (default 600). The stream is
+  as wide and tall as the part, so a bigger part pours more.
+
+What the liquid does in the game:
+
+- It carries people along when it's faster than them, and if it gets deep
+  enough you swim in it. Loose parts float on it and get pushed around.
+- Anything it runs over stays **wet** (slippery) for 20 seconds.
+- When it pours into a pool of normal Water, it joins it (with ripples and
+  spray).
+- A drop left on its own dries up after a few seconds, so puddle splashes
+  don't pile up forever.
+
+### Slippery parts and tilted water
+
+- Tag a part `Slippery` and people slide on it like a wet water slide or ice:
+  slopes carry you down and you keep your speed.
+- A Water part can be tilted (a sloping river or a water slide). You swim in
+  its real, turned box, and its `Flow` attribute carries you along.
+
 ## NPCs (zombies and other characters)
 
 Any Model built like a character (with a **HumanoidRootPart**, **Torso** and

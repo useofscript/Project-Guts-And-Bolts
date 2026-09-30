@@ -66,8 +66,8 @@ void createTarget(SceneRenderer::Target& t, int w, int h, GLenum fmt, bool withD
 
     glGenTextures(1, &t.color);
     glBindTexture(GL_TEXTURE_2D, t.color);
-    GLenum base = (fmt == GL_R8) ? GL_RED : GL_RGBA;
-    GLenum type = (fmt == GL_RGBA16F) ? GL_FLOAT : GL_UNSIGNED_BYTE;   // OpenGL ES is strict about this
+    GLenum base = (fmt == GL_R8 || fmt == GL_R32F || fmt == GL_R16F) ? GL_RED : GL_RGBA;
+    GLenum type = (fmt == GL_RGBA16F || fmt == GL_R32F || fmt == GL_R16F) ? GL_FLOAT : GL_UNSIGNED_BYTE;   // OpenGL ES is strict about this
     glTexImage2D(GL_TEXTURE_2D, 0, fmt, t.w, t.h, 0, base, type, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -113,19 +113,29 @@ SceneRenderer::SceneRenderer() {
     m_bloomUp   = std::make_unique<Shader>(fullscreenVert, bloomUpFrag);
     m_composite = std::make_unique<Shader>(fullscreenVert, compositeFrag);
     m_fxaa      = std::make_unique<Shader>(fullscreenVert, fxaaFrag);
+    m_fluidDepth  = std::make_unique<Shader>(fluidVert, fluidDepthFrag);
+    m_fluidThick  = std::make_unique<Shader>(fluidVert, fluidThickFrag);
+    m_fluidBlur   = std::make_unique<Shader>(fullscreenVert, fluidBlurFrag);
+    m_fluidShade  = std::make_unique<Shader>(fullscreenVert, fluidShadeFrag);
+    m_fluidSimple = std::make_unique<Shader>(fluidVert, fluidSimpleFrag);
     buildGrid();
     buildAxes();
+    Liquid::graphicsContext(+1);   // the liquid's physics may use the graphics card now
     // Fullscreen passes make their own vertices, but core GL still needs a VAO.
     glGenVertexArrays(1, &m_emptyVao);
     m_startTime = now();
 }
 
 SceneRenderer::~SceneRenderer() {
+    Liquid::graphicsContext(-1);
     if (m_gridVbo)  glDeleteBuffers(1, &m_gridVbo);
     if (m_gridVao)  glDeleteVertexArrays(1, &m_gridVao);
     if (m_axisVbo)  glDeleteBuffers(1, &m_axisVbo);
     if (m_axisVao)  glDeleteVertexArrays(1, &m_axisVao);
     if (m_emptyVao) glDeleteVertexArrays(1, &m_emptyVao);
+    if (m_fluidVbo) glDeleteBuffers(1, &m_fluidVbo);
+    if (m_fluidVao) glDeleteVertexArrays(1, &m_fluidVao);
+    destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_sceneCopy);
     destroyTarget(m_hdr);
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
@@ -361,6 +371,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
 
     drawGeometry(scene, camera, showGrid);
     glBindVertexArray(0);
+    renderLiquid(scene, camera);
 
     postProcess(scene, camera, target);
 }
@@ -760,6 +771,161 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
     glDepthMask(GL_TRUE);
+}
+
+void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
+    const Liquid& liquid = scene.water().liquid();
+    const std::vector<glm::vec4>& drops = liquid.drawList();
+    // With the physics on the graphics card the drops never leave it: they're
+    // drawn straight from its buffer, as many as it says (an indirect draw).
+    const bool onGpu = liquid.onGpu() && liquid.gpuDrawBuffer();
+    if (onGpu ? liquid.count() == 0 : drops.empty()) return;
+    const Environment& env = scene.environment();
+    const int w = m_hdr.w, h = m_hdr.h;
+    if (!m_fluidVao) {
+        glGenVertexArrays(1, &m_fluidVao);
+        glGenBuffers(1, &m_fluidVbo);
+        glBindVertexArray(m_fluidVao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_fluidVbo);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), nullptr);
+    }
+    glBindVertexArray(m_fluidVao);
+    if (onGpu) {
+        glBindBuffer(GL_ARRAY_BUFFER, liquid.gpuDrawBuffer());
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, liquid.gpuCommandBuffer());
+    } else {
+        glBindBuffer(GL_ARRAY_BUFFER, m_fluidVbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(drops.size() * sizeof(glm::vec4)), drops.data(), GL_STREAM_DRAW);
+    }
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), nullptr);
+    auto drawDrops = [&]() {
+        if (onGpu) glDrawArraysIndirect(GL_POINTS, (const void*)(uintptr_t)Liquid::gpuDrawCommandOffset());
+        else glDrawArrays(GL_POINTS, 0, (GLsizei)drops.size());
+    };
+    auto done = [&]() {
+        if (onGpu) glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+        glBindVertexArray(0);
+    };
+#ifndef GB_GLES
+    glEnable(GL_PROGRAM_POINT_SIZE);
+#endif
+    const glm::mat4 view = camera.view(), proj = camera.projection();
+    const float pointScale = proj[1][1] * 0.5f * (float)h;
+    const float radius = Liquid::kRadius * 1.25f;   // drawn a bit fatter so they join up
+    const glm::vec3 waterColor = glm::pow(glm::vec3(0.12f, 0.42f, 0.62f), glm::vec3(2.2f));
+    const glm::vec3 ambient = env.ambientColor * env.ambientIntensity;
+    auto setDrops = [&](Shader& s) {
+        s.bind();
+        s.setMat4("uView", view);
+        s.setMat4("uProj", proj);
+        s.setFloat("uPointScale", pointScale);
+        s.setFloat("uRadius", radius);
+    };
+
+    // Without float pictures (some phones): shiny balls straight into the scene.
+    if (hdrFormat() != (GLenum)GL_RGBA16F) {
+        bindTarget(m_hdr);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        setDrops(*m_fluidSimple);
+        m_fluidSimple->setVec3("uLightDir", glm::normalize(glm::vec3(view * glm::vec4(env.sunDirection(), 0.0f))));
+        m_fluidSimple->setVec3("uWaterColor", waterColor);
+        m_fluidSimple->setVec3("uAmbient", ambient);
+        drawDrops();
+        glDisable(GL_BLEND);
+        done();
+        return;
+    }
+
+    if (m_fDepth.w != w || m_fDepth.h != h || !m_fDepth.fbo) {
+#ifdef GB_GLES
+        const GLenum depthFmt = GL_RGBA16F;
+#else
+        const GLenum depthFmt = GL_R32F;
+#endif
+        createTarget(m_fDepth, w, h, depthFmt, true);
+        createTarget(m_fTmp, w, h, depthFmt, false);
+        createTarget(m_fThick, w, h, GL_RGBA16F, false);
+        createTarget(m_sceneCopy, w, h, hdrFormat(), true);   // colour and depth of what's behind
+    }
+    const glm::vec2 texel(1.0f / w, 1.0f / h);
+
+    // 1. Nearest liquid in each pixel.
+    bindTarget(m_fDepth);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    setDrops(*m_fluidDepth);
+    bindTex(0, m_hdr.depth);
+    m_fluidDepth->setInt("uSceneDepth", 0);
+    m_fluidDepth->setVec2("uTexel", texel);
+    drawDrops();
+
+    // 2. How much liquid is along each pixel.
+    bindTarget(m_fThick);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    setDrops(*m_fluidThick);
+    bindTex(0, m_hdr.depth);
+    m_fluidThick->setInt("uSceneDepth", 0);
+    m_fluidThick->setVec2("uTexel", texel);
+    drawDrops();
+    glDisable(GL_BLEND);
+
+    // 3. Smooth the surface (twice across, twice down).
+    if (onGpu) glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+    glBindVertexArray(m_emptyVao);
+    m_fluidBlur->bind();
+    m_fluidBlur->setInt("uSrc", 0);
+    m_fluidBlur->setFloat("uWorldBlur", Liquid::kRadius * 2.4f);
+    m_fluidBlur->setFloat("uPointScale", pointScale);
+    for (int pass = 0; pass < 2; ++pass) {
+        bindTarget(m_fTmp);
+        bindTex(0, m_fDepth.color);
+        m_fluidBlur->setVec2("uDir", glm::vec2(texel.x, 0.0f));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fDepth.fbo);
+        glViewport(0, 0, w, h);
+        bindTex(0, m_fTmp.color);
+        m_fluidBlur->setVec2("uDir", glm::vec2(0.0f, texel.y));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+
+    // 4. The scene behind the water (and how far away it is), then the lit surface on top of it.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_hdr.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_sceneCopy.fbo);
+    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    bindTarget(m_hdr);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);   // (the depth pass already kept it in front of solid things)
+    glDepthMask(GL_TRUE);
+    m_fluidShade->bind();
+    bindTex(0, m_fDepth.color);  m_fluidShade->setInt("uDepth", 0);
+    bindTex(1, m_fThick.color);  m_fluidShade->setInt("uThick", 1);
+    bindTex(2, m_sceneCopy.color); m_fluidShade->setInt("uScene", 2);
+    bindTex(3, m_sceneCopy.depth); m_fluidShade->setInt("uSceneDepth", 3);
+    m_fluidShade->setMat4("uProj", proj);
+    m_fluidShade->setMat4("uInvView", glm::inverse(view));
+    m_fluidShade->setVec2("uTexel", texel);
+    m_fluidShade->setVec3("uSunDir", env.sunDirection());
+    m_fluidShade->setVec3("uSunColor", env.sunColor);
+    m_fluidShade->setFloat("uSunIntensity", std::max(0.0f, env.sunIntensity));
+    m_fluidShade->setVec3("uZenith", env.skyZenith);
+    m_fluidShade->setVec3("uHorizon", env.skyHorizon);
+    m_fluidShade->setVec3("uGround", env.skyGround);
+    m_fluidShade->setFloat("uSkyBrightness", env.skyBrightness);
+    m_fluidShade->setVec3("uAmbient", ambient);
+    m_fluidShade->setVec3("uWaterColor", waterColor);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDepthFunc(GL_LESS);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
 }
 
 void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer& target) {

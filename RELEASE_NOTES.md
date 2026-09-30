@@ -1,3 +1,30 @@
+# Next version (not released yet): real liquid
+
+## New
+
+**Real liquid, like a Blender fluid simulation**
+- A part called **FluidSource** pours out real liquid made of thousands of
+  tiny drops. It flows downhill, piles up, fills dips, splashes off parts of
+  every shape (and off the real triangles of Mesh parts), and pushes people
+  and floating things along. Attributes: Speed and Rate.
+- On computers with OpenGL 4.3 and phones with OpenGL ES 3.1 the physics runs
+  on the graphics card (compute shaders): up to about a million drops. Other
+  computers (and Macs) run it on the processor, with up to 14,000.
+- It's drawn as one smooth, glassy surface: reflections with real Fresnel,
+  bending with water's real refractive index (1.333), and deeper water soaks
+  up red light first so it looks bluer (Beer's law).
+- Things the liquid runs over stay wet (slippery) for a while. Stray drops
+  dry up after a few seconds.
+
+**Mega Water Slide (new sample game)**
+- A 400-stud tube slide spiralling down an 80-stud tower, with real water
+  running down it, a ride timer, a splash pool full of floating toys, a wave
+  pool and a fountain.
+
+**Slippery parts**
+- Tag a part `Slippery` and people slide on it (water slides, ice).
+- Tilted Water parts work: you swim in their real, turned box.
+
 # Guts&Bolts 0.6.0: water, NPCs and Roblox-style controls (September 30, 2026)
 
 ## New

@@ -303,6 +303,19 @@ void PlayerApp::run() {
                 glm::vec3 q = p->position();
                 std::printf("POS me %.2f %.2f %.2f\n", q.x, q.y, q.z);
             }
+            Liquid& liquid = m_scene->water().liquid();
+            const Liquid::Stats st = liquid.stats();
+            if (st.count) {   // real liquid: how much, where and how fast
+                std::printf("LIQUID %zu drops (%s), from %.1f %.1f %.1f to %.1f %.1f %.1f, fastest %.1f, %.1f ms\n", st.count,
+                            liquid.backend(), st.lo.x, st.lo.y, st.lo.z, st.hi.x, st.hi.y, st.hi.z, st.fastest, liquid.lastStepMs());
+                if (const char* dump = std::getenv("GB_LIQUID_DUMP"))   // every drop, for looking at in a script
+                    if (FILE* f = std::fopen(dump, "w")) {
+                        for (const glm::vec4& d : liquid.debugDrops()) std::fprintf(f, "%.2f %.2f %.2f %.2f\n", d.x, d.y, d.z, d.w);
+                        std::fclose(f);
+                    }
+                const float* pr = m_scene->water().liquid().profile();
+                std::printf("LIQUID ms: move %.1f, neighbours %.1f, solve %.1f, velocity %.1f, scan %.1f\n", pr[0], pr[1], pr[2], pr[3], pr[4]);
+            }
             for (const RemoteCharacter& rc : m_scene->remotes())
                 if (SceneNode* n = m_scene->findById(rc.rootId))
                     std::printf("POS %s %.2f %.2f %.2f\n", rc.name.c_str(), n->transform.position.x,

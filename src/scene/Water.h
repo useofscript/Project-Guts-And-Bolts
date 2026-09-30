@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <vector>
 #include <glm/glm.hpp>
+#include "Liquid.h"
 
 class Scene;
 class SceneNode;
@@ -38,6 +39,14 @@ public:
         glm::vec3 color{0.2f, 0.45f, 0.7f};
         float     transparency = 0.4f;
     };
+
+    // Water that's tipped over (a water slide, a sloping river). It isn't part of
+    // the wave simulation, which is for level water: its surface is its top face.
+    static bool tilted(const SceneNode* water);
+    // The height of a tilted water part's top face above (x, z).
+    static float tiltedSurface(const SceneNode* water, float x, float z);
+    // Is `p` inside this tilted water part? (Its real, turned box, not a box around it.)
+    static bool insideTilted(const SceneNode* water, const glm::vec3& p);
 
     void begin(Scene& scene);   // Play pressed: find every water part
     void end();
@@ -80,6 +89,10 @@ public:
     const Body* find(uint64_t id) const;
     float time() const { return m_time; }
 
+    // Real liquid (drops that flow) poured by FluidSource parts.
+    Liquid&       liquid()       { return m_liquid; }
+    const Liquid& liquid() const { return m_liquid; }
+
 private:
     void scan(Scene& scene);
     Body* bodyAt(const glm::vec3& p, float pad = 0.0f);
@@ -97,6 +110,7 @@ private:
     float m_streamTimer = 0.0f;
 
     std::vector<Body> m_bodies;
+    Liquid m_liquid;
     bool  m_active = false;
     float m_time = 0.0f;
     std::unordered_map<uint64_t, float> m_lastWet;           // when each body was last in the water

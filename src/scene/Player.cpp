@@ -789,8 +789,16 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             for (float h : {0.4f, 1.3f, 2.2f})
                 if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
         if (!wet) return;
-        // While playing, the surface moves with the waves.
         const glm::vec3 chest = pos + glm::vec3(0.0f, 1.2f, 0.0f);
+        // Water slides and sloping rivers: the real tipped-over box, with its sloping top.
+        if (WaterSystem::tilted(n)) {
+            if (!WaterSystem::insideTilted(n, chest)) return;
+            water = true;
+            waterTop = std::max(waterTop, WaterSystem::tiltedSurface(n, chest.x, chest.z));
+            if (const Attribute* a = n->findAttribute("Flow"); a && a->type == Attribute::Vector3) current = a->v;
+            return;
+        }
+        // While playing, the surface moves with the waves.
         const float top = waves.active() ? waves.surfaceOf(n, chest.x, chest.z) : b.max.y;
         AABB wetBox = b;
         wetBox.max.y = top;
@@ -805,6 +813,18 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         float top;
         glm::vec3 flow;
         if (waves.at(pos + glm::vec3(0.0f, 1.2f, 0.0f), &top, &flow)) { water = true; waterTop = top; current = flow; }
+    }
+    // Real liquid (FluidSource): a stream carries you along; deep enough, you swim in it.
+    bool stream = false;
+    glm::vec3 streamVel(0.0f);
+    if (waves.liquid().count()) {
+        float top;
+        const int n = waves.liquid().sample(pos + glm::vec3(0.0f, 0.5f, 0.0f), 1.4f, &streamVel, &top);
+        if (n >= 5) {
+            stream = true;
+            m_wet = 2.0f;
+            if (n >= 25 && top > pos.y + 1.6f && !water) { water = true; waterTop = top; current = streamVel; }
+        }
     }
     // Climb when walking into a truss (or when already on one and still touching it).
     const bool wasClimbing = m_climbing;
@@ -843,16 +863,58 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         m_velocity.y -= m_scene->world().gravity * dt;
     }
 
+    // Wet = slippery: in a stream, or just out of one (the slide is still wet where it went).
+    m_wet = std::max(0.0f, m_wet - dt);
+    bool wet = stream || m_wet > 0.0f;
+    if (!wet && m_grounded && m_groundId) {
+        // Standing on something the liquid ran over lately, or something slippery (tag
+        // "Slippery": a water slide, ice).
+        if (waves.liquid().isWet(m_groundId)) wet = true;
+        else if (SceneNode* g = m_scene->findById(m_groundId))
+            wet = std::find(g->tags.begin(), g->tags.end(), "Slippery") != g->tags.end();
+    }
+    float drag = std::max(0.0f, 1.0f - (m_grounded ? (wet ? 0.3f : 8.0f) : 0.8f) * dt);
+    // (Before working out this frame's move, so the push counts straight away.)
+    const bool sliding = wet && !m_swimming && !m_climbing;
+    if (sliding) {
+        // A wet slope is almost frictionless, so gravity slides you down it (a water
+        // slide) ...
+        if (m_grounded && m_groundId)
+            if (SceneNode* ground = m_scene->findById(m_groundId)) {
+                glm::vec3 n = glm::normalize(glm::vec3(ground->worldMatrix()[1]));
+                if (n.y < 0.0f) n = -n;
+                if (n.y > 0.5f && n.y < 0.9995f) {
+                    const glm::vec3 g(0.0f, -m_scene->world().gravity, 0.0f);
+                    const glm::vec3 downhill = g - glm::dot(g, n) * n;
+                    m_velocity.x += downhill.x * dt;
+                    m_velocity.z += downhill.z * dt;
+                }
+            }
+        // ... and water going faster than you carries you along (a river, a slide's
+        // gush). Slower water doesn't hold you back: it just makes things slippery.
+        if (glm::length(glm::vec2(streamVel.x, streamVel.z)) > glm::length(glm::vec2(m_velocity.x, m_velocity.z))) {
+            const float k = std::min(1.0f, 0.8f * dt);
+            m_velocity.x += (streamVel.x - m_velocity.x) * k;
+            m_velocity.z += (streamVel.z - m_velocity.z) * k;
+        }
+        const float sp = glm::length(glm::vec2(m_velocity.x, m_velocity.z));
+        if (sp > 40.0f) { m_velocity.x *= 40.0f / sp; m_velocity.z *= 40.0f / sp; }
+    }
     // Walking plus any leftover push (from jump pads, etc.), which fades out.
     glm::vec3 delta = horiz * speed * dt + current * (m_swimming ? dt : 0.0f);
     delta.x += m_velocity.x * dt;
     delta.z += m_velocity.z * dt;
     delta.y = m_velocity.y * dt;
-    float drag = std::max(0.0f, 1.0f - (m_grounded ? 8.0f : 0.8f) * dt);
     m_velocity.x *= drag;
     m_velocity.z *= drag;
 
     Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded, r->transform.rotation.y, m_rootId);
+    if (sliding && dt > 0.0f) {
+        // Sliding into a wall takes that speed away, so you follow the bends.
+        const glm::vec3 moved = (res.position - pos) / dt - horiz * speed;
+        m_velocity.x = moved.x;
+        m_velocity.z = moved.z;
+    }
     // Walking into loose parts pushes them (heavier = harder, handled by the solver).
     for (auto& [node, dir] : res.pushed) {
         glm::vec3 want = dir * m_humanoid.walkSpeed * 0.9f;
