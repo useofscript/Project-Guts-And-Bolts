@@ -33,6 +33,7 @@ public:
     void resetCamera();
 
     float     cameraYaw() const;                  // for camera-relative controls
+    float     swimLook() const;                   // (and swimming up / down)
     glm::vec3 cameraPivot() const { return m_camera.pivot; }
     void      frameOn(const glm::vec3& target);   // point the camera at a target
     void      followPlayer(Player& p, float dt);   // Play: the camera follows the head (first person too)

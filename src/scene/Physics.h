@@ -94,6 +94,10 @@ public:
     // out of the world are appended to `fallen`. See RigidBodies.cpp.
     void stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen);
     static void wake(SceneNode* n);   // make a sleeping part move again
+    // How heavy a part is for its size: its Density, or its material's. Water is
+    // kWaterDensity: anything lighter floats, anything heavier sinks.
+    static float densityOf(const SceneNode* n);
+    static constexpr float kWaterDensity = 1.3f;
     // How far `box` must move up to rest on top of a solid part (0 = free).
     float pushUp(const AABB& box) const;
     // Is this point inside any solid part?

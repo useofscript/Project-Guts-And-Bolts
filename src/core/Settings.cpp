@@ -1,5 +1,6 @@
 #include "Settings.h"
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <fstream>
 #include <string>
 #include "Paths.h"
@@ -13,24 +14,29 @@ GraphicsSettings& GraphicsSettings::get() {
     return s;
 }
 
+float GraphicsSettings::renderDistanceStuds() const {
+    static const float kStuds[kMaxRenderDistance] = {60, 90, 130, 180, 250, 340, 450, 600, 800, 1e9f};
+    return kStuds[std::clamp(renderDistance, 1, kMaxRenderDistance) - 1];
+}
+
 void GraphicsSettings::applyPreset(int q) {
     quality = q;
     switch (q) {
         case Low:
             shadowRes = 1024; shadowQuality = 0; ssao = false; bloom = false;
-            fxaa = false; postFx = true; renderScale = 0.75f; maxLights = 8; waterQuality = 0;
+            fxaa = false; postFx = true; renderScale = 0.75f; maxLights = 8; waterQuality = 0; renderDistance = 4;
             break;
         case Medium:
             shadowRes = 2048; shadowQuality = 1; ssao = false; bloom = true;
-            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 16; waterQuality = 1;
+            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 16; waterQuality = 1; renderDistance = 6;
             break;
         case High:
             shadowRes = 2048; shadowQuality = 2; ssao = true; bloom = true;
-            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32; waterQuality = 2;
+            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32; waterQuality = 2; renderDistance = 8;
             break;
         case Ultra:
             shadowRes = 4096; shadowQuality = 2; ssao = true; bloom = true;
-            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32; waterQuality = 3;
+            fxaa = true; postFx = true; renderScale = 1.0f; maxLights = 32; waterQuality = 3; renderDistance = kMaxRenderDistance;   // Ultra: everything
             break;
         default: break;
     }
@@ -61,7 +67,8 @@ void GraphicsSettings::load() {
     rd("touchControls", touchControls); rd("touchSize", touchSize);
     rd("shiftLockSwitch", shiftLockSwitch); rd("mouseSensitivity", mouseSensitivity); rd("invertCamera", invertCamera);
     rd("volume", volume); rd("fullscreen", fullscreen);
-    rd("waterQuality", waterQuality); rd("graphicsApi", graphicsApi);
+    rd("waterQuality", waterQuality); rd("graphicsApi", graphicsApi); rd("renderDistance", renderDistance);
+    renderDistance = std::clamp(renderDistance, 1, kMaxRenderDistance);
 }
 
 const char* const* GraphicsSettings::apiNames() {
@@ -99,7 +106,7 @@ void GraphicsSettings::save() const {
         {"touchControls", touchControls}, {"touchSize", touchSize},
         {"shiftLockSwitch", shiftLockSwitch}, {"mouseSensitivity", mouseSensitivity}, {"invertCamera", invertCamera},
         {"volume", volume}, {"fullscreen", fullscreen},
-        {"waterQuality", waterQuality}, {"graphicsApi", graphicsApi},
+        {"waterQuality", waterQuality}, {"graphicsApi", graphicsApi}, {"renderDistance", renderDistance},
     };
     std::ofstream f(settingsFile());
     if (f) f << j.dump(2);

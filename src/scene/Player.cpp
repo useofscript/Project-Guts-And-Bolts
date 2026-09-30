@@ -685,6 +685,42 @@ bool Player::isWater(const SceneNode* n) {
     return n->isPart() && !n->canCollide && (n->name == "Water" || nameHas(n, "Water") || flagged(n, "Water"));
 }
 
+bool Player::waterAt(Scene& scene, const glm::vec3& p, float* top, glm::vec3* flow, glm::vec3* color) {
+    WaterSystem& waves = scene.water();
+    bool found = false;
+    float best = -1e9f;
+    scene.forEach([&](SceneNode* n) {
+        if (!isWater(n) || scene.isCharacterPart(n)) return;
+        // Water slides and sloping rivers: the real tipped-over box, with its sloping top.
+        if (WaterSystem::tilted(n)) {
+            if (!WaterSystem::insideTilted(n, p)) return;
+            const float t = WaterSystem::tiltedSurface(n, p.x, p.z);
+            if (t < best) return;
+            found = true; best = t;
+            if (flow) { const Attribute* a = n->findAttribute("Flow"); *flow = a && a->type == Attribute::Vector3 ? a->v : glm::vec3(0.0f); }
+            if (color) *color = n->color;
+            return;
+        }
+        const AABB b = Physics::worldBounds(n);
+        // While playing, the surface moves with the waves.
+        const float t = waves.active() ? waves.surfaceOf(n, p.x, p.z) : b.max.y;
+        AABB wetBox = b;
+        wetBox.max.y = t;
+        if (!insideBox(wetBox, p) || t < best) return;
+        found = true; best = t;
+        if (flow) { const WaterSystem::Body* wb = waves.find(n->id); *flow = wb ? wb->flow : glm::vec3(0.0f); }
+        if (color) *color = n->color;
+    });
+    // Flowing water from a WaterSource (floods, rivers).
+    if (!found && waves.active()) {
+        float t;
+        glm::vec3 f;
+        if (waves.at(p, &t, &f)) { found = true; best = t; if (flow) *flow = f; if (color) *color = glm::vec3(0.2f, 0.45f, 0.7f); }
+    }
+    if (found && top) *top = best;
+    return found;
+}
+
 void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics) {
     SceneNode* r = root();
     if (!r) return;
@@ -752,39 +788,14 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     WaterSystem& waves = m_scene->water();
     m_climbCooldown = std::max(0.0f, m_climbCooldown - dt);
     m_scene->forEach([&](SceneNode* n) {
-        if (!n->isPart() || m_scene->isCharacterPart(n)) return;
-        const bool climbable = m_climbCooldown <= 0.0f && isClimbable(n), wet = isWater(n);
-        if (!climbable && !wet) return;
+        if (truss || !n->isPart() || m_scene->isCharacterPart(n)) return;
+        if (m_climbCooldown > 0.0f || !isClimbable(n)) return;
         AABB b = Physics::worldBounds(n);
-        if (climbable && !truss)
-            for (float h : {0.4f, 1.3f, 2.2f})
-                if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
-        if (!wet) return;
-        const glm::vec3 chest = pos + glm::vec3(0.0f, 1.2f, 0.0f);
-        // Water slides and sloping rivers: the real tipped-over box, with its sloping top.
-        if (WaterSystem::tilted(n)) {
-            if (!WaterSystem::insideTilted(n, chest)) return;
-            water = true;
-            waterTop = std::max(waterTop, WaterSystem::tiltedSurface(n, chest.x, chest.z));
-            if (const Attribute* a = n->findAttribute("Flow"); a && a->type == Attribute::Vector3) current = a->v;
-            return;
-        }
-        // While playing, the surface moves with the waves.
-        const float top = waves.active() ? waves.surfaceOf(n, chest.x, chest.z) : b.max.y;
-        AABB wetBox = b;
-        wetBox.max.y = top;
-        if (insideBox(wetBox, chest)) {
-            water = true;
-            waterTop = std::max(waterTop, top);
-            if (const WaterSystem::Body* wb = waves.find(n->id)) current = wb->flow;
-        }
+        for (float h : {0.4f, 1.3f, 2.2f})
+            if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
     });
-    // Flowing water from a WaterSource (floods, rivers).
-    if (!water && waves.active()) {
-        float top;
-        glm::vec3 flow;
-        if (waves.at(pos + glm::vec3(0.0f, 1.2f, 0.0f), &top, &flow)) { water = true; waterTop = top; current = flow; }
-    }
+    // Water parts, waves and floods: is our chest in it?
+    water = waterAt(*m_scene, pos + glm::vec3(0.0f, 1.2f, 0.0f), &waterTop, &current);
     // Real liquid (FluidSource): a stream carries you along; deep enough, you swim in it.
     bool stream = false;
     glm::vec3 streamVel(0.0f);
@@ -794,13 +805,17 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         if (n >= 5) {
             stream = true;
             m_wet = 2.0f;
-            if (n >= 25 && top > pos.y + 1.6f && !water) { water = true; waterTop = top; current = streamVel; }
+            // (Deep enough to swim: over the chest. Already swimming: deep enough to float in.)
+            if (n >= 25 && top > pos.y + (m_swimming ? kFloatHeight - 0.3f : 1.2f) && !water) {
+                water = true; waterTop = top; current = streamVel;
+            }
         }
     }
     // Climb when walking into a truss (or when already on one and still touching it).
     const bool wasClimbing = m_climbing;
     m_climbing = truss && (moving || (m_climbing && !m_grounded));
     m_swimming = water && !m_climbing;
+    if (!m_swimming) m_underwater = false;
     float speed = m_humanoid.walkSpeed * (m_swimming ? 0.75f : 1.0f);
 
     // Gravity + jumping.
@@ -815,12 +830,31 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             horiz *= 0.3f;   // (the truss is in the way anyway)
         }
     } else if (m_swimming) {
-        const float g = m_scene->world().gravity;
-        m_velocity.y -= g * 0.12f * dt;                       // almost floating
-        if (pos.y + 1.6f < waterTop) m_velocity.y += 5.0f * dt;   // deep: drift up
-        if (jump) m_velocity.y = std::min(m_velocity.y + 45.0f * dt, 9.0f);   // swim up (and jump out at the top)
-        m_velocity.y *= std::max(0.0f, 1.0f - 2.5f * dt);     // water slows everything
-        m_climbPhase += dt * 6.0f;
+        // Which way we want to go up or down: Space swims up, C / Ctrl dives, and
+        // swimming forward goes where the camera looks (look down to dive, up to rise).
+        float want = 0.0f;
+        if (jump) want = 1.0f;
+        else if (m_swimDown) want = -1.0f;
+        else if (moving && std::abs(m_swimLook) > 0.2f) want = std::clamp(m_swimLook * 1.8f, -1.0f, 1.0f);
+        // How far under the surface the shoulders are (negative = above it).
+        const float depth = waterTop - (pos.y + kFloatHeight);
+        if (want != 0.0f) {
+            // Swimming up or down on purpose.
+            const float target = want * m_humanoid.walkSpeed * 0.7f;
+            m_velocity.y += (target - m_velocity.y) * std::min(1.0f, 4.0f * dt);
+            // At the surface, Space hops out (onto the side of a pool).
+            if (jump && depth < 0.4f) m_velocity.y = std::max(m_velocity.y, m_humanoid.jumpPower * 0.8f);
+        } else {
+            // Floating: people are a bit lighter than water, so we bob up to the surface
+            // and float there with the head out, rising and falling with the waves.
+            const float bob = 0.06f * std::sin(m_bobPhase);
+            const float up = std::clamp((depth + bob) * 7.0f, -m_scene->world().gravity, 10.0f);
+            m_velocity.y += (up - 2.8f * m_velocity.y) * dt;
+            m_velocity.y = std::clamp(m_velocity.y, -12.0f, 3.5f + std::max(0.0f, depth) * 0.5f);
+        }
+        m_bobPhase += dt * 2.2f;
+        m_underwater = depth > 0.5f;
+        m_climbPhase += dt * (moving || want != 0.0f ? 6.0f : 2.5f);
     } else {
         if (m_grounded && jump) {
             // Jumping off something moving keeps its speed (off a train, you fly forward).

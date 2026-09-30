@@ -177,13 +177,23 @@ std::vector<Physics::Shove> Physics::shoves(const glm::vec3& feet, float yaw, fl
         float approach = glm::dot(c.node->velocity, n);   // how fast it's coming at us
         if (approach < 1.0f) continue;
         glm::vec3 size = c.box.max - c.box.min;
-        float density = c.node->density >= 0.0f ? c.node->density
-                      : c.node->material == Material::Metal ? 3.0f : c.node->material == Material::Wood ? 0.7f
-                      : c.node->material == Material::Concrete ? 2.4f : c.node->material == Material::Glass ? 2.5f : 1.0f;
+        float density = densityOf(c.node);
         float mass = density * size.x * size.y * size.z;
         out.push_back({n, approach * mass / (mass + charMass)});
     }
     return out;
+}
+
+float Physics::densityOf(const SceneNode* n) {
+    if (n->density >= 0.0f) return std::max(0.01f, n->density);
+    switch (n->material) {
+        case Material::Metal:    return 3.0f;
+        case Material::Wood:     return 0.7f;
+        case Material::Glass:    return 2.5f;
+        case Material::Concrete: return 2.4f;
+        case Material::Ice:      return 0.9f;
+        default:                 return 1.0f;   // Plastic, Neon
+    }
 }
 
 AABB Physics::bounds(const OBB& o) {

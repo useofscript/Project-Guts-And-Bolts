@@ -39,7 +39,8 @@ public:
 
     // One frame. `cameraYaw` makes WASD move relative to the camera;
     // `acceptInput` = false ignores the keyboard (e.g. while typing).
-    void update(float dt, float cameraYaw, bool acceptInput);
+    // swimLook: the camera's up/down for swimming (see Player::setSwimInput).
+    void update(float dt, float cameraYaw, bool acceptInput, float swimLook = 0.0f);
     void click(uint64_t partId);                 // left-click in the 3D view
     // Game UI: pointer events from GameGui (clicks go to the host in multiplayer).
     void guiEvents(const std::vector<GameGui::Event>& events);

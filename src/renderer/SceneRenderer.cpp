@@ -7,6 +7,9 @@
 #include "Framebuffer.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
+#include "../scene/Player.h"
+#include "../scene/Water.h"
+#include "../scene/Liquid.h"
 #include "../core/Settings.h"
 #include "MeshLibrary.h"
 
@@ -17,6 +20,12 @@
 #include <chrono>
 #include <cmath>
 #include <vector>
+
+// How far a part reaches from its middle (half its diagonal): for render distance.
+static float partRadius(const glm::mat4& m) {
+    return 0.5f * std::sqrt(glm::dot(glm::vec3(m[0]), glm::vec3(m[0])) + glm::dot(glm::vec3(m[1]), glm::vec3(m[1])) +
+                            glm::dot(glm::vec3(m[2]), glm::vec3(m[2])));
+}
 
 namespace {
 
@@ -225,7 +234,9 @@ void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace, 
         if (!node->mesh || !node->visible || !node->castShadow) return;
         for (SceneNode* p = node->parent; p; p = p->parent) if (!p->visible) return;   // inside something hidden (a backpack)
         if (node->kind != NodeKind::Part || node->transparency > 0.5f) return;
-        m_depth->setMat4("uModel", node->worldMatrix());
+        const glm::mat4 m = node->worldMatrix();
+        if (tooFar(glm::vec3(m[3]), partRadius(m))) return;
+        m_depth->setMat4("uModel", m);
         node->mesh->draw();
     });
 
@@ -238,6 +249,11 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     GraphicsSettings& gs = GraphicsSettings::get();
     const Environment& env = scene.environment();
     glm::vec3 sunDir = env.sunDirection();
+
+    // Render distance (10 = no limit). Water and liquid out there rest too (less lag).
+    m_viewPos = camera.position();
+    m_viewDist = gs.renderDistance >= GraphicsSettings::kMaxRenderDistance ? 0.0f : gs.renderDistanceStuds();
+    scene.water().setViewer(m_viewPos, m_viewDist);
 
     int w = std::max(1, (int)(target.width()  * std::clamp(gs.renderScale, 0.25f, 2.0f)));
     int h = std::max(1, (int)(target.height() * std::clamp(gs.renderScale, 0.25f, 2.0f)));
@@ -341,6 +357,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     m_lit->setMat4("uView", view);
     m_lit->setMat4("uProj", proj);
     m_lit->setVec3("uViewPos", camera.position());
+    m_lit->setFloat("uRenderDist", m_viewDist);
     m_lit->setFloat("uTime", time);
     m_lit->setVec3("uSunDir", sunDir);
     m_lit->setVec3("uSunColor", env.sunColor);
@@ -380,6 +397,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
         for (SceneNode* p = n; p; p = p->parent) if (!p->visible) return;
         glm::mat4 m = n->worldMatrix();
         glm::vec3 pos(m[3]);
+        if (tooFar(pos, n->range)) return;   // its light can't reach anything we draw
         glm::vec3 dir = glm::normalize(glm::vec3(m * glm::vec4(0, -1, 0, 0)));
         float cosHalf = std::cos(glm::radians(std::clamp(n->spotAngle, 1.0f, 179.0f) * 0.5f));
         glm::vec3 col = glm::pow(n->color, glm::vec3(2.2f)) * n->brightness;
@@ -623,8 +641,10 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         for (auto& c : node->children) stack.push_back({c.get(), ff});
         if (node->isDecal() && !node->texture.empty() && node->shownTransparency() < 0.99f &&
             node->parent && node->parent->kind == NodeKind::Part)
-            decals.push_back({node, decalMatrix(*node), 0.0f});
+            if (!tooFar(glm::vec3(node->parent->worldMatrix()[3]), partRadius(node->parent->worldMatrix())))
+                decals.push_back({node, decalMatrix(*node), 0.0f});
         if (!node->mesh || node->kind != NodeKind::Part) continue;
+        if (tooFar(glm::vec3(node->worldMatrix()[3]), partRadius(node->worldMatrix()))) continue;   // past the render distance
         if (ff && !node->internal && node->shownTransparency() < 0.99f) shielded.push_back({node, node->worldMatrix(), 0.0f});
         float alpha = 1.0f - node->shownTransparency();
         if (alpha <= 0.001f) continue;   // fully transparent — nothing to draw
@@ -712,6 +732,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
             (p.kind == Particle::Bolt || p.kind == Particle::Splat || (p.kind == Particle::Drop && p.wet) ? cyl : cube)->draw();
         };
         for (const Particle& p : parts) {
+            if (tooFar(p.pos, 1.0f)) continue;
             bool fade = p.kind == Particle::Smoke || p.kind == Particle::Spray || (p.kind == Particle::Splat && p.life < 1.0f);
             if (fade) fading.push_back(&p);
             else      drawParticle(p, 1.0f);
@@ -855,6 +876,7 @@ void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {
         s.setMat4("uView", view);
         s.setMat4("uProj", proj);
         s.setFloat("uPointScale", pointScale);
+        s.setFloat("uRenderDist", m_viewDist);
         s.setFloat("uRadius", radius);
         s.setVec3Array("uFluidColor", palette, Liquid::kMaxFluids);
     };
@@ -1070,6 +1092,34 @@ void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer&
     m_composite->setFloat("uSaturation", env.saturation);
     m_composite->setFloat("uVignette", env.vignette);
     m_composite->setVec3("uTint", env.tint);
+    // Is the camera under water?
+    {
+        const glm::vec3 eye = camera.position();
+        float top = 0.0f;
+        glm::vec3 color(0.2f, 0.45f, 0.7f);
+        bool under = Player::waterAt(scene, eye, &top, nullptr, &color);
+        if (!under && scene.water().liquid().count()) {   // real liquid (FluidSource) deep enough to be in
+            const int n = scene.water().liquid().sample(eye, 0.9f, nullptr, &top);
+            under = n >= 12 && top > eye.y + 0.1f;
+            const auto& kinds = scene.water().liquid().fluids();
+            if (under) color = kinds.empty() ? glm::vec3(0.12f, 0.42f, 0.62f) : kinds[0].color;
+        }
+        m_composite->setBool("uUnderwater", under);
+        if (under) {
+            const glm::mat4 proj = camera.projection();
+            bindTex(3, m_hdr.depth);
+            m_composite->setInt("uDepth", 3);
+            m_composite->setVec2("uDepthParams", glm::vec2(proj[3][2], proj[2][2]));
+            const glm::vec3 tint = glm::clamp(color, glm::vec3(0.02f), glm::vec3(1.0f));
+            m_composite->setVec3("uWaterSigma", 0.035f + 0.1f * -glm::log(tint));
+            // The deeper you are, the less light gets down there.
+            const float deep = std::exp(-std::max(0.0f, top - eye.y) * 0.04f);
+            const glm::vec3 light = env.ambientColor * env.ambientIntensity * 1.2f +
+                                    env.sunColor * std::max(0.0f, env.sunIntensity) * 0.25f;
+            m_composite->setVec3("uWaterFog", glm::pow(tint, glm::vec3(2.2f)) * light * deep);
+            m_composite->setFloat("uTime", (float)(now() - m_startTime));
+        }
+    }
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
     if (useFxaa) {

@@ -53,6 +53,13 @@ private:
     int                     m_shadowRes = 0;
     glm::mat4               m_lightSpace{1.0f};       // (the wide shadow map's, for the water)
     bool                    m_shadowsOn = false;
+    // Render distance (GraphicsSettings::renderDistance) for this frame: things further
+    // than m_viewDist from m_viewPos aren't drawn. 0 = no limit.
+    glm::vec3               m_viewPos{0.0f};
+    float                   m_viewDist = 0.0f;
+    bool tooFar(const glm::vec3& p, float radius) const {
+        return m_viewDist > 0.0f && glm::length(p - m_viewPos) - radius > m_viewDist;
+    }
 
     static constexpr int kBloomLevels = 6;
     Target m_hdr, m_ao, m_ldr, m_bloom[kBloomLevels];

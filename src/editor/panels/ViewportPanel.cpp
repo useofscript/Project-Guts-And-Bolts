@@ -42,6 +42,7 @@ void ViewportPanel::resetCamera() {
 }
 
 float ViewportPanel::cameraYaw() const { return m_camera.yaw; }
+float ViewportPanel::swimLook() const { return PlayCamera::swimLook(m_camera); }
 
 namespace {
 

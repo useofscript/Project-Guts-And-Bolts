@@ -532,10 +532,24 @@ Swap in your own .wav files with the same names and rebuild.
   *Ladder*, or one with the tag or attribute `Climbable`. You go up hand over
   hand. Let go of the keys to hang on, and press jump to leap off.
 - **Swim:** a part called **Water** (Insert > Water: see-through, CanCollide
-  off), or one with the tag or attribute `Water`. You float, move a bit slower,
-  and hold jump to swim up. No fall damage when you land in water.
+  off), or one with the tag or attribute `Water`, or deep enough real liquid.
+  You float at the surface with your head out and move a bit slower. Hold
+  **C** (or **Ctrl**) to dive, or swim forward while looking down; look up or
+  hold jump to come back up (jump at the surface hops out). Underwater the
+  view goes blue and hazy. No fall damage when you land in water.
+- **Float or sink:** each part's **Density** (Properties, or `part.Density`)
+  decides. Water is 1.3: lighter parts float (Wood 0.7 floats half under),
+  heavier ones sink (Metal 3.0, Concrete 2.4).
 - Scripts can check with `humanoid:GetState()`, which returns "Climbing",
   "Swimming", "Freefall", "Running" or "Dead".
+
+### Render Distance
+
+Settings > **Render Distance** (1 to 10) is how far away things are drawn.
+Further things fade into the sky and aren't drawn, and water waves, liquid
+taps, lights and effects out there rest until you come closer. Lower numbers
+are faster; the quality presets set it (Low 4, Medium 6, High 8, Ultra 10 =
+everything).
 
 ### Real water
 

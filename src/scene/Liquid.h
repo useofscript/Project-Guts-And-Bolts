@@ -89,6 +89,9 @@ public:
     // The most drops there can be right now (workspace.MaxFluidParticles, and what
     // this computer can do). When it's full the oldest drops are recycled.
     size_t capacity() const { return m_cap; }
+    // The camera and the render distance (0 = no limit): taps further away than that
+    // stop pouring until you come closer.
+    void setViewer(const glm::vec3& p, float dist) { m_viewer = p; m_viewDist = dist; }
 
 private:
     struct Collider {
@@ -133,6 +136,8 @@ private:
     float m_maxAge = 120.0f;                       // drops older than this go (lower while it's full: recycling)
     std::vector<glm::vec4> m_draw;
     std::vector<Source> m_sources;
+    glm::vec3 m_viewer{0.0f};
+    float m_viewDist = 0.0f;
     std::vector<Collider> m_colliders;
     // Colliders by grid cell (broad phase).
     float m_cgCell = 6.0f;

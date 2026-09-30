@@ -535,6 +535,7 @@ void Liquid::emit(float dt, size_t room, std::vector<glm::vec4>* out) {
     size_t made = 0;
     for (Source& s : m_sources) {
         if (s.rate <= 0.0f || (s.part && s.speed <= 0.0f)) continue;
+        if (m_viewDist > 0.0f && glm::length(s.pos - m_viewer) > m_viewDist + 10.0f) continue;   // past the render distance
         // Layers per second: the speed (a slow emitter still makes room for the next
         // layer by spacing them out), but never more drops than Rate.
         const float laySpeed = std::max(s.speed, 2.0f);
@@ -738,7 +739,9 @@ void Liquid::pushThings(float dt, Scene& scene) {
         if (cnt < 3) return;
         const float amount = std::min(1.0f, cnt / 25.0f);
         nd->velocity += (vel - nd->velocity) * std::min(1.0f, 2.5f * amount * dt);
-        nd->velocity.y += scene.world().gravity * 1.1f * amount * dt;   // buoyancy
+        // Buoyancy (Archimedes): lighter than water floats up, heavier sinks.
+        const float lift = std::min(2.5f, Physics::kWaterDensity / Physics::densityOf(nd));
+        nd->velocity.y += scene.world().gravity * lift * amount * dt;
         Physics::wake(nd);
     });
 }

@@ -92,6 +92,7 @@ uniform vec3  uZenith, uHorizon, uGround;
 uniform bool  uFogEnabled;
 uniform vec3  uFogColor;
 uniform float uFogDensity;
+uniform float uRenderDist;    // render distance: things fade into the sky towards it (0 = no limit)
 uniform float uFogSunGlow;
 
 uniform bool      uShadowsEnabled;
@@ -320,6 +321,14 @@ void main() {
         float toward = pow(max(dot(-V, normalize(uSunDir)), 0.0), 8.0);
         fog += lin(uSunColor) * uSunIntensity * toward * uFogSunGlow * 0.6;
         color = mix(color, fog, clamp(f, 0.0, 1.0));
+    }
+    if (uRenderDist > 0.0) {
+        // Near the edge of the render distance, fade into the sky behind (no popping).
+        vec3 away = vWorldPos - uViewPos;
+        float edge = smoothstep(uRenderDist * 0.8, uRenderDist, length(away));
+        vec3 skyBehind = lin(skyGradient(normalize(away), uZenith, uHorizon, uGround)) * uAmbientIntensity;
+        if (uFogEnabled) skyBehind = lin(uFogColor);
+        color = mix(color, skyBehind, edge);
     }
 
     FragColor = vec4(color, alpha);
@@ -579,6 +588,15 @@ uniform float uSaturation;
 uniform float uVignette;
 uniform vec3  uTint;
 uniform bool  uLumaAlpha;   // store luma in alpha for the FXAA pass
+// Underwater (the camera is in water): the view wobbles, and the further away
+// something is the more the water hides it, red first (Beer's law), fading into
+// the water's own colour.
+uniform bool  uUnderwater;
+uniform sampler2D uDepth;
+uniform vec2  uDepthParams;    // proj[3][2], proj[2][2]: distance from the depth picture
+uniform vec3  uWaterSigma;     // how much each colour fades per stud
+uniform vec3  uWaterFog;       // the colour far-away things fade into
+uniform float uTime;
 out vec4 FragColor;
 
 vec3 aces(vec3 x) {
@@ -587,7 +605,16 @@ vec3 aces(vec3 x) {
 }
 
 void main() {
-    vec3 c = texture(uHdr, vUV).rgb;
+    vec2 uv = vUV;
+    if (uUnderwater)
+        uv += vec2(sin(vUV.y * 28.0 + uTime * 1.9), cos(vUV.x * 23.0 + uTime * 1.6)) * 0.0022;
+    vec3 c = texture(uHdr, uv).rgb;
+    if (uUnderwater) {
+        float ndc = texture(uDepth, uv).r * 2.0 - 1.0;
+        float dist = ndc > 0.9999 ? 1e4 : uDepthParams.x / (ndc + uDepthParams.y);
+        vec3 keep = exp(-min(dist, 400.0) * uWaterSigma);
+        c = c * keep + uWaterFog * (1.0 - keep);
+    }
     if (uUseAO) {
         float ao = 0.0;
         ao += texture(uAO, vUV + uAOTexel * vec2(-1.5, -1.5)).r;
@@ -607,7 +634,7 @@ void main() {
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = mix(vec3(l), c, uSaturation) * uTint;
         float v = length(vUV - 0.5) * 1.41421;
-        c *= 1.0 - uVignette * smoothstep(0.35, 1.1, v);
+        c *= 1.0 - (uVignette + (uUnderwater ? 0.35 : 0.0)) * smoothstep(0.35, 1.1, v);
     } else {
         c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
     }
@@ -662,6 +689,7 @@ uniform mat4  uProj;
 uniform float uPointScale;
 uniform float uRadius;
 uniform vec3  uFluidColor[16];      // each kind of liquid's colour
+uniform float uRenderDist;          // drops further away than this aren't drawn (0 = no limit)
 out vec3  vCenter;
 out float vSpeed;
 out float vRadius;
@@ -688,6 +716,7 @@ void main() {
     vRadius = uRadius * mix(0.5, 1.0, clamp(nearby / 5.0, 0.0, 1.0));
     gl_Position = uProj * vp;
     gl_PointSize = clamp(2.1 * vRadius * vLong * uPointScale / max(0.05, -vp.z), 1.0, 256.0);
+    if (uRenderDist > 0.0 && -vp.z > uRenderDist) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);   // too far: skipped
 }
 )";
 

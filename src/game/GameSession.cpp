@@ -142,7 +142,7 @@ void GameSession::stop() {
     m_running = false;
 }
 
-void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
+void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swimLook) {
     if (!m_running) return;
     dt = std::min(dt, 1.0f / 30.0f);   // big hitches would let things tunnel
 
@@ -166,7 +166,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
     // 3. The character, driven by WASD / Space relative to the camera.
     if (Player* p = m_runOnly ? nullptr : m_scene->player()) {
         glm::vec3 move(0.0f);
-        bool jump = false;
+        bool jump = false, dive = false;
         if (acceptInput && !ImGui::GetIO().WantTextInput) {
             float yaw = glm::radians(cameraYaw);
             glm::vec3 fwd   = glm::normalize(glm::vec3(-std::cos(yaw), 0.0f, -std::sin(yaw)));
@@ -176,6 +176,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_RightArrow)) move += right;
             if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow))  move -= right;
             jump = ImGui::IsKeyDown(ImGuiKey_Space);
+            dive = ImGui::IsKeyDown(ImGuiKey_C) || ImGui::IsKeyDown(ImGuiKey_LeftCtrl);
             // Touch thumbstick: partly pushed = walk slower.
             move += right * m_touchMove.x + fwd * m_touchMove.y;
             jump = jump || m_touchJump;
@@ -190,6 +191,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput) {
             m_toolDown = false;
             if (SceneNode* t = p->equippedTool()) m_scripts.fireTool(SignalKind::Deactivated, t->id);
         }
+        p->setSwimInput(acceptInput ? swimLook : 0.0f, dive);
         p->update(dt, move, jump, m_physics);
         if (p->isDead()) m_scene->animator().stopRig(p->rootId(), false, *m_scene);   // the body falls apart instead
         if (p->consumeDied()) m_scripts.fireDied(p->rootId());

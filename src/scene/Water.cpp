@@ -222,6 +222,10 @@ void WaterSystem::update(float dt, Scene& scene) {
 
     // The waves themselves.
     for (Body& b : m_bodies) {
+        if (m_viewDist > 0.0f) {   // out past the render distance: the waves wait
+            const glm::vec3 nearest = glm::clamp(m_viewer, b.min, b.max);
+            if (glm::length(nearest - m_viewer) > m_viewDist) continue;
+        }
         const int steps = std::max(1, (int)std::ceil(dt * kWaveSpeed / (0.5f * b.cell)));
         const float hs = dt / steps;
         const float c2 = kWaveSpeed * kWaveSpeed / (b.cell * b.cell);

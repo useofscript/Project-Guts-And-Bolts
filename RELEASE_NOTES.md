@@ -1,6 +1,31 @@
-# Next version (not released yet): real liquid
+# Guts&Bolts 0.6.1: The Hydromania Update (September 30, 2026)
+
+Real water you can pour, swim in, dive under and float things on.
 
 ## New
+
+**Swimming, for real**
+- You float at the surface with your head out, bobbing with the waves.
+- Dive: hold **C** (or **Ctrl**), or swim forward while looking down. Look up
+  (or hold **Space**) to come back up; Space at the surface hops you out.
+  On phones, swimming follows where the camera looks.
+- Underwater, everything goes blue and hazy (the further away, the more the
+  water hides it, red first), darker the deeper you go, with a gentle wobble.
+- Works in Water parts, waves, floods and the new real liquid.
+
+**Floating and sinking (Density)**
+- Every part has a **Density** (Properties, or `part.Density` in scripts).
+  Water is 1.3: anything lighter floats, anything heavier sinks. Wood (0.7)
+  floats half under, Metal (3.0) and Concrete sink. Works in pools and in
+  real liquid.
+
+**Render Distance**
+- A new **Render Distance** bar in the in-game Settings (and a slider in
+  Advanced graphics), from 1 (60 studs, fastest) to 10 (everything). Low /
+  Medium / High / Ultra set it to 4 / 6 / 8 / 10: Ultra is the max.
+- Things past it fade into the sky and aren't drawn, and water waves, liquid
+  taps, lights and effects out there rest until you come closer: less lag and
+  fewer FPS drops on big maps.
 
 **Real liquid, like a Blender fluid simulation**
 - A part called **FluidSource** pours out real liquid made of thousands of

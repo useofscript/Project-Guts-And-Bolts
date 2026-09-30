@@ -3,6 +3,7 @@
 #include "LuaApi.h"
 #include "ScriptEngine.h"
 #include "../scene/Animation.h"
+#include "../scene/Physics.h"
 #include "../scene/Player.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
@@ -250,7 +251,7 @@ int m_Clone(lua_State* L) {
 float partMass(const SceneNode* n) {
     glm::vec3 s(glm::length(glm::vec3(n->worldMatrix()[0])), glm::length(glm::vec3(n->worldMatrix()[1])),
                 glm::length(glm::vec3(n->worldMatrix()[2])));
-    float d = n->density >= 0 ? n->density : 1.0f;
+    float d = Physics::densityOf(n);
     return std::max(0.001f, d * s.x * s.y * s.z);
 }
 int m_ApplyImpulse(lua_State* L) {
@@ -654,7 +655,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Shape"))        { lua_pushstring(L, shapeName(n->primitiveType)); return 1; }
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { LuaApi::pushVector3(L, n->velocity); return 1; }
         if (is(k, "RotVelocity") || is(k, "AssemblyAngularVelocity")) { LuaApi::pushVector3(L, n->angularVelocity); return 1; }
-        if (is(k, "Density"))    { lua_pushnumber(L, n->density); return 1; }
+        if (is(k, "Density"))    { lua_pushnumber(L, Physics::densityOf(n)); return 1; }   // (water is 1.3)
         if (is(k, "Friction"))   { lua_pushnumber(L, n->friction); return 1; }
         if (is(k, "Elasticity")) { lua_pushnumber(L, n->elasticity); return 1; }
         if (is(k, "Touched"))      { LuaApi::pushSignal(L, SignalKind::Touched, n->id); return 1; }

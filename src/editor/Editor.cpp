@@ -139,7 +139,7 @@ void Editor::render(float dt) {
     checkModeling();
     if (m_playing && (!m_state.simPaused || m_state.simStep)) {
         // F6 pauses the world; F7 moves it on by one frame.
-        m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true);
+        m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true, m_viewport->swimLook());
         m_state.simStep = false;
         Player* p = m_scene->player();
         if (p && !m_session->runOnly()) m_viewport->followPlayer(*p, dt);   // Run: the camera stays free

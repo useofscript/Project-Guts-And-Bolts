@@ -193,7 +193,7 @@ Body makeBody(SceneNode* n, bool dynamic) {
     b.friction   = n->friction   >= 0 ? n->friction   : mp.friction;
     b.elasticity = n->elasticity >= 0 ? n->elasticity : mp.elasticity;
     if (dynamic) {
-        float density = n->density >= 0 ? std::max(0.01f, n->density) : mp.density;
+        float density = Physics::densityOf(n);
         glm::vec3 e = b.half * 2.0f;
         float mass, ix, iy, iz;
         if (b.sphere) {
@@ -245,7 +245,7 @@ bool hasDynamicAncestorPart(const SceneNode* n) {
 
 // How heavy water is compared to Plastic (1.0). Wood, ice, plastic and neon
 // float; glass, concrete and metal sink.
-constexpr float kWaterDensity = 1.3f;
+constexpr float kWaterDensity = Physics::kWaterDensity;
 constexpr float kWaterDrag    = 1.6f;   // how much water slows things moving through it
 
 // Floating: the body is checked at 27 points spread through it. Each point

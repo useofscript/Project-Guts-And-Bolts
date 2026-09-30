@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'hydromania', name: 'The Hydromania Update', version: '0.6.1', time: 1790794400, tag: 'Engine',
+    summary: 'Swim, dive, float and sink. Water you can really get into, and a Render Distance bar to keep big maps smooth.',
+    items: [
+      'You float at the surface with your head out, bobbing with the waves',
+      'Dive with C (or Ctrl), or swim forward while looking down; look up or hold Space to come back up',
+      'Underwater everything goes blue and hazy, darker the deeper you go',
+      'Density on every part: water is 1.3, lighter things float and heavier things sink (in pools and in real liquid)',
+      'Render Distance bar in Settings, 1 to 10 (Ultra = everything); far water, liquid, lights and effects rest to save FPS',
+      'Plus everything from Glass Lagoon and Tidal Engine below: real GPU liquid, reflections, caustics and more',
+    ],
+  },
+  {
     id: 'glass-lagoon', name: 'Glass Lagoon', version: '0.6.1', time: 1790792629, tag: 'Engine',
     summary: 'Water you can see the bottom of. It mirrors the world around it and catches the sunlight.',
     items: [

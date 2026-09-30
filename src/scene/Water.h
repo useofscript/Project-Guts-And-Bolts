@@ -113,6 +113,13 @@ private:
     Liquid m_liquid;
     bool  m_active = false;
     float m_time = 0.0f;
+    glm::vec3 m_viewer{0.0f};
+    float m_viewDist = 0.0f;
+public:
+    // Where the camera is and the render distance (0 = no limit): water further away
+    // than that stops making waves until you come closer (less lag).
+    void setViewer(const glm::vec3& p, float dist) { m_viewer = p; m_viewDist = dist; m_liquid.setViewer(p, dist); }
+private:
     std::unordered_map<uint64_t, float> m_lastWet;           // when each body was last in the water
     std::unordered_map<uint64_t, glm::vec3> m_charPrev;      // characters' last positions (for wakes)
     std::unordered_map<uint64_t, bool> m_charWet;

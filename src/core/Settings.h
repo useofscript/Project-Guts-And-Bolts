@@ -39,6 +39,12 @@ struct GraphicsSettings {
     float renderScale   = 1.0f; // 0.5 = faster, 1.0 = sharp
     int   maxLights     = 32;   // point / spot lights drawn at once
     int   waterQuality  = 2;    // real liquid: 0 low, 1 medium, 2 high, 3 ultra (see waterScale() etc.)
+    // How far away things are drawn: 1 (close, fastest) .. 10 (everything). Things
+    // further away fade into the sky and aren't drawn, and water, liquid, lights and
+    // effects out there stop working until you come closer (less lag).
+    int   renderDistance = 8;
+    static constexpr int kMaxRenderDistance = 10;
+    float renderDistanceStuds() const;   // (a huge number at 10)
 
     // Which graphics API to start with (takes effect next time the app opens).
     // Computers: Auto = the newest OpenGL the driver has; the others ask for that

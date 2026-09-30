@@ -454,7 +454,7 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
             ImGui::PopID();
         };
-        prop("Density", node->density, 1.0f, 0.05f, 10.0f, "Heavier parts are harder to push");
+        prop("Density", node->density, 1.0f, 0.05f, 10.0f, "Heavier parts are harder to push. Water is 1.3: lighter parts float, heavier ones sink");
         prop("Friction", node->friction, 0.5f, 0.0f, 2.0f, "0 = slides like ice");
         prop("Bounciness", node->elasticity, 0.3f, 0.0f, 1.0f, "1 = bounces like a rubber ball");
     }

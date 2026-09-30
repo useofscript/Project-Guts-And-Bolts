@@ -1385,7 +1385,7 @@ void PlayerApp::drawGame(float dt) {
     const bool touch = GraphicsSettings::get().touchEnabled();
     if (touch) updateTouch(pos, max, acceptInput);
     else       m_session->setTouchInput(glm::vec2(0.0f), false);
-    m_session->update(dt, m_camera.yaw, acceptInput);
+    m_session->update(dt, m_camera.yaw, acceptInput, PlayCamera::swimLook(m_camera));
 
     // BadgeService:AwardBadge from the game's scripts: the server checks we're this
     // game's host and the player is here, then everyone hears about it.
@@ -1895,6 +1895,38 @@ void PlayerApp::drawPauseMenu() {
         static const char* q[] = {"Low", "Medium", "High", "Ultra", "Custom"};
         int qi = std::clamp(gs.quality, 0, 4);
         if (ImGui::Combo("##quality", &qi, q, 5)) { if (qi < 4) gs.applyPreset(qi); else gs.quality = qi; changed = true; }
+        {
+            // Render distance, like the old graphics bar: - [][][][][][][][][][] +
+            row("Render Distance");
+            ImGui::PushID("renderdist");
+            const int maxRd = GraphicsSettings::kMaxRenderDistance;
+            int rd = std::clamp(gs.renderDistance, 1, maxRd);
+            const float h = ImGui::GetFrameHeight();
+            if (ImGui::Button("-", ImVec2(h, h)) && rd > 1) rd--;
+            ImGui::SameLine(0, 6);
+            const float gap = 3.0f;
+            const float barW = std::max(40.0f, ImGui::GetContentRegionAvail().x - h - 6.0f);
+            const float cell = (barW - gap * (maxRd - 1)) / maxRd;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            for (int i = 0; i < maxRd; ++i) {
+                ImGui::SetCursorScreenPos(ImVec2(at.x + i * (cell + gap), at.y));
+                ImGui::PushID(i);
+                if (ImGui::InvisibleButton("seg", ImVec2(cell, h))) rd = i + 1;
+                const bool hover = ImGui::IsItemHovered();
+                ImGui::PopID();
+                const ImU32 col = i < rd ? (i == maxRd - 1 ? IM_COL32(90, 200, 120, 255) : IM_COL32(80, 160, 240, 255))
+                                         : (hover ? IM_COL32(80, 84, 95, 255) : IM_COL32(55, 58, 66, 255));
+                dl->AddRectFilled(ImVec2(at.x + i * (cell + gap), at.y + 2), ImVec2(at.x + i * (cell + gap) + cell, at.y + h - 2), col, 3.0f);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(at.x + barW + 6.0f, at.y));
+            if (ImGui::Button("+", ImVec2(h, h)) && rd < maxRd) rd++;
+            ImGui::PopID();
+            if (rd != gs.renderDistance) { gs.renderDistance = rd; gs.quality = GraphicsSettings::Custom; changed = true; }
+            ImGui::SetCursorPosX(labelW);
+            if (rd >= maxRd) ImGui::TextDisabled("Max: everything is drawn");
+            else ImGui::TextDisabled("%d studs (lower = faster)", (int)gs.renderDistanceStuds());
+        }
         row("Water Quality");
         static const char* wq[] = {"Low", "Medium", "High", "Ultra"};
         if (ImGui::Combo("##water", &gs.waterQuality, wq, 4)) { gs.quality = GraphicsSettings::Custom; changed = true; }
@@ -1927,6 +1959,7 @@ void PlayerApp::drawPauseMenu() {
         key("W A S D", "Walk");
         key("Space", "Jump (again in the air to double-jump, if the game allows it)");
         key("Shift", "Shift Lock: camera over your shoulder (turn on in Settings)");
+        key("C / Ctrl", "Swimming: dive (or swim forward looking down; Space goes up)");
         ImGui::SeparatorText("Camera");
         key("Right mouse", "Hold and drag to look around");
         key("Mouse wheel", "Zoom in and out; all the way in is first person");

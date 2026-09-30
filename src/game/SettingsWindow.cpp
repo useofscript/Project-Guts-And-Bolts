@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <algorithm>
 #include "SettingsWindow.h"
 #include "../core/Settings.h"
@@ -79,6 +80,14 @@ void draw(bool* open) {
     custom |= ImGui::SliderFloat("Render Scale", &s.renderScale, 0.5f, 2.0f, "%.2fx");
     help("Below 1 = faster but blurrier. Above 1 = super-sampling (very sharp, slow).");
     custom |= ImGui::SliderInt("Max Lights", &s.maxLights, 0, 32);
+    {
+        char label[48];
+        if (s.renderDistance >= GraphicsSettings::kMaxRenderDistance) std::snprintf(label, sizeof label, "%%d (max)");
+        else std::snprintf(label, sizeof label, "%%d (%d studs)", (int)s.renderDistanceStuds());
+        custom |= ImGui::SliderInt("Render Distance", &s.renderDistance, 1, GraphicsSettings::kMaxRenderDistance, label);
+        help("How far away things are drawn. Further things fade into the sky; water, liquid, lights and effects "
+             "out there rest until you come closer. Lower = faster. 10 (Ultra) = everything.");
+    }
     const char* wq[] = {"Low", "Medium", "High", "Ultra"};
     custom |= ImGui::Combo("Water Quality", &s.waterQuality, wq, 4);
     help("Real liquid (FluidSource / FluidEmitter). Low draws it at half resolution with up to 25,000 drops; "
