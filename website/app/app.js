@@ -205,9 +205,24 @@ function gameCard(g) {
     ${(g.genres || []).length ? html`<div class="by small">${g.genres.join(' · ')}</div>` : ''}</a>`;
 }
 
+// Catalog items in 3D: each one worn by a plain grey mannequin (the drawing is
+// swapped in once WebGL has made the picture; itemIcon's flat drawing until then).
+const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
+  leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
+const items3d = new Map();   // id -> item, for the pictures below
+function upgradeItemPictures() {
+  view.querySelectorAll('[data-item3d]').forEach(async (el) => {
+    const it = items3d.get(el.dataset.item3d);
+    if (!it) return;
+    const url = await avatarPicture(MANNEQUIN, [it], 150);
+    if (url && el.isConnected) el.innerHTML = html`<img class="item3d" src="${url}" alt="${it.name}">`.s;
+  });
+}
+
 function itemCard(a) {
+  items3d.set(a.id, a);
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic">${itemIcon(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
+    <div class="pic" data-item3d="${a.id}">${itemIcon(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
     <div class="name">${a.name}</div>
     <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
       : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
@@ -536,6 +551,7 @@ pages.catalog = async () => {
       <button class="btn blue">Search</button></form><br>
     ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(itemCard)}</div>` : html`<p class="muted">Nothing here yet.</p>`)
       : html`<p class="error">${r.error}</p>`}`);
+  upgradeItemPictures();
 };
 
 pages.item = async (id) => {
@@ -551,7 +567,8 @@ pages.item = async (id) => {
   const soldOut = L && L.left <= 0;
   const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
-    <div class="hero"><div class="card square"><div class="pic">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}</div>
+    <div class="hero"><div class="card square"><div class="pic" id="item3d">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}
+      <div class="small muted" style="text-align:center">Drag to turn</div></div>
       <div><h1>${a.name}</h1><p>${KINDS[a.kind]} by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</p>
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
         ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
@@ -584,6 +601,7 @@ pages.item = async (id) => {
           <input type="number" name="price" min="0" value="${c.price || ''}" placeholder="Price in Bolts" style="max-width:150px">
           <button class="btn small ${c.price ? '' : 'blue'}">${c.price ? 'Change price' : 'Sell'}</button>
           ${c.price ? html`<span class="muted small">On sale for ${c.price}. Set 0 to take it off sale.</span>` : html`<span class="muted small">You get ${70}% when it sells.</span>`}</form>`)}` : ''}` : ''}`);
+  mountAvatar($('#item3d'), MANNEQUIN, [a], { width: 300, height: 340 }).catch(() => {});   // a turnable 3D view
 };
 
 // Decal pictures: fetched once, shown from memory.

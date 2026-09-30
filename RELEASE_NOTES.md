@@ -41,6 +41,10 @@
   harassment, scams, exploiting and more), with an optional note. The banned
   player sees why.
 
+**3D catalog**
+- Hats, shirts and pants in the catalog are shown in 3D, worn by a grey
+  mannequin, and an item's page has a 3D view you can drag to turn.
+
 **The Library**
 - Studio: **File > Publish Selection to Library** shares objects as a model,
   **public** or **private**. Verified creators can make as many public as they
