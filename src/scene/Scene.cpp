@@ -222,6 +222,7 @@ RemoteCharacter* Scene::findRemote(uint64_t rootId) {
 Humanoid* Scene::humanoidOf(uint64_t rootId) {
     if (m_player && rootId == m_player->rootId()) return &m_player->humanoid();
     if (RemoteCharacter* r = findRemote(rootId)) return &r->humanoid;
+    if (Npc* n = m_npcs.find(*this, rootId)) return &n->humanoid;
     return nullptr;
 }
 
@@ -231,7 +232,9 @@ void Scene::killCharacter(uint64_t rootId, float force, const glm::vec3& impulse
         r->humanoid.health = 0.0f;
         r->humanoidDirty = true;
         r->kills.push_back({force, impulse});
+        return;
     }
+    m_npcs.kill(rootId, force, impulse);
 }
 
 void Scene::markHumanoidEdited(uint64_t rootId, double now) {

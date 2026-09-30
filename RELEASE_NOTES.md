@@ -1,3 +1,233 @@
+# Guts&Bolts 0.6.0: water, NPCs and Roblox-style controls (September 30, 2026)
+
+## New
+
+**Game UI, like Roblox's**
+- New objects: **ScreenGui**, **Frame**, **TextLabel**, **TextButton**,
+  **ImageLabel**, **ImageButton**, **UICorner** and **UIStroke**. Games can have
+  menus, shop buttons, coin counters and title screens.
+- Build them in Studio: insert them, then click, drag and resize them right in
+  the viewport. Or make them in a script with `UDim2`, `Vector2` and
+  `button.MouseButton1Click`.
+- They work in multiplayer, and in Roblox files (import and export).
+
+**Character physics**
+- The character's hitbox is now shaped like Roblox's R6 body (2 x 1 studs,
+  turning with you), and each body part fires `Touched` on its own.
+- The walk animation speeds up and slows down with how fast you really move.
+- Loose parts knock you back; spinning platforms carry and turn you; jumping
+  off a moving platform keeps its speed.
+- Scripts: `math.atan2`, `math.pow` and `math.log10` work like in Roblox.
+- The camera follows your head. Scroll all the way in for first person: your
+  character fades out as the camera gets close, and the mouse looks around.
+
+**In-game menu and Shift Lock, like Roblox**
+- Esc opens a new menu with Players, Settings and Help tabs, and Reset / Leave
+  / Resume buttons along the bottom (R and L keys work too, and ask first).
+- New settings: Shift Lock Switch, camera sensitivity, invert camera, volume
+  and fullscreen, next to graphics quality, FPS, gore and touch controls.
+- Shift Lock: press Shift and the camera sits over your right shoulder while
+  your character faces wherever you look. Works in Studio's play test too.
+
+**Player collisions**
+- Players bump into each other (and can stand on each other's heads). Games
+  can turn it off in Game Settings or with `workspace.PlayerCollisions`.
+
+**Creating and moderation**
+- Hats are for Verified creators; shirts and pants can be made by anyone
+  signed up (guests can only play).
+- Decals and audio are always free, so anyone can use them in their games.
+- Staff pick a reason when banning (sexual content, violent extremism,
+  harassment, scams, exploiting and more), with an optional note. The banned
+  player sees why.
+
+**Phones**
+- Popups in the app close when you tap outside them (phones have no Esc key).
+- The old server picker popup (which couldn't be closed on phones) is gone.
+
+**3D catalog**
+- Hats, shirts and pants in the catalog are shown in 3D, worn by a grey
+  mannequin, and an item's page has a 3D view you can drag to turn.
+
+**The Library**
+- Studio: **File > Publish Selection to Library** shares objects as a model,
+  **public** or **private**. Verified creators can make as many public as they
+  like; everyone else 5 a week. Studio takes a picture of it automatically.
+- Studio's **Toolbox** now starts with the **Library**: everyone's public
+  models, decals and audio, with pictures. Click one to insert it.
+- The website's Create page has a **Library** tab (all public models, decals,
+  audio and plugins) and a **Models** tab to switch yours public or private.
+
+**A Toolbox like Roblox's**
+- Library / Inventory / Recent tabs, a category menu with a search box, and
+  a grid of pictures with blue names.
+- Every model and asset has a picture. Studio photographs objects on their own
+  (on a plain background) when you publish them, and takes one itself for any
+  older model that has none. Parts and ready-made objects have pictures too.
+- A gold **official** badge marks things made by Guts&Bolts staff (in Studio
+  and on the website), so you know they're safe to use.
+
+**Accessories and faces**
+- New accessory types: **hair**, **face**, **neck**, **shoulder** and
+  **waist**, next to hats. They have their own tabs in the catalog.
+- Studio's new **AVATAR > Accessories** window (Verified creators): put it on a
+  mannequin, move it into place, **Save position**, and **Upload** straight to
+  the catalog with a picture.
+- **Faces**: pictures drawn on the front of the head. Only Guts can make them
+  (website: Create > Faces).
+- Only Guts' own accessories and faces can be made **Limited**; shirts, pants,
+  audio, decals and models can't.
+- The Guts account can change its join date in Settings.
+
+**Limiteds, resale and trading**
+- Item creators (and staff) get an **Edit item** page: name, description,
+  price, colour, hat shape or clothing picture.
+- Only **Guts** can make an item **Limited**, with a fixed stock. Copies are
+  numbered (#1, #2, ...); when it sells out, owners can **resell** their copy
+  (they get 70%) and **trade** Limiteds with each other (the new Trades page).
+
+**Username changes**
+- Change your username for 1,000 Bolts on the website's Settings page.
+- Old usernames show on your profile under "Past usernames" and stay yours:
+  nobody else can take them, and you can switch back.
+
+**Clothing templates**
+- The character now has a proper clothing layout: shirts and pants can have a
+  **picture** painted on the new 585 x 559 templates (`assets/templates/`, also
+  downloadable from the website's Create page and saveable from the app).
+- See-through parts of the picture show the clothing's colour underneath.
+- Worn clothing pictures show in games and in multiplayer.
+
+**Finding games**
+- Games can pick up to 3 **genres** (Obby, Horror, Tycoon, Roleplay, Racing
+  and more) and a **server size** on their Configure page.
+- The Games page has genre buttons, searches descriptions and genres too, and
+  sorts by Most played, Playing now, Top rated, Newest or Recently updated.
+- Game pages show genres, 👍/👎 votes (after you've played), a like bar, and a
+  stats table: playing now, visits, created, updated, server size.
+
+**Game badges**
+- Two kinds of badges now: **Guts&Bolts badges** (like Verified, given only
+  by staff) and **game badges** that game creators make themselves.
+- Make badges on your game's **Configure** page (name, description, colour),
+  then award them from a script:
+  `game:GetService("BadgeService"):AwardBadge(player, "badge-id")`.
+  Everyone in the server sees "X earned the badge ...!" in chat.
+- Profiles show both sections; game pages list their badges and how many
+  times each has been won.
+
+**Server cards on game pages**
+- Every game page lists its running servers like Roblox: the faces of who's
+  in each one, "7 of 12 people max", **Join** (that exact server) and
+  **Share** (a link to it), with pages when there are lots.
+
+**Always online**
+- The Player always connects to the main Guts&Bolts server: no more offline
+  or local-network play. Without internet it shows *Can't reach Guts&Bolts*
+  with a **Try again** button. Studio's "Play in Guts&BoltsPlayer" puts you in
+  an online server too.
+
+**Assistant and MCP (AI in Studio)**
+- New Assistant tab: chat with Claude (your own API key) and it builds,
+  scripts, playtests and takes screenshots in your game. Everything is undoable.
+- MCP support: let Claude Code, Claude Desktop and other AI tools on your
+  computer work in Studio (HTTP at 127.0.0.1:44755/mcp, or `GutsAndBolts --mcp`).
+
+**Damage and blood settings**
+- Game Settings has a new Damage & Blood tab: fall damage on/off, safe fall
+  speed, fall damage strength, gore, and blood color, amount and how long it stays.
+- Blood is now liquid: streaking drops, pools that spread and merge, drips down walls.
+- Scripts: `workspace.BloodColor`, `BloodAmount`, `SafeFallSpeed`,
+  `FallDamageScale`, and `Effects.Blood(pos, amount, direction)`.
+
+**Smooth multiplayer**
+- Other players move smoothly instead of jittering: their movement is shown a
+  tenth of a second behind, gliding between updates, and it adapts to bumpy
+  connections.
+
+**Names and whispers**
+- Players' (and NPCs') names float above their heads, with a health bar when hurt.
+- Private chat: `/w PlayerName message` or `/whisper PlayerName message`.
+
+**Real water**
+- Water now has moving waves and ripples that bounce off the pool's sides.
+- Loose parts float or sink by material (wood floats, metal sinks), tip over
+  realistically and bob on the waves.
+- Splashes with spray and a sound when things fall in; swimmers leave a wake.
+- New water attributes: `Waves` (ocean swell) and `Flow` (currents that carry
+  you and floating things along).
+- New **WaterSource** (Insert menu): pours water that flows downhill, fills
+  pits and pools, and spills over walls. Swim in it and float things on it.
+
+**NPCs and zombies**
+- Any character-shaped Model is now an NPC: it walks, jumps, and dies like a
+  player. Scripts steer it with `humanoid:MoveTo()`, `MoveToFinished`,
+  `humanoid:Move()` and `humanoid.Jump`.
+- New **PathfindingService**: works out a route around walls and up ledges.
+- New ready-made **Zombie** in the Toolbox: it chases the nearest player and bites.
+- Studio's Command Bar runs inside the game while you're playing, and can use `wait()`.
+
+**Climbing and swimming**
+- Walk into a **TrussPart** or a ladder to climb it. Parts called **Water** are
+  swimmable. Both are in the Insert menu.
+
+**The website looks like it's from 2011**
+- A dark blue top bar with the logo, a game search box and your account. Below it
+  is a shiny tab row and a gray row with Avatar, Friends, Groups and Bolts.
+- The page is white on a gray background. Boxes have title bars, and the
+  buttons are glossy.
+- New home page: your 3D avatar, Bolts and online friends on the left, and
+  "Best of Guts&Bolts" plus new catalog items on the right.
+- The front page matches.
+
+**The website is open to everyone**
+- Visitors can see every page. When they try to buy something, claim Bolts,
+  save an avatar, add a friend or upload, a "You need to log in" popup appears.
+- **Play** on a game's page opens the Guts&Bolts app on that game. Visitors
+  first pick **Play As Boy** (black cap) or **Play As Girl** and play as a guest.
+- Game cards show visits and how many people are playing right now.
+
+**Configure your games on the website**
+- Create > My Games > **Configure**: name, description, who can play
+  (**Public**, **Friends only** or **Private**), a thumbnail, a square icon, and
+  uploading a new version.
+
+**Email, forgot password and two-step verification**
+- **Settings** on the website: add an email, change your password, and turn on
+  two-step verification (logging in on a new device also needs a code from your
+  email).
+- **Forgot your password?** emails you a code to set a new one.
+- The server needs an email service switched on for this; see the README.
+
+**Fixed:** logging in as an account that never set a password (like Guts) said
+"no account with that username". Now it explains how to set one, and the app's
+home page reminds you.
+
+**Choose Your Character (guests)**
+- "Play as Guest" now asks you to pick **Play As Boy** (black cap) or **Play As
+  Girl** (pink ponytail). The "Have an Account?" link takes you to Log In.
+- New hairstyle, **Ponytail**, on the Avatar page (app and website).
+
+**A new face**
+- Everyone has the classic smile now: two small oval eyes and a round smile.
+  Characters saved with the old block face get the new one automatically.
+
+**Connecting to server screen**
+- Pressing Play shows the game's icon and name (and who made it), a spinning
+  circle with "Connecting to server...", and the Guts&Bolts logo under it,
+  until the game is ready. Then it fades away.
+
+## Fixed (Android)
+- The app now sizes things using Android's own screen density, so buttons are
+  the size you'd expect.
+- On a phone held sideways, the header is slimmer and the margins are thinner,
+  so there's more room for the page.
+- Upright phones: long text wraps. The search box, catalog tabs and the Display
+  name box fit on the screen.
+- Settings fits on the screen (it scrolls) and matches the site's look.
+- Messages in games wrap instead of running off the screen.
+- The version number in Settings was stuck on 0.4.0.
+
 # Guts&Bolts 0.5.2: animations, guests and 3D avatars
 
 **Fixed:** "couldn't make a secure connection ... (SSL - Internal error)" when

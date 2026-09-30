@@ -287,6 +287,9 @@ void Editor::renderToolbar() {
             Group g("Settings");
             if (bigButton("Game Settings", Icons::Id::Settings, false, !m_playing, "Title, description and more")) m_openInfo = true;
             if (bigButton("Team Create", Icons::Id::Team, false, true, "Edit together with friends")) m_openTeam = true;
+            if (bigButton("Assistant", Icons::Id::CommandBar, m_showPanel[kPanelAssistant], true,
+                          "AI help: chat with Claude, or let AI apps (MCP) build with you"))
+                m_showPanel[kPanelAssistant] = true;
         }
         break;
     }
@@ -395,6 +398,12 @@ void Editor::renderToolbar() {
                 insertObject("Rig", nullptr);
         }
         {
+            Group g("Accessories");
+            if (bigButton("Accessories", Icons::Id::Rig, m_showAccessory, !m_playing,
+                          "Verified creators: put a hat or accessory on a mannequin, save where it sits, and upload it"))
+                m_showAccessory = !m_showAccessory;
+        }
+        {
             Group g("Animation");
             if (bigButton("Animation Editor", Icons::Id::Animation, m_showPanel[kPanelAnimation], !m_playing,
                           "Make animations for a rig: pose its parts on a timeline"))
@@ -456,7 +465,8 @@ void Editor::renderToolbar() {
                                 {"Toolbox", Icons::Id::Toolbox, kPanelToolbox}, {"Output", Icons::Id::Output, kPanelOutput},
                                 {"Command Bar", Icons::Id::CommandBar, kPanelCommandBar}, {"Script Editor", Icons::Id::Script, kPanelScript},
                                 {"Lighting", Icons::Id::Lighting, kPanelLighting}, {"Player", Icons::Id::Player, kPanelPlayer},
-                                {"Team Chat", Icons::Id::Team, kPanelTeam}, {"Animation", Icons::Id::Animation, kPanelAnimation}};
+                                {"Team Chat", Icons::Id::Team, kPanelTeam}, {"Animation", Icons::Id::Animation, kPanelAnimation},
+                                {"Assistant", Icons::Id::CommandBar, kPanelAssistant}};
             for (const P& p : panels)
                 if (bigButton(p.label, p.icon, m_showPanel[p.panel], true, "Show / hide")) m_showPanel[p.panel] = !m_showPanel[p.panel];
         }
@@ -475,7 +485,7 @@ void Editor::renderToolbar() {
     ImGui::Dummy(ImVec2(0, 0));
 }
 
-// The PLUGINS tab: every plugin's buttons, plus the Marketplace.
+// The PLUGINS tab: every plugin's buttons, plus the plugin and audio Library.
 void Editor::renderPluginsTab() {
     auto& list = m_plugins->list();
     for (size_t i = 0; i < list.size(); ++i) {
@@ -494,8 +504,8 @@ void Editor::renderPluginsTab() {
         }
     }
     Group g("Manage");
-    if (bigButton("Marketplace", Icons::Id::Toolbox, m_showMarketplace, true, "Get plugins and audio people uploaded"))
-        m_showMarketplace = !m_showMarketplace;
+    if (bigButton("Library", Icons::Id::Toolbox, m_showPluginLibrary, true, "Get plugins and audio people uploaded"))
+        m_showPluginLibrary = !m_showPluginLibrary;
     if (bigButton("Reload", Icons::Id::Rotate, false, true, "Load the plugins folder again")) m_plugins->reload();
     std::string where = "Plugins folder:\n" + Plugins::folder().string() + "\n\nPut .lua plugin files there.";
     bigButton("Folder", Icons::Id::Folder, false, true, where.c_str());

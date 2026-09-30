@@ -1,4 +1,5 @@
 #pragma once
+#include "../game/GameGui.h"
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -9,6 +10,7 @@
 #include "../renderer/Framebuffer.h"
 #include "../scene/Scene.h"
 #include "../game/Catalog.h"
+#include "../game/PlayerEntry.h"
 #include "../game/TouchControls.h"
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -41,12 +43,16 @@ struct PlayerOptions {
     std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
     bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
     bool        privateServer = false; // --private-server (with a game): start a private server once online
+    std::string testAccessory, testFace;   // --test-accessory file.json / --test-face face.png (tests)
+    std::string testClothes;           // --test-clothes shirt.png,pants.png: wear these pictures (tests)
     std::string joinCode;              // --join-code <code>: join a private server once online
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
     float       cameraYaw = -1000.0f;  // --camera-yaw <degrees> (tests: look from another side)
     std::string testRename;            // --test-rename "New name" (tests: rename your first game on the Create page)
     int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
     std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
+    std::string testClick;             // --test-click "x,y" (tests: click there 3 times, 0..1 of the window)
+    std::string launchUrl;             // gutsandbolts://play/<game>?guest=boy (the website's Play button)
 };
 
 // Guts&BoltsPlayer: the platform app. Browse the games on this computer,
@@ -81,7 +87,18 @@ private:
     bool drawTile(int index);
     void drawAvatar(float dt);
     void drawGame(float dt);
+    // The classic loading screen: the game's name, who made it and a spinner.
+    void drawLoading(ImVec2 pos, ImVec2 size, float alpha, const char* status);
+    // From pressing Play until the game shows: the connecting screen over everything.
+    bool        m_connectScreen = false;
+    GameGui::Input m_guiInput;                     // the game's own UI: which button is pointed at / pressed
+    std::string m_loadingGameId;                   // server game id (for its icon), or ""
+    std::string m_loadingIcon;                     // the icon file, once downloaded
+    std::string m_loadingTitle, m_loadingAuthor;   // the game's name and creator on the server
+    void startLoadingScreen(const std::string& gameId, const std::string& title);
+    void drawConnectScreen();
     void drawPauseMenu();
+    std::vector<PlayerEntry> currentPlayers() const;   // everyone in the game (or just you, offline)
     void drawCatalog();
     void drawItemDialog();
     void drawCreateItemDialog();
@@ -90,7 +107,11 @@ private:
 
     // Online (a Guts&Bolts server) — PlayerOnline.cpp
     void drawServerButton(ImVec2 at);
-    void drawServerDialog();
+    void drawNoServer();
+    void fetchAvatarParts();                   // download worn accessories / faces, then put them on
+    std::set<std::string> m_avatarFetching;    // asset ids already asked for
+    void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
+    bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
     void drawOnlineItemDialog();
     void drawCreate();
@@ -162,12 +183,26 @@ private:
     std::string                    m_profileSceneFor;
     Camera                         m_profileCam;
     Framebuffer                    m_profileView;
+    // "Choose Your Character" (guests): a boy and a girl to play as.
+    bool                           m_charPickOpen = false;
+    std::unique_ptr<Scene>         m_charScene[2];
+    Framebuffer                    m_charView[2];
+    Camera                         m_charCam;
+    void drawCharacterPicker();
+    void applyGuestLook(int which);    // 0 = boy (black cap), 1 = girl (ponytail)
+    // A gutsandbolts:// link to act on once we're online (the website's Play button).
+    std::string                    m_linkGame, m_linkGuest, m_linkServer;
+    double                         m_linkPollAt = 0.0;
+    void takeLink(const std::string& url);
+    void followLink();
 
     Page        m_page = Page::Home;
     std::vector<GameCard> m_games;
     std::string m_search;
     std::string m_status;                          // "Couldn't load ..." etc.
     std::string m_currentTitle;
+    std::string m_currentAuthor;                   // for the loading screen
+    float       m_loadingT = 0.0f;                 // seconds of loading screen left (fades out)
 
     Camera      m_camera;
     Framebuffer m_view;
@@ -209,8 +244,6 @@ private:
     std::string m_buyMsg;                          // catalog item dialog
 
     // Online
-    bool           m_showServer = false;
-    std::string    m_serverInput, m_serverMsg;
     nlohmann::json m_onlineItems = nlohmann::json::array();   // server hats / shirts / pants
     nlohmann::json m_onlineGames = nlohmann::json::array();
     nlohmann::json m_myCreations = nlohmann::json::array();
@@ -218,6 +251,8 @@ private:
     nlohmann::json m_foundUsers = nlohmann::json::array();
     int            m_openOnlineItem = -1, m_openOnlineGame = -1;
     std::string    m_onlineMsg, m_createMsg, m_staffMsg, m_findQuery;
+    std::string    m_banTarget, m_banTargetName, m_banNote;   // the "Ban account" popup
+    int            m_banReason = 0;                           // index into Online::kBanReasons
     int            m_createKind = 0, m_createStyle = 2, m_createPrice = 0, m_giveServerBolts = 100;
     std::string    m_createName, m_createDesc, m_createPath;
     glm::vec3      m_createColor{0.9f, 0.2f, 0.2f};
@@ -247,9 +282,10 @@ private:
     // Sign up / log in
     int            m_loginTab = 0;                 // Sign Up / Log In
     std::string    m_loginUser, m_loginPass, m_loginPass2, m_loginMsg;
+    std::string    m_loginCode;                    // two-step verification: the code from your email
+    bool           m_loginNeedCode = false;
     nlohmann::json m_nameCheck = nlohmann::json::object();   // is the typed username free?
     double         m_nameCheckAt = 0.0;
-    bool           m_playOffline = false;          // "Play offline instead"
 
     // Friends and servers
     nlohmann::json m_friends = nlohmann::json::object();   // friends.list reply
@@ -261,6 +297,11 @@ private:
     std::string    m_serversKey, m_serversTitle, m_serversMsg, m_codeInput;
     Starter        m_serversStart;
     nlohmann::json m_serverList = nlohmann::json::array();
+    // The game page's server cards (Roblox-style): whose game, when fetched, which page.
+    nlohmann::json m_gameServers = nlohmann::json::array();
+    std::string    m_gameServersKey;
+    double         m_gameServersAt = -100.0;
+    int            m_gameServersPage = 0;
     std::string    m_playMsg;                      // "Finding a server..."
     bool           m_joinedOnce = false;           // fetched the game's sounds after joining
     bool           m_autoStarted = false;          // test options that wait for the server
@@ -274,5 +315,8 @@ private:
 
     bool        m_paused = false;
     bool        m_showSettings = false;
+    bool        m_shiftLock = false;   // Roblox Shift Lock (Shift toggles it)
+    int         m_menuTab = 0;         // in-game menu: 0 Players, 1 Settings, 2 Help
+    int         m_menuConfirm = 0;     // 1 = "Reset character?", 2 = "Leave game?"
     int         m_frame = 0;
 };

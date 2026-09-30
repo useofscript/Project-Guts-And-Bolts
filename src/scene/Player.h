@@ -1,4 +1,6 @@
 #pragma once
+#include <map>
+#include <algorithm>
 #include <functional>
 #include <cstdint>
 #include <string>
@@ -25,7 +27,8 @@ struct BodyColors {
     glm::vec3 head, torso, leftArm, rightArm, leftLeg, rightLeg;
 };
 
-enum class HatStyle { None, TopHat, Cap, Crown };
+enum class HatStyle { None, TopHat, Cap, Crown, Ponytail };   // Ponytail: hair, not a hat, but worn the same way
+inline constexpr int kHatStyleCount = 5;
 
 // A character's pose, sent over the network in multiplayer: where the model
 // is, and where each body part is (this covers walking, jumping and ragdolls).
@@ -88,13 +91,19 @@ public:
     void      setSpawn(const glm::vec3& p) { m_spawn = p; }
     glm::vec3 spawn() const { return m_spawn; }
     glm::vec3 position() const;
-    glm::vec3 focusPoint() const;     // where the play camera should look
+    glm::vec3 focusPoint() const;     // where the play camera should look (the head)
+    void      faceYaw(float degrees) { m_faceLock = true; m_faceYaw = degrees; }   // first person: turn to the camera
 
     Humanoid& humanoid() { return m_humanoid; }
     // How the character's parts were when Play started (animations pose from there).
     const std::unordered_map<uint64_t, Transform>& restPose() const { return m_rest; }
     // The parts walking moves every frame (the arms and legs).
     bool drivesPart(const SceneNode* part) const;
+    static bool isLimb(const SceneNode* part);   // an arm or a leg (walking swings these)
+    // The walk cycle follows how fast the body really moves over the ground (like
+    // Roblox's Animate script): faster = quicker, longer strides. `speed` in units / s.
+    static float strideRate(float speed)  { return speed * 1.8f; }                        // radians of the cycle per second
+    static float strideSwing(float speed) { return speed < 0.05f ? 0.0f : std::min(62.0f, 18.0f + speed * 4.4f); }   // degrees
     glm::vec3 velocity() const { return m_velocity; }
     void      launch(const glm::vec3& v) { m_velocity = v; m_grounded = false; }   // jump pads etc.
 
@@ -104,6 +113,22 @@ public:
     HatStyle   hat() const { return m_hat; }
     void       setHat(HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));
     void       rememberHat(HatStyle style) { m_hat = style; }   // no rebuild (loading)
+    // Clothing pictures (the 585 x 559 template): "gb:<id>" or a file; "" = none.
+    // The shirt goes on the torso and arms, pants on the legs (and the torso if no shirt).
+    void       setClothing(const std::string& shirt, const std::string& pants);
+    static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants);
+    // Accessories made in Studio's Accessory window: kind ("hat", "hair", "faceacc",
+    // "neck", "shoulder", "waist") -> "gb:<id>" or a file holding the accessory.
+    // Ones not downloaded yet are skipped (set them again once they arrive).
+    using Accessories = std::map<std::string, std::string>;
+    void        setAccessories(const Accessories& acc);
+    static void applyAccessories(Scene& scene, SceneNode* root, const Accessories& acc);
+    static void hideBuiltInHat(SceneNode* root);
+    // A face picture instead of the smiley ("gb:<id>" or a file; "" = the smiley).
+    void        setFace(const std::string& face);
+    static void applyFace(Scene& scene, SceneNode* root, const std::string& face);
+    // An accessory file's contents -> its objects (placed relative to the character's feet).
+    static std::unique_ptr<SceneNode> accessoryFrom(const std::string& json);
 
     static const char* hatName(HatStyle s);
 
@@ -113,6 +138,8 @@ public:
     static bool usePlayerModel(SceneNode& part);
     // A character saved before that model: give it the model's parts.
     static void upgradeRig(SceneNode* rig);
+    static void addFace(SceneNode* head);   // the default smiley (eyes + smile) on a head
+    void        upgradeFace();              // old saved characters: new face
     static void       applyColors(SceneNode* root, const BodyColors& c);
     // `tint` recolours the hat (catalog hats); negative = its normal colours.
     static void       applyHat(Scene& scene, SceneNode* root, HatStyle style, glm::vec3 tint = glm::vec3(-1.0f));
@@ -122,7 +149,7 @@ public:
 
 private:
     SceneNode* part(const char* name) const;
-    void animate(float dt, bool moving, bool grounded);
+    void animate(float dt, float groundSpeed, bool grounded);
     void footsteps(bool running, const glm::vec3& at);   // loop the running sound while on the ground
     void updateGrip();                // put the held tool's Handle in the right hand
     void syncSlots();
@@ -136,12 +163,23 @@ private:
     float    m_toolSwing = 0.0f;       // seconds left of the swing animation
     uint64_t m_checkpoint = 0;         // RespawnLocation / last Checkpoint touched
     static constexpr float kToolSwingTime = 0.4f;
+public:
+    bool climbing() const { return m_climbing; }
+    bool grounded() const { return m_grounded; }
+    bool swimming() const { return m_swimming; }
+    // Parts you climb (TrussPart, anything called Ladder, or tagged / attributed "Climbable")
+    // and swim in (called Water, or tagged / attributed "Water").
+    static bool isClimbable(const SceneNode* n);
+    static bool isWater(const SceneNode* n);
+private:
     bool     m_respawnedFlag = false;
     Scene*   m_scene  = nullptr;
     uint64_t m_rootId = 0;
     Humanoid m_humanoid;
     HatStyle m_hat = HatStyle::None;
     glm::vec3 m_hatTint = glm::vec3(-1.0f);
+    std::string m_shirt, m_pants, m_face;
+    Accessories m_accessories;
 
     glm::vec3 m_spawn{0.0f};
     glm::vec3 m_velocity{0.0f};
@@ -149,12 +187,22 @@ private:
 
     // Moving platforms carry the character.
     uint64_t  m_groundId = 0;
-    glm::vec3 m_groundPrev{0.0f};
+    glm::mat4 m_groundPrevM{1.0f};   // where the part we stand on was last frame
+    glm::vec3 m_platformVel{0.0f};   // how fast it's carrying us
+    static constexpr float kBodyMass = 2.0f;   // for being knocked around by loose parts
 
     // Walk-cycle animation.
     float m_walkPhase = 0.0f;
     float m_swing     = 0.0f;   // current limb swing amplitude (degrees)
     float m_airBlend  = 0.0f;   // 0 = on ground, 1 = jump pose
+    float m_groundSpeed = 0.0f; // how fast we're really moving along the ground (smoothed)
+    bool  m_faceLock = false;   // first person: face m_faceYaw next step
+    float m_faceYaw = 0.0f;
+    // Climbing trusses / ladders, and swimming in water.
+    bool  m_climbing = false, m_swimming = false;
+    float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
+    float m_climbPhase = 0.0f;
+    float m_climbCooldown = 0.0f;   // just jumped off: don't grab straight back on
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 
     // Rest pose captured when Play starts (local transforms by node id).

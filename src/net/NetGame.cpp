@@ -1,5 +1,8 @@
 #include "NetGame.h"
+#include "../scripting/LuaApi.h"   // SignalKind (UI clicks)
 #include "../scene/PlayerModel.h"
+#include "../online/AssetCache.h"
+#include "../core/Paths.h"
 #include "../game/Badges.h"
 #include "../game/GameSession.h"
 #include "../game/Profile.h"
@@ -15,6 +18,8 @@
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <chrono>
 #include <cstdio>
 #include <set>
@@ -79,6 +84,34 @@ CharacterPose poseFrom(const json& j) {
     return pose;
 }
 
+// Seconds on a steady clock (only differences matter).
+double clockNow() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+float lerpAngle(float a, float b, float t) {
+    float d = std::fmod(b - a + 540.0f, 360.0f) - 180.0f;   // the short way round
+    return a + d * t;
+}
+Transform lerpTransform(const Transform& a, const Transform& b, float t) {
+    Transform o;
+    o.position = glm::mix(a.position, b.position, t);
+    o.rotation = {lerpAngle(a.rotation.x, b.rotation.x, t), lerpAngle(a.rotation.y, b.rotation.y, t),
+                  lerpAngle(a.rotation.z, b.rotation.z, t)};
+    o.scale = glm::mix(a.scale, b.scale, t);
+    return o;
+}
+CharacterPose lerpPose(const CharacterPose& a, const CharacterPose& b, float t) {
+    // Teleported (respawned, a script moved them): jump straight there.
+    if (glm::length(b.root.position - a.root.position) > 15.0f || a.parts.size() != b.parts.size()) return t < 0.5f ? a : b;
+    CharacterPose o = b;
+    o.root = lerpTransform(a.root, b.root, t);
+    for (size_t i = 0; i < o.parts.size(); ++i)
+        if (a.parts[i].first == b.parts[i].first) o.parts[i].second = lerpTransform(a.parts[i].second, b.parts[i].second, t);
+    return o;
+}
+
 json humanoidJson(const Humanoid& h) {
     return {{"health", h.health}, {"maxHealth", h.maxHealth}, {"walkSpeed", h.walkSpeed},
             {"jumpPower", h.jumpPower}};
@@ -94,7 +127,9 @@ json avatarJson(const Profile& p) {
     const BodyColors& c = p.colors;
     return {{"head", vec3(c.head)}, {"torso", vec3(c.torso)}, {"leftArm", vec3(c.leftArm)},
             {"rightArm", vec3(c.rightArm)}, {"leftLeg", vec3(c.leftLeg)}, {"rightLeg", vec3(c.rightLeg)},
-            {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)}};
+            {"hat", (int)p.hat}, {"hatColor", vec3(p.hatColor)},
+            {"shirtImage", p.shirtImage}, {"pantsImage", p.pantsImage},
+            {"faceImage", p.faceImage}, {"accessories", p.accessories}};
 }
 
 // Everything a joined player needs to see about a (non-character) object.
@@ -108,14 +143,17 @@ std::string nodeState(const SceneNode* n) {
         t.scale.x, t.scale.y, t.scale.z, n->color.r, n->color.g, n->color.b, n->transparency,
         (int)n->visible, (int)n->canCollide, (int)n->enabled, (int)n->material, (int)n->primitiveType,
         n->brightness, n->range, n->spotAngle);
+    if (n->isGui()) return std::string(buf) + Serializer::guiToJson(n->gui).dump();   // text, colours, sizes...
     return buf;
 }
 
 json nodeUpdate(const SceneNode* n) {
-    return {{"i", n->id}, {"t", transformJson(n->transform)}, {"c", vec3(n->color)},
+    json u = {{"i", n->id}, {"t", transformJson(n->transform)}, {"c", vec3(n->color)},
             {"a", n->transparency}, {"v", n->visible}, {"cc", n->canCollide}, {"e", n->enabled},
             {"m", (int)n->material}, {"sh", (int)n->primitiveType}, {"b", n->brightness},
             {"rg", n->range}, {"sa", n->spotAngle}};
+    if (n->isGui()) u["gui"] = Serializer::guiToJson(n->gui);
+    return u;
 }
 
 void applyUpdate(SceneNode* n, const json& u) {
@@ -134,6 +172,11 @@ void applyUpdate(SceneNode* n, const json& u) {
     n->brightness   = u.value("b", n->brightness);
     n->range        = u.value("rg", n->range);
     n->spotAngle    = u.value("sa", n->spotAngle);
+    if (n->isGui() && u.contains("gui") && u["gui"].is_object()) {
+        const glm::vec2 absPos = n->gui.absPos, absSize = n->gui.absSize;   // (worked out here, not sent)
+        Serializer::guiFromJson(n->gui, u["gui"]);
+        n->gui.absPos = absPos; n->gui.absSize = absSize;
+    }
 }
 
 glm::vec3 spawnPoint(Scene& scene) {
@@ -176,6 +219,66 @@ std::string cleanText(std::string s, size_t max) {
 } // namespace
 
 // ===========================================================================
+// Smooth movement of other players
+// ===========================================================================
+
+void PoseBuffer::push(double sentAt, double now, const CharacterPose& pose) {
+    if (!m_snaps.empty() && sentAt <= m_snaps.back().t) return;   // old or repeated
+    // How far our clock is ahead of theirs. The quickest message tells us best
+    // (slow ones were held up on the way); drift slowly in case clocks wander.
+    double off = now - sentAt;
+    if (!m_haveOffset || off < m_offset) { m_offset = off; m_haveOffset = true; }
+    else m_offset += (off - m_offset) * 0.01;
+    // How bumpy the connection is: how much later than the quickest this one came.
+    m_jitter = std::max(off - m_offset, m_jitter * 0.99);
+    m_snaps.push_back({sentAt, pose});
+    while (m_snaps.size() > 2 && m_snaps.front().t < sentAt - 1.0) m_snaps.erase(m_snaps.begin());
+}
+
+double PoseBuffer::delay() const { return std::clamp(m_jitter + 0.06, kDelay, kMaxDelay); }
+
+bool PoseBuffer::sample(double now, CharacterPose& out) const {
+    if (m_snaps.empty()) return false;
+    // Clock difference plus the delay, changed gently: their movement plays at most
+    // 8% faster or slower while it adjusts, which nobody notices (a jump they would).
+    const double want = m_offset + delay();
+    if (m_lastSample < 0.0 || std::abs(want - m_lag) > 1.0) m_lag = want;
+    else {
+        double step = std::clamp(now - m_lastSample, 0.0, 0.1) * 0.08;
+        m_lag = std::clamp(want, m_lag - step, m_lag + step);
+    }
+    m_lastSample = now;
+    const double target = now - m_lag;   // in the sender's time
+    if (target <= m_snaps.front().t || m_snaps.size() == 1) { out = m_snaps.front().t >= target ? m_snaps.front().pose : m_snaps.back().pose; return true; }
+    for (size_t i = 1; i < m_snaps.size(); ++i) {
+        const Snap& a = m_snaps[i - 1];
+        const Snap& b = m_snaps[i];
+        if (target <= b.t) {
+            out = lerpPose(a.pose, b.pose, (float)((target - a.t) / std::max(1e-6, b.t - a.t)));
+            return true;
+        }
+    }
+    // Past the newest pose (a late update): keep going the same way for a moment.
+    const Snap& a = m_snaps[m_snaps.size() - 2];
+    const Snap& b = m_snaps.back();
+    double ahead = std::min(target - b.t, 0.15);
+    out = lerpPose(a.pose, b.pose, (float)(1.0 + ahead / std::max(1e-6, b.t - a.t)));
+    return true;
+}
+
+// Put every other player where their buffer says they are right now.
+void showSmoothly(Scene& scene, std::unordered_map<uint64_t, PoseBuffer>& poses) {
+    const double now = clockNow();
+    for (auto it = poses.begin(); it != poses.end();) {
+        SceneNode* rig = scene.findById(it->first);
+        if (!rig) { it = poses.erase(it); continue; }   // they left
+        CharacterPose pose;
+        if (it->second.sample(now, pose)) Player::applyPose(rig, pose);
+        ++it;
+    }
+}
+
+// ===========================================================================
 // Chat
 // ===========================================================================
 
@@ -183,6 +286,31 @@ void ChatLog::add(const std::string& from, const std::string& text, bool system,
     lines.push_back({from, text, system, admin, verified});
     if (lines.size() > 100) lines.erase(lines.begin());
     if (!system) bubbles[from] = {text, 6.0f};
+}
+
+void ChatLog::addWhisper(const std::string& from, const std::string& to, const std::string& text, bool admin,
+                         bool verified) {
+    Line l{from, text, false, admin, verified};
+    l.whisper = true;
+    l.to = to;
+    lines.push_back(l);
+    if (lines.size() > 100) lines.erase(lines.begin());
+}
+
+bool ChatLog::parseWhisper(const std::string& text, std::string& to, std::string& message) {
+    std::string lower = text;
+    for (char& ch : lower) ch = (char)std::tolower((unsigned char)ch);
+    size_t skip = 0;
+    for (const char* p : {"/whisper ", "/w "})
+        if (lower.rfind(p, 0) == 0) { skip = std::strlen(p); break; }
+    if (!skip) { to.clear(); message.clear(); return lower == "/w" || lower == "/whisper"; }
+    size_t start = text.find_first_not_of(' ', skip);
+    if (start == std::string::npos) { to.clear(); message.clear(); return true; }
+    size_t end = text.find(' ', start);
+    to = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    size_t rest = end == std::string::npos ? std::string::npos : text.find_first_not_of(' ', end);
+    message = rest == std::string::npos ? std::string() : text.substr(rest);
+    return true;
 }
 
 void ChatLog::update(float dt) {
@@ -283,13 +411,51 @@ void NetServer::broadcast(const std::string& msg, const Client* except) {
         if (c->joined && c.get() != except) c->conn->send(msg);
 }
 
+void NetServer::announce(const std::string& text) {
+    m_chat.add("", text, true);
+    broadcast(json{{"t", "chat"}, {"from", ""}, {"text", text}, {"sys", true}}.dump(), nullptr);
+}
+
 void NetServer::say(const std::string& text) {
     std::string t = cleanText(text, 200);
     if (t.empty()) return;
     if (Online::isGuest() && Online::online()) { m_chat.add("", Online::kGuestChatText, true); return; }
     bool admin = Account::iAmStaff(), ver = Badges::iHave(Badges::Id::Verified);
+    std::string to, msg;
+    if (ChatLog::parseWhisper(t, to, msg)) {
+        if (to.empty() || msg.empty()) { m_chat.add("", ChatLog::kWhisperHelp, true); return; }
+        Client* target = findClient(to);
+        if (!target) {
+            m_chat.add("", sameName(to, Online::playerName()) ? "You can't whisper to yourself."
+                                                             : "There's no player called " + to + " in this game.", true);
+            return;
+        }
+        target->conn->send(json{{"t", "chat"}, {"from", Online::playerName()}, {"to", target->name}, {"text", msg},
+                                {"wh", true}, {"adm", admin}, {"ver", ver}}.dump());
+        m_chat.addWhisper(Online::playerName(), target->name, msg, admin, ver);
+        return;
+    }
     m_chat.add(Online::playerName(), t, false, admin, ver);
     broadcast(json{{"t", "chat"}, {"from", Online::playerName()}, {"text", t}, {"adm", admin}, {"ver", ver}}.dump());
+}
+
+NetServer::Client* NetServer::findClient(const std::string& name) {
+    // Exact name first (any capitals), then the only name that starts with it.
+    Client* prefix = nullptr;
+    int matches = 0;
+    for (auto& c : m_clients) {
+        if (!c->joined) continue;
+        if (sameName(c->name, name)) return c.get();
+        if (c->name.size() > name.size() && sameName(c->name.substr(0, name.size()), name)) { prefix = c.get(); ++matches; }
+    }
+    return matches == 1 ? prefix : nullptr;
+}
+
+bool NetServer::sameName(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
 }
 
 void NetServer::dropClient(size_t index, const char* reason) {
@@ -377,10 +543,11 @@ void NetServer::update(float dt) {
         if (!ok || !c.conn->alive()) { dropClient(i, "left the game"); continue; }
         ++i;
     }
+    showSmoothly(*m_scene, m_poses);
 
     m_tick += dt;
     if (m_tick >= kTickRate) {
-        m_tick = 0.0f;
+        m_tick = std::min(m_tick - kTickRate, kTickRate);   // keep an even beat (don't lose the leftover)
         sendTick();
     }
     m_chat.update(dt);
@@ -422,7 +589,33 @@ void NetServer::handle(Client& c, const std::string& text) {
                            vec3(a.value("leftLeg", json())), vec3(a.value("rightLeg", json()))};
             Player::applyColors(rig, col);
             glm::vec3 tint = a.contains("hatColor") ? vec3(a["hatColor"]) : glm::vec3(-1.0f);
-            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, 3), tint);
+            Player::applyHat(*m_scene, rig, (HatStyle)std::clamp(a.value("hat", 0), 0, kHatStyleCount - 1), tint);
+            auto cloth = [&](const char* k) {   // only server clothing pictures ("gb:<id>")
+                std::string s = a.value(k, std::string());
+                return s.rfind("gb:", 0) == 0 && s.size() < 64 ? s : std::string();
+            };
+            Player::applyClothing(rig, cloth("shirtImage"), cloth("pantsImage"));
+            Online::fetchSounds(*m_scene);   // download their clothing pictures
+            // Their accessories and face: download them, then dress the rig (if they're still here).
+            Player::Accessories acc;
+            if (a.contains("accessories") && a["accessories"].is_object())
+                for (auto& [k, v] : a["accessories"].items())
+                    if (v.is_string() && v.get<std::string>().rfind("gb:", 0) == 0 && v.get<std::string>().size() < 64)
+                        acc[k] = v.get<std::string>();
+            const std::string face = cloth("faceImage");
+            const uint64_t rigId = rig->id;
+            auto dress = [this, rigId, acc, face]() {
+                if (SceneNode* r = m_scene->findById(rigId)) {
+                    Player::applyAccessories(*m_scene, r, acc);
+                    Player::applyFace(*m_scene, r, face);
+                }
+            };
+            dress();
+            std::vector<std::string> ids;
+            for (auto& [k, v] : acc) ids.push_back(v.substr(3));
+            if (!face.empty()) ids.push_back(face.substr(3));
+            for (const std::string& id : ids)
+                if (Paths::downloaded(id).empty()) Online::download(id, [dress](bool ok, const std::filesystem::path&, const json&) { if (ok) dress(); });
         }
         c.rootId = rig->id;
         RemoteCharacter rc;
@@ -458,7 +651,8 @@ void NetServer::handle(Client& c, const std::string& text) {
     RemoteCharacter* rc = m_scene->findRemote(c.rootId);
 
     if (t == "state" && rc) {
-        if (SceneNode* rig = m_scene->findById(c.rootId)) Player::applyPose(rig, poseFrom(m.value("pose", json())));
+        if (m.contains("ts")) m_poses[c.rootId].push(m.value("ts", 0.0), clockNow(), poseFrom(m.value("pose", json())));
+        else if (SceneNode* rig = m_scene->findById(c.rootId)) Player::applyPose(rig, poseFrom(m.value("pose", json())));   // older players
         double now = m_session->scripts().time();
         // Their own damage (e.g. fall damage) counts, unless a script just changed it.
         if (now - rc->editedAt > 0.5 && m.contains("health"))
@@ -484,11 +678,34 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "click") {
         uint64_t part = m.value("part", (uint64_t)0);
         if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
+    } else if (t == "guiclick") {
+        uint64_t id = m.value("id", (uint64_t)0);
+        if (SceneNode* b = m_scene->findById(id); b && b->isGuiButton()) m_session->scripts().fireGui(SignalKind::GuiClick, id);
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
         if (c.guest) {   // guests don't chat: tell just them why
             c.conn->send(json{{"t", "chat"}, {"from", ""}, {"text", Online::kGuestChatText}, {"sys", true}}.dump());
+            return;
+        }
+        std::string to, said;
+        if (ChatLog::parseWhisper(msg, to, said)) {
+            auto tell = [&](const std::string& text) {
+                c.conn->send(json{{"t", "chat"}, {"from", ""}, {"text", text}, {"sys", true}}.dump());
+            };
+            if (to.empty() || said.empty()) { tell(ChatLog::kWhisperHelp); return; }
+            json w{{"t", "chat"}, {"from", c.name}, {"text", said}, {"wh", true}, {"adm", c.admin}, {"ver", c.verified}};
+            if (sameName(to, Online::playerName())) {          // to the host
+                w["to"] = Online::playerName();
+                m_chat.addWhisper(c.name, Online::playerName(), said, c.admin, c.verified);
+            } else if (Client* target = findClient(to); target && target != &c) {
+                w["to"] = target->name;
+                target->conn->send(w.dump());
+            } else {
+                tell(target == &c ? "You can't whisper to yourself." : "There's no player called " + to + " in this game.");
+                return;
+            }
+            c.conn->send(w.dump());   // their own copy ("To ...")
             return;
         }
         m_chat.add(c.name, msg, false, c.admin, c.verified);
@@ -591,6 +808,7 @@ void NetServer::sendTick() {
             list.push_back(entry);
         }
         msg["chars"] = list;
+        msg["ts"] = clockNow();
         if (auto mine = m_session->scripts().leaderstats(c->name); !mine.empty()) msg["mys"] = statsJson(mine);
         c->conn->send(msg.dump());
 
@@ -637,6 +855,7 @@ void NetClient::disconnect() {
         m_session->setRole(GameSession::Role::Solo);
         m_session->onTouch = nullptr;
         m_session->onClick = nullptr;
+        m_session->onGuiClick = nullptr;
         m_scene->remotes().clear();
     }
     m_state = State::Idle;
@@ -674,13 +893,14 @@ void NetClient::update(float dt) {
     if (m_state == State::Joined) {
         m_tick += dt;
         if (m_tick >= kTickRate) {
-            m_tick = 0.0f;
+            m_tick = std::min(m_tick - kTickRate, kTickRate);
             if (Player* p = m_scene->player())
                 if (SceneNode* r = p->root())
-                    m_conn->send(json{{"t", "state"}, {"pose", poseJson(Player::capturePose(r))},
+                    m_conn->send(json{{"t", "state"}, {"ts", clockNow()}, {"pose", poseJson(Player::capturePose(r))},
                                       {"health", p->humanoid().health}, {"dead", p->isDead()}}.dump());
         }
     }
+    showSmoothly(*m_scene, m_poses);
     m_chat.update(dt);
 }
 
@@ -752,6 +972,9 @@ void NetClient::handle(const std::string& text) {
         m_session->setRole(GameSession::Role::Client);
         m_session->onTouch = [this](uint64_t part, const std::string& limb) { reportTouch(part, limb); };
         m_session->onClick = [this](uint64_t part) { reportClick(part); };
+        m_session->onGuiClick = [this](uint64_t button) {   // a game UI button: the host's scripts hear it
+            if (m_conn && button < kLocalIdBase) m_conn->send(json{{"t", "guiclick"}, {"id", button}}.dump());
+        };
         m_session->start();
         m_state = State::Joined;
         m_chat.add("", "Joined " + m_title + " as " + m.value("name", std::string("Player")), true);
@@ -762,8 +985,12 @@ void NetClient::handle(const std::string& text) {
         return;
     }
     if (t == "chat") {
-        m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false),
-                   m.value("adm", false), m.value("ver", false));
+        if (m.value("wh", false))
+            m_chat.addWhisper(m.value("from", std::string()), m.value("to", std::string()), m.value("text", std::string()),
+                              m.value("adm", false), m.value("ver", false));
+        else
+            m_chat.add(m.value("from", std::string()), m.value("text", std::string()), m.value("sys", false),
+                       m.value("adm", false), m.value("ver", false));
         return;
     }
     if (m_state != State::Joined) return;
@@ -821,7 +1048,8 @@ void NetClient::handle(const std::string& text) {
                     rc.name = name;
                     m_scene->remotes().push_back(rc);
                 }
-                Player::applyPose(root, poseFrom(ch.value("pose", json())));
+                if (m.contains("ts")) m_poses[id].push(m.value("ts", 0.0), clockNow(), poseFrom(ch.value("pose", json())));
+                else Player::applyPose(root, poseFrom(ch.value("pose", json())));
             }
         }
         return;

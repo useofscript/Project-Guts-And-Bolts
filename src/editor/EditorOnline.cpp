@@ -1,8 +1,10 @@
 // Studio's online side: connecting to a Guts&Bolts server, publishing the
-// game, and the Marketplace (plugins and audio people uploaded).
+// game, and the Library (plugins and audio people uploaded).
 #include "Editor.h"
 #include "panels/ViewportPanel.h"
 #include "Plugins.h"
+#include "Thumbnailer.h"
+#include "panels/ToolboxPanel.h"
 #include "../core/Account.h"
 #include "../core/Audio.h"
 #include "../core/Log.h"
@@ -14,6 +16,9 @@
 #include "../online/Protocol.h"
 #include "../scene/Scene.h"
 #include "../scene/Serializer.h"
+#include "../scene/Physics.h"
+#include "../scene/Player.h"
+#include "../renderer/Textures.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -58,26 +63,13 @@ void onlineLine() {
 // ---------------------------------------------------------------------------
 
 void Editor::renderServerDialog() {
-    if (m_openServer) { ImGui::OpenPopup("Guts&Bolts Server"); m_openServer = false; m_serverInput = Online::serverAddress(); }
+    if (m_openServer) { ImGui::OpenPopup("Guts&Bolts Server"); m_openServer = false; }
     ImGui::SetNextWindowSize(ImVec2(520, 0));
     if (!ImGui::BeginPopupModal("Guts&Bolts Server", nullptr, ImGuiWindowFlags_NoResize)) return;
-    ImGui::TextWrapped("A Guts&Bolts server keeps published games, plugins, audio, Bolts and badges for everyone. "
-                       "The official one runs on Cloudflare, so it's always on. You can also run your own "
-                       "GutsAndBoltsServer on a computer and type its address here (like 192.168.1.20 or "
-                       "myserver.com:7780).");
+    ImGui::TextWrapped("Studio uses the official Guts&Bolts server for publishing games, plugins, audio, "
+                       "Bolts and badges. You can still build and play-test without it.");
     ImGui::Spacing();
-    ImGui::SetNextItemWidth(-1);
-    bool enter = ImGui::InputTextWithHint("##addr", "server address (empty = offline)", &m_serverInput,
-                                          ImGuiInputTextFlags_EnterReturnsTrue);
-    if (ImGui::Button("Connect", ImVec2(120, 0)) || enter) { Online::setServerAddress(m_serverInput); m_marketLoaded = false; }
-    ImGui::SameLine();
-    if (ImGui::Button("Official server", ImVec2(130, 0))) {
-        m_serverInput = Online::kOfficialServer;
-        Online::setServerAddress(m_serverInput);
-        m_marketLoaded = false;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(110, 0))) { m_serverInput.clear(); Online::setServerAddress(""); }
+    if (ImGui::Button("Reconnect", ImVec2(120, 0))) { Online::connect(); m_marketLoaded = false; }
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
     ImGui::Spacing();
@@ -163,13 +155,13 @@ void Editor::renderPublishDialog() {
 }
 
 // ---------------------------------------------------------------------------
-// The Marketplace: plugins and audio from the server
+// The plugin and audio Library: plugins and audio from the server
 // ---------------------------------------------------------------------------
 
-void Editor::renderMarketplace() {
-    if (!m_showMarketplace) return;
+void Editor::renderPluginLibrary() {
+    if (!m_showPluginLibrary) return;
     ImGui::SetNextWindowSize(ImVec2(620, 480), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Marketplace", &m_showMarketplace)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Plugin & Audio Library", &m_showPluginLibrary)) { ImGui::End(); return; }
     onlineLine();
     if (!Online::online()) {
         if (ImGui::Button("Pick a server...")) m_openServer = true;
@@ -313,7 +305,7 @@ void Editor::renderMarketplace() {
                                                {"data", Online::base64Encode(readFile(p.file))}},
                                     [this](const json& r) {
                         m_onlineBusy = false;
-                        m_marketMsg = r.value("ok", false) ? "Published! Others can install it from the Marketplace."
+                        m_marketMsg = r.value("ok", false) ? "Published! Others can install it from the Library."
                                                            : r.value("error", std::string());
                         m_marketLoaded = false;
                     });
@@ -331,4 +323,382 @@ void Editor::testSnapshot(const std::string& file) {
     std::string png = m_viewport->snapshotPng(480, 270);
     std::ofstream(file, std::ios::binary).write(png.data(), (std::streamsize)png.size());
     Log::system("Snapshot: " + std::to_string(png.size()) + " bytes to " + file);
+}
+
+// ---------------------------------------------------------------------------
+// File > Publish Selection to Library: share objects as a model, public or private
+// ---------------------------------------------------------------------------
+
+void Editor::renderPublishModelDialog() {
+    if (m_openPublishModel) {
+        ImGui::OpenPopup("Publish to Library");
+        m_openPublishModel = false;
+        SceneNode* sel = m_scene->selected();
+        m_modelName = sel ? sel->name : "Model";
+        m_modelDesc.clear();
+        m_modelMsg.clear();
+    }
+    ImGui::SetNextWindowSize(ImVec2(520, 0));
+    if (!ImGui::BeginPopupModal("Publish to Library", nullptr, ImGuiWindowFlags_NoResize)) return;
+    std::vector<SceneNode*> items;
+    for (SceneNode* n : m_scene->selectionRoots())
+        if (n != m_scene->root() && !m_scene->isCharacterPart(n)) items.push_back(n);
+    if (!Online::online()) {
+        onlineLine();
+    } else if (items.empty()) {
+        ImGui::TextWrapped("Select the objects you want to share first (a Model, some parts, a scripted tool...).");
+    } else {
+        ImGui::TextWrapped("Put %d selected object%s in the Guts&Bolts Library so you (or everyone) can insert "
+                           "them from the Toolbox.", (int)items.size(), items.size() == 1 ? "" : "s");
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(-90);
+        ImGui::InputText("Name", &m_modelName);
+        ImGui::InputTextMultiline("Description", &m_modelDesc, ImVec2(-90, 60));
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Who can find it?");
+        if (ImGui::RadioButton("Public: everyone can find and use it", m_modelPublic)) m_modelPublic = true;
+        if (ImGui::RadioButton("Private: only you", !m_modelPublic)) m_modelPublic = false;
+        int left = Online::me().value("publicModelsLeft", -1);
+        if (left >= 0)
+            ImGui::TextDisabled("You can make %d more model%s public this week (Verified creators have no limit).",
+                                left, left == 1 ? "" : "s");
+        ImGui::Spacing();
+        ImGui::BeginDisabled(m_onlineBusy || m_modelName.empty());
+        if (ImGui::Button("Publish", ImVec2(140, 30))) {
+            // The objects, and a picture framed on them for the Library.
+            json nodes = json::array();
+            for (SceneNode* n : items) nodes.push_back(json::parse(Serializer::nodeToString(*n)));
+            // A picture of just these objects (not the map around them) for the Library.
+            std::string picture = m_thumbnailer->png(std::vector<const SceneNode*>(items.begin(), items.end()), 256);
+            json model = {{"format", "gbmodel"}, {"version", 1}, {"nodes", nodes}};
+            json args = {{"kind", "model"}, {"name", m_modelName}, {"description", m_modelDesc},
+                         {"access", m_modelPublic ? "public" : "private"}, {"data", Online::base64Encode(model.dump())}};
+            m_onlineBusy = true;
+            m_modelMsg = "Publishing...";
+            Online::request("upload", args, [this, picture](const json& r) {
+                m_onlineBusy = false;
+                if (!r.value("ok", false)) { m_modelMsg = r.value("error", std::string("Publishing didn't work.")); return; }
+                std::string id = r["asset"].value("id", std::string());
+                if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
+                m_modelMsg = "Published! Find it in the Toolbox's Library.";
+                m_libraryLoaded = false;
+                Online::connect();   // refresh "public models left"
+            }, 120);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Close", ImVec2(90, 30))) ImGui::CloseCurrentPopup();
+    if (!m_modelMsg.empty()) ImGui::TextWrapped("%s", m_modelMsg.c_str());
+    ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------
+// The Toolbox's Library: everyone's public models, decals and audio, with pictures
+// ---------------------------------------------------------------------------
+
+std::vector<ToolboxTile> Editor::libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status) {
+    static const char* kinds[] = {"model", "decal", "audio"};
+    std::vector<ToolboxTile> out;
+    kind = std::clamp(kind, 0, 2);
+    if (!Online::online()) { status = "Connecting to the Library..."; return out; }
+    const std::string myId = Online::me().value("id", std::string());
+    if (mine && myId.empty()) { status = "Log in to see your own models, decals and audio."; return out; }
+    std::string key = std::string(mine ? "mine:" : "all:") + kinds[kind] + ":" + query;
+    if (reload || key != m_libraryKey || !m_libraryLoaded) {
+        m_libraryKey = key;
+        m_libraryLoaded = true;
+        m_library = json::array();
+        m_libraryMsg = "Loading...";
+        json args = {{"kind", kinds[kind]}, {"query", query}, {"limit", 60}};
+        if (mine) args["creator"] = myId;
+        else args["sort"] = "popular";
+        Online::request("list", args, [this, key](const json& r) {
+            if (key != m_libraryKey) return;   // an older search
+            if (r.value("ok", false)) { m_library = r["assets"]; m_libraryMsg.clear(); }
+            else m_libraryMsg = r.value("error", std::string("The Library didn't load."));
+        });
+    }
+    status = m_libraryMsg;
+
+    // One downloaded model a frame gets its picture taken (older uploads have none).
+    if (!m_thumbJobs.empty()) {
+        json job = m_thumbJobs.front();
+        m_thumbJobs.erase(m_thumbJobs.begin());
+        std::ifstream in(job.value("file", std::string()), std::ios::binary);
+        std::stringstream ss; ss << in.rdbuf();
+        json model = json::parse(ss.str(), nullptr, false);
+        std::string id = job.value("id", std::string());
+        if (model.is_object() && model.contains("nodes")) {
+            std::string png = m_thumbnailer->png([&](Scene& scene) {
+                for (const json& nj : model["nodes"])
+                    if (auto n = Serializer::nodeFromString(nj.dump(), true)) scene.insert(std::move(n));
+            }, 256);
+            std::filesystem::path f = Paths::downloadsFolder() / ("thumb-" + id + ".png");
+            std::ofstream(f, std::ios::binary).write(png.data(), (std::streamsize)png.size());
+            m_libraryThumbs[id] = f.string();
+            // Your own (or, for staff, anyone's): the website and everyone else get the picture too.
+            if (job.value("creator", std::string()) == myId || Online::staff())
+                Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(png)}}, nullptr, 60);
+        }
+    }
+
+    for (const json& a : m_library) {
+        ToolboxTile t;
+        std::string k = a.value("kind", std::string());
+        t.key = "gb:" + a.value("id", std::string());
+        t.name = a.value("name", std::string("?"));
+        t.creator = a.value("creatorName", std::string("?"));
+        t.official = a.value("creatorStaff", false);
+        t.icon = k == "decal" ? Icons::Id::Decal : k == "audio" ? Icons::Id::Sound : Icons::Id::Model;
+        std::string access = a.value("access", std::string("public"));
+        t.tip = k == "model" ? "Click to insert it." : k == "decal" ? "Click to put it on the selected part."
+                                                              : "Click to add it as a Sound.";
+        if (mine && access == "private") t.tip += "\n(Private: only you can see it.)";
+        t.picture = [this, a]() { return libraryPicture(a); };
+        t.use = [this, a]() { useLibraryAsset(a); };
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
+// A picture for a Library item: models have a snapshot (or get one made here),
+// decals are pictures themselves, and sounds show a speaker.
+unsigned Editor::libraryPicture(const json& a) {
+    std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
+    auto it = m_libraryThumbs.find(id);
+    if (it != m_libraryThumbs.end()) return it->second.empty() ? 0 : Textures::get(it->second);
+    m_libraryThumbs[id] = "";
+    if (kind == "decal") {
+        Online::download(id, [this, id](bool ok, const std::filesystem::path& f, const json&) { if (ok) m_libraryThumbs[id] = f.string(); });
+    } else if (kind == "model" && a.value("thumb", 0LL) > 0) {
+        Online::request("thumb.get", {{"id", id}}, [this, id](const json& r) {
+            std::string bytes;
+            if (!r.value("ok", false) || !Online::base64Decode(r.value("data", std::string()), bytes) || bytes.empty()) return;
+            std::filesystem::path f = Paths::downloadsFolder() / ("thumb-" + id + ".png");
+            std::ofstream(f, std::ios::binary).write(bytes.data(), (std::streamsize)bytes.size());
+            m_libraryThumbs[id] = f.string();
+        });
+    } else if (kind == "model") {
+        // No picture yet: get the model and take one.
+        std::string creator = a.value("creator", std::string());
+        Online::download(id, [this, id, creator](bool ok, const std::filesystem::path& f, const json&) {
+            if (ok) m_thumbJobs.push_back({{"id", id}, {"file", f.string()}, {"creator", creator}});
+        });
+    }
+    return 0;
+}
+
+void Editor::useLibraryAsset(const json& a) {
+    std::string id = a.value("id", std::string()), name = a.value("name", std::string()), kind = a.value("kind", std::string());
+    if (kind == "model") {
+        m_libraryMsg = "Getting " + name + "...";
+        Online::download(id, [this, name](bool ok, const std::filesystem::path& f, const json& info) {
+            if (!ok) { m_libraryMsg = info.value("error", std::string("Download failed.")); return; }
+            std::ifstream in(f, std::ios::binary);
+            std::stringstream ss; ss << in.rdbuf();
+            json model = json::parse(ss.str(), nullptr, false);
+            if (!model.is_object() || !model.contains("nodes")) { m_libraryMsg = "That model looks broken."; return; }
+            m_scene->deselect();
+            for (const json& nj : model["nodes"]) {
+                auto n = Serializer::nodeFromString(nj.dump(), true);
+                if (n) m_scene->addToSelection(m_scene->insert(std::move(n), m_scene->root()));
+            }
+            m_libraryMsg = "Inserted " + name + ".";
+            Online::fetchSounds(*m_scene);   // its decals and sounds
+        });
+        return;
+    }
+    Online::download(id);
+    SceneNode* parent = m_scene->selected();
+    if (parent && !parent->isPart()) parent = nullptr;
+    if (kind == "decal" && !parent) { m_libraryMsg = "Select a part first, then click the decal."; return; }
+    auto n = std::make_unique<SceneNode>(name.empty() ? (kind == "decal" ? "Decal" : "Sound") : name,
+                                         kind == "decal" ? NodeKind::Decal : NodeKind::Sound);
+    if (kind == "decal") n->texture = "gb:" + id;
+    else n->soundId = "gb:" + id;
+    m_scene->insert(std::move(n), parent);
+    m_libraryMsg = "Added " + name + ".";
+}
+
+// ---------------------------------------------------------------------------
+// AVATAR > Accessories: make hats and other accessories (Verified creators)
+// ---------------------------------------------------------------------------
+//
+// Put a Model on the mannequin where it should sit, press Save position (it's
+// remembered on the Model, so it survives saving the place), then Upload: the
+// catalog item carries the Model and its spot, relative to the character's feet.
+
+namespace {
+struct AccessoryKind { const char* key; const char* title; const char* where; glm::vec3 spot; };
+const AccessoryKind kAccessoryKinds[] = {
+    {"hat", "Hat", "on top of the head", {0.0f, 2.75f, 0.0f}},
+    {"hair", "Hair", "on the head", {0.0f, 2.55f, -0.05f}},
+    {"faceacc", "Face accessory", "on the front of the face", {0.0f, 2.35f, 0.4f}},
+    {"neck", "Neck accessory", "around the neck", {0.0f, 2.0f, 0.1f}},
+    {"shoulder", "Shoulder accessory", "on a shoulder", {-0.75f, 2.05f, 0.0f}},
+    {"waist", "Waist accessory", "around the waist", {0.0f, 1.05f, 0.0f}},
+};
+
+// The transform that puts `m` (a world matrix) in `root`'s space (rotation order Z*Y*X).
+Transform relativeTo(const glm::mat4& root, const glm::mat4& m) {
+    glm::mat4 r = glm::inverse(root) * m;
+    Transform t;
+    t.position = glm::vec3(r[3]);
+    for (int i = 0; i < 3; ++i) t.scale[i] = glm::length(glm::vec3(r[i]));
+    glm::mat3 R(glm::vec3(r[0]) / t.scale.x, glm::vec3(r[1]) / t.scale.y, glm::vec3(r[2]) / t.scale.z);
+    float sy = std::clamp(-R[0][2], -1.0f, 1.0f);
+    t.rotation.y = glm::degrees(std::asin(sy));
+    if (std::abs(sy) < 0.9999f) {
+        t.rotation.x = glm::degrees(std::atan2(R[1][2], R[2][2]));
+        t.rotation.z = glm::degrees(std::atan2(R[0][1], R[0][0]));
+    } else {   // straight up or down: put all the turn in X
+        t.rotation.x = glm::degrees(std::atan2(-R[2][1], R[1][1]));
+        t.rotation.z = 0.0f;
+    }
+    return t;
+}
+
+void setString(SceneNode& n, const std::string& name, const std::string& value) {
+    for (auto& a : n.attributes) if (a.name == name) { a.type = Attribute::String; a.s = value; return; }
+    Attribute a; a.name = name; a.type = Attribute::String; a.s = value;
+    n.attributes.push_back(a);
+}
+} // namespace
+
+void Editor::renderAccessoryWindow() {
+    if (!m_showAccessory) return;
+    // Opens over the right of the viewport, big enough to see every step.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 470, vp->WorkPos.y + 150), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(440, 520), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Accessories", &m_showAccessory)) { ImGui::End(); return; }
+    onlineLine();
+    const bool allowed = Online::online() && (Online::verified() || Online::staff());
+    if (!allowed) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Hats and accessories are made by Verified creators. Get Verified to make your own!");
+        ImGui::PopTextWrapPos();
+        ImGui::End();
+        return;
+    }
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("1. Add the mannequin.  2. Build your accessory as a Model and select it.  "
+                        "3. Move it into place on the mannequin and press Save position.  4. Upload it to the catalog.");
+    ImGui::PopTextWrapPos();
+
+    // 1. The mannequin.
+    SceneNode* mannequin = m_scene->root()->findChild("Accessory Mannequin");
+    ImGui::SeparatorText("Mannequin");
+    if (!mannequin) {
+        if (ImGui::Button("Add mannequin")) {
+            SceneNode* rig = Player::buildRig(*m_scene, "Accessory Mannequin", glm::vec3(0.0f));
+            m_scene->select(rig);
+            Log::system("Added the accessory mannequin. Build your accessory next to it.");
+        }
+    } else {
+        ImGui::TextDisabled("\"Accessory Mannequin\" is in the Workspace.");
+    }
+
+    // 2. What kind, and which Model.
+    ImGui::SeparatorText("Accessory");
+    ImGui::SetNextItemWidth(220);
+    if (ImGui::BeginCombo("Type", kAccessoryKinds[m_accessoryKind].title)) {
+        for (int i = 0; i < (int)std::size(kAccessoryKinds); ++i)
+            if (ImGui::Selectable(kAccessoryKinds[i].title, i == m_accessoryKind)) m_accessoryKind = i;
+        ImGui::EndCombo();
+    }
+    const AccessoryKind& kind = kAccessoryKinds[m_accessoryKind];
+    SceneNode* model = m_scene->selected();
+    while (model && model->kind != NodeKind::Model && model->parent && model->parent != m_scene->root()) model = model->parent;
+    if (model && (model->kind != NodeKind::Model || model == mannequin || m_scene->isCharacterPart(model))) model = nullptr;
+    if (!model) {
+        ImGui::TextDisabled("Select your accessory: a Model (Ctrl+G groups parts into one).");
+        ImGui::End();
+        return;
+    }
+    ImGui::Text("Accessory: %s", model->name.c_str());
+    const Attribute* saved = model->findAttribute("AccessoryPlacement");
+
+    // 3. Placing it.
+    ImGui::BeginDisabled(!mannequin);
+    if (ImGui::Button("Move to the spot")) {   // a starting point: then fine-tune with the Move / Rotate tools
+        glm::mat4 root = mannequin->worldMatrix();
+        glm::vec3 world = glm::vec3(root * glm::vec4(kind.spot, 1.0f));
+        glm::vec3 local = model->parent ? glm::vec3(glm::inverse(model->parent->worldMatrix()) * glm::vec4(world, 1.0f)) : world;
+        model->transform.position = local;
+        m_scene->markDirty();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Puts it %s. Then move and turn it until it looks right.", kind.where);
+    ImGui::SameLine();
+    if (ImGui::Button("Save position")) {
+        Transform rel = relativeTo(mannequin->worldMatrix(), model->worldMatrix());
+        json j = {{"kind", kind.key}, {"position", {rel.position.x, rel.position.y, rel.position.z}},
+                  {"rotation", {rel.rotation.x, rel.rotation.y, rel.rotation.z}}, {"scale", {rel.scale.x, rel.scale.y, rel.scale.z}}};
+        setString(*model, "AccessoryPlacement", j.dump());
+        m_scene->markDirty();
+        m_accessoryMsg = "Saved where it sits (" + std::string(kind.title) + "). Save your place to keep it.";
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!saved);
+    if (ImGui::Button("Put it back")) {   // back to the saved spot, if it got moved
+        json j = json::parse(saved->s, nullptr, false);
+        if (j.is_object()) {
+            Transform rel;
+            for (int i = 0; i < 3; ++i) {
+                rel.position[i] = j["position"][i].get<float>();
+                rel.rotation[i] = j["rotation"][i].get<float>();
+                rel.scale[i] = j["scale"][i].get<float>();
+            }
+            glm::mat4 world = mannequin->worldMatrix() * rel.matrix();
+            model->transform = relativeTo(model->parent ? model->parent->worldMatrix() : glm::mat4(1.0f), world);
+            m_scene->markDirty();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    if (saved) {
+        json j = json::parse(saved->s, nullptr, false);
+        std::string k = j.is_object() ? j.value("kind", std::string()) : std::string();
+        for (const auto& ak : kAccessoryKinds) if (k == ak.key) ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.4f, 1), "Position saved as a %s.", ak.title);
+    }
+
+    // 4. Uploading.
+    ImGui::SeparatorText("Upload to the catalog");
+    ImGui::SetNextItemWidth(-90);
+    ImGui::InputTextWithHint("Name", model->name.c_str(), &m_accessoryName);
+    ImGui::InputTextMultiline("Description", &m_accessoryDesc, ImVec2(-90, 50));
+    ImGui::SetNextItemWidth(140);
+    if (ImGui::InputInt("Price (Bolts)", &m_accessoryPrice, 5, 50)) m_accessoryPrice = std::clamp(m_accessoryPrice, 0, 1000000);
+    ImGui::BeginDisabled(!saved || m_onlineBusy);
+    if (ImGui::Button("Upload", ImVec2(140, 30))) {
+        json place = json::parse(saved->s, nullptr, false);
+        json node = json::parse(Serializer::nodeToString(*model), nullptr, false);
+        if (place.is_object() && node.is_object()) {
+            // The Model's own transform becomes "where it sits, from the feet".
+            node["pos"] = place["position"];
+            node["rot"] = place["rotation"];
+            node["size"] = place["scale"];
+            json acc = {{"format", "gbaccessory"}, {"version", 1}, {"kind", place.value("kind", std::string("hat"))}, {"node", node}};
+            // A picture of just the accessory for the catalog.
+            std::string picture = m_thumbnailer->png({model}, 256);
+            std::string name = m_accessoryName.empty() ? model->name : m_accessoryName;
+            json args = {{"kind", acc["kind"]}, {"name", name}, {"description", m_accessoryDesc}, {"price", m_accessoryPrice},
+                         {"data", Online::base64Encode(acc.dump())}};
+            m_onlineBusy = true;
+            m_accessoryMsg = "Uploading...";
+            Online::request("upload", args, [this, picture, name](const json& r) {
+                m_onlineBusy = false;
+                if (!r.value("ok", false)) { m_accessoryMsg = r.value("error", std::string("The upload didn't work.")); return; }
+                std::string id = r["asset"].value("id", std::string());
+                if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
+                m_accessoryMsg = "Uploaded \"" + name + "\" to the catalog!";
+                Log::system("Uploaded the accessory \"" + name + "\" (" + id + ")");
+            }, 120);
+        }
+    }
+    ImGui::EndDisabled();
+    if (!saved) { ImGui::SameLine(); ImGui::TextDisabled("Save its position first."); }
+    if (!m_accessoryMsg.empty()) { ImGui::PushTextWrapPos(0); ImGui::TextUnformatted(m_accessoryMsg.c_str()); ImGui::PopTextWrapPos(); }
+    ImGui::End();
 }

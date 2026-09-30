@@ -261,6 +261,7 @@ std::string className(const SceneNode& n) {
         case NodeKind::Value:      return n.valueClass();
         case NodeKind::Decal:      return "Decal";
         case NodeKind::Animation:  return "Animation";
+        case NodeKind::Gui:        return kGuiClassNames[(int)n.gui.type];
         case NodeKind::Constraint: return std::string(kConstraintNames[(int)n.constraintType]) + "Constraint";
         default: return n.name == "SpawnLocation" ? "SpawnLocation" : "Part";
     }

@@ -67,38 +67,7 @@ void PlayerPanel::render() {
             player->setHat((HatStyle)hat);
     }
 
-    if (ImGui::CollapsingHeader("Death & Gore", ImGuiTreeNodeFlags_DefaultOpen)) {
-        WorldSettings& w = m_scene->world();
-        const char* styles[] = {"Classic (fall apart)", "Ragdoll"};
-        int ds = (int)w.deathStyle;
-        if (ImGui::Combo("Death Style", &ds, styles, 2)) w.deathStyle = (DeathStyle)ds;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Classic: the character falls to pieces like in Roblox.\n"
-                              "Ragdoll: the body goes limp and tumbles with real joints.");
-        const char* gore[] = {"Off", "Oil & Bolts", "Blood"};
-        int g = (int)w.gore;
-        if (ImGui::Combo("Gore", &g, gore, 3)) w.gore = (GoreLevel)g;
-        ImGui::BeginDisabled(w.gore == GoreLevel::Off);
-        ImGui::Checkbox("Dismemberment", &w.dismemberment);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Big hits (explosions, long falls, saws) knock limbs off");
-        ImGui::EndDisabled();
-        ImGui::Checkbox("Fall Damage", &w.fallDamage);
-        ImGui::BeginDisabled(!w.fallDamage);
-        ImGui::SliderFloat("Safe Fall Speed", &w.fallDamageSpeed, 5.0f, 60.0f, "%.0f");
-        ImGui::EndDisabled();
-        ImGui::SliderFloat("Spawn ForceField", &w.spawnForceField, 0.0f, 20.0f, "%.0f s");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("A glowing shield for a few seconds after spawning.\n"
-                              "Blocks damage from TakeDamage, explosions and falls.");
-        if (ImGui::Button("Classic Roblox rules")) {
-            w.deathStyle = DeathStyle::Classic; w.gore = GoreLevel::Off; w.fallDamage = false;
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Full carnage")) {
-            w.deathStyle = DeathStyle::Ragdoll; w.gore = GoreLevel::Blood;
-            w.dismemberment = true; w.fallDamage = true;
-        }
-    }
+    if (ImGui::CollapsingHeader("Death & Gore", ImGuiTreeNodeFlags_DefaultOpen)) drawGameRules(m_scene->world());
 
     if (ImGui::CollapsingHeader("Character")) {
         if (ImGui::Button("Rebuild Character")) player->build();
@@ -112,4 +81,66 @@ void PlayerPanel::render() {
     ImGui::TextDisabled("Press Play, then move with WASD + Space.");
 
     ImGui::End();
+}
+
+void drawGameRules(WorldSettings& w) {
+    ImGui::SeparatorText("Death");
+    const char* styles[] = {"Classic (fall apart)", "Ragdoll"};
+    int ds = (int)w.deathStyle;
+    if (ImGui::Combo("Death Style", &ds, styles, 2)) w.deathStyle = (DeathStyle)ds;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Classic: the character falls to pieces like in Roblox.\n"
+                          "Ragdoll: the body goes limp and tumbles with real joints.");
+    ImGui::SliderFloat("Spawn ForceField", &w.spawnForceField, 0.0f, 20.0f, "%.0f s");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A glowing shield for a few seconds after spawning.\n"
+                          "Blocks damage from TakeDamage, explosions and falls.");
+
+    ImGui::SeparatorText("Players");
+    ImGui::Checkbox("Player Collisions", &w.playerCollisions);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On: players bump into each other (and can stand on each other's heads).\n"
+                          "Off: players walk right through each other.");
+
+    ImGui::SeparatorText("Fall damage");
+    ImGui::Checkbox("Fall Damage", &w.fallDamage);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn off and players can fall from any height unhurt.");
+    ImGui::BeginDisabled(!w.fallDamage);
+    ImGui::SliderFloat("Safe Fall Speed", &w.fallDamageSpeed, 5.0f, 60.0f, "%.0f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Landing slower than this doesn't hurt. Higher = safer falls.");
+    ImGui::SliderFloat("Fall Damage Strength", &w.fallDamageScale, 0.1f, 5.0f, "x%.1f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much a hard landing hurts. 2 = twice as much, 0.5 = half.");
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Gore");
+    const char* gore[] = {"Off", "Oil & Bolts", "Blood"};
+    int g = (int)w.gore;
+    if (ImGui::Combo("Gore", &g, gore, 3)) w.gore = (GoreLevel)g;
+    ImGui::BeginDisabled(w.gore == GoreLevel::Off);
+    ImGui::Checkbox("Dismemberment", &w.dismemberment);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Big hits (explosions, long falls, saws) knock limbs off");
+    ImGui::SliderFloat("Blood Amount", &w.bloodAmount, 0.2f, 3.0f, "x%.1f");
+    ImGui::SliderFloat("Pools Last", &w.bloodStay, 3.0f, 120.0f, "%.0f s");
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(w.gore != GoreLevel::Blood);
+    ImGui::ColorEdit3("Blood Color", &w.bloodColor.x, ImGuiColorEditFlags_NoInputs);
+    ImGui::SameLine();
+    struct Preset { const char* name; glm::vec3 c; };
+    const Preset presets[] = {{"Red", {0.50f, 0.02f, 0.03f}}, {"Slime", {0.25f, 0.65f, 0.08f}},
+                              {"Alien", {0.10f, 0.30f, 0.85f}}, {"Ink", {0.05f, 0.05f, 0.08f}}};
+    for (const Preset& p : presets) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton(p.name)) w.bloodColor = p.c;
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    if (ImGui::Button("Classic Roblox rules")) {
+        w.deathStyle = DeathStyle::Classic; w.gore = GoreLevel::Off; w.fallDamage = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Full carnage")) {
+        w.deathStyle = DeathStyle::Ragdoll; w.gore = GoreLevel::Blood;
+        w.dismemberment = true; w.fallDamage = true;
+    }
 }

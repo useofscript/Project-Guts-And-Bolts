@@ -10,6 +10,7 @@ extern "C" {
 
 class ScriptEngine;
 class SceneNode;
+struct UDim2;
 
 // Events a script can :Connect() to.
 enum class SignalKind : int {
@@ -33,6 +34,10 @@ enum class SignalKind : int {
     AnimEnded,     // track.Ended                     ()
     AnimDidLoop,   // track.DidLoop                   ()
     KeyframeReached, // track.KeyframeReached         (keyframeName)
+    GuiClick,      // button.MouseButton1Click / .Activated  ()
+    GuiEnter,      // guiObject.MouseEnter            ()
+    GuiLeave,      // guiObject.MouseLeave            ()
+    MoveToFinished, // humanoid.MoveToFinished        (reached)   (id = character)
 };
 
 namespace LuaApi {
@@ -50,6 +55,14 @@ glm::vec3* toColor3   (lua_State* L, int idx);            // null if not a Color
 void       pushCFrame (lua_State* L, const glm::mat4& m);
 glm::mat4* toCFrame   (lua_State* L, int idx);
 glm::mat4  checkCFrame(lua_State* L, int idx);
+void       pushUDim2  (lua_State* L, const UDim2& u);      // game UI sizes / positions
+UDim2*     toUDim2    (lua_State* L, int idx);
+UDim2      checkUDim2 (lua_State* L, int idx);
+void       pushUDim   (lua_State* L, float scale, float offset);
+glm::vec2  checkUDim  (lua_State* L, int idx);             // (scale, offset)
+void       pushVector2(lua_State* L, const glm::vec2& v);
+glm::vec2* toVector2  (lua_State* L, int idx);
+glm::vec2  checkVector2(lua_State* L, int idx);
 
 // Objects (LuaInstance.cpp)
 void       registerInstance(lua_State* L);

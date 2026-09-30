@@ -135,9 +135,19 @@ void refresh(SceneNode& node) {
         }
         for (auto& n : smoothN) n = glm::length(n) > 1e-12f ? glm::normalize(n) : glm::vec3(0, 1, 0);
     }
-    for (auto& f : m.faces) {
+    const bool ownUVs = m.uvs.size() == m.faces.size();
+    for (size_t fi = 0; fi < m.faces.size(); ++fi) {
+        const auto& f = m.faces[fi];
         if (f.size() < 3) continue;
         glm::vec3 n = faceNormal(m, f);
+        if (ownUVs && m.uvs[fi].size() == f.size()) {   // laid out by hand (clothing templates)
+            uint32_t base = (uint32_t)verts.size();
+            for (size_t c = 0; c < f.size(); ++c)
+                verts.push_back({m.verts[f[c]], m.smooth ? smoothN[f[c]] : n, m.uvs[fi][c]});
+            for (uint32_t k = 1; k + 1 < (uint32_t)f.size(); ++k)
+                idx.insert(idx.end(), {base, base + k, base + k + 1});
+            continue;
+        }
         // Box-style texture coordinates: project along the face's main direction.
         glm::vec3 an = glm::abs(n);
         int ax = an.x > an.y && an.x > an.z ? 0 : (an.y > an.z ? 1 : 2);

@@ -29,7 +29,7 @@ const char* const kWords[] = {
     "workspace", "game", "script", "Instance.new", "Vector3.new", "Color3.new", "Color3.fromRGB", "Color3.fromHSV",
     "CFrame.new", "CFrame.Angles", "CFrame.lookAt", "task.wait", "task.spawn", "task.delay", "wait", "spawn", "delay",
     "time", "tick", "Explode", "Effects", "Sounds", "Gui", "Lighting", "Enum",
-    "Players", "RunService", "UserInputService", "CollectionService",
+    "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService",
     "game:GetService", "Players.LocalPlayer", "RunService.Heartbeat", "UserInputService.InputBegan",
     // Members
     "Parent", "Name", "ClassName", "Position", "Orientation", "Size", "CFrame", "Color", "Transparency", "Material",
@@ -38,10 +38,19 @@ const char* const kWords[] = {
     "Connect", "Once", "Wait", "Disconnect", "FindFirstChild", "FindFirstChildOfClass", "WaitForChild", "GetChildren",
     "GetDescendants", "Destroy", "Clone", "IsA", "IsDescendantOf", "GetFullName", "GetPivot", "PivotTo",
     "ApplyImpulse", "ApplyAngularImpulse", "TakeDamage", "BreakJoints", "Play", "Stop",
+    "MoveTo", "MoveToFinished", "Move", "Jump", "RootPart", "GetState", "CreatePath", "ComputeAsync", "GetWaypoints",
     "GetAttribute", "SetAttribute", "GetAttributes", "GetAttributeChangedSignal", "AttributeChanged",
     "AddTag", "RemoveTag", "HasTag", "GetTags", "GetTagged", "GetInstanceAddedSignal",
     "ClockTime", "Brightness", "FogEnabled", "FogColor", "Ambient",
     "Gui.Label", "Gui.Message", "Effects.Blood", "Effects.Oil", "Effects.Gibs", "Effects.Sparks", "Sounds.Play",
+    // Game UI
+    "UDim2.new", "UDim2.fromScale", "UDim2.fromOffset", "UDim.new", "Vector2.new", "StarterGui", "PlayerGui",
+    "ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke",
+    "AnchorPoint", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel", "BorderColor3", "ZIndex",
+    "Visible", "Text", "TextColor3", "TextSize", "TextScaled", "TextWrapped", "TextXAlignment", "TextYAlignment",
+    "TextTransparency", "TextStrokeTransparency", "TextStrokeColor3", "Image", "ImageColor3", "ImageTransparency",
+    "AutoButtonColor", "ClipsDescendants", "CornerRadius", "Thickness", "AbsoluteSize", "AbsolutePosition",
+    "MouseButton1Click", "Activated", "MouseEnter", "MouseLeave", "DisplayOrder", "Enabled",
 };
 
 bool wordChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }

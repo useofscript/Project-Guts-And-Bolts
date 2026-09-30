@@ -82,7 +82,14 @@ The panels:
   Roblox's search words: `c:Script` (kind of object), `is:Script`, `tag:Enemy`,
   `name:Door`, property checks like `Anchored=false` or `Transparency>0.5`, and
   `or` to match either side.
-- **Toolbox**: parts, scripts, lights and **ready-made** objects that already
+- **Toolbox** (laid out like Roblox's): **Library** (everyone's public
+  models, decals and audio, plus Studio's own parts and ready-made objects),
+  **Inventory** (your own uploads, private ones too) and **Recent** (what you
+  inserted lately). Pick a category, search, and click a picture to insert it.
+  Every item has a picture: Studio photographs models on their own, and
+  things made by Guts&Bolts staff (and Studio's built-in objects) carry a gold
+  **official** badge, so you know they're safe to use. It has
+  parts, scripts, lights and **ready-made** objects that already
   contain scripts: kill brick, coin, jump pad, spinner, moving and fading
   platforms, speed pad, click button, lamp post, disco floor, landmine, saw
   blade, spike trap, exploding barrel and a day/night cycle. There are also
@@ -166,6 +173,29 @@ between four modes:
 **Stop** (`Shift+F5` or `Esc`) goes back to Build mode, and everything goes
 back exactly how it was before you pressed Simulate or Play.
 
+### Assistant (AI help)
+
+The **Assistant** tab (HOME > Assistant) is Studio's AI helper, like Roblox
+Studio's Assistant. Two ways to use it:
+
+- **Chat with Claude.** Paste your Anthropic API key (from
+  console.anthropic.com) into Chat settings. It stays on your computer. Then ask
+  for things like "make an obby with 10 jumps" or "why doesn't my door script
+  work?". The Assistant can look at your game, build, write and fix scripts,
+  run Lua, playtest, read the Output and take screenshots to check its work.
+  Ctrl+Z undoes anything it does.
+- **Connect AI apps with MCP.** Tick "Let AI apps use Studio (MCP)" and apps
+  on your computer that speak MCP (the Model Context Protocol) can use the same
+  tools: Claude Code, Claude Desktop, and other AI coding tools. Only programs
+  on this computer can connect. The tab shows copy-and-paste set-up for each:
+  - Claude Code: `claude mcp add --transport http guts-and-bolts http://127.0.0.1:44755/mcp`
+  - Claude Desktop and apps that start a program: run `GutsAndBolts --mcp` (it
+    passes messages to the Studio that's open).
+
+The tools: `get_game_tree`, `get_object`, `set_property`, `insert_object`,
+`delete_object`, `create_script`, `read_script`, `edit_script`, `run_lua`,
+`get_output`, `playtest`, `screenshot`, `select` and `undo`.
+
 ### Plugins
 
 Plugins are small Lua files that add buttons to Studio's **PLUGINS** tab.
@@ -183,7 +213,7 @@ end)
 ```
 
 Anything a plugin changes can be undone with Ctrl+Z. With a server,
-**PLUGINS > Marketplace** lets you install plugins other people published
+**PLUGINS > Library** lets you install plugins other people published
 (buying them first if they cost Bolts), add uploaded audio to your game, and
 publish your own plugins.
 
@@ -343,6 +373,54 @@ Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
 of an online game; people who join someone else's game can't carry tools
 yet.
 
+## Game UI (ScreenGui, buttons, labels)
+
+Games can have their own on-screen UI, like Roblox's: menus, shop buttons, coin
+counters and title screens.
+
+- **Insert** (Ctrl+I) a **ScreenGui**. It goes in the **StarterGui** folder.
+  Then insert **Frame**, **TextLabel**, **TextButton**, **ImageLabel** or
+  **ImageButton** into it. Put a **UICorner** inside one to round its corners,
+  or a **UIStroke** to give it an outline.
+- The UI shows in the viewport while you build. Click it to pick it, drag it to
+  move it, and drag the blue corner to resize it. Everything else is in
+  **Properties**.
+- Sizes and positions are **UDim2**, like Roblox: a fraction of the parent plus
+  pixels. `UDim2.new(0.5, 0, 1, -60)` means "halfway across, 60 pixels up from
+  the bottom". **AnchorPoint** picks which point of it sits there (0.5, 0.5 is
+  the middle).
+
+Scripts use the same names as Roblox:
+
+```lua
+local gui = Instance.new("ScreenGui")
+gui.Parent = game:GetService("StarterGui")
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.fromOffset(200, 50)
+button.Position = UDim2.new(0.5, 0, 1, -40)
+button.AnchorPoint = Vector2.new(0.5, 1)
+button.Text = "Clicks: 0"
+button.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+button.Parent = gui
+Instance.new("UICorner", button)
+
+local clicks = 0
+button.MouseButton1Click:Connect(function()
+    clicks = clicks + 1
+    button.Text = "Clicks: " .. clicks
+end)
+```
+
+Buttons have `MouseButton1Click` (also called `Activated`), `MouseEnter` and
+`MouseLeave`. Text has `TextScaled`, `TextWrapped`, alignment, an outline
+(`TextStrokeTransparency`) and bold fonts (`Enum.Font.SourceSansBold`).
+`player.PlayerGui` and `game.StarterGui` are the same folder.
+
+In multiplayer, everyone sees the same UI. When anyone clicks a button, the
+host's scripts hear about it. Roblox files keep their UI: ScreenGuis in a
+place's StarterGui are imported, and exported back to Roblox.
+
 ## Animations (the Animation Editor)
 
 Like Roblox's: make an animation in Studio, then play it from a script.
@@ -448,6 +526,100 @@ Most built-in sounds are made in code, but a few are recordings in
 
 Swap in your own .wav files with the same names and rebuild.
 
+### Climbing and swimming
+
+- **Climb:** walk into a **TrussPart** (Insert > TrussPart), or any part called
+  *Ladder*, or one with the tag or attribute `Climbable`. You go up hand over
+  hand. Let go of the keys to hang on, and press jump to leap off.
+- **Swim:** a part called **Water** (Insert > Water: see-through, CanCollide
+  off), or one with the tag or attribute `Water`. You float, move a bit slower,
+  and hold jump to swim up. No fall damage when you land in water.
+- Scripts can check with `humanoid:GetState()`, which returns "Climbing",
+  "Swimming", "Freefall", "Running" or "Dead".
+
+### Real water
+
+Water isn't just a see-through box you can swim in. While the game runs:
+
+- **Waves and ripples.** The surface moves. Drop something in and rings of
+  ripples spread out and bounce off the sides of the pool. Swimming or walking
+  through it leaves a wake.
+- **Floating and sinking.** Loose (unanchored) parts float or sink depending on
+  their material, like real life: **Wood**, **Ice**, **Plastic** and **Neon**
+  float (wood highest), while **Metal**, **Glass** and **Concrete** sink. Set a
+  part's Density to choose exactly. A long plank tips over and floats flat, and
+  boats rock on the waves.
+- **Splashes.** Things (and people) that fall in throw up spray, make a splash
+  sound and a dip in the water.
+- **Ocean swell.** Give a water part a number attribute called `Waves` (like
+  `0.5`) for big rolling waves that lift everything floating on them.
+- **Currents.** Give it a Vector3 attribute called `Flow` (like `4, 0, 0`) and
+  it carries swimmers and floating things along: rivers, rapids, lazy rivers.
+
+Scripts can make, move or resize water while playing (a rising flood works).
+
+### Flowing water (WaterSource)
+
+Insert > **WaterSource** makes a spout that pours water while the game runs.
+The water really flows: it runs downhill, spreads across the floor, fills
+holes and pools, piles up behind walls and pours over the edges when they're
+full. You can swim in it, things float on it, and fast-moving water carries
+you along.
+
+- **Rate** attribute: how much water it pours each second (default 8). Set it
+  to 0 from a script to turn the tap off, and back up to turn it on.
+- **FloodSize** attribute: how big an area the water can spread over (default
+  80 units, up to 200). Water that runs past the edge is gone.
+- Any part called WaterSource works, or give one the tag `WaterSource`.
+
+Try a flooding-room obby, a dam you blow up, or a sinking ship.
+
+## NPCs (zombies and other characters)
+
+Any Model built like a character (with a **HumanoidRootPart**, **Torso** and
+**Head** inside) becomes an NPC when the game starts, or as soon as a script
+puts one in the world (for example, cloning a zombie out of ServerStorage). It
+has a Humanoid, stands on the ground, walks with swinging arms and legs, and
+falls apart (or ragdolls) when it dies.
+
+The Toolbox has a ready-made **Zombie**. It chases the nearest player, walks
+around walls and bites. Open its script to see how it works.
+
+Steer an NPC from a script through its Humanoid, like Roblox:
+
+```lua
+local npc = workspace.Guard
+local humanoid = npc.Humanoid
+
+humanoid.WalkSpeed = 8
+humanoid:MoveTo(Vector3.new(10, 0, 20))   -- walk there
+humanoid.MoveToFinished:Wait()            -- true if it got there (it gives up after 8 seconds)
+humanoid.Jump = true                      -- hop once
+humanoid.Died:Connect(function() print("got him!") end)
+```
+
+To walk around walls, ask **PathfindingService** for a route:
+
+```lua
+local PathfindingService = game:GetService("PathfindingService")
+local path = PathfindingService:CreatePath()
+path:ComputeAsync(npc.HumanoidRootPart.Position, target.Position)
+if path.Status == Enum.PathStatus.Success then
+    for _, point in ipairs(path:GetWaypoints()) do
+        if point.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+        humanoid:MoveTo(point.Position)
+        humanoid.MoveToFinished:Wait()
+    end
+end
+```
+
+Give the model a **WalkSpeed** or **MaxHealth** attribute to set those without
+a script. NPCs whose name has "Zombie" in it (or tagged `Zombie`) walk with
+their arms out. In multiplayer the host moves the NPCs, and everyone sees them.
+
+The Command Bar now runs inside the game while you're playing, so you can poke
+at NPCs (and anything else) live.
+
 ## Physics
 
 Loose (un-anchored) parts are real rigid bodies: they tumble, spin, stack,
@@ -467,7 +639,86 @@ Constraints join parts together through **Attachments** (little points on a part
 | Hinge | Lets a part swing around one axis, like a door or a wheel |
 | Motor | A hinge that spins by itself (`AngularVelocity`, `MotorMaxTorque`) |
 
+### The character's body
+
+- **Hitbox like Roblox R6:** the body collides as a box as wide as the torso
+  (2 studs) and half as deep (1 stud), from the feet to the top of the head, and
+  it turns with the character. Arms and legs don't collide, so you fit through
+  gaps sideways and brush past corners.
+- **Touched per body part:** like Roblox, each part of the body that touches
+  something fires `Touched` on its own (`hit` is that arm, leg, head...), and
+  the body part's own `Touched` fires too.
+- **Walk cycle follows your real speed:** a higher `WalkSpeed` takes quicker,
+  longer strides; walking into a wall doesn't run on the spot.
+- **Getting hit:** loose parts that crash into you shove you back, harder the
+  heavier and faster they are. A big hit knocks you off your feet.
+- **Moving platforms:** they carry you, spinning ones turn you with them, and
+  jumping off keeps their speed.
+
+### Names and whispers
+
+Everyone's name floats above their head (NPCs too, like "Zombie"), with a
+small health bar when they're hurt. Your own name hides when you zoom into
+first person.
+
+To send a private message, type `/w PlayerName message` (or `/whisper`) in
+chat. Only you and that player see it, with no speech bubble. Capitals don't
+matter, and the start of a name is enough if only one player's name starts
+that way.
+
+### The play camera
+
+Like Roblox, the camera orbits your character's **head**. Right-drag to look
+around and use the mouse wheel to zoom. As the camera comes close your
+character fades away so it doesn't block the view. Scroll all the way in for
+**first person**: the camera sits in your head, your body is invisible (you
+still see the tool you're holding), your character turns to face where you
+look, and the mouse looks around by itself with a dot in the middle of the
+screen. Scroll out to go back. On phones, pinch to zoom in and out.
+
+**Shift Lock**: press Shift to lock the mouse in the middle of the screen. The
+camera moves over your right shoulder and your character always faces where
+you look (a ring shows in the middle). Press Shift again to turn it off. It
+works in the Player and in Studio's play test, and you can switch it off in
+the in-game menu.
+
+### The in-game menu
+
+Press **Esc** (or the Menu button) for a Roblox-style menu with three tabs:
+
+- **Players**: everyone in the server, with Verified and Staff tags.
+- **Settings**: Shift Lock Switch, camera sensitivity, invert camera, volume,
+  fullscreen, graphics quality, show FPS, blood and gore, touch controls, and
+  a button for the advanced graphics settings.
+- **Help**: the controls.
+
+Along the bottom: **[R] Reset Character**, **[L] Leave Game** (both ask "Are
+you sure?" first) and **[Esc] Resume Game**.
+
+### Player collisions
+
+Players bump into each other like in Roblox, and you can stand on someone's
+head. Turn it off in **Game Settings > Damage & Blood > Player Collisions**
+(or from a script: `workspace.PlayerCollisions = false`) and everyone walks
+straight through each other.
+
 ## Death, ragdolls and gore
+
+**Game Settings > Damage & Blood** (also in the Player panel) has all of it:
+death style, fall damage on or off, how hard a fall has to be to hurt (Safe
+Fall Speed) and how much it hurts (Fall Damage Strength), gore (off, oil &
+bolts, or blood), dismemberment, and the blood itself: its **color** (red,
+slime green, alien blue, ink, or anything), how much sprays out, and how long
+pools last.
+
+Blood is a liquid: drops stretch as they fly, splash into pools that spread
+out and join together, and blood that hits a wall runs down it in drips.
+
+Scripts can change these too: `workspace.FallDamage = false`,
+`workspace.SafeFallSpeed`, `workspace.FallDamageScale`,
+`workspace.BloodColor = Color3.new(0.2, 0.7, 0.1)`, `workspace.BloodAmount`, and
+`Effects.Blood(position, amount, direction)` sprays blood (the direction is
+optional, e.g. `Vector3.new(0, 2, -8)` to splatter a wall).
 
 Each game picks its own rules in the Player panel (**Death & Gore**):
 
@@ -493,12 +744,17 @@ Games saved with the old blocky character get the new one when they load.
 ## Guts&Bolts Player
 
 - **Home:** every game in the `games` folder, each with a rendered preview.
-  Press **Play** to jump into a **public server** of that game (when you're
-  connected to a Guts&Bolts server; otherwise you just play alone).
+  Press **Play** to jump into a **public server** of that game.
+- **Servers** (on a game's page, in the app and on the website): cards for
+  every running server with the faces of the people in it, how full it is,
+  **Join** to hop into that exact server and **Share** to copy a link to it.
 - **Create a server** (on a game's page): a **private server** (friends and
-  people with its code), **offline** (just you) or **local network** (same
-  Wi-Fi). The same window lists the servers running now and has a box for
-  joining with a code.
+  people with its code). The same window lists the servers running now and has
+  a box for joining with a code.
+- **Always online:** everyone plays on the main Guts&Bolts server; there's no
+  offline or local-network play. Without internet the site says *Can't reach
+  Guts&Bolts* with a **Try again** button. (Studio still builds and
+  play-tests without internet.)
 - **Friends:** see "Friends and servers" below.
 - **Catalog:** hats, shirts and pants for your avatar. Only the official staff
   account can add items (see below), so it starts out empty.
@@ -543,10 +799,10 @@ public half is your **account ID** (safe to share). The secret half stays in
 ### Guts&Bolts server (storing things online)
 
 The **official Guts&Bolts server runs on Cloudflare** (with the website), so it's
-online even when nobody's computer is on. The apps start on it:
-`https://project-guts-and-bolts.pizzadoe173.workers.dev`. In the server window
-(the site's **Online/Offline** button, or Studio's **File > Guts&Bolts
-Server...**), **Official server** switches back to it at any time.
+online even when nobody's computer is on. The apps always use it:
+`https://project-guts-and-bolts.pizzadoe173.workers.dev`. (Clicking the status
+pill on the site's banner, or Studio's **File > Guts&Bolts Server... >
+Reconnect**, tries again if the connection dropped.)
 
 How it works:
 
@@ -566,19 +822,17 @@ How it works:
 - Everything fits Cloudflare's free plan for a small community: about 100,000
   requests a day, and 5 GB of storage.
 
-You can still run your own server on a computer instead, for example for LAN
-parties:
+For developers, the C++ server can still run on a computer (for example to
+test server changes). The apps only use it when started with the `GB_SERVER`
+environment variable set to its address:
 
 1. **Start it.** Double-click `tools/Start Server.bat` (Windows) or
    `tools/Start Server.command` (Mac), or run `python3 install.py --server`.
    A window opens and says which address and port (7780) it's on. Keep that
    window open while people play. Everything it stores goes in the
    `server_data` folder; back that folder up to keep it safe.
-2. **Connect the apps.** On the site, click the server button on the banner
-   (on phones, **Offline** in the nav bar). In Studio, use **File >
-   Guts&Bolts Server...**. Type the server's address, like `192.168.1.20`
-   (same Wi-Fi) or `myserver.com:7780`, and click **Connect**. Leave it empty
-   to play offline.
+2. **Connect the apps.** Start them with `GB_SERVER` set to the server's
+   address, like `GB_SERVER=192.168.1.20` or `GB_SERVER=myserver.com:7780`.
 3. **Let friends outside your house connect** (optional). Either forward port
    7780 on your router to the server computer and give friends your public
    IP, or run the server on a rented Linux server (a "VPS") and give out its
@@ -596,10 +850,10 @@ On another computer, start the server once with `--official <your account ID>`
   its history.
 - **Uploads:**
   - hats, shirts and pants (the online **Catalog**);
-  - audio (in Studio's **Marketplace**; sounds play as `gb:<id>`);
+  - audio (in Studio's **PLUGINS > Library**; sounds play as `gb:<id>`);
   - **decals**, pictures for Decal objects (`.png` or `.jpg`, up to 4 MB;
     used as `gb:<id>`);
-  - **plugins** (Studio's Marketplace);
+  - **plugins** (Studio's PLUGINS > Library);
   - **games** (Studio's **File > Publish to Guts&Bolts**; they show up under
     **Online Games** on the site's home page).
 - **Who owns what.**
@@ -623,13 +877,27 @@ Games published from Studio get a **picture** (Studio takes it from the spawn
 point when you publish), shown on the website's game cards. A red number on
 **Friends** means friend requests are waiting.
 
-Playing games still happens in the app. Visitors who aren't signed in can look
-around (games, catalog, people, groups) but can't change anything.
+Playing games still happens in the app. The website's **Play** button opens the
+app on that game with a `gutsandbolts://play/<game>` link (the Player sets that
+up by itself on Windows and Linux, and the Android app has it built in; on a Mac,
+open the app yourself). Visitors who aren't signed in pick **Play As Boy** or
+**Play As Girl** first and play as a guest.
+
+Visitors who aren't signed in can see every page. Buying, claiming Bolts,
+saving an avatar, adding friends, joining groups and uploading pop up *"You need
+to log in"* with Sign Up and Log In buttons.
 
 The website talks to the Guts&Bolts server on Cloudflare (see below). Your
 password never leaves the browser.
 
 ### The Create page
+
+**Configure** a published game on the website (Create > My Games > Configure):
+change its name and description, choose **who can play** (*Public*, *Friends
+only* or *Private*), upload a **thumbnail** (cropped to 16:9) and a square
+**icon**, or upload a new version. Private and friends-only games are hidden
+from everyone else: the server won't list them, send them or start servers
+for them.
 
 The site's **Create** page has one tab per kind of thing you make:
 
@@ -654,14 +922,135 @@ Uploading costs:
 - **Everyone else:** a small fee (5 Bolts for decals, 10 for clothes, 20 for
   audio and plugins), 5 uploads a day, and everything they make is free.
 
+Who can make what:
+
+- **Hats** are for Verified creators only. **Shirts and pants** can be made by
+  anyone with an account. Guests can only play games.
+- **Decals and audio are always free**, even from Verified creators: they're
+  free-use assets anyone can put in their games.
+
 The **Staff** page gets a server section where you can search for people and
 **Verify** / **Unverify** them with one click. The official account can also
-make people **Staff**, give or take Bolts, and ban.
+make people **Staff**, give or take Bolts, and ban. Banning asks for a reason
+(sexual content, violent extremism, harassment, hate speech, threats, scams,
+sharing personal info, exploiting, spam and so on) and an optional note; the
+banned player sees them when they try to sign in.
+
+### The Library (sharing models)
+
+Select some objects in Studio and use **File > Publish Selection to Library**.
+Give it a name, and pick **Public** (everyone can find and use it) or
+**Private** (only you). Verified creators can make as many models public as
+they want; everyone else can make **5 public a week** (private ones don't
+count). Studio takes a picture of the model for its thumbnail.
+
+Find things in two places:
+
+- **Studio's Toolbox > Library:** everyone's public models, decals and
+  audio, with pictures and a search box (your own are under **Inventory**).
+  Models uploaded without a picture get one taken when someone views them. Click a model to insert it, a decal to put
+  it on the selected part, or a sound to add it.
+- **The website's Create > Library tab:** all public models, decals, audio and
+  plugins. **Create > Models** lists yours with a Public / Private switch.
+
+### Limiteds, resale and trading
+
+- **Edit item:** on an item's page on the website, its creator (or staff) can
+  change its name, description, price, colour, hat shape or clothing picture.
+- **Limited items:** only the Guts account can make an item Limited, and only
+  its own **accessories and faces** (never shirts, pants, audio, decals or
+  models). A Limited has a fixed stock. Each copy gets a number (#1, #2, ...). While there's stock
+  left it sells like normal; once it's **sold out**, the only way to get one
+  is from another player.
+- **Resale:** owners of a Limited copy can put it up for sale on the item's
+  page, at any price. The seller gets 70% of the price. The cheapest copies
+  show first under **Resellers**.
+- **Trading:** press **Trade** on someone's profile, pick up to 4 of your
+  Limiteds and up to 4 of theirs, and send the offer. They accept or decline
+  on the **Trades** page. The swap only happens if both of you still have
+  everything.
+
+### Accessories and faces
+
+Besides hats there are **hair**, **face**, **neck**, **shoulder** and **waist**
+accessories. Verified creators make them in **Studio**:
+
+1. Build the accessory (one Model or part).
+2. Open **AVATAR > Accessories**. Press **Add mannequin** to get a character to
+   try it on, pick the **type**, select your model and press **Move to the
+   spot** (it jumps to where that type sits, like the top of the head).
+3. Move, turn and stretch it until it looks right, then **Save position**.
+4. Give it a name, description and price and press **Upload**. Studio takes a
+   picture of it for the catalog.
+
+A worn hat or hair takes the place of the built-in hat.
+
+**Faces** are pictures drawn on the front of the head. Only the Guts account
+can make them: on the website, **Create > Faces**, upload a square .png that's
+see-through around the eyes and mouth.
+
+### Changing your username
+
+On the website's **Settings** page you can change your username for **1,000
+Bolts**. Your old usernames show on your profile under **Past usernames**.
+Usernames are never reused: nobody else can take one of your old names, but
+you can switch back to it yourself (for the same price). Your password stays
+the same.
+
+The Guts account can also set its **join date** there (for example to when the
+project really started); it shows on the profile.
+
+### Clothing templates
+
+Shirts and pants can have a **picture**, like classic Roblox clothing. Get the
+template (the website's Create page links **shirt template** and **pants
+template**; the app's Create page has **Save the template**; they're also in
+`assets/templates/`). It's a 585 x 559 picture with a box for every side of the
+torso and each arm (shirts) or leg (pants): **R** and **L** are the
+character's own right and left. Paint over the boxes, save it as a .png, and
+pick it as the **Picture** when you upload the shirt or pants. Anything you
+leave see-through shows the clothing's colour.
+
+`tools/make_clothing_template.py` redraws the templates; the layout lives in
+`src/scene/PlayerModel.cpp`.
+
+### Finding games: genres, votes and sorting
+
+On the website, a game's **Configure** page lets its creator pick up to 3
+**genres** and how many players fit in one server. The **Games** page has a
+button for each genre, a search box that also looks at descriptions and
+genres, and sorting by **Most played**, **Playing now**, **Top rated**,
+**Newest** and **Recently updated**. Once you've played a game you can give it
+a thumbs up or down on its page; cards show how liked each game is.
+
+### Badges: Guts&Bolts badges and game badges
+
+There are two kinds of badges:
+
+- **Guts&Bolts badges** (like **Verified** and **Staff**) are for the whole
+  platform. Only staff can give them.
+- **Game badges** are made by game creators. On the website, open your game's
+  **Configure** page, scroll to **Badges**, and make one (name, description,
+  colour). Copy its ID and award it from a script in your game:
+
+  ```lua
+  local BadgeService = game:GetService("BadgeService")
+  game.Players.PlayerAdded:Connect(function(player)
+      BadgeService:AwardBadge(player, "badge-1a2b3c4d5e")
+  end)
+  ```
+
+  Badges are only given in online servers of the published game (the server
+  checks that the request comes from that server's host, for someone who's in
+  it). Guests can't earn them. `BadgeService:UserHasBadgeAsync(player, id)`
+  knows about badges given during the current server.
+
+Profiles show both kinds in separate boxes, and game pages list their badges.
 
 ### Signing up and logging in
 
 When you connect to a Guts&Bolts server, the site asks you to **Sign Up** or
-**Log In** first (or you can press *Play offline instead*).
+**Log In** first.
 
 **No account? Play as Guest.** Guests get a name like *Guest 4821* and can play
 every game, on their own or in public and private servers with other people.
@@ -688,7 +1077,37 @@ with your password and stores the locked copy on the server. Logging in on
 another device downloads the copy and unlocks it there. The password itself
 never leaves your device. The server only gets a scrambled token made from
 it, so it can't unlock your key. After 5 wrong passwords, that username is
-locked for 10 minutes. If you forget your password, nobody can get it back.
+locked for 10 minutes.
+
+### Email, forgot password and two-step verification
+
+On the website, **Settings** (top right) has your account settings:
+
+- **Email:** add one, and type the code we email you to confirm it.
+- **Forgot your password?** (on the Log In page) emails a code. Type it with a
+  new password. That browser takes over the account with a new key, and every
+  other device is logged out: log in on them again with the new password. (The
+  Guts account can't be reset by email.)
+- **Two-step verification:** when it's on, logging in on a new device needs your
+  password *and* a code from your email (the app asks for the code too).
+- **Change password.**
+
+Emails need an email service, because Cloudflare can't send email to anyone
+by itself. The easiest is [Brevo](https://www.brevo.com) (free, 300 emails a
+day, and you don't need your own domain):
+
+1. Make a Brevo account. Under *Senders*, add the email address the codes
+   should come from and confirm it.
+2. Under *SMTP & API > API Keys*, make an API key.
+3. In the Cloudflare dashboard, open the Worker: *Settings > Variables and
+   Secrets*. Add a **Secret** `BREVO_API_KEY` (the key) and a **Text**
+   variable `MAIL_FROM` (the sender address from step 1). You can also run
+   `npx wrangler secret put BREVO_API_KEY`.
+
+Resend works too: set `RESEND_API_KEY` instead (it needs a domain you own).
+Until one is set, the settings page says email isn't switched on yet. For
+testing with `wrangler dev`, put `MAIL_DEBUG=1` in a `.dev.vars` file: codes
+are printed in the terminal instead of emailed.
 
 ### Friends and servers (no IP addresses)
 
@@ -716,9 +1135,6 @@ The **Friends** page has three tabs:
 
 Profiles also have an **Add Friend** button. Your friends list is only shown to
 you, and nothing on the site shows anyone's address or when they were last on.
-
-The old "type an address" way of joining still exists, but only for games on
-your **local network** (same Wi-Fi).
 
 ### People and Groups
 

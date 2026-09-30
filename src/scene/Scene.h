@@ -2,6 +2,8 @@
 #include "SceneNode.h"
 #include "Environment.h"
 #include "Player.h"
+#include "Npc.h"
+#include "Water.h"
 #include "Particles.h"
 #include "Animation.h"
 #include <functional>
@@ -24,7 +26,14 @@ struct WorldSettings {
     bool       dismemberment   = true;      // big hits can knock limbs off
     bool       fallDamage      = true;
     float      fallDamageSpeed = 20.0f;     // landing faster than this hurts
+    float      fallDamageScale = 1.0f;      // how much it hurts (2 = twice as much)
+
+    // What blood looks like (games can make it green slime, blue alien blood...).
+    glm::vec3  bloodColor  = {0.50f, 0.02f, 0.03f};
+    float      bloodAmount = 1.0f;          // how much sprays out (0.2 = a little, 3 = buckets)
+    float      bloodStay   = 30.0f;         // seconds pools and splats stay before drying up
     float      spawnForceField = 4.0f;      // seconds of ForceField after spawning (0 = none)
+    bool       playerCollisions = true;     // characters bump into each other (off = walk through)
 };
 
 // Another player's character in a multiplayer game. On the host, scripts can
@@ -105,7 +114,11 @@ public:
     // --- Characters (the local player + other players in multiplayer) ---
     std::vector<RemoteCharacter>& remotes() { return m_remotes; }
     RemoteCharacter* findRemote(uint64_t rootId);
-    Humanoid*        humanoidOf(uint64_t rootId);   // local or remote, null if none
+    Humanoid*        humanoidOf(uint64_t rootId);   // local, remote or NPC; null if none
+    // Computer-controlled characters (zombies etc.) while the game runs.
+    NpcSystem&       npcs() { return m_npcs; }
+    // Moving water (waves, floating, splashes) while the game runs.
+    WaterSystem&     water() { return m_water; }
     bool             isCharacterRoot(uint64_t id) const;
     // Kill any character; `force` 0..1 = how violently.
     void             killCharacter(uint64_t rootId, float force, const glm::vec3& impulse);
@@ -136,6 +149,8 @@ private:
     WorldSettings              m_world;
     GameInfo                   m_info;
     std::vector<RemoteCharacter> m_remotes;
+    NpcSystem                  m_npcs;
+    WaterSystem                m_water;
     ParticleSystem             m_particles;
     Anim::Animator             m_animator;
     std::unique_ptr<Player>    m_player;

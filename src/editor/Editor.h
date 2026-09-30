@@ -1,8 +1,10 @@
 #pragma once
+#include "AiTools.h"
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 #include <nlohmann/json.hpp>
 #include "EditorState.h"
 #include "Premades.h"
@@ -12,10 +14,13 @@ struct GLFWwindow;
 class Scene;
 class GameSession;
 class ViewportPanel;
+class AssistantPanel;
 class OutlinerPanel;
 class PropertiesPanel;
 class EnvironmentPanel;
 class ToolboxPanel;
+struct ToolboxTile;
+class Thumbnailer;
 class PlayerPanel;
 class OutputPanel;
 class ScriptEditorPanel;
@@ -31,9 +36,12 @@ public:
     void openFile(const std::string& path);
     void togglePlay();
     void runCommand(const std::string& code);   // Command Bar
+    // AI helpers (Assistant tab and MCP): run one of Studio's tools (see AiTools.h).
+    AiToolResult runAiTool(const std::string& name, const nlohmann::json& args);
     // Test / command-line helpers.
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);
+    void testInsert(const std::string& names);   // Insert Object, each one into the one before
     void testPremades(const std::string& list);
     void testSelect(const std::string& names);
     void testSnapshot(const std::string& file);   // --test-snapshot
@@ -82,12 +90,19 @@ private:
     void       meshOp(MeshOp op);
     void       handleModelingKeys();
     void       addMeshPart();
-    // Online: the Guts&Bolts server, publishing and the Marketplace (EditorOnline.cpp)
+    // Online: the Guts&Bolts server, publishing and the Library (EditorOnline.cpp)
     void       renderServerDialog();
     void       renderPublishDialog();
-    void       renderMarketplace();
+    void       renderPluginLibrary();
+    void       renderPublishModelDialog();   // File > Publish Selection to Library
+    // The Toolbox's Library tiles (everyone's public models, decals and audio, or your own).
+    std::vector<ToolboxTile> libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status);
+    unsigned   libraryPicture(const nlohmann::json& asset);
+    void       useLibraryAsset(const nlohmann::json& asset);
+    void       renderAccessoryWindow();      // AVATAR > Accessories (Verified creators)
     void       renderPluginsTab();
     void       insertObject(const std::string& what, SceneNode* parent);
+    SceneNode* aiFind(const std::string& ref);   // "#42" or "Workspace.Castle.Door"
     void       renderInsertObject();
     void       renderCommandBar();
     void       ungroupSelected();
@@ -123,17 +138,30 @@ private:
     std::unique_ptr<PropertiesPanel>   m_properties;
     std::unique_ptr<EnvironmentPanel>  m_environment;
     std::unique_ptr<ToolboxPanel>      m_toolbox;
+    std::unique_ptr<Thumbnailer>       m_thumbnailer;   // pictures of objects on their own
     std::unique_ptr<PlayerPanel>       m_player;
+    std::unique_ptr<AssistantPanel>    m_assistant;   // AI chat + MCP for outside AI apps
     std::unique_ptr<OutputPanel>       m_output;
     std::unique_ptr<ScriptEditorPanel> m_scriptEditor;
     std::unique_ptr<AnimationEditor>   m_animEditor;
     std::unique_ptr<TeamCreate>        m_team;
     std::unique_ptr<Plugins>           m_plugins;
     // Online
-    bool        m_openServer = false, m_openPublish = false, m_showMarketplace = false;
+    bool        m_openServer = false, m_openPublish = false, m_showPluginLibrary = false;
     std::string m_serverInput, m_publishName, m_publishDesc, m_publishMsg, m_marketMsg, m_marketQuery;
     int         m_marketTab = 0, m_publishPluginIndex = 0, m_publishPluginPrice = 0;
     bool        m_marketLoaded = false, m_onlineBusy = false;
+    // Library: publishing a model (public or private) and browsing everyone's public ones.
+    bool        m_openPublishModel = false, m_modelPublic = true, m_libraryLoaded = false;
+    std::string m_modelName, m_modelDesc, m_modelMsg, m_libraryQuery, m_libraryMsg;
+    int         m_libraryKind = 0;   // 0 models, 1 decals, 2 audio
+    bool        m_showAccessory = false;
+    int         m_accessoryKind = 0, m_accessoryPrice = 0;
+    std::string m_accessoryName, m_accessoryDesc, m_accessoryMsg;
+    nlohmann::json m_library = nlohmann::json::array();
+    std::map<std::string, std::string> m_libraryThumbs;   // asset id -> picture file ("" = still coming)
+    std::string m_libraryKey;                              // what m_library holds (mine/all, kind, search)
+    std::vector<nlohmann::json> m_thumbJobs;               // downloaded models waiting for a picture
     nlohmann::json m_marketPlugins = nlohmann::json::array(), m_marketAudio = nlohmann::json::array();
     bool        m_openTeam = false;
     std::string m_teamAddress;
@@ -160,8 +188,8 @@ private:
     std::vector<std::string> m_cmdHistory;
     int                      m_cmdHistoryPos = -1;
     enum Panel { kPanelExplorer, kPanelProperties, kPanelToolbox, kPanelOutput, kPanelCommandBar, kPanelScript,
-                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelAnimation, kPanelCount };
-    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true, false};
+                 kPanelLighting, kPanelPlayer, kPanelTeam, kPanelAnimation, kPanelAssistant, kPanelCount };
+    bool                     m_showPanel[kPanelCount] = {true, true, true, true, true, true, true, true, true, false, true};
     void                     openAnimationEditor();
     bool                     m_focusAnim = false;
     std::function<void()>    m_deferred;       // tree changes asked for while the Explorer was drawing

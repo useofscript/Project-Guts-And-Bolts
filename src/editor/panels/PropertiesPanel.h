@@ -14,6 +14,7 @@ public:
 
 private:
     void renderProperties(SceneNode* node);
+    void renderGui(SceneNode* node);
     void renderAttributes(SceneNode* node);   // Attributes + Tags
 
     std::string m_newAttrName, m_newAttrError, m_newTag;

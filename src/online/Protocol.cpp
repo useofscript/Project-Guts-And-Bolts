@@ -9,9 +9,27 @@
 namespace Online {
 
 bool validKind(const std::string& k) {
-    return k == "hat" || k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal";
+    return k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal" ||
+           k == "model" || k == "face" || isAccessory(k);
 }
-bool isClothing(const std::string& k) { return k == "hat" || k == "shirt" || k == "pants"; }
+bool isAccessory(const std::string& k) {
+    return k == "hat" || k == "hair" || k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
+}
+bool isClothing(const std::string& k) { return k == "shirt" || k == "pants" || k == "face" || isAccessory(k); }
+bool alwaysFree(const std::string& k) { return k == "decal" || k == "audio"; }
+
+const char* banReasonTitle(const std::string& key) {
+    for (const BanReason& r : kBanReasons) if (key == r.key) return r.title;
+    return nullptr;
+}
+
+std::string banMessage(const std::string& reason, const std::string& note) {
+    std::string m = "This account has been banned";
+    if (const char* t = banReasonTitle(reason)) m += std::string(" for: ") + t;
+    m += ".";
+    if (!note.empty()) m += " Note from staff: " + note;
+    return m;
+}
 
 long long uploadFee(const std::string& k) {
     if (isClothing(k)) return kFeeClothing;
@@ -26,6 +44,9 @@ size_t maxSize(const std::string& k) {
     if (k == "game") return kMaxGame;
     if (k == "plugin") return kMaxPlugin;
     if (k == "decal") return kMaxDecal;
+    if (k == "model") return 4u * 1024u * 1024u;   // objects from Studio for the Library
+    if (k == "shirt" || k == "pants") return 1024u * 1024u;   // an optional template picture
+    if (k == "face" || isAccessory(k)) return 1024u * 1024u;  // a face picture / an accessory from Studio
     return 64u * 1024u;   // clothing is just a little description of the look
 }
 
@@ -37,6 +58,13 @@ const char* kindTitle(const std::string& k) {
     if (k == "plugin") return "Plugin";
     if (k == "game") return "Game";
     if (k == "decal") return "Decal";
+    if (k == "model") return "Model";
+    if (k == "hair") return "Hair";
+    if (k == "faceacc") return "Face Accessory";
+    if (k == "neck") return "Neck Accessory";
+    if (k == "shoulder") return "Shoulder Accessory";
+    if (k == "waist") return "Waist Accessory";
+    if (k == "face") return "Face";
     return "?";
 }
 

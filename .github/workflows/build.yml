@@ -35,7 +35,8 @@ jobs:
         env:
           MSG: ${{ github.event.head_commit.message }}
         run: |
-          v="0.4.0-dev"
+          # The version in CMakeLists.txt (so the app never shows an old number).
+          v="$(sed -n 's/^project(GutsAndBolts VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)-dev"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF#refs/tags/v}"; fi
           if [[ "$MSG" =~ \[release\ v([0-9][0-9A-Za-z.\-]*)\] ]]; then v="${BASH_REMATCH[1]}"; fi
           echo "name=$v" >> "$GITHUB_OUTPUT"
@@ -163,6 +164,12 @@ jobs:
           cp dist/macos/*.zip out/ 2>/dev/null || true
           if [ -d dist/windows ]; then (cd dist && zip -qr ../out/GutsAndBolts-Windows.zip windows); fi
           ls -la out
+      # Re-releasing the same version replaces it: the old release and its tag go first.
+      - name: Replace an older release of this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel.outputs.tag }}

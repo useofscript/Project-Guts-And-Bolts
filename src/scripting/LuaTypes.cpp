@@ -1,5 +1,7 @@
-// Roblox-style value types for scripts: Vector3, Color3 and CFrame.
+// Roblox-style value types for scripts: Vector3, Color3, CFrame, and for game
+// UI: UDim2, UDim and Vector2.
 #include "LuaApi.h"
+#include "../scene/SceneNode.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -15,6 +17,9 @@ namespace {
 constexpr const char* kVec   = "Vector3";
 constexpr const char* kColor = "Color3";
 constexpr const char* kCF    = "CFrame";
+constexpr const char* kUDim2 = "UDim2";
+constexpr const char* kUDim  = "UDim";
+constexpr const char* kVec2  = "Vector2";
 
 template <typename T>
 T* newUd(lua_State* L, const char* meta, const T& value) {
@@ -280,6 +285,136 @@ int cf_tostring(lua_State* L) {
     return 1;
 }
 
+// ===========================================================================
+// UDim2 / UDim: a fraction of the parent plus pixels (game UI sizes and positions)
+// ===========================================================================
+
+UDim2 checkU2(lua_State* L, int idx) { return LuaApi::checkUDim2(L, idx); }
+glm::vec2 checkU(lua_State* L, int idx) {
+    if (auto* u = static_cast<glm::vec2*>(luaL_testudata(L, idx, kUDim))) return *u;
+    luaL_typeerror(L, idx, "UDim");
+    return {};
+}
+void pushU(lua_State* L, glm::vec2 v) { newUd(L, kUDim, v); }
+
+int u2_new(lua_State* L) {
+    if (lua_gettop(L) == 2 && luaL_testudata(L, 1, kUDim)) {   // UDim2.new(UDim, UDim)
+        glm::vec2 x = checkU(L, 1), y = checkU(L, 2);
+        LuaApi::pushUDim2(L, {x.x, x.y, y.x, y.y});
+        return 1;
+    }
+    LuaApi::pushUDim2(L, {(float)luaL_optnumber(L, 1, 0), (float)luaL_optnumber(L, 2, 0),
+                          (float)luaL_optnumber(L, 3, 0), (float)luaL_optnumber(L, 4, 0)});
+    return 1;
+}
+int u2_fromScale(lua_State* L) {
+    LuaApi::pushUDim2(L, {(float)luaL_optnumber(L, 1, 0), 0, (float)luaL_optnumber(L, 2, 0), 0});
+    return 1;
+}
+int u2_fromOffset(lua_State* L) {
+    LuaApi::pushUDim2(L, {0, (float)luaL_optnumber(L, 1, 0), 0, (float)luaL_optnumber(L, 2, 0)});
+    return 1;
+}
+int u2_lerp(lua_State* L) {
+    UDim2 a = checkU2(L, 1), b = checkU2(L, 2);
+    float t = (float)luaL_checknumber(L, 3);
+    LuaApi::pushUDim2(L, {a.xs + (b.xs - a.xs) * t, a.xo + (b.xo - a.xo) * t, a.ys + (b.ys - a.ys) * t, a.yo + (b.yo - a.yo) * t});
+    return 1;
+}
+int u2_index(lua_State* L) {
+    UDim2 u = checkU2(L, 1);
+    const char* k = luaL_checkstring(L, 2);
+    if (!std::strcmp(k, "X") || !std::strcmp(k, "Width"))  { pushU(L, {u.xs, u.xo}); return 1; }
+    if (!std::strcmp(k, "Y") || !std::strcmp(k, "Height")) { pushU(L, {u.ys, u.yo}); return 1; }
+    if (!std::strcmp(k, "Lerp")) { lua_pushcfunction(L, u2_lerp); return 1; }
+    return luaL_error(L, "'%s' is not a valid member of UDim2", k);
+}
+int u2_add(lua_State* L) {
+    UDim2 a = checkU2(L, 1), b = checkU2(L, 2);
+    LuaApi::pushUDim2(L, {a.xs + b.xs, a.xo + b.xo, a.ys + b.ys, a.yo + b.yo});
+    return 1;
+}
+int u2_sub(lua_State* L) {
+    UDim2 a = checkU2(L, 1), b = checkU2(L, 2);
+    LuaApi::pushUDim2(L, {a.xs - b.xs, a.xo - b.xo, a.ys - b.ys, a.yo - b.yo});
+    return 1;
+}
+int u2_eq(lua_State* L) {
+    auto* a = static_cast<UDim2*>(luaL_testudata(L, 1, kUDim2));
+    auto* b = static_cast<UDim2*>(luaL_testudata(L, 2, kUDim2));
+    lua_pushboolean(L, a && b && *a == *b);
+    return 1;
+}
+int u2_tostring(lua_State* L) {
+    UDim2 u = checkU2(L, 1);
+    lua_pushfstring(L, "{%f, %f}, {%f, %f}", (double)u.xs, (double)u.xo, (double)u.ys, (double)u.yo);
+    return 1;
+}
+int u_new(lua_State* L) { pushU(L, {(float)luaL_optnumber(L, 1, 0), (float)luaL_optnumber(L, 2, 0)}); return 1; }
+int u_index(lua_State* L) {
+    glm::vec2 u = checkU(L, 1);
+    const char* k = luaL_checkstring(L, 2);
+    if (!std::strcmp(k, "Scale"))  { lua_pushnumber(L, u.x); return 1; }
+    if (!std::strcmp(k, "Offset")) { lua_pushnumber(L, u.y); return 1; }
+    return luaL_error(L, "'%s' is not a valid member of UDim", k);
+}
+int u_add(lua_State* L) { pushU(L, checkU(L, 1) + checkU(L, 2)); return 1; }
+int u_sub(lua_State* L) { pushU(L, checkU(L, 1) - checkU(L, 2)); return 1; }
+int u_eq(lua_State* L) {
+    auto* a = static_cast<glm::vec2*>(luaL_testudata(L, 1, kUDim));
+    auto* b = static_cast<glm::vec2*>(luaL_testudata(L, 2, kUDim));
+    lua_pushboolean(L, a && b && *a == *b);
+    return 1;
+}
+int u_tostring(lua_State* L) {
+    glm::vec2 u = checkU(L, 1);
+    lua_pushfstring(L, "%f, %f", (double)u.x, (double)u.y);
+    return 1;
+}
+
+// ===========================================================================
+// Vector2
+// ===========================================================================
+
+int v2_new(lua_State* L) { LuaApi::pushVector2(L, {(float)luaL_optnumber(L, 1, 0), (float)luaL_optnumber(L, 2, 0)}); return 1; }
+int v2_lerp(lua_State* L) {
+    glm::vec2 a = LuaApi::checkVector2(L, 1), b = LuaApi::checkVector2(L, 2);
+    LuaApi::pushVector2(L, a + (b - a) * (float)luaL_checknumber(L, 3));
+    return 1;
+}
+int v2_dot(lua_State* L) { lua_pushnumber(L, glm::dot(LuaApi::checkVector2(L, 1), LuaApi::checkVector2(L, 2))); return 1; }
+int v2_index(lua_State* L) {
+    glm::vec2 v = LuaApi::checkVector2(L, 1);
+    const char* k = luaL_checkstring(L, 2);
+    if (!std::strcmp(k, "X") || !std::strcmp(k, "x")) { lua_pushnumber(L, v.x); return 1; }
+    if (!std::strcmp(k, "Y") || !std::strcmp(k, "y")) { lua_pushnumber(L, v.y); return 1; }
+    if (!std::strcmp(k, "Magnitude")) { lua_pushnumber(L, glm::length(v)); return 1; }
+    if (!std::strcmp(k, "Unit")) { LuaApi::pushVector2(L, glm::length(v) > 0 ? v / glm::length(v) : v); return 1; }
+    if (!std::strcmp(k, "Lerp")) { lua_pushcfunction(L, v2_lerp); return 1; }
+    if (!std::strcmp(k, "Dot"))  { lua_pushcfunction(L, v2_dot); return 1; }
+    return luaL_error(L, "'%s' is not a valid member of Vector2", k);
+}
+glm::vec2 v2Arg(lua_State* L, int idx) {
+    if (lua_type(L, idx) == LUA_TNUMBER) { float f = (float)lua_tonumber(L, idx); return {f, f}; }
+    return LuaApi::checkVector2(L, idx);
+}
+int v2_add(lua_State* L) { LuaApi::pushVector2(L, v2Arg(L, 1) + v2Arg(L, 2)); return 1; }
+int v2_sub(lua_State* L) { LuaApi::pushVector2(L, v2Arg(L, 1) - v2Arg(L, 2)); return 1; }
+int v2_mul(lua_State* L) { LuaApi::pushVector2(L, v2Arg(L, 1) * v2Arg(L, 2)); return 1; }
+int v2_div(lua_State* L) { LuaApi::pushVector2(L, v2Arg(L, 1) / v2Arg(L, 2)); return 1; }
+int v2_unm(lua_State* L) { LuaApi::pushVector2(L, -LuaApi::checkVector2(L, 1)); return 1; }
+int v2_eq(lua_State* L) {
+    auto* a = LuaApi::toVector2(L, 1);
+    auto* b = LuaApi::toVector2(L, 2);
+    lua_pushboolean(L, a && b && *a == *b);
+    return 1;
+}
+int v2_tostring(lua_State* L) {
+    glm::vec2 v = LuaApi::checkVector2(L, 1);
+    lua_pushfstring(L, "%f, %f", (double)v.x, (double)v.y);
+    return 1;
+}
+
 void makeMeta(lua_State* L, const char* name, const luaL_Reg* fns) {
     luaL_newmetatable(L, name);
     luaL_setfuncs(L, fns, 0);
@@ -316,6 +451,27 @@ glm::mat4 checkCFrame(lua_State* L, int idx) {
     return glm::mat4(1.0f);
 }
 
+void pushUDim2(lua_State* L, const UDim2& u) { newUd(L, kUDim2, u); }
+UDim2* toUDim2(lua_State* L, int idx) { return static_cast<UDim2*>(luaL_testudata(L, idx, kUDim2)); }
+UDim2 checkUDim2(lua_State* L, int idx) {
+    if (auto* u = toUDim2(L, idx)) return *u;
+    luaL_typeerror(L, idx, "UDim2");
+    return {};
+}
+void pushUDim(lua_State* L, float scale, float offset) { newUd(L, kUDim, glm::vec2(scale, offset)); }
+glm::vec2 checkUDim(lua_State* L, int idx) {
+    if (auto* u = static_cast<glm::vec2*>(luaL_testudata(L, idx, kUDim))) return *u;
+    luaL_typeerror(L, idx, "UDim");
+    return {};
+}
+void pushVector2(lua_State* L, const glm::vec2& v) { newUd(L, kVec2, v); }
+glm::vec2* toVector2(lua_State* L, int idx) { return static_cast<glm::vec2*>(luaL_testudata(L, idx, kVec2)); }
+glm::vec2 checkVector2(lua_State* L, int idx) {
+    if (auto* v = toVector2(L, idx)) return *v;
+    luaL_typeerror(L, idx, "Vector2");
+    return {};
+}
+
 void registerTypes(lua_State* L) {
     static const luaL_Reg vecMeta[] = {
         {"__index", v3_index}, {"__newindex", readOnly}, {"__add", v3_add}, {"__sub", v3_sub},
@@ -330,6 +486,32 @@ void registerTypes(lua_State* L) {
     makeMeta(L, kVec, vecMeta);
     makeMeta(L, kColor, colMeta);
     makeMeta(L, kCF, cfMeta);
+    static const luaL_Reg u2Meta[] = {
+        {"__index", u2_index}, {"__newindex", readOnly}, {"__add", u2_add}, {"__sub", u2_sub}, {"__eq", u2_eq},
+        {"__tostring", u2_tostring}, {nullptr, nullptr}};
+    static const luaL_Reg uMeta[] = {
+        {"__index", u_index}, {"__newindex", readOnly}, {"__add", u_add}, {"__sub", u_sub}, {"__eq", u_eq},
+        {"__tostring", u_tostring}, {nullptr, nullptr}};
+    static const luaL_Reg v2Meta[] = {
+        {"__index", v2_index}, {"__newindex", readOnly}, {"__add", v2_add}, {"__sub", v2_sub}, {"__mul", v2_mul},
+        {"__div", v2_div}, {"__unm", v2_unm}, {"__eq", v2_eq}, {"__tostring", v2_tostring}, {nullptr, nullptr}};
+    makeMeta(L, kUDim2, u2Meta);
+    makeMeta(L, kUDim, uMeta);
+    makeMeta(L, kVec2, v2Meta);
+
+    lua_newtable(L);
+    lua_pushcfunction(L, u2_new);        lua_setfield(L, -2, "new");
+    lua_pushcfunction(L, u2_fromScale);  lua_setfield(L, -2, "fromScale");
+    lua_pushcfunction(L, u2_fromOffset); lua_setfield(L, -2, "fromOffset");
+    lua_setglobal(L, "UDim2");
+    lua_newtable(L);
+    lua_pushcfunction(L, u_new); lua_setfield(L, -2, "new");
+    lua_setglobal(L, "UDim");
+    lua_newtable(L);
+    lua_pushcfunction(L, v2_new); lua_setfield(L, -2, "new");
+    pushVector2(L, {0, 0}); lua_setfield(L, -2, "zero");
+    pushVector2(L, {1, 1}); lua_setfield(L, -2, "one");
+    lua_setglobal(L, "Vector2");
 
     // Vector3 = { new, zero, one, xAxis, yAxis, zAxis }
     lua_newtable(L);

@@ -1,6 +1,10 @@
 #include "PlayerApp.h"
 #include "SiteUi.h"
+#include "LaunchLink.h"
+#include "../game/GameGui.h"
+#include "../renderer/Textures.h"
 #include "../core/AppWindow.h"
+#include "../game/PlayCamera.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
 #include "../core/Settings.h"
@@ -140,6 +144,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
                 nlohmann::json shown = r;
                 if (shown.contains("data")) shown["data"] = "(" + std::to_string(shown["data"].get<std::string>().size()) + " base64 chars)";
                 if (shown.contains("me")) shown["me"] = {{"name", r["me"].value("name", "")}, {"bolts", r["me"].value("bolts", 0)},
+                                                         {"id", r["me"].value("id", "")},
                                                          {"verified", r["me"].value("verified", false)},
                                                          {"staff", r["me"].value("staff", false)},
                                                          {"username", r["me"].value("username", "")},
@@ -166,10 +171,13 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     std::fflush(stdout);
 
     if (m_opts.guest) Online::setGuest(true);   // tests: "Play as Guest"
+    if (!m_opts.launchUrl.empty()) takeLink(m_opts.launchUrl);
+    if (m_opts.screenshot.empty()) LaunchLink::registerScheme();   // the website's Play button opens us (not in tests)
     if (m_opts.page == "avatar") m_page = Page::Avatar;
     if (m_opts.page == "games") m_page = Page::Games;
     if (m_opts.page.rfind("game:", 0) == 0) { m_selected = std::atoi(m_opts.page.c_str() + 5); m_page = Page::GameInfo; }
     if (m_opts.page == "settings") m_showSettings = true;
+    if (m_opts.page == "character") m_charPickOpen = true;   // test: the guest "Choose Your Character" box
     if (m_opts.page == "catalog") m_page = Page::Catalog;
     if (m_opts.page == "bolts") m_page = Page::Bolts;
     if (m_opts.page == "create") { m_page = Page::Create; m_createKind = m_opts.createTab; }
@@ -182,15 +190,23 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
         m_page = Page::GameInfo;
         m_autoServers = true;
     }
+    if (m_opts.page.rfind("game:", 0) == 0 && !m_games.empty()) {   // tests: a game's page
+        m_selected = std::clamp(std::atoi(m_opts.page.c_str() + 5), 0, (int)m_games.size() - 1);
+        m_page = Page::GameInfo;
+    }
     if (m_opts.page.rfind("group:", 0) == 0) { m_groupId = m_opts.page.substr(6); m_page = Page::Group; }
     if (m_opts.page.rfind("profile:", 0) == 0) { m_profileId = m_opts.page.substr(8); m_page = Page::Profile; }
     if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
     // (--online-play / --private-server / --join-code wait until we're online: see frame())
-    if (!m_opts.game.empty() && !m_opts.onlinePlay && !m_opts.privateServer)
-        joinGame(m_opts.game, m_opts.host ? HostMode::Lan : HostMode::Solo);
-    if (!m_opts.join.empty()) joinServer(m_opts.join);
+    // Everyone plays on the main server: a game file (Studio's "Play in Guts&BoltsPlayer")
+    // goes into a public server once we're online. Only automated tests play offline / on LAN.
+    if (!m_opts.game.empty() && !m_opts.onlinePlay && !m_opts.privateServer) {
+        if (testMode()) joinGame(m_opts.game, m_opts.host ? HostMode::Lan : HostMode::Solo);
+        else m_opts.onlinePlay = true;
+    }
+    if (!m_opts.join.empty() && testMode()) joinServer(m_opts.join);
 }
 
 PlayerApp::~PlayerApp() {
@@ -239,8 +255,25 @@ void PlayerApp::run() {
             }
         }
         float dt = m_window->beginFrame([&] {
+            float cx, cy;   // tests: three mouse clicks at a spot (down, then up two frames later)
+            if (!m_opts.testClick.empty() && std::sscanf(m_opts.testClick.c_str(), "%f,%f", &cx, &cy) == 2) {
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(cx * io.DisplaySize.x, cy * io.DisplaySize.y);
+                int t = m_frame - 50;
+                if (t >= 0 && t < 30 && t % 10 == 0) io.AddMouseButtonEvent(0, true);
+                if (t >= 0 && t < 30 && t % 10 == 2) io.AddMouseButtonEvent(0, false);
+                // "x,y;x2,y2": then one more click somewhere else (e.g. outside a popup it opened).
+                float c2x = 0, c2y = 0;
+                size_t semi = m_opts.testClick.find(';');
+                if (semi != std::string::npos && std::sscanf(m_opts.testClick.c_str() + semi + 1, "%f,%f", &c2x, &c2y) == 2 && t >= 60) {
+                    io.AddMousePosEvent(c2x * io.DisplaySize.x, c2y * io.DisplaySize.y);
+                    if (t == 62) io.AddMouseButtonEvent(0, true);
+                    if (t == 64) io.AddMouseButtonEvent(0, false);
+                }
+            }
             if (!m_opts.holdKey.empty() && m_frame > 3) {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
+                           : m_opts.holdKey == "Shift" ? ImGuiKey_LeftShift
                            : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
                 ImGui::GetIO().AddKeyEvent(k, true);
             }
@@ -265,6 +298,17 @@ void PlayerApp::run() {
         frame(dt);
         if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
+        if (shoot && m_scene) {   // test output: where everyone's character ended up
+            if (Player* p = m_scene->player()) {
+                glm::vec3 q = p->position();
+                std::printf("POS me %.2f %.2f %.2f\n", q.x, q.y, q.z);
+            }
+            for (const RemoteCharacter& rc : m_scene->remotes())
+                if (SceneNode* n = m_scene->findById(rc.rootId))
+                    std::printf("POS %s %.2f %.2f %.2f\n", rc.name.c_str(), n->transform.position.x,
+                                n->transform.position.y, n->transform.position.z);
+            std::fflush(stdout);
+        }
         m_window->endFrame(shoot ? m_opts.screenshot : std::string());
         if (shoot) m_window->close();
     }
@@ -313,11 +357,24 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     if (Player* p = m_scene->player()) {
         me.applyTo(*p);
         if (SceneNode* r = p->root()) r->name = Online::playerName();   // like Roblox: the character is named after you
+        if (testMode() && !m_opts.testClothes.empty()) {
+            size_t comma = m_opts.testClothes.find(',');
+            p->setClothing(m_opts.testClothes.substr(0, comma), comma == std::string::npos ? "" : m_opts.testClothes.substr(comma + 1));
+        }
+        if (testMode() && !m_opts.testAccessory.empty()) p->setAccessories({{"hat", m_opts.testAccessory}});
+        if (testMode() && !m_opts.testFace.empty()) p->setFace(m_opts.testFace);
     }
     m_session->scripts().setPlayerName(Online::playerName());
     *m_soloChat = ChatLog{};
 
     m_currentTitle = m_scene->info().title;
+    m_currentAuthor = m_scene->info().author;
+    m_loadingT = 1.4f;
+    if (gameKey != m_loadingGameId) {   // not the icon of the last game
+        m_loadingGameId = gameKey; m_loadingIcon.clear(); m_loadingTitle.clear(); m_loadingAuthor.clear();
+    }
+    if (!m_loadingTitle.empty()) m_currentTitle = m_loadingTitle;    // a published game: its name on the site
+    if (!m_loadingAuthor.empty()) m_currentAuthor = m_loadingAuthor;
     m_window->setTitle(m_currentTitle + " - Guts&Bolts Player");
     frameSpawn(*m_scene, m_camera);
     m_camera.distance = 12.0f;
@@ -370,11 +427,51 @@ void PlayerApp::joinServer(const std::string& address) {
         return;
     }
     m_currentTitle = "Joining " + address + "...";
+    m_currentAuthor.clear();
+    m_loadingT = 0.9f;
     m_joinedOnce = false;
     m_paused = false;
     m_status.clear();
     Log::clear();
     m_page = Page::Game;
+}
+
+// Not connected: everything lives on the Guts&Bolts server, so wait for it here.
+void PlayerApp::drawNoServer() {
+    const Online::Status st = Online::status();
+    const bool trying = st == Online::Status::Connecting || st == Online::Status::Off;
+    const float w = ImGui::GetContentRegionAvail().x;
+    ImGui::Dummy(ImVec2(0, 60));
+    auto centered = [&](const char* text, ImVec4 col, float scale) {
+        ImGui::SetWindowFontScale(scale);
+        ImVec2 ts = ImGui::CalcTextSize(text);
+        ImGui::SetCursorPosX(std::max(0.0f, (w - ts.x) * 0.5f));
+        ImGui::TextColored(col, "%s", text);
+        ImGui::SetWindowFontScale(1.0f);
+    };
+    if (trying) {
+        // A little spinner while we connect.
+        ImVec2 c = ImGui::GetCursorScreenPos();
+        c.x += w * 0.5f; c.y += 22;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        float t = (float)ImGui::GetTime() * 5.0f;
+        for (int i = 0; i < 8; ++i) {
+            float a = t + i * 0.785f;
+            dl->AddCircleFilled(ImVec2(c.x + std::cos(a) * 16, c.y + std::sin(a) * 16), 2.0f + i * 0.4f,
+                                IM_COL32(29, 114, 210, 60 + i * 24));
+        }
+        ImGui::Dummy(ImVec2(0, 50));
+        centered("Connecting to Guts&Bolts...", Classic::kInk, 1.4f);
+    } else {
+        centered("Can't reach Guts&Bolts", ImVec4(0.75f, 0.2f, 0.15f, 1), 1.4f);
+        ImGui::Spacing();
+        centered("Guts&Bolts needs an internet connection: games, friends and Bolts all live online.",
+                 Classic::kInkDim, 1.0f);
+        centered("Check your internet, then try again.", Classic::kInkDim, 1.0f);
+        ImGui::Spacing();
+        ImGui::SetCursorPosX(std::max(0.0f, (w - 160) * 0.5f));
+        if (Classic::button("Try again", Classic::kBlue, ImVec2(160, 34))) Online::connect();
+    }
 }
 
 ChatLog& PlayerApp::chat() {
@@ -386,6 +483,11 @@ ChatLog& PlayerApp::chat() {
 void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
     if (Online::isGuest() && Online::online()) { chat().add("", Online::kGuestChatText, true); return; }
+    std::string to, msg;
+    if (!m_server && !m_client && ChatLog::parseWhisper(text, to, msg)) {   // playing alone
+        m_soloChat->add("", to.empty() || msg.empty() ? ChatLog::kWhisperHelp : "There's nobody else here to whisper to.", true);
+        return;
+    }
     if (m_server)      m_server->say(text);
     else if (m_client) m_client->say(text);
     else               m_soloChat->add(Online::playerName(), text, false, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified));
@@ -406,8 +508,29 @@ void PlayerApp::leaveGame() {
 // Frame
 // ---------------------------------------------------------------------------
 
+// Accessories and faces you wear live on the server: fetch any we don't have yet, then
+// put them on (in the game and on the avatar page).
+void PlayerApp::fetchAvatarParts() {
+    if (!Online::online()) return;
+    const Profile& me = Profile::get();
+    std::vector<std::string> want;
+    for (const auto& [kind, src] : me.accessories) want.push_back(src);
+    want.push_back(me.faceImage);
+    for (const std::string& src : want) {
+        if (src.rfind("gb:", 0) != 0) continue;
+        std::string id = src.substr(3);
+        if (!Paths::downloaded(id).empty() || !m_avatarFetching.insert(id).second) continue;
+        Online::download(id, [this](bool ok, const std::filesystem::path&, const nlohmann::json&) {
+            if (!ok) return;
+            if (Player* p = m_scene->player()) Profile::get().applyTo(*p);
+            if (m_avatarScene) if (Player* p = m_avatarScene->player()) Profile::get().applyTo(*p);
+        });
+    }
+}
+
 void PlayerApp::frame(float dt) {
     Online::update();   // replies from the Guts&Bolts server
+    fetchAvatarParts();
     if (m_autoServers && Online::online()) {
         m_autoServers = false;
         const GameCard& g = m_games[m_selected];
@@ -422,6 +545,13 @@ void PlayerApp::frame(float dt) {
         if (signup) { m_loginUser = user; signUp(user, pass); }
         else        { m_loginUser = user; m_loginTab = 1; logIn(user, pass); }
     }
+#ifdef GB_MOBILE
+    if (ImGui::GetTime() >= m_linkPollAt) {   // Android: a website Play link opened (or re-opened) the app
+        m_linkPollAt = ImGui::GetTime() + 0.5;
+        if (std::string link = LaunchLink::poll(); !link.empty()) takeLink(link);
+    }
+#endif
+    followLink();
     if (!m_autoStarted && Online::online()) {   // test options that need the server first
         if (m_opts.onlinePlay && !m_opts.game.empty()) {
             m_autoStarted = true;
@@ -457,17 +587,20 @@ void PlayerApp::frame(float dt) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilledMultiColor(pos, ImVec2(pos.x + size.x, pos.y + size.y),
                                     Classic::kSkyTop, Classic::kSkyTop, Classic::kSkyBottom, Classic::kSkyBottom);
-        float width = std::min(1000.0f, size.x - 32.0f);
-        ImVec2 col(pos.x + (size.x - width) * 0.5f, pos.y + 10.0f);
+        // Phones: thin margins, so the page gets as much of the small screen as it can.
+        const bool smallScreen = size.x < 700.0f || size.y < 520.0f;
+        const float gutter = smallScreen ? 6.0f : 16.0f;
+        float width = std::min(1000.0f, size.x - gutter * 2.0f);
+        ImVec2 col(pos.x + (size.x - width) * 0.5f, pos.y + (smallScreen ? 4.0f : 10.0f));
         drawTopBar(col, width);
 
         float top = ImGui::GetCursorScreenPos().y;
         ImGui::SetCursorScreenPos(ImVec2(col.x, top));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18, 14));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, smallScreen ? ImVec2(10, 8) : ImVec2(18, 14));
         ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.88f, 0.9f, 0.93f, 1));
         ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.62f, 0.66f, 0.72f, 1));
         ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.5f, 0.56f, 0.66f, 1));
-        ImGui::BeginChild("##content", ImVec2(width, pos.y + size.y - top - 10), ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::BeginChild("##content", ImVec2(width, pos.y + size.y - top - (smallScreen ? 4 : 10)), ImGuiChildFlags_AlwaysUseWindowPadding);
         ImVec2 cpos = ImGui::GetWindowPos(), csize = ImGui::GetWindowSize();
         Classic::stripes(ImGui::GetWindowDrawList(), cpos, ImVec2(cpos.x + csize.x, cpos.y + csize.y));
         Classic::pushLight();
@@ -475,7 +608,9 @@ void PlayerApp::frame(float dt) {
         if (m_page != Page::Home && !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
             ImGui::IsKeyPressed(ImGuiKey_Escape, false))
             m_page = Page::Home;
-        if (needsLogin()) drawLogin();   // online but not signed up: that comes first
+        ImGui::PushTextWrapPos(0.0f);   // long lines wrap at the page edge (small phone screens)
+        if (!Online::online() && !testMode()) drawNoServer();   // no offline play
+        else if (needsLogin()) drawLogin();   // online but not signed up: that comes first
         else switch (m_page) {
             case Page::Home:     drawHome(); break;
             case Page::Games:    drawGames(); break;
@@ -493,20 +628,35 @@ void PlayerApp::frame(float dt) {
             case Page::Login:    drawLogin(); break;
             default: break;
         }
+        ImGui::PopTextWrapPos();
         Classic::popLight();
         ImGui::EndChild();
         ImGui::PopStyleColor(3);
         ImGui::PopStyleVar();
     }
 
+    drawCharacterPicker();
     ImGui::End();
+    drawConnectScreen();
     if (m_page != Page::Game) touchScroll();
-    SettingsWindow::draw(&m_showSettings);
+    if (m_showSettings) {   // dressed like the rest of the site: white box, blue title bar
+        Classic::pushLight();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.97f, 0.97f, 0.98f, 1));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.06f, 0.38f, 0.73f, 1));
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.10f, 0.45f, 0.82f, 1));
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.86f, 0.91f, 0.98f, 1));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.80f, 0.88f, 0.98f, 1));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab, Classic::kBlue);
+        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, Classic::kLink);
+        SettingsWindow::draw(&m_showSettings);
+        ImGui::PopStyleColor(8);
+        Classic::popLight();
+    }
     drawJoinDialog();
     drawServersDialog();
     drawItemDialog();
     drawCreateItemDialog();
-    drawServerDialog();
     drawOnlineItemDialog();
     drawOnlineGameDialog();
     drawNotice();
@@ -542,13 +692,15 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     Profile& me = Profile::get();
 
     // --- Banner: your avatar standing in the sky, with the logo ---
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const bool portrait = screen.y > screen.x;
+    const bool shortScreen = screen.y < 520.0f;   // a phone on its side: every pixel of height counts
 #ifdef GB_MOBILE
-    const bool portrait = ImGui::GetIO().DisplaySize.y > ImGui::GetIO().DisplaySize.x;
-    const float bannerH = portrait ? 64.0f : 72.0f;   // phones are short: keep the banner slim
-    const float logoSize = portrait ? 24.0f : 40.0f;
+    const float bannerH = portrait ? 64.0f : (shortScreen ? 54.0f : 72.0f);   // phones: keep the banner slim
+    const float logoSize = portrait ? 24.0f : (shortScreen ? 30.0f : 40.0f);
 #else
-    const float bannerH = 118.0f;
-    const float logoSize = 64.0f;
+    const float bannerH = shortScreen ? 60.0f : 118.0f;
+    const float logoSize = shortScreen ? 34.0f : 64.0f;
 #endif
     const float fb = ImGui::GetIO().DisplayFramebufferScale.x;   // > 1 on phones: draw with every real pixel
     m_bannerView.resize((int)(width * fb), (int)(bannerH * fb));
@@ -579,7 +731,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     float boltsW = 18 + 4 + ImGui::CalcTextSize(boltsText.c_str()).x;
     float line2 = boltsW + 14 + ImGui::CalcTextSize(Online::online() && Online::isGuest() ? "Sign up" : "Edit avatar").x;
     float boxW = std::max(ts.x + badgeW, line2) + 24;
-    ImVec2 a(b1.x - boxW - 10, pos.y + 10), c(b1.x - 10, pos.y + 10 + 50);
+    const float boxY = pos.y + std::min(10.0f, std::max(2.0f, (bannerH - 50.0f) * 0.5f));
+    ImVec2 a(b1.x - boxW - (shortScreen ? 6 : 10), boxY), c(b1.x - (shortScreen ? 6 : 10), boxY + 50);
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
     dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
     if (staff) Badges::drawIcon(dl, ImVec2(a.x + 22, a.y + 15), 20.0f, Badges::Id::Administrator);
@@ -607,7 +760,8 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     ImGui::PopStyleColor(3);
 
     // --- The blue nav bar (wraps onto a second row on narrow, portrait screens) ---
-    const float navH = 34.0f;
+    const float navH = shortScreen ? 28.0f : 34.0f;
+    const float navGap = portrait ? 16.0f : (shortScreen ? 20.0f : 26.0f);
     struct Item { const char* label; int action; };
     // "Friends (2)" when friend requests are waiting.
     static std::string friendsLabel;
@@ -626,12 +780,12 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     // Lay the items out in rows first, so the bar knows how tall to be.
     std::vector<ImVec2> at;
     {
-        float x = pos.x + 14, row = 0;
+        float x = pos.x + (portrait ? 10 : 14), row = 0;
         for (const Item& it : items) {
             float w = ImGui::CalcTextSize(it.action == 3 ? friendsLabel.c_str() : it.label).x;
-            if (x + w + 8 > pos.x + width && x > pos.x + 14) { x = pos.x + 14; row += navH; }
+            if (x + w + 4 > pos.x + width && x > pos.x + 14) { x = pos.x + (portrait ? 10 : 14); row += navH; }
             at.push_back(ImVec2(x, row));
-            x += w + 26;
+            x += w + navGap;
         }
     }
     float rows = (at.empty() ? 0 : at.back().y) + navH;
@@ -644,7 +798,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
         float x = at[k].x;
         float rowY = n0.y + at[k].y;
         ImVec2 sz = ImGui::CalcTextSize(it.label);
-        ImVec2 p0(x - 8, rowY), p1(x + sz.x + 8, rowY + navH);
+        ImVec2 p0(x - navGap * 0.3f, rowY), p1(x + sz.x + navGap * 0.3f, rowY + navH);
         ImGui::SetCursorScreenPos(p0);
         ImGui::PushID(it.action);
         bool clicked = ImGui::InvisibleButton("##nav", ImVec2(p1.x - p0.x, navH));
@@ -676,7 +830,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 9: m_page = Page::Create; m_loaded.clear(); break;
                 case 11: m_page = Page::People; m_socialMsg.clear(); m_loaded.clear(); break;
                 case 12: m_page = Page::Groups; m_socialMsg.clear(); m_loaded.clear(); break;
-                case 10: m_serverInput = Online::serverAddress(); m_showServer = true; break;
+                case 10: if (!Online::online()) Online::connect(); break;
             }
         }
     }
@@ -744,6 +898,23 @@ void PlayerApp::drawHome() {
         ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_status.c_str());
         ImGui::Spacing();
     }
+    // Signed up but no password yet (like an account made before passwords existed):
+    // you can't log in anywhere else, including the website, until you set one.
+    if (Online::online() && Online::me().value("userId", 0LL) > 0 && !Online::me().value("hasPassword", true)) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1.0f, 0.95f, 0.8f, 1));
+        ImGui::BeginChild("##nopw", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+        ImGui::TextColored(ImVec4(0.55f, 0.35f, 0.0f, 1), "Your account has no password yet.");
+        ImGui::TextWrapped("Set one so you can log in on the website and other devices as @%s.",
+                           Online::me().value("username", std::string()).c_str());
+        if (Classic::button("Set a password", Classic::kBlue)) {
+            m_page = Page::Login;
+            m_loginTab = 0;
+            m_loginUser = Online::me().value("username", std::string());
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    }
     // Online: games people published.
     drawOnlineGames();
     // Daily Bolts waiting for you?
@@ -808,10 +979,11 @@ void PlayerApp::drawGames() {
     ImGui::SetWindowFontScale(1.35f);
     ImGui::TextUnformatted(titles[cur]);
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::SetNextItemWidth(170);
+    const float refreshW = ImGui::CalcTextSize("Refresh").x + ImGui::GetStyle().FramePadding.x * 2 + ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetNextItemWidth(std::min(170.0f, ImGui::GetContentRegionAvail().x));
     if (ImGui::Combo("##cat", &cur, titles, 4)) m_category = names[cur];
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(260);
+    if (!portraitScreen()) ImGui::SameLine();   // phones: search goes on its own line
+    ImGui::SetNextItemWidth(std::max(80.0f, std::min(260.0f, ImGui::GetContentRegionAvail().x - refreshW)));
     ImGui::InputTextWithHint("##search", "Search", &m_search);
     ImGui::SameLine();
     if (ImGui::Button("Refresh")) refreshGames();
@@ -878,7 +1050,7 @@ void PlayerApp::drawGameInfo() {
     ImGui::Spacing();
     if (Classic::button("Create a server", Classic::kBlue, ImVec2(220, 34))) openServers(key, g.info.title, localStarter(g.path));
     ImGui::EndDisabled();
-    ImGui::TextDisabled(Online::online() ? "Play puts you in a public server." : "Offline: Play is just you.");
+    ImGui::TextDisabled("Play puts you in a public server.");
     ImGui::Spacing();
     ImGui::TextDisabled("Death: %s", g.ragdoll ? "Ragdoll" : "Classic");
     ImGui::TextDisabled("Gore: %s", g.gore ? "Yes" : "No");
@@ -891,6 +1063,113 @@ void PlayerApp::drawGameInfo() {
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(g.info.description.c_str());
     ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    drawServerCards(key, g.info.title);
+}
+
+namespace {
+// A round headshot like Roblox's server cards: the avatar's head colour, a face and its hat.
+void drawHeadshot(ImDrawList* dl, ImVec2 c, float r, const nlohmann::json& av) {
+    auto col = [&](const char* k, ImU32 fallback) {
+        if (!av.is_object() || !av.contains(k) || !av[k].is_array() || av[k].size() < 3 || !av[k][0].is_number()) return fallback;
+        int R = av[k][0].get<int>(), G = av[k][1].get<int>(), B = av[k][2].get<int>();
+        if (R < 0) return fallback;
+        return IM_COL32(std::clamp(R, 0, 255), std::clamp(G, 0, 255), std::clamp(B, 0, 255), 255);
+    };
+    dl->AddCircleFilled(c, r, IM_COL32(200, 207, 217, 255), 32);
+    ImU32 skin = col("head", IM_COL32(245, 205, 48, 255));
+    float h = r * 0.62f;
+    dl->AddRectFilled(ImVec2(c.x - h, c.y - h * 0.75f), ImVec2(c.x + h, c.y + h * 1.05f), skin, h * 0.3f);
+    dl->AddCircleFilled(ImVec2(c.x - h * 0.33f, c.y), h * 0.1f, IM_COL32(20, 20, 20, 255));
+    dl->AddCircleFilled(ImVec2(c.x + h * 0.33f, c.y), h * 0.1f, IM_COL32(20, 20, 20, 255));
+    dl->PathArcTo(ImVec2(c.x, c.y + h * 0.28f), h * 0.35f, 0.35f, 2.8f);
+    dl->PathStroke(IM_COL32(20, 20, 20, 255), 0, std::max(1.2f, r * 0.05f));
+    int hat = av.is_object() ? av.value("hat", 0) : 0;
+    if (hat > 0) {
+        ImU32 hc = col("hatColor", IM_COL32(30, 30, 34, 255));
+        dl->AddRectFilled(ImVec2(c.x - h * 1.05f, c.y - h * 1.05f), ImVec2(c.x + h * 1.05f, c.y - h * 0.62f), hc, h * 0.3f);
+    }
+}
+} // namespace
+
+void PlayerApp::drawServerCards(const std::string& gameKey, const std::string& title) {
+    ImGui::SeparatorText("Servers");
+    if (!Online::online()) return;
+    if (gameKey != m_gameServersKey || ImGui::GetTime() - m_gameServersAt > 10.0) {   // keep it fresh
+        if (gameKey != m_gameServersKey) { m_gameServers = nlohmann::json::array(); m_gameServersPage = 0; }
+        m_gameServersKey = gameKey;
+        m_gameServersAt = ImGui::GetTime();
+        Online::request("servers.list", {{"game", gameKey}}, [this, gameKey](const nlohmann::json& r) {
+            if (gameKey == m_gameServersKey && r.value("ok", false)) m_gameServers = r["servers"];
+        });
+    }
+    if (m_gameServers.empty()) { ImGui::TextDisabled("Nobody's playing right now. Be the first!"); return; }
+
+    const float cardW = 200.0f, cardH = 250.0f, gap = 12.0f, face = 50.0f;
+    const int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + gap) / (cardW + gap)));
+    const int perPage = perRow * 2;
+    const int pages = std::max(1, ((int)m_gameServers.size() + perPage - 1) / perPage);
+    m_gameServersPage = std::clamp(m_gameServersPage, 0, pages - 1);
+    const int first = m_gameServersPage * perPage, last = std::min((int)m_gameServers.size(), first + perPage);
+    for (int i = first; i < last; ++i) {
+        const nlohmann::json& sv = m_gameServers[i];
+        if ((i - first) % perRow) ImGui::SameLine(0, gap);
+        ImGui::PushID(i);
+        ImGui::BeginGroup();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + cardW, p.y + cardH), IM_COL32(40, 43, 50, 255), 6.0f);
+        // Faces: up to 5, then "+N".
+        const nlohmann::json people = sv.value("people", nlohmann::json::array());
+        const int players = sv.value("players", 1), max = sv.value("max", 12);
+        int shown = std::min<int>((int)people.size(), 5), more = players - shown;
+        for (int k = 0; k < shown + (more > 0 ? 1 : 0); ++k) {
+            ImVec2 c(p.x + 14 + face * 0.5f + (k % 2) * (face + 8), p.y + 12 + face * 0.5f + (k / 2) * (face + 8));
+            if (k < shown) drawHeadshot(dl, c, face * 0.5f, people[k].value("avatar", nlohmann::json()));
+            else {
+                dl->AddCircleFilled(c, face * 0.5f, IM_COL32(120, 126, 140, 255), 32);
+                std::string t = "+" + std::to_string(more);
+                ImVec2 ts = ImGui::CalcTextSize(t.c_str());
+                dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 255), t.c_str());
+            }
+        }
+        char line[64];
+        std::snprintf(line, sizeof(line), "%d of %d people max", players, max);
+        dl->AddText(ImVec2(p.x + 14, p.y + 186), IM_COL32(235, 237, 242, 255), line);
+        std::string id = sv.value("id", std::string());
+        std::string shortId = "ID: " + (id.rfind("s-", 0) == 0 ? id.substr(2) : id);
+        dl->AddText(ImVec2(p.x + 14, p.y + cardH - 20), IM_COL32(170, 175, 185, 255), shortId.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(p.x + 14, p.y + 208));
+        ImGui::BeginDisabled(players >= max);
+        if (Classic::button(players >= max ? "Full" : "Join", Classic::kPlay, ImVec2(cardW - 28, 24))) {
+            startLoadingScreen(gameKey, title);
+            joinRelay(id, "", title);
+        }
+        ImGui::EndDisabled();
+        ImGui::SetCursorScreenPos(p);
+        ImGui::Dummy(ImVec2(cardW, cardH));
+        ImGui::EndGroup();
+        // Names when you point at a card.
+        if (ImGui::IsItemHovered() && !people.empty()) {
+            std::string names;
+            for (const auto& pp : people) names += (names.empty() ? "" : ", ") + pp.value("name", std::string("?"));
+            if (more > 0) names += " and " + std::to_string(more) + " more";
+            ImGui::SetTooltip("%s", names.c_str());
+        }
+        ImGui::PopID();
+    }
+    if (pages > 1) {
+        ImGui::Spacing();
+        if (ImGui::SmallButton("<<")) m_gameServersPage = 0;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("<")) --m_gameServersPage;
+        ImGui::SameLine();
+        ImGui::Text("Page %d of %d", m_gameServersPage + 1, pages);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(">")) ++m_gameServersPage;
+        ImGui::SameLine();
+        if (ImGui::SmallButton(">>")) m_gameServersPage = pages - 1;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -965,7 +1244,7 @@ void PlayerApp::drawAvatar(float dt) {
         ImGui::TextDisabled("(your username)");
     }
     if (!signedUp) {   // playing offline: call yourself what you like
-        ImGui::SetNextItemWidth(260);
+        ImGui::SetNextItemWidth(std::min(260.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Display name").x - ImGui::GetStyle().ItemInnerSpacing.x));
         if (!ImGui::IsAnyItemActive() && m_nameEdit != me.name && m_nameError.empty()) m_nameEdit = me.name;
         if (ImGui::InputText("Display name", &m_nameEdit) && m_nameEdit.size() > 20) m_nameEdit.resize(20);
         if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -996,7 +1275,7 @@ void PlayerApp::drawAvatar(float dt) {
     changed |= ImGui::ColorEdit3("Right Leg", &me.colors.rightLeg.x, cf);
 
     ImGui::SeparatorText("Hat");
-    for (int h = 0; h < 4; ++h) {
+    for (int h = 0; h < kHatStyleCount; ++h) {
         bool on = (int)me.hat == h;
         float rowW = ImGui::GetWindowContentRegionMax().x - ImGui::GetWindowContentRegionMin().x;
         float hw = std::min(95.0f, (rowW - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
@@ -1007,9 +1286,8 @@ void PlayerApp::drawAvatar(float dt) {
             me.hatColor = glm::vec3(-1.0f);   // back to its normal colours
             changed = true;
         }
-        ImGui::SameLine();
+        if (h % 4 != 3 && h + 1 < kHatStyleCount) ImGui::SameLine();   // four to a row
     }
-    ImGui::NewLine();
 
     drawAccount();
 
@@ -1033,7 +1311,17 @@ void PlayerApp::drawAvatar(float dt) {
 
 void PlayerApp::drawGame(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-    if (!io.WantTextInput && !m_chatOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_paused = !m_paused;
+    if (!io.WantTextInput && !m_chatOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (m_menuConfirm) m_menuConfirm = 0;   // Esc backs out of "Are you sure?"
+        else { m_paused = !m_paused; m_menuTab = 0; }
+    }
+
+    // Test helper: "--page menu" / "menu-settings" / "menu-help" / "menu-leave" opens the in-game menu.
+    if (m_frame == 60 && m_opts.page.rfind("menu", 0) == 0) {
+        m_paused = true;
+        m_menuTab = m_opts.page == "menu-settings" ? 1 : m_opts.page == "menu-help" ? 2 : 0;
+        m_menuConfirm = m_opts.page == "menu-leave" ? 2 : 0;
+    }
 
     ImVec2 pos  = ImGui::GetCursorScreenPos();
     ImVec2 size = ImGui::GetContentRegionAvail();
@@ -1058,11 +1346,7 @@ void PlayerApp::drawGame(float dt) {
 
     bool connecting = m_client && m_client->state() != NetClient::State::Joined;
     if (connecting) {
-        ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(20, 22, 28, 255));
-        const char* t = "Joining game...";
-        ImVec2 ts = ImGui::CalcTextSize(t);
-        ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x + (size.x - ts.x) * 0.5f, pos.y + size.y * 0.45f),
-                                            IM_COL32(255, 255, 255, 255), t);
+        drawLoading(pos, size, 1.0f, "Connecting to server");
         if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) leaveGame();
         return;
     }
@@ -1081,6 +1365,17 @@ void PlayerApp::drawGame(float dt) {
     else       m_session->setTouchInput(glm::vec2(0.0f), false);
     m_session->update(dt, m_camera.yaw, acceptInput);
 
+    // BadgeService:AwardBadge from the game's scripts: the server checks we're this
+    // game's host and the player is here, then everyone hears about it.
+    for (auto& [who, badge] : m_session->scripts().takeBadgeAwards()) {
+        if (!m_server || !Online::online()) continue;
+        Online::request("gamebadge.award", {{"badge", badge}, {"to", who}}, [this](const nlohmann::json& r) {
+            if (!r.value("ok", false)) { Log::warn("BadgeService: " + r.value("error", std::string())); return; }
+            if (r.value("awarded", false) && m_server)
+                m_server->announce(r.value("player", std::string()) + " earned the badge \"" + r.value("name", std::string()) + "\"!");
+        });
+    }
+
     // Bolts for playing (not while the menu is open). Online, the server keeps count.
     if (!m_paused && Online::online()) onlinePlayTick(dt);
     else if (!m_paused) {
@@ -1090,17 +1385,43 @@ void PlayerApp::drawGame(float dt) {
         }
     }
 
-    // Camera: follow the character; right-drag to look around, wheel to zoom.
+    // Camera: follow the character's head; right-drag to look around, wheel to
+    // zoom, all the way in for first person (where the mouse looks around by itself).
+    // Shift toggles Shift Lock (like Roblox): the mouse is locked in the middle
+    // and turns the camera, which sits over the right shoulder.
     bool hovered = ImGui::IsWindowHovered();
+    const bool firstPerson = PlayCamera::firstPerson(m_camera);
+    const bool typing = io.WantTextInput || m_chatOpen;
+    if (!GraphicsSettings::get().shiftLockSwitch || touch) m_shiftLock = false;
+    else if (acceptInput && !typing && !firstPerson &&
+             (ImGui::IsKeyPressed(ImGuiKey_LeftShift, false) || ImGui::IsKeyPressed(ImGuiKey_RightShift, false)))
+        m_shiftLock = !m_shiftLock;
     if (acceptInput && hovered) {
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
-            m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
-        if (io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
-        m_camera.distance = std::clamp(m_camera.distance, 2.0f, 60.0f);
+        const bool locked = (firstPerson || m_shiftLock) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+        if (locked) {
+            ImVec2 c = ImGui::GetCursorScreenPos();
+            ImVec2 mid(c.x + size.x * 0.5f, c.y + size.y * 0.5f);
+            AppWindow::lockMouse(mid.x, mid.y);
+            PlayCamera::turn(m_camera, AppWindow::mouseLookX(), AppWindow::mouseLookY());
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            if (m_shiftLock && !firstPerson) {
+                // Roblox's Shift Lock cursor: a ring with a dot.
+                fg->AddCircle(mid, 11.0f, IM_COL32(0, 0, 0, 120), 24, 4.0f);
+                fg->AddCircle(mid, 11.0f, IM_COL32(255, 255, 255, 235), 24, 2.0f);
+                fg->AddCircleFilled(mid, 2.5f, IM_COL32(255, 255, 255, 235));
+            } else {
+                // The pointer is hidden: a little dot in the middle shows what you'd click.
+                fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
+                fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+            }
+        } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+            PlayCamera::turn(m_camera, io.MouseDelta.x, io.MouseDelta.y);
+        }
+        PlayCamera::zoom(m_camera, io.MouseWheel);
     }
     if (Player* p = m_scene->player()) {
-        glm::vec3 target = p->focusPoint();
-        m_camera.pivot += (target - m_camera.pivot) * std::min(1.0f, dt * 12.0f);
+        PlayCamera::follow(m_camera, *p, dt, m_shiftLock);
+        PlayCamera::fade(*m_scene, *p, m_camera);
     }
 
 #ifdef GB_MOBILE
@@ -1112,7 +1433,7 @@ void PlayerApp::drawGame(float dt) {
     m_view.resize((int)px.x, (int)px.y);
     m_camera.resize((int)px.x, (int)px.y);
     m_renderer->render(*m_scene, m_camera, m_view, false);
-    Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
+    Audio::setListener(m_camera.position(), m_camera.forward());
     ImGui::Image((ImTextureID)(intptr_t)m_view.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
 
     // Clicking parts (for part.Clicked in scripts). With touch controls, a tap does it.
@@ -1120,7 +1441,13 @@ void PlayerApp::drawGame(float dt) {
     bool tapped = touch && m_touch.tapped(tapAt);
     ImVec2 pointer = tapped ? tapAt : ImGui::GetMousePos();
     const bool onHotbar = Hud::overHotbar(pos, max, *m_scene, pointer);   // picking a tool isn't swinging it
-    if (acceptInput && !onHotbar && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
+    // The game's own UI (buttons...) gets the pointer first.
+    std::vector<GameGui::Event> guiEvents;
+    const bool onGui = GameGui::handle(*m_scene, pos, max, pointer, acceptInput && (hovered || tapped) && !onHotbar,
+                                       !touch && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                                       !touch && ImGui::IsMouseReleased(ImGuiMouseButton_Left), tapped, m_guiInput, guiEvents);
+    m_session->guiEvents(guiEvents);
+    if (acceptInput && !onHotbar && !onGui && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
         ImVec2 m = pointer;
         float nx = (m.x - pos.x) / size.x * 2.0f - 1.0f;
         float ny = 1.0f - (m.y - pos.y) / size.y * 2.0f;
@@ -1138,15 +1465,14 @@ void PlayerApp::drawGame(float dt) {
         bool chatShowing = m_chatOpen || ImGui::GetTime() < m_chatShowUntil;
         labelsAt = chatShowing ? (m_chatOpen ? 216.0f : 156.0f) : 58.0f;   // under the chat box when it's up
     }
+    GameGui::draw(dl, pos, max, *m_scene, &m_guiInput);
     Hud::draw(dl, pos, max, *m_scene, m_session->gui(), labelsAt);
     if (int slot = Hud::drawHotbar(dl, pos, max, *m_scene, tapped && onHotbar ? &tapAt : nullptr); slot >= 0 && acceptInput)
         m_session->selectToolSlot(slot);
+    Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
-    if (m_server)      Hud::drawPlayerList(dl, pos, max, m_server->players());
-    else if (m_client) Hud::drawPlayerList(dl, pos, max, m_client->players());
-    else Hud::drawPlayerList(dl, pos, max, {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
-                                             m_session->scripts().leaderstats(Online::playerName())}});
-    drawChat(pos, max);
+    Hud::drawPlayerList(dl, pos, max, currentPlayers());
+    if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
 
     // "+5 Bolts for playing!" popup, top middle.
     if (ImGui::GetTime() < m_boltsToastUntil) {
@@ -1171,7 +1497,154 @@ void PlayerApp::drawGame(float dt) {
         dl->AddText(ImVec2(max.x - 80, max.y - 26), IM_COL32(255, 255, 255, 160), fps);
     }
 
+    if (m_loadingT > 0.0f) {   // the loading screen fades away as the game appears
+        m_loadingT -= dt;
+        drawLoading(pos, size, std::clamp(m_loadingT / 0.6f, 0.0f, 1.0f), "Starting");
+    }
+
     if (m_paused) drawPauseMenu();
+}
+
+// The classic connecting screen: the game's icon and name, a spinning circle,
+// what's happening, and the Guts&Bolts logo underneath.
+void PlayerApp::drawLoading(ImVec2 pos, ImVec2 size, float alpha, const char* status) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImFont* font = ImGui::GetFont();
+    const float base = ImGui::GetFontSize();
+    const int a = (int)(255 * alpha);
+    auto col = [a](int r, int g, int b, float k = 1.0f) { return IM_COL32(r, g, b, (int)(a * k)); };
+    ImVec2 max(pos.x + size.x, pos.y + size.y);
+    dl->AddRectFilledMultiColor(pos, max, col(34, 36, 42), col(34, 36, 42), col(14, 15, 18), col(14, 15, 18));
+
+    std::string title = m_currentTitle;
+    if (title.rfind("Joining ", 0) == 0) title = title.substr(8);
+    if (title.size() > 3 && title.compare(title.size() - 3, 3, "...") == 0) title.resize(title.size() - 3);
+    if (title.empty()) title = "Guts&Bolts";
+
+    // Everything is stacked in the middle; shrink it on short (phone) screens.
+    const float k = std::clamp(size.y / 560.0f, 0.6f, 1.5f);
+    const float iconSize = 96.0f * k, spin = 30.0f * k, logoSize = 30.0f * k;
+    const float wrap = std::max(120.0f, size.x - 60.0f);
+    float big = base * 1.8f * std::max(0.8f, k);
+    const float small = base * std::max(1.0f, k);   // "By ..." and the status line
+    ImVec2 ts = font->CalcTextSizeA(big, FLT_MAX, wrap, title.c_str());
+    const std::string by = m_currentAuthor.empty() ? std::string() : "By " + m_currentAuthor;
+    const float byH = by.empty() ? 0.0f : base * std::max(1.0f, k) + 4;
+    const ImVec2 lsz = font->CalcTextSizeA(logoSize, FLT_MAX, 0.0f, "GUTS&BOLTS");
+    const float total = iconSize + 14 + ts.y + byH + 34 * k + spin * 2 + 16 + base + 34 * k + lsz.y;
+    float y = pos.y + std::max(10.0f, (size.y - total) * 0.5f);
+    const float cx = pos.x + size.x * 0.5f;
+
+    // The game's icon (or its first letter on a coloured square).
+    ImVec2 i0(cx - iconSize * 0.5f, y), i1(cx + iconSize * 0.5f, y + iconSize);
+    unsigned tex = m_loadingIcon.empty() ? 0 : Textures::get(m_loadingIcon);
+    dl->AddRectFilled(ImVec2(i0.x - 3, i0.y - 3), ImVec2(i1.x + 3, i1.y + 3), col(255, 255, 255, 0.9f), 14.0f * k);
+    if (tex) {
+        dl->AddImageRounded((ImTextureID)(intptr_t)tex, i0, i1, ImVec2(0, 1), ImVec2(1, 0), col(255, 255, 255), 12.0f * k);
+    } else {
+        unsigned h = 2166136261u;
+        for (char ch : title) h = (h ^ (unsigned char)ch) * 16777619u;
+        ImU32 top = col(40 + (h & 0x5f), 60 + ((h >> 8) & 0x5f), 110 + ((h >> 16) & 0x5f));
+        ImU32 bot = col(20 + ((h >> 4) & 0x5f), 30 + ((h >> 12) & 0x5f), 60 + ((h >> 20) & 0x5f));
+        dl->AddRectFilledMultiColor(i0, i1, top, top, bot, bot);
+        const char letter[2] = {title[0], 0};
+        const float ls = iconSize * 0.55f;
+        ImVec2 lt = font->CalcTextSizeA(ls, FLT_MAX, 0.0f, letter);
+        dl->AddText(font, ls, ImVec2(cx - lt.x * 0.5f + 2, i0.y + (iconSize - lt.y) * 0.5f + 2), col(0, 0, 0, 0.4f), letter);
+        dl->AddText(font, ls, ImVec2(cx - lt.x * 0.5f, i0.y + (iconSize - lt.y) * 0.5f), col(255, 255, 255), letter);
+    }
+    y = i1.y + 14;
+
+    // Its name, and who made it.
+    dl->AddText(font, big, ImVec2(cx - ts.x * 0.5f + 2, y + 2), col(0, 0, 0, 0.6f), title.c_str(), nullptr, wrap);
+    dl->AddText(font, big, ImVec2(cx - ts.x * 0.5f, y), col(255, 255, 255), title.c_str(), nullptr, wrap);
+    y += ts.y;
+    if (!by.empty()) {
+        ImVec2 bs = font->CalcTextSizeA(small, FLT_MAX, 0.0f, by.c_str());
+        dl->AddText(font, small, ImVec2(cx - bs.x * 0.5f, y + 2), col(170, 176, 190), by.c_str());
+        y += byH;
+    }
+    y += 34 * k;
+
+    // The spinning circle: 12 bars, the bright one going round and the rest fading behind it.
+    ImVec2 c(cx, y + spin);
+    const float t = (float)ImGui::GetTime();
+    const int bars = 12;
+    const int lead = (int)(t * 12.0f) % bars;
+    for (int i = 0; i < bars; ++i) {
+        float ang = (float)i / bars * 6.2831853f - 1.5707963f;
+        int behind = (lead - i + bars) % bars;
+        float bright = std::max(0.15f, 1.0f - behind / 7.0f);
+        ImVec2 dir(std::cos(ang), std::sin(ang));
+        dl->AddLine(ImVec2(c.x + dir.x * spin * 0.5f, c.y + dir.y * spin * 0.5f),
+                    ImVec2(c.x + dir.x * spin, c.y + dir.y * spin), col(255, 255, 255, bright), std::max(3.0f, 5.0f * k));
+    }
+    y = c.y + spin + 16;
+
+    // What's happening ("Connecting to server...").
+    char line[96];
+    std::snprintf(line, sizeof(line), "%s%.*s", status, 1 + (int)(t * 3.0f) % 3, "...");
+    ImVec2 ls = font->CalcTextSizeA(small, FLT_MAX, 0.0f, status);
+    dl->AddText(font, small, ImVec2(cx - ls.x * 0.5f, y), col(220, 224, 232), line);
+    y += small + 34 * k;
+
+    // The logo under it all.
+    if (alpha > 0.99f) Classic::logo(dl, ImVec2(cx - lsz.x * 0.5f, y), logoSize, "GUTS&BOLTS");
+    else dl->AddText(font, logoSize, ImVec2(cx - lsz.x * 0.5f, y), col(222, 34, 28), "GUTS&BOLTS");
+}
+
+// Pressing Play: show the connecting screen straight away, and fetch the game's icon for it.
+void PlayerApp::startLoadingScreen(const std::string& gameId, const std::string& title) {
+    m_connectScreen = true;
+    if (!title.empty()) m_currentTitle = title;
+    m_currentAuthor.clear();
+    for (const auto& g : m_onlineGames)
+        if (g.value("id", std::string()) == gameId) m_currentAuthor = g.value("creatorName", std::string());
+    if (gameId == m_loadingGameId && !m_loadingTitle.empty()) {   // already asked about this one
+        m_currentTitle = m_loadingTitle;
+        if (!m_loadingAuthor.empty()) m_currentAuthor = m_loadingAuthor;
+        return;
+    }
+    m_loadingGameId = gameId;
+    m_loadingIcon.clear();
+    m_loadingTitle.clear();
+    m_loadingAuthor.clear();
+    if (gameId.empty() || gameId.rfind("local:", 0) == 0 || !Online::online()) return;
+    Online::request("icon.get", {{"id", gameId}}, [this, gameId](const nlohmann::json& r) {
+        if (!r.value("ok", false) || m_loadingGameId != gameId) return;
+        // The name it has on the site (the file inside may still have Studio's name), and who made it.
+        m_loadingTitle = r.value("name", std::string());
+        m_loadingAuthor = r.value("creatorName", std::string());
+        if (!m_loadingTitle.empty()) m_currentTitle = m_loadingTitle;
+        if (!m_loadingAuthor.empty()) m_currentAuthor = m_loadingAuthor;
+        std::string bytes;
+        if (!Online::base64Decode(r.value("data", std::string()), bytes) || bytes.size() < 4) return;
+        const bool jpg = (unsigned char)bytes[0] == 0xff && (unsigned char)bytes[1] == 0xd8;
+        std::filesystem::path file = Paths::downloadsFolder() / ("icon-" + gameId + "-" + std::to_string(r.value("icon", 0LL)) + (jpg ? ".jpg" : ".png"));
+        std::ofstream out(file, std::ios::binary);
+        out.write(bytes.data(), (std::streamsize)bytes.size());
+        out.close();
+        if (m_loadingGameId == gameId) m_loadingIcon = file.string();
+    }, 10);
+}
+
+// The connecting screen while the server's being asked and the game downloads.
+void PlayerApp::drawConnectScreen() {
+    if (!m_connectScreen) return;
+    if (m_page == Page::Game || (!m_busy && m_playMsg.empty())) { m_connectScreen = false; return; }   // it's here (or it failed)
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->Pos);
+    ImGui::SetNextWindowSize(vp->Size);
+    ImGui::SetNextWindowFocus();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::Begin("##connecting", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                          ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground);
+    ImGui::PopStyleVar(3);
+    const bool downloading = m_playMsg.rfind("Download", 0) == 0;
+    drawLoading(vp->Pos, vp->Size, 1.0f, downloading ? "Downloading the game" : "Connecting to server");
+    ImGui::End();
 }
 
 void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
@@ -1204,6 +1677,16 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
         if (l.system) {
             ImGui::PushTextWrapPos(0);
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "%s", l.text.c_str());
+            ImGui::PopTextWrapPos();
+        } else if (l.whisper) {
+            // Private messages: "{To Bob}" for ones you sent, "{From Alice}" for ones you got.
+            const bool mine = l.from == Online::playerName();
+            const ImVec4 pink(0.95f, 0.6f, 1.0f, 1);
+            ImGui::TextColored(pink, "{%s %s}", mine ? "To" : "From", (mine ? l.to : l.from).c_str());
+            if (!mine && (l.verified || l.admin)) { ImGui::SameLine(0, 3); Badges::check(ImGui::GetTextLineHeight() * 0.9f); }
+            ImGui::SameLine();
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextColored(ImVec4(0.98f, 0.88f, 1.0f, 1), "%s", l.text.c_str());
             ImGui::PopTextWrapPos();
         } else {
             if (l.admin) {
@@ -1254,41 +1737,181 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ImGui::End();
 }
 
+std::vector<PlayerEntry> PlayerApp::currentPlayers() const {
+    if (m_server) return m_server->players();
+    if (m_client) return m_client->players();
+    return {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+             m_session->scripts().leaderstats(Online::playerName())}};
+}
+
+// The in-game menu, laid out like Roblox's: tabs along the top (Players,
+// Settings, Help) and Reset / Leave / Resume along the bottom, each with its key.
 void PlayerApp::drawPauseMenu() {
+    ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    // Darken the game behind the menu (not the menu itself).
     ImGui::GetWindowDrawList()->AddRectFilled(vp->WorkPos,
-        ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y), IM_COL32(0, 0, 0, 120));
+        ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y), IM_COL32(0, 0, 0, 150));
+
+    // Keys, like Roblox: R resets, L leaves (both ask first), Esc resumes.
+    if (!io.WantTextInput) {
+        if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_menuConfirm = 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_L, false)) m_menuConfirm = 2;
+    }
+
+    const float w = fitWidth(640), h = std::min(470.0f, vp->WorkSize.y - 24.0f);
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(fitWidth(320), 0));
+    ImGui::SetNextWindowSize(ImVec2(w, h));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.13f, 0.15f, 0.96f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 14));
     ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoSavedSettings);
-    ImGui::SetWindowFontScale(1.3f);
-    ImGui::TextUnformatted(m_currentTitle.c_str());
-    ImGui::SetWindowFontScale(1.0f);
-    if (m_server && m_server->relayed()) {
-        if (!m_server->relayCode().empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1), "Private server - code: %s", m_server->relayCode().c_str());
-            ImGui::TextDisabled("Friends can also join from their Friends list.");
-        } else {
-            ImGui::TextDisabled(m_server->relayReady() ? "Public server" : "Starting the server...");
+
+    if (m_menuConfirm != 0) {
+        // "Are you sure?" page, like Roblox's.
+        const bool reset = m_menuConfirm == 1;
+        ImGui::Dummy(ImVec2(0, h * 0.22f));
+        ImGui::SetWindowFontScale(1.5f);
+        const char* q = reset ? "Are you sure you want to reset your character?" : "Are you sure you want to leave the game?";
+        ImVec2 qs = ImGui::CalcTextSize(q);
+        ImGui::SetCursorPosX(std::max(16.0f, (w - qs.x) * 0.5f));
+        ImGui::TextUnformatted(q);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::Dummy(ImVec2(0, 30));
+        const float bw = std::min(200.0f, (w - 60) * 0.5f);
+        ImGui::SetCursorPosX((w - bw * 2 - 16) * 0.5f);
+        bool yes = bigButton(reset ? "Reset" : "Leave", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(bw, 44));
+        ImGui::SameLine(0, 16);
+        bool no = bigButton(reset ? "Don't Reset" : "Don't Leave",
+                            ImVec4(0.3f, 0.3f, 0.35f, 1), ImVec2(bw, 44));
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) yes = true;
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+        if (no) m_menuConfirm = 0;
+        else if (yes) {
+            m_menuConfirm = 0;
+            m_paused = false;
+            if (reset) { if (Player* p = m_scene->player()) p->kill(); }
+            else leaveGame();
         }
-    } else if (m_server) {
-        ImGui::TextDisabled("Local network server");
-    } else if (!m_client) {
-        ImGui::TextDisabled("Offline - just you");
+        return;
     }
-    ImGui::Separator();
+
+    // Tabs along the top.
+    const char* tabs[] = {"Players", "Settings", "Help"};
+    const float tw = (w - 32 - 16) / 3.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (i) ImGui::SameLine(0, 8);
+        bool on = m_menuTab == i;
+        if (bigButton(tabs[i], on ? kAccent : ImVec4(0.2f, 0.21f, 0.24f, 1), ImVec2(tw, 34))) m_menuTab = i;
+    }
     ImGui::Spacing();
-    const ImVec2 full(-1, 40);
-    if (bigButton("Resume", kGreen, full)) m_paused = false;
-    if (bigButton("Reset Character", ImVec4(0.3f, 0.3f, 0.35f, 1), full)) {
-        if (Player* p = m_scene->player()) p->kill();
-        m_paused = false;
+
+    const float bottom = 52.0f;
+    ImGui::BeginChild("##menuBody", ImVec2(0, -bottom), false);
+    if (m_menuTab == 0) {
+        ImGui::TextDisabled("%s", m_currentTitle.c_str());
+        if (m_server && m_server->relayed()) {
+            if (!m_server->relayCode().empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1), "Private server - code: %s", m_server->relayCode().c_str());
+            else ImGui::TextDisabled(m_server->relayReady() ? "Public server" : "Starting the server...");
+        } else if (m_server) ImGui::TextDisabled("Local network server");
+        else if (!m_client) ImGui::TextDisabled("Offline - just you");
+        ImGui::Spacing();
+        for (const PlayerEntry& e : currentPlayers()) {
+            ImGui::PushID(e.name.c_str());
+            ImVec2 a = ImGui::GetCursorScreenPos();
+            ImVec2 z(a.x + ImGui::GetContentRegionAvail().x, a.y + 40);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(a, z, IM_COL32(40, 42, 48, 255), 6.0f);
+            dl->AddCircleFilled(ImVec2(a.x + 22, a.y + 20), 13, IM_COL32(90, 150, 230, 255));
+            float x = a.x + 44;
+            dl->AddText(ImVec2(x, a.y + 12), IM_COL32(255, 255, 255, 255), e.name.c_str());
+            x += ImGui::CalcTextSize(e.name.c_str()).x + 8;
+            if (e.verified) { dl->AddText(ImVec2(x, a.y + 12), IM_COL32(80, 170, 255, 255), "[Verified]"); x += 74; }
+            if (e.admin)    dl->AddText(ImVec2(x, a.y + 12), IM_COL32(255, 200, 70, 255), "[Staff]");
+            if (e.name == Online::playerName()) {
+                const char* you = "(you)";
+                dl->AddText(ImVec2(z.x - ImGui::CalcTextSize(you).x - 12, a.y + 12), IM_COL32(170, 170, 180, 255), you);
+            }
+            ImGui::Dummy(ImVec2(0, 44));
+            ImGui::PopID();
+        }
+    } else if (m_menuTab == 1) {
+        GraphicsSettings& gs = GraphicsSettings::get();
+        bool changed = false;
+        const float labelW = 190.0f;
+        auto row = [&](const char* label) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine(labelW);
+            ImGui::SetNextItemWidth(-1);
+        };
+        auto onOff = [&](const char* label, bool& v) {
+            row(label);
+            ImGui::PushID(label);
+            const float bw = (ImGui::GetContentRegionAvail().x - 8) * 0.5f;
+            if (bigButton("On", v ? kGreen : ImVec4(0.2f, 0.21f, 0.24f, 1), ImVec2(bw, 0)) && !v) { v = true; changed = true; }
+            ImGui::SameLine(0, 8);
+            if (bigButton("Off", !v ? ImVec4(0.55f, 0.25f, 0.25f, 1) : ImVec4(0.2f, 0.21f, 0.24f, 1), ImVec2(bw, 0)) && v) { v = false; changed = true; }
+            ImGui::PopID();
+        };
+        ImGui::SeparatorText("Camera");
+        onOff("Shift Lock Switch", gs.shiftLockSwitch);
+        row("Camera Sensitivity");
+        changed |= ImGui::SliderFloat("##sens", &gs.mouseSensitivity, 0.1f, 4.0f, "%.1f");
+        onOff("Invert Camera", gs.invertCamera);
+        ImGui::SeparatorText("Sound and screen");
+        row("Volume");
+        int vol = (int)std::lround(gs.volume * 10.0f);
+        if (ImGui::SliderInt("##vol", &vol, 0, 10)) { gs.volume = vol / 10.0f; changed = true; }
+#ifndef GB_MOBILE
+        onOff("Fullscreen", gs.fullscreen);
+#endif
+        row("Graphics Quality");
+        static const char* q[] = {"Low", "Medium", "High", "Ultra", "Custom"};
+        int qi = std::clamp(gs.quality, 0, 4);
+        if (ImGui::Combo("##quality", &qi, q, 5)) { if (qi < 4) gs.applyPreset(qi); else gs.quality = qi; changed = true; }
+        onOff("Show FPS", gs.showFps);
+        ImGui::SeparatorText("Other");
+        onOff("Blood and Gore", gs.allowGore);
+        row("Touch Controls");
+        static const char* tm[] = {"Automatic", "Always on", "Off"};
+        changed |= ImGui::Combo("##touch", &gs.touchControls, tm, 3);
+        ImGui::Spacing();
+        if (bigButton("Advanced graphics...", ImVec4(0.3f, 0.3f, 0.35f, 1))) m_showSettings = true;
+        if (changed) gs.save();
+    } else {
+        auto key = [](const char* k, const char* what) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1), "%-12s", k);
+            ImGui::SameLine(130);
+            ImGui::TextUnformatted(what);
+        };
+        ImGui::SeparatorText("Moving");
+        key("W A S D", "Walk");
+        key("Space", "Jump (again in the air to double-jump, if the game allows it)");
+        key("Shift", "Shift Lock: camera over your shoulder (turn on in Settings)");
+        ImGui::SeparatorText("Camera");
+        key("Right mouse", "Hold and drag to look around");
+        key("Mouse wheel", "Zoom in and out; all the way in is first person");
+        ImGui::SeparatorText("Other");
+        key("/ or Enter", "Chat  (/w name message whispers to one player)");
+        key("1 - 9", "Equip a tool from your hotbar");
+        key("Esc", "Open or close this menu");
     }
-    if (bigButton("Settings", ImVec4(0.3f, 0.3f, 0.35f, 1), full)) m_showSettings = true;
-    if (bigButton("Leave Game", ImVec4(0.75f, 0.25f, 0.25f, 1), full)) leaveGame();
+    ImGui::EndChild();
+
+    // Bottom buttons, like Roblox: [R] Reset Character, [L] Leave Game, [Esc] Resume Game.
+    const float bw = (w - 32 - 16) / 3.0f;
+    if (bigButton("[R]  Reset Character", ImVec4(0.3f, 0.3f, 0.35f, 1), ImVec2(bw, 40))) m_menuConfirm = 1;
+    ImGui::SameLine(0, 8);
+    if (bigButton("[L]  Leave Game", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(bw, 40))) m_menuConfirm = 2;
+    ImGui::SameLine(0, 8);
+    if (bigButton("[Esc]  Resume Game", kGreen, ImVec2(bw, 40))) m_paused = false;
     ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
 }
 
 // ---------------------------------------------------------------------------
@@ -1325,7 +1948,7 @@ void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
     m_session->setTouchInput(m_touch.move(), m_touch.jump());
     ImVec2 look = m_touch.look();
     if (look.x != 0.0f || look.y != 0.0f) m_camera.orbit(look.x, look.y);
-    if (m_touch.zoom() != 0.0f) m_camera.zoom(m_touch.zoom());
+    if (m_touch.zoom() != 0.0f) PlayCamera::zoom(m_camera, m_touch.zoom());
     if (m_touch.chatPressed()) m_chatOpen = true;
     if (m_touch.menuPressed()) m_paused = true;
 }
@@ -1592,6 +2215,7 @@ void PlayerApp::drawNotice() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(620), 0));
     if (ImGui::BeginPopupModal("Guts&Bolts##notice", nullptr, ImGuiWindowFlags_NoResize)) {
+        if (tappedOutside()) { m_notice.clear(); ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
         ImGui::TextWrapped("%s", m_notice.c_str());
         ImGui::Spacing();
         if (ImGui::Button("Copy my account ID", ImVec2(200, 32))) ImGui::SetClipboardText(Account::id().c_str());
@@ -1683,6 +2307,7 @@ void PlayerApp::drawItemDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(520), 0));
     if (!ImGui::BeginPopupModal("Catalog Item", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (tappedOutside()) m_openItem = -1;
     if (m_openItem < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     Catalog::Item it = m_items[m_openItem];
 

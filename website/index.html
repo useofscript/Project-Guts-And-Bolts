@@ -10,83 +10,103 @@
 <meta property="og:description" content="Build games, play with friends, fall apart spectacularly.">
 <meta property="og:image" content="img/demolition.jpg">
 <style>
+  /* Dressed like a website from around 2011 (same look as the site in app/). */
   :root {
-    --blue: #1d6fd8; --blue-dark: #0b4ea8; --sky1: #3b8ee8; --sky2: #9fd0ff;
-    --green: #16a34a; --green-dark: #0f7a36; --red: #c81e1e;
-    --panel: #ffffff; --text: #1d2430; --muted: #5b6575; --line: #cfd6e0;
-    --bg: #e9eef5;
+    --blue: #1d6fd8; --blue-dark: #0b4ea8; --link: #0055b3;
+    --panel: #ffffff; --text: #222; --muted: #666; --line: #c9ced6; --bg: #d9dde3;
+    --head1: #f7f9fc; --head2: #d9e2ee; --headText: #17407a;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --panel: #1b212b; --text: #e8ecf2; --muted: #9aa5b5; --line: #2e3745; --bg: #11151c; }
+    :root { --panel: #1b212b; --text: #e8ecf2; --muted: #9aa5b5; --line: #334052; --bg: #0e131b; --link: #6fb0ff;
+      --head1: #2a3444; --head2: #1f2835; --headText: #b9d6ff; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: Verdana, "Segoe UI", system-ui, sans-serif; color: var(--text); background: var(--bg); line-height: 1.5; }
-  a { color: var(--blue); }
-  header {
-    background: linear-gradient(var(--sky1), var(--sky2)); color: #fff;
-    padding: 28px 16px 0; text-align: center; overflow: hidden;
-  }
-  .logo { display: flex; align-items: center; justify-content: center; gap: 14px; }
-  .logo img { width: 72px; height: 72px; border-radius: 14px; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
-  .logo h1 {
-    margin: 0; font-size: clamp(34px, 7vw, 60px); letter-spacing: 1px;
-    color: #e23b3b; text-shadow: 2px 2px 0 #fff, 4px 4px 0 rgba(0,0,0,.25); font-family: Impact, "Arial Black", sans-serif;
-  }
-  .tag { font-size: 18px; margin: 10px 0 18px; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
-  .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 24px; }
-  .btn {
-    display: inline-block; padding: 12px 22px; border-radius: 6px; color: #fff; text-decoration: none; font-weight: bold;
-    border: 1px solid rgba(0,0,0,.25); box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
-  }
-  .btn.play { background: linear-gradient(#22c35e, var(--green-dark)); font-size: 18px; }
-  .btn.blue { background: linear-gradient(#3a8cf0, var(--blue-dark)); }
-  .btn:hover { filter: brightness(1.08); }
-  .hero-shot { max-width: 900px; margin: 0 auto; }
-  .hero-shot img { width: 100%; display: block; border-radius: 10px 10px 0 0; border: 3px solid #fff; border-bottom: 0; }
-  nav { background: var(--blue); display: flex; justify-content: center; flex-wrap: wrap; }
-  nav a { color: #fff; text-decoration: none; padding: 10px 14px; font-size: 14px; }
-  nav a:hover { background: rgba(255,255,255,.15); }
-  main { max-width: 980px; margin: 0 auto; padding: 16px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin: 18px 0; }
-  h2 { margin: 0 0 12px; font-size: 22px; color: var(--blue); }
-  @media (prefers-color-scheme: dark) { h2 { color: #6fb0ff; } }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
-  .card img { width: 100%; display: block; aspect-ratio: 772/270; object-fit: cover; }
-  .card div { padding: 10px 12px; }
-  .card b { display: block; }
-  .card span { color: var(--muted); font-size: 14px; }
-  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
-  .feat div { padding: 12px; border-left: 4px solid var(--blue); background: var(--bg); border-radius: 4px; }
-  .feat b { display: block; margin-bottom: 4px; }
-  .feat p { margin: 0; color: var(--muted); font-size: 14px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; }
-  @media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
-  .two img { width: 100%; border-radius: 6px; border: 1px solid var(--line); }
+  body { margin: 0; font-family: Verdana, Tahoma, Arial, sans-serif; font-size: 13px; color: var(--text); background: var(--bg); line-height: 1.5; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 970px; margin: 0 auto; padding: 0 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .topbar { background: linear-gradient(#2466c2, #0d3b82); border-bottom: 1px solid #072656; }
+  .topbar .wrap { min-height: 52px; }
+  .logo { display: flex; align-items: center; gap: 10px; text-decoration: none !important; }
+  .logo img { width: 36px; height: 36px; border-radius: 7px; border: 1px solid #06214a; }
+  .logo b { font-family: Impact, "Arial Black", sans-serif; font-size: 30px; letter-spacing: 1px; font-weight: normal; color: #e23b3b;
+    text-shadow: -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 2px 2px 0 #fff, 3px 4px 0 rgba(0,0,0,.45); }
+  .acct { margin-left: auto; color: #fff; }
+  .acct a { color: #fff; font-weight: bold; }
+  nav { background: linear-gradient(#6cb1f7 0%, #3c8ae4 50%, #2a78d4 51%, #1f69c2 100%); border-top: 1px solid #9ccbff; border-bottom: 1px solid #154f99; }
+  nav .wrap { gap: 0; }
+  nav a { color: #fff; padding: 8px 14px; font-size: 13px; font-weight: bold; text-shadow: 0 1px 1px rgba(0,0,0,.45);
+    border-right: 1px solid rgba(0,0,0,.18); box-shadow: 1px 0 0 rgba(255,255,255,.2); }
+  nav a:first-child { border-left: 1px solid rgba(0,0,0,.18); }
+  nav a:hover { background: rgba(255,255,255,.18); text-decoration: none; }
+  main { max-width: 970px; margin: 12px auto 0; background: var(--panel); border: 1px solid #b4bac3; box-shadow: 0 1px 4px rgba(0,0,0,.15); padding: 14px 16px 6px; }
+  .hero { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items: center; padding: 14px; border: 1px solid #9cc3ec;
+    background: linear-gradient(#eaf4ff, #cfe4fb); color: #12325c; }
+  @media (prefers-color-scheme: dark) { .hero { background: linear-gradient(#1b2d47, #13233a); color: #cfe3ff; border-color: #2c4a70; } }
+  .hero img { width: 100%; display: block; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+  .hero h1 { margin: 0 0 6px; font-family: Arial, Verdana, sans-serif; font-size: 26px; }
+  .tag { font-size: 14px; margin: 0 0 14px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 7px 16px; border-radius: 3px; color: #fff; font-weight: bold; text-decoration: none !important;
+    text-shadow: 0 -1px 0 rgba(0,0,0,.35); box-shadow: inset 0 1px 0 rgba(255,255,255,.4); }
+  .btn.play { border: 1px solid #0d6a2e; background: linear-gradient(#6fe08f 0%, #33bd5d 50%, #1ea447 51%, #178c3b 100%); font-size: 17px; padding: 9px 22px; }
+  .btn.blue { border: 1px solid #0d4a96; background: linear-gradient(#6fb3f7 0%, #3d8ce6 50%, #1f6fd0 51%, #1a5fb4 100%); }
+  .btn:hover { filter: brightness(1.07); }
+  section { border: 1px solid var(--line); margin: 14px 0; }
+  section > *:not(h2) { margin-left: 12px; margin-right: 12px; }
+  h2 { margin: 0 0 12px; padding: 5px 10px; font-size: 13px; color: var(--headText); background: linear-gradient(var(--head1), var(--head2));
+    border-bottom: 1px solid var(--line); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .card img { width: 100%; display: block; aspect-ratio: 772/270; object-fit: cover; border: 1px solid #9aa1ab; }
+  .card div { padding: 4px 0; }
+  .card b { display: block; color: var(--link); }
+  .card span { color: var(--muted); font-size: 12px; }
+  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .feat div { padding: 8px 10px; border: 1px solid var(--line); background: linear-gradient(var(--panel), var(--head1)); }
+  .feat b { display: block; margin-bottom: 2px; color: var(--headText); }
+  .feat p { margin: 0; color: var(--muted); font-size: 12px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; margin-bottom: 12px; }
+  .two img { width: 100%; border: 1px solid #9aa1ab; }
   .dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
   .dl div { text-align: center; }
-  .dl small { display: block; color: var(--muted); margin-top: 6px; text-align: center; }
-  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 24px 16px 40px; }
+  .dl small { display: block; color: var(--muted); margin-top: 6px; }
+  footer { max-width: 970px; margin: 0 auto; text-align: center; color: #555; font-size: 11px; padding: 12px 10px 30px; }
+  @media (prefers-color-scheme: dark) { footer { color: #aab4c3; } }
+  @media (max-width: 720px) {
+    .hero, .two { grid-template-columns: 1fr; }
+    main { margin-top: 0; border-left: 0; border-right: 0; padding: 10px; }
+    nav a { padding: 7px 10px; font-size: 12px; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <div class="logo"><img src="img/icon.png" alt=""><h1>GUTS&amp;BOLTS</h1></div>
-  <p class="tag">Build games. Play them with friends. Fall apart spectacularly.</p>
-  <div class="btns">
-    <a class="btn play" href="#download">Download free</a>
-    <a class="btn blue" href="app/#/signup">Sign up</a>
-    <a class="btn blue" href="app/#/login">Log in</a>
+<header class="topbar">
+  <div class="wrap">
+    <a class="logo" href="./"><img src="img/icon.png" alt=""><b>GUTS&amp;BOLTS</b></a>
+    <span class="acct"><a href="app/#/signup">Sign Up</a> | <a href="app/#/login">Login</a></span>
   </div>
-  <div class="hero-shot"><img src="img/demolition.jpg" alt="A player standing in the Demolition Yard, surrounded by crates and barrels"></div>
 </header>
 <nav>
-  <a href="app/"><b>Enter the site</b></a><a href="app/#/games">Browse games</a><a href="app/#/catalog">Catalog</a>
-  <a href="#games">Games</a><a href="#features">Features</a><a href="#studio">Studio</a>
-  <a href="#download">Download</a><a href="#server">Run a server</a>
+  <div class="wrap">
+    <a href="app/">Home</a><a href="app/#/games">Games</a><a href="app/#/catalog">Catalog</a>
+    <a href="#features">Features</a><a href="#studio">Studio</a><a href="#download">Download</a>
+  </div>
 </nav>
 
 <main>
+  <div class="hero">
+    <div>
+      <h1>Build games. Play them with friends.</h1>
+      <p class="tag">Then fall apart spectacularly. Guts&amp;Bolts is free, with a Studio to build in and a Player to play in.</p>
+      <div class="btns">
+        <a class="btn play" href="#download">Download free</a>
+        <a class="btn blue" href="app/#/signup">Sign Up</a>
+        <a class="btn blue" href="app/">Enter the site</a>
+      </div>
+    </div>
+    <img src="img/demolition.jpg" alt="A player standing in the Demolition Yard, surrounded by crates and barrels">
+  </div>
+
   <section id="games">
     <h2>Games that come with it</h2>
     <div class="grid">
@@ -143,7 +163,7 @@
       <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Linux</a><small>GutsAndBolts-Linux.tar.gz</small></div>
       <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Android</a><small>GutsAndBoltsPlayer-Android.apk</small></div>
     </div>
-    <p style="color:var(--muted);font-size:14px">Every button opens the releases page. Pick the newest release, then click the file for your computer.</p>
+    <p style="color:var(--muted);font-size:12px">Every button opens the releases page. Pick the newest release, then click the file for your computer.</p>
   </section>
 
   <section id="server">
@@ -154,6 +174,6 @@
   </section>
 </main>
 
-<footer>Guts&amp;Bolts is a fan-made game engine. Not affiliated with Roblox.</footer>
+<footer><a href="app/">The site</a> | <a href="#download">Download</a> | <a href="https://github.com/useofscript/Project-Guts-And-Bolts">Source</a><br><br>Guts&amp;Bolts is a fan-made game engine. Not affiliated with Roblox.</footer>
 </body>
 </html>

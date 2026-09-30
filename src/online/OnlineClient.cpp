@@ -84,13 +84,11 @@ void finish(Reply cb, json reply) {
 
 std::string serverAddress() {
     if (const char* e = std::getenv("GB_SERVER"); e && *e) return e;
-    return Profile::get().server;
+    return kOfficialServer;   // no offline play: everyone is on the main server
 }
 
 void setServerAddress(const std::string& address) {
-    Profile& p = Profile::get();
-    p.server = cleanText(address, 120);
-    p.save();
+    (void)address;
     S().me = json::object();
     S().status = Status::Off;
     S().statusText = "Offline";
@@ -173,7 +171,7 @@ void takeMe(const json& reply) {
             p.colors.rightArm = color("rightArm", p.colors.rightArm);
             p.colors.leftLeg = color("leftLeg", p.colors.leftLeg);
             p.colors.rightLeg = color("rightLeg", p.colors.rightLeg);
-            p.hat = (HatStyle)std::clamp(a.value("hat", 0), 0, 3);
+            p.hat = (HatStyle)std::clamp(a.value("hat", 0), 0, kHatStyleCount - 1);
             p.hatColor = color("hatColor", glm::vec3(-1.0f));
             if (a.contains("wearing") && a["wearing"].is_array()) {
                 // Keep things worn from the built-in catalog; take the server's list for the rest.

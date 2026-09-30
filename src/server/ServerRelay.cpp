@@ -46,9 +46,19 @@ std::string upper(std::string s) {
 json GbServer::sessionJson(const Session& s) const {
     const User* h = nullptr;
     if (auto it = m_users.find(s.host); it != m_users.end()) h = &it->second;
+    // Who's in it (the first few, with their avatars), for the server cards on game pages.
+    json people = json::array();
+    auto person = [&](const std::string& id) {
+        if (people.size() >= 5) return;
+        auto it = m_users.find(id);
+        people.push_back({{"id", id}, {"name", it != m_users.end() ? it->second.name : "?"},
+                          {"avatar", it != m_users.end() && !it->second.avatar.is_null() ? it->second.avatar : json()}});
+    };
+    person(s.host);
+    for (const Client* p : s.players) person(p->account);
     return {{"id", s.id}, {"game", s.game}, {"title", s.title}, {"players", (int)s.players.size() + 1},
             {"max", s.max}, {"private", s.priv}, {"hostName", h ? h->name : "?"},
-            {"hostVerified", h && isVerified(*h)}};
+            {"hostVerified", h && isVerified(*h)}, {"people", people}};
 }
 
 const GbServer::Session* GbServer::sessionOf(const std::string& userId) const {

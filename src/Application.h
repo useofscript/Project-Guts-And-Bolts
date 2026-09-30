@@ -25,6 +25,7 @@ struct LaunchOptions {
     bool        testCollide = false; // --test-collide (tests: Studio's Collisions)
     std::string testMouse;         // --test-mouse "click:x:y shift:x:y drag:x1:y1:x2:y2"  (tests, from frame 60)
     std::string testCommand;       // --test-command "<lua>"  (tests: run it in the Command Bar)
+    std::string testInsert;        // --test-insert "ScreenGui TextButton" (tests: Insert Object, each into the last)
     std::string testPremades;      // --test-premades <comma list or "all">  (tests)
 };
 

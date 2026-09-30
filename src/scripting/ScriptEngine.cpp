@@ -8,6 +8,7 @@
 #include "../scene/SceneNode.h"
 #include "../core/Log.h"
 #include "../scene/Effects.h"
+#include "../scene/Physics.h"
 #include "../core/Audio.h"
 
 #include <imgui.h>
@@ -35,8 +36,22 @@ wait, spawn, delay = task.wait, task.spawn, task.delay
 -- Players are tables with an object behind them (__node), so `player.leaderstats`
 -- and `folder.Parent = player` work like Roblox.
 local playerNode, setRespawn = __gb_playerNode, __gb_setRespawn
+-- Game UI lives in a folder called StarterGui (game.StarterGui, player.PlayerGui).
+local function uiFolder()
+    local f = workspace:FindFirstChild("StarterGui")
+    if not f then
+        f = Instance.new("Folder")
+        f.Name = "StarterGui"
+        f.Parent = workspace
+    end
+    return f
+end
+__gb_uiFolder = uiFolder
 local playerMeta = {
-    __index = function(t, k) return rawget(t, "__node")[k] end,
+    __index = function(t, k)
+        if k == "PlayerGui" then return uiFolder() end
+        return rawget(t, "__node")[k]
+    end,
     __newindex = function(t, k, v)
         if k == "RespawnLocation" and rawget(t, "__local") then setRespawn(v) end
         rawset(t, k, v)
@@ -168,11 +183,66 @@ function DataStoreService:GetDataStore(name, scope)
 end
 DataStoreService.GetOrderedDataStore = DataStoreService.GetDataStore
 
-local services = { Workspace = workspace, Players = Players, Lighting = Lighting,
+-- PathfindingService: a walking route around walls (for NPCs).
+--   local path = PathfindingService:CreatePath()
+--   path:ComputeAsync(zombie.HumanoidRootPart.Position, target)
+--   if path.Status == Enum.PathStatus.Success then
+--       for _, wp in ipairs(path:GetWaypoints()) do ... humanoid:MoveTo(wp.Position) ... end
+--   end
+local findPath = __gb_findPath
+PathfindingService = {}
+function PathfindingService:CreatePath(params)
+    local jumpHeight = 1.6
+    if params and params.AgentCanJump == false then jumpHeight = 0.5 end
+    local path = { Status = "NoPath", points = {} }
+    function path:ComputeAsync(from, to)
+        local pts = findPath(from, to, jumpHeight)
+        self.points = pts or {}
+        self.Status = pts and "Success" or "NoPath"
+    end
+    function path:GetWaypoints()
+        local t = {}
+        for i, p in ipairs(self.points) do
+            t[i] = { Position = p[1], Action = p[2] and "Jump" or "Walk" }
+        end
+        return t
+    end
+    local noop = { Connect = function() return { Disconnect = function() end } end }
+    path.Blocked, path.Unblocked = noop, noop
+    function path:Destroy() end
+    return path
+end
+
+-- BadgeService: give players the badges you made for your game on its page
+-- (Create > your game > Badges). Only works in a published game's online server.
+--   BadgeService:AwardBadge(player, "gb-badge-1a2b3c")
+local awardBadge, hasBadge = __gb_awardBadge, __gb_hasBadge
+BadgeService = {}
+local function nameOf(p)
+    if type(p) == "table" then return p.Name end
+    if type(p) == "number" then
+        for _, pl in ipairs(Players:GetPlayers()) do if pl.UserId == p then return pl.Name end end
+    end
+    return tostring(p)
+end
+function BadgeService:AwardBadge(player, badgeId)
+    awardBadge(nameOf(player), tostring(badgeId))
+    return true
+end
+function BadgeService:UserHasBadgeAsync(player, badgeId)
+    return hasBadge(nameOf(player), tostring(badgeId))
+end
+BadgeService.UserHasBadge = BadgeService.UserHasBadgeAsync
+
+local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService }
-game = setmetatable({}, { __index = function(_, name) return services[name] end })
+game = setmetatable({}, { __index = function(_, name)
+    if name == "StarterGui" then return __gb_uiFolder() end
+    return services[name]
+end })
 function game:GetService(name)
+    if name == "StarterGui" then return __gb_uiFolder() end
     local s = services[name]
     if s == nil then
         error("'" .. tostring(name) .. "' is not a service Guts and Bolts knows about", 2)
@@ -182,6 +252,9 @@ end
 Workspace = workspace
 
 -- Handy extras that Roblox's Luau also has.
+math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+math.pow = math.pow or function(x, y) return x ^ y end
+math.log10 = math.log10 or function(x) return math.log(x, 10) end
 function math.clamp(x, lo, hi) if x < lo then return lo elseif x > hi then return hi end return x end
 function math.sign(x) if x > 0 then return 1 elseif x < 0 then return -1 end return 0 end
 function math.round(x) return math.floor(x + 0.5) end
@@ -205,7 +278,8 @@ end
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
-__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet = nil, nil, nil, nil
+__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_findPath = nil, nil, nil, nil, nil
+__gb_awardBadge, __gb_hasBadge = nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -410,6 +484,19 @@ int l_dsSet(lua_State* L) {
     return 0;
 }
 
+// __gb_awardBadge(playerName, badgeId): the app sends it to the server.
+int l_awardBadge(lua_State* L) {
+    std::string name = luaL_checkstring(L, 1), badge = luaL_checkstring(L, 2);
+    ScriptEngine* e = LuaApi::engine(L);
+    if (!e->knowsBadge(name, badge)) { e->queueBadge(name, badge); e->markBadge(name, badge); }
+    return 0;
+}
+
+int l_hasBadge(lua_State* L) {
+    lua_pushboolean(L, LuaApi::engine(L)->knowsBadge(luaL_checkstring(L, 1), luaL_checkstring(L, 2)));
+    return 1;
+}
+
 int l_playerNode(lua_State* L) {
     LuaApi::pushInstance(L, LuaApi::engine(L)->playerNode(luaL_checkstring(L, 1)));
     return 1;
@@ -444,6 +531,22 @@ int gui_clear(lua_State* L) {
 }
 
 // Explode(position, radius, power)
+// __gb_findPath(from, to, jumpHeight) -> { {position, jump}, ... } or nil (PathfindingService).
+int l_findPath(lua_State* L) {
+    glm::vec3 from = LuaApi::checkVector3(L, 1), to = LuaApi::checkVector3(L, 2);
+    const Physics* ph = LuaApi::engine(L)->physics();
+    std::vector<PathPoint> pts;
+    if (!ph || !ph->findPath(from, to, (float)luaL_optnumber(L, 3, 1.6), pts)) { lua_pushnil(L); return 1; }
+    lua_createtable(L, (int)pts.size(), 0);
+    for (size_t i = 0; i < pts.size(); ++i) {
+        lua_createtable(L, 2, 0);
+        LuaApi::pushVector3(L, pts[i].pos); lua_rawseti(L, -2, 1);
+        lua_pushboolean(L, pts[i].jump);    lua_rawseti(L, -2, 2);
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 int l_explode(lua_State* L) {
     glm::vec3 pos = LuaApi::checkVector3(L, 1);
     Effects::explode(*LuaApi::engine(L)->scene(), pos, (float)luaL_optnumber(L, 2, 6.0),
@@ -457,7 +560,14 @@ int fx_spray(lua_State* L, GoreKind kind) {
     if (!s->goreEnabled()) return 0;
     int n = (int)luaL_optinteger(L, 2, 20);
     glm::vec3 pos = LuaApi::checkVector3(L, 1);
-    s->particles().spray(kind, pos, glm::vec3(0, 1, 0), std::clamp(n, 1, 300), 3.0f);
+    // Optional third argument: which way (and how hard) it sprays, e.g. Vector3.new(0, 2, -8).
+    glm::vec3 dir(0, 1, 0);
+    float speed = 3.0f;
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
+        glm::vec3 d = LuaApi::checkVector3(L, 3);
+        if (glm::length(d) > 1e-3f) { speed = std::min(glm::length(d), 40.0f); dir = d / glm::length(d); }
+    }
+    s->particles().spray(kind, pos, dir, std::clamp(n, 1, 300), speed);
     s->pushFx(kind == GoreKind::Blood ? FxEvent::Blood : FxEvent::Oil, pos, (float)n);
     return 0;
 }
@@ -562,6 +672,9 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_setRespawn", l_setRespawn);
     lua_register(L, "__gb_dsGet", l_dsGet);
     lua_register(L, "__gb_dsSet", l_dsSet);
+    lua_register(L, "__gb_findPath", l_findPath);
+    lua_register(L, "__gb_awardBadge", l_awardBadge);
+    lua_register(L, "__gb_hasBadge", l_hasBadge);
 
     LuaApi::pushInstance(L, m_scene->root()->id);
     lua_setglobal(L, "workspace");
@@ -608,6 +721,13 @@ void ScriptEngine::start(bool runScripts) {
         lua_pop(L, 1);
     }
     --m_depth;
+    // For Studio's AI tools: an object by its id number (they refer to objects that way).
+    lua_register(L, "__gb_byId", [](lua_State* L) -> int {
+        uint64_t id = (uint64_t)luaL_checkinteger(L, 1);
+        if (LuaApi::engine(L)->scene()->findById(id)) LuaApi::pushInstance(L, id);
+        else lua_pushnil(L);
+        return 1;
+    });
     // obj:GetAttributeChangedSignal(name) is built in Lua (see the prelude).
     lua_getglobal(L, "__gb_attrSignal");
     lua_setfield(L, LUA_REGISTRYINDEX, "GB.attrSignal");
@@ -637,6 +757,14 @@ bool ScriptEngine::runCommand(const std::string& code, std::string& error) {
             lua_pop(L, 1);
             return false;
         }
+    }
+    if (!expr) {
+        // Statements run like a script's body, so wait() works in them (errors go to Output).
+        lua_State* co = lua_newthread(L);
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        lua_xmove(L, co, 1);
+        resume(co, ref, 0, L);
+        return true;
     }
     m_resumeStart = nowSeconds();
     ++m_depth;
@@ -761,6 +889,7 @@ void ScriptEngine::runScriptsIn(SceneNode* root) {
 }
 
 void ScriptEngine::fireTool(SignalKind kind, uint64_t toolId) { fire(kind, toolId, nullptr); }
+void ScriptEngine::fireGui(SignalKind kind, uint64_t id) { fire(kind, id, nullptr); }
 
 void ScriptEngine::fireAnimationEvents() {
     std::vector<Anim::Animator::Event> events;
@@ -954,6 +1083,10 @@ void ScriptEngine::fireClicked(uint64_t partId) {
 }
 
 void ScriptEngine::fireDied(uint64_t rootId) { fire(SignalKind::Died, rootId, nullptr); }
+
+void ScriptEngine::fireMoveToFinished(uint64_t rootId, bool reached) {
+    fire(SignalKind::MoveToFinished, rootId, [reached](lua_State* co) { lua_pushboolean(co, reached); return 1; });
+}
 
 void ScriptEngine::fireAttributeChanged(uint64_t id, const std::string& name) {
     fire(SignalKind::AttributeChanged, id, [name](lua_State* co) { lua_pushstring(co, name.c_str()); return 1; });

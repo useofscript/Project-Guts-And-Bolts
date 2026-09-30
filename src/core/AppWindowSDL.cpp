@@ -30,22 +30,57 @@ double now() { return (double)SDL_GetPerformanceCounter() / (double)SDL_GetPerfo
 // How much bigger the UI should be. Phones pack lots of pixels into a small
 // screen, so 1 "UI pixel" becomes several real ones. GB_UI_SCALE overrides it
 // (handy for trying the phone layout on a computer).
+#ifdef __ANDROID__
+// Android's own idea of how big things should be (DisplayMetrics.density:
+// 1 = 160 dpi, 2.75 on a typical phone). This is what every Android app uses,
+// so buttons end up the size people expect. SDL's DPI is the raw panel DPI,
+// which some phones report wrongly. 0 = couldn't ask.
+float androidDensity() {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (!env || !activity) return 0.0f;
+    float density = 0.0f;
+    jclass actCls = env->GetObjectClass(activity);
+    jmethodID getRes = env->GetMethodID(actCls, "getResources", "()Landroid/content/res/Resources;");
+    jobject res = getRes ? env->CallObjectMethod(activity, getRes) : nullptr;
+    if (res && !env->ExceptionCheck()) {
+        jclass resCls = env->GetObjectClass(res);
+        jmethodID getDm = env->GetMethodID(resCls, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;");
+        jobject dm = getDm ? env->CallObjectMethod(res, getDm) : nullptr;
+        if (dm && !env->ExceptionCheck()) {
+            jclass dmCls = env->GetObjectClass(dm);
+            jfieldID f = env->GetFieldID(dmCls, "density", "F");
+            if (f) density = env->GetFloatField(dm, f);
+            env->DeleteLocalRef(dmCls);
+            env->DeleteLocalRef(dm);
+        }
+        env->DeleteLocalRef(resCls);
+        env->DeleteLocalRef(res);
+    }
+    if (env->ExceptionCheck()) { env->ExceptionClear(); density = 0.0f; }
+    env->DeleteLocalRef(actCls);
+    env->DeleteLocalRef(activity);
+    return density;
+}
+#endif
+
 float pickUiScale(SDL_Window* win) {
     if (const char* e = std::getenv("GB_UI_SCALE")) {
         float v = (float)std::atof(e);
         if (v > 0.2f) return v;
     }
 #ifdef __ANDROID__
+    float s = androidDensity();
     float ddpi = 0.0f;
-    if (SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(win), &ddpi, nullptr, nullptr) == 0 && ddpi > 0.0f) {
-        // Android's own "density": 160 dpi = 1x. Keep at least ~420 UI pixels of height.
-        int w, h;
-        SDL_GL_GetDrawableSize(win, &w, &h);
-        float s = ddpi / 160.0f;
-        s = std::min(s, std::min(w, h) / 420.0f);
-        return std::clamp(s, 1.0f, 4.0f);
-    }
-    return 2.0f;
+    if (s <= 0.0f && SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(win), &ddpi, nullptr, nullptr) == 0 && ddpi > 0.0f)
+        s = ddpi / 160.0f;
+    if (s <= 0.0f) s = 2.0f;
+    // Keep at least ~400 UI pixels on the short side, or the site can't fit
+    // (a phone on its side is short), and never so few that things are tiny.
+    int w, h;
+    SDL_GL_GetDrawableSize(win, &w, &h);
+    if (w > 0 && h > 0) s = std::min(s, std::min(w, h) / 400.0f);
+    return std::clamp(s, 1.0f, 4.0f);
 #else
     (void)win;
     return 1.0f;
@@ -198,6 +233,12 @@ void AppWindow::injectTouch(long long id, float x, float y, bool down) {
     m.button.x = mx; m.button.y = my;
     SDL_PushEvent(&m);
 }
+
+// Phones have no mouse to lock (dragging a finger looks around instead).
+void  AppWindow::lockMouse(float, float) {}
+float AppWindow::mouseLookX() { return 0.0f; }
+float AppWindow::mouseLookY() { return 0.0f; }
+bool  AppWindow::mouseLocked() { return false; }
 
 float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     const GraphicsSettings& gs = GraphicsSettings::get();

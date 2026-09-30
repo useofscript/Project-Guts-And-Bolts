@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -12,6 +13,7 @@
 struct lua_State;
 class Scene;
 class SceneNode;
+class Physics;
 enum class SignalKind : int;
 
 // Things scripts can show on screen during Play (see the Gui table in Lua).
@@ -38,6 +40,9 @@ public:
     bool runChunk(const std::string& code, const std::string& chunkName, std::string& error);
     bool callRef(int ref, std::string& error);
     struct lua_State* lua() { return m_L; }
+    // The game's physics world (PathfindingService looks at it). Null outside a game.
+    void setPhysics(const Physics* p) { m_physics = p; }
+    const Physics* physics() const { return m_physics; }
     void stop();                  // tear everything down
     bool running() const { return m_L != nullptr; }
 
@@ -46,14 +51,23 @@ public:
     void fireTouched(uint64_t partId, uint64_t otherId);
     void fireClicked(uint64_t partId);
     void fireDied(uint64_t characterRootId);
+    void fireMoveToFinished(uint64_t characterRootId, bool reached);
     void fireAttributeChanged(uint64_t id, const std::string& name);
     void fireTag(bool added, uint64_t id, const std::string& tag);
     void fireTool(SignalKind kind, uint64_t toolId);   // Activated / Deactivated / Equipped / Unequipped
     void fireValueChanged(uint64_t valueId);            // an IntValue etc. changed (.Changed)
+    void fireGui(SignalKind kind, uint64_t id);         // game UI: GuiClick / GuiEnter / GuiLeave
     void fireAnimationEvents();                         // AnimationTracks: Stopped, KeyframeReached...
     // DataStoreService's saved data for this game (a file in the player's account folder).
     const nlohmann::json& saveData();
     void setSaveData(const std::string& store, const std::string& key, const nlohmann::json& value);
+    // BadgeService:AwardBadge calls waiting to be sent to the server: (player name, badge id).
+    // The app sends them (only the host of a published game's server can award).
+    std::vector<std::pair<std::string, std::string>> takeBadgeAwards() { return std::move(m_badgeAwards); }
+    // Badges we know a player has (awarded this session, or looked up by the app).
+    void markBadge(const std::string& player, const std::string& badge) { m_knownBadges.insert(player + "\n" + badge); }
+    bool knowsBadge(const std::string& player, const std::string& badge) const { return m_knownBadges.count(player + "\n" + badge) > 0; }
+    void queueBadge(const std::string& player, const std::string& badge) { m_badgeAwards.push_back({player, badge}); }
     // Players' objects (outside the world) and what's in their leaderstats folder.
     uint64_t playerNode(const std::string& name);
     std::vector<std::pair<std::string, std::string>> leaderstats(const std::string& playerName);
@@ -97,6 +111,8 @@ private:
     std::unordered_set<uint64_t> m_started;   // scripts that have run (so nothing runs twice)
     uint64_t m_playersRoot = 0;               // "Players": one object per player (detached)
     nlohmann::json m_saveData;                // loaded on first use
+    std::vector<std::pair<std::string, std::string>> m_badgeAwards;
+    std::set<std::string> m_knownBadges;      // "player\nbadge"
     bool     m_saveLoaded = false;
     std::filesystem::path saveFile() const;
     struct Waiting {
@@ -124,6 +140,7 @@ private:
     void reportError(lua_State* co);
 
     Scene*     m_scene;
+    const Physics* m_physics = nullptr;
     lua_State* m_L = nullptr;
     double     m_time = 0.0;
     double     m_resumeStart = 0.0;

@@ -1,4 +1,6 @@
 #pragma once
+#include "../../game/GameGui.h"
+#include "../../scene/SceneNode.h"
 #include <functional>
 #include <cstdint>
 #include <vector>
@@ -15,6 +17,7 @@ class Scene;
 class GameSession;
 class TeamCreate;
 class SceneNode;
+class Player;
 struct Transform;
 
 // 3D viewport: renders the scene to an off-screen framebuffer and displays it
@@ -32,9 +35,13 @@ public:
     float     cameraYaw() const;                  // for camera-relative controls
     glm::vec3 cameraPivot() const { return m_camera.pivot; }
     void      frameOn(const glm::vec3& target);   // point the camera at a target
+    void      followPlayer(Player& p, float dt);   // Play: the camera follows the head (first person too)
     bool      hovered() const { return m_hovered; }
     // A picture of the game from its spawn point, as a PNG file (for publishing).
-    std::string snapshotPng(int width, int height);
+    // `fromView`: from where the Studio camera is now (else a nice view of the spawn).
+    std::string snapshotPng(int width, int height, bool fromView = false);
+    // A picture framed on a box (a Library model's thumbnail).
+    std::string snapshotAround(int width, int height, glm::vec3 center, float radius);
     bool      gizmoInUse() const;
     // F: glide the camera to the selected things (only ones with a body:
     // parts, and models / tools with parts in them). False if none.
@@ -77,6 +84,14 @@ private:
 
     int  m_viewW = 0, m_viewH = 0;
     bool m_hovered = false;
+    bool m_shiftLock = false;   // play test: Roblox Shift Lock
+    bool m_aimSnapshot = false; glm::vec3 m_aimCenter{0.0f}; float m_aimRadius = 1.0f;   // snapshotAround
+    // Game UI: pointer state in Play, and dragging a UI object while building.
+    GameGui::Input m_guiInput;
+    int       m_guiDrag = 0;                  // 1 = moving, 2 = resizing
+    uint64_t  m_guiDragId = 0;
+    ImVec2    m_guiDragFrom{0, 0};
+    UDim2     m_guiDragStart;
     bool m_wantFocus = false;
 
     // F "zoom to": the camera glides from -> to over a moment.
@@ -89,4 +104,5 @@ private:
     bool      m_meshDragging = false;
     bool      m_boxing = false;
     ImVec2    m_boxStart{0, 0};
+    ImVec2    m_viewMin{0, 0}, m_viewMax{0, 0};   // where the 3D view was drawn last frame
 };

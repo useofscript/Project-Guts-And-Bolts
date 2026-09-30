@@ -5,6 +5,11 @@
 #include "PlayerModel.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Audio.h"
+#include "../core/Paths.h"
+#include "Serializer.h"
+#include <fstream>
+#include <sstream>
+#include <nlohmann/json.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -59,7 +64,99 @@ void Player::build() {
     SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
     m_rootId = r->id;
     setHat(m_hat, m_hatTint);
+    applyClothing(r, m_shirt, m_pants);
+    applyAccessories(*m_scene, r, m_accessories);
+    applyFace(*m_scene, r, m_face);
     m_scene->markDirty();
+}
+
+void Player::setAccessories(const Accessories& acc) {
+    m_accessories = acc;
+    if (SceneNode* r = root()) applyAccessories(*m_scene, r, acc);
+}
+
+void Player::setFace(const std::string& face) {
+    m_face = face;
+    if (SceneNode* r = root()) applyFace(*m_scene, r, face);
+}
+
+namespace {
+std::string readSource(const std::string& src) {   // "gb:<id>" (downloaded) or a file
+    std::filesystem::path p = src.rfind("gb:", 0) == 0 ? Paths::downloaded(src.substr(3)) : std::filesystem::path(src);
+    if (p.empty()) return {};
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+} // namespace
+
+std::unique_ptr<SceneNode> Player::accessoryFrom(const std::string& text) {
+    nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object() || j.value("format", std::string()) != "gbaccessory" || !j.contains("node")) return nullptr;
+    auto n = Serializer::nodeFromString(j["node"].dump(), true);
+    if (!n) return nullptr;
+    // Worn things don't bump into anything or fall off.
+    std::vector<SceneNode*> stack{n.get()};
+    while (!stack.empty()) {
+        SceneNode* c = stack.back(); stack.pop_back();
+        c->canCollide = false;
+        c->anchored = true;
+        for (auto& k : c->children) stack.push_back(k.get());
+    }
+    return n;
+}
+
+void Player::applyAccessories(Scene& scene, SceneNode* r, const Accessories& acc) {
+    std::vector<SceneNode*> old;
+    for (auto& c : r->children) if (c->name.rfind("Accessory (", 0) == 0) old.push_back(c.get());
+    for (auto* o : old) scene.removeNode(o);
+    for (const auto& [kind, src] : acc) {
+        if (src.empty()) continue;
+        auto n = accessoryFrom(readSource(src));
+        if (!n) continue;   // not downloaded yet
+        n->name = "Accessory (" + kind + ")";
+        r->addChild(std::move(n));   // placed relative to the feet, like the classic hats
+    }
+    hideBuiltInHat(r);
+    scene.markDirty();
+}
+
+void Player::hideBuiltInHat(SceneNode* r) {
+    // A hat or hair from the catalog takes the place of the built-in hat.
+    bool worn = r->findChild("Accessory (hat)") || r->findChild("Accessory (hair)");
+    for (auto& c : r->children)
+        if (c->name.rfind("Hat", 0) == 0) c->visible = !worn;
+}
+
+void Player::applyFace(Scene& scene, SceneNode* r, const std::string& face) {
+    SceneNode* head = r->findChild("Head");
+    if (!head) return;
+    const bool picture = !face.empty() && !readSource(face).empty();
+    for (auto& c : head->children)
+        if (c->name.rfind("Eye", 0) == 0 || c->name.rfind("Smile", 0) == 0) c->visible = !picture;
+    SceneNode* decal = head->findChild("FaceDecal");
+    if (!picture) { if (decal) scene.removeNode(decal); return; }
+    if (!decal) {
+        auto d = std::make_unique<SceneNode>("FaceDecal", NodeKind::Decal);
+        d->face = Face::Back;   // the head's front is +Z
+        decal = head->addChild(std::move(d));
+    }
+    decal->texture = face;
+    scene.markDirty();
+}
+
+void Player::setClothing(const std::string& shirt, const std::string& pants) {
+    m_shirt = shirt;
+    m_pants = pants;
+    if (SceneNode* r = root()) applyClothing(r, shirt, pants);
+}
+
+void Player::applyClothing(SceneNode* r, const std::string& shirt, const std::string& pants) {
+    auto set = [&](const char* n, const std::string& t) { if (SceneNode* p = r->findChild(n)) p->texture = t; };
+    set("Torso", shirt.empty() ? pants : shirt);
+    set("Left Arm", shirt); set("Right Arm", shirt);
+    set("Left Leg", pants); set("Right Leg", pants);
 }
 
 SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::vec3& feet) {
@@ -96,21 +193,60 @@ SceneNode* Player::buildRig(Scene& scene, const std::string& name, const glm::ve
     // Then give them the default character model's shapes (assets/models/player.obj).
     for (auto& c : r->children) usePlayerModel(*c);
 
-    // --- Smiley face on the front (+Z) of the head, in head-local space ---
-    addPart(head, "Eye.L", Cube, {-0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
-    addPart(head, "Eye.R", Cube, { 0.18f, 0.12f, 0.5f}, {0.13f, 0.16f, 0.06f}, kBlack, true);
-
-    // Smile: small cubes along an upward-opening curve.
-    const float sx[5] = {-0.24f, -0.12f, 0.0f, 0.12f, 0.24f};
-    for (int i = 0; i < 5; ++i) {
-        float x = sx[i];
-        float y = -0.20f + 0.10f * (x / 0.24f) * (x / 0.24f);   // middle lowest
-        // Follow the curve of the cylinder so the smile sits on the surface.
-        float z = std::sqrt(std::max(0.0f, 0.25f - x * x)) + 0.01f;
-        addPart(head, "Smile", Cube, {x, y, z}, {0.08f, 0.09f, 0.06f}, kBlack, true);
-    }
+    addFace(head);
     scene.markDirty();
     return r;
+}
+
+// The classic smiley on the front (+Z) of the head, in head-local space:
+// two small oval eyes and a smooth U-shaped smile.
+void Player::addFace(SceneNode* head) {
+    auto add = [&](const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 scale, glm::vec3 rotDeg) {
+        auto n = std::make_unique<SceneNode>(name);
+        n->primitiveType      = shape;
+        n->mesh               = MeshLibrary::get(shape);
+        n->transform.position = pos;
+        n->transform.scale    = scale;
+        n->transform.rotation = rotDeg;
+        n->color    = kBlack;
+        n->internal = true;
+        head->addChild(std::move(n));
+    };
+    // Sit on the round head: z follows the cylinder, and each piece turns to face out.
+    auto surfaceZ = [](float x) { return std::sqrt(std::max(0.0f, 0.25f - x * x)) - 0.005f; };
+    auto yawAt = [](float x) { return glm::degrees(std::asin(std::clamp(x / 0.5f, -1.0f, 1.0f))); };
+    for (float x : {-0.1f, 0.1f})
+        add(x < 0 ? "Eye.L" : "Eye.R", PrimitiveType::Sphere, {x, 0.16f, surfaceZ(x)}, {0.065f, 0.13f, 0.05f}, {0, yawAt(x), 0});
+    // The smile: short bars along the curve, each turned along it (ends high, round at the bottom).
+    auto curve = [](float x) { float t = std::abs(x) / 0.2f; return -0.27f + 0.22f * std::pow(t, 1.7f); };
+    const int n = 10;
+    for (int i = 0; i < n; ++i) {
+        float x0 = -0.2f + 0.4f * i / n, x1 = -0.2f + 0.4f * (i + 1) / n;
+        float y0 = curve(x0), y1 = curve(x1);
+        float xm = (x0 + x1) * 0.5f, ym = (y0 + y1) * 0.5f;
+        float len = std::hypot(x1 - x0, y1 - y0) + 0.035f;   // overlap a little so there are no gaps
+        float roll = glm::degrees(std::atan2(y1 - y0, x1 - x0));
+        add("Smile", PrimitiveType::Cube, {xm, ym, surfaceZ(xm)}, {len, 0.055f, 0.05f}, {0, yawAt(xm), roll});
+    }
+}
+
+void Player::upgradeFace() {
+    // Characters saved with the old block face (5 smile blocks): swap in the new one.
+    SceneNode* r = root();
+    SceneNode* head = nullptr;
+    if (r) for (auto& c : r->children) if (c->name == "Head") head = c.get();
+    if (!head) return;
+    int smiles = 0;
+    std::vector<SceneNode*> old;
+    for (auto& c : head->children)
+        if (c->name == "Smile" || c->name == "Eye.L" || c->name == "Eye.R") {
+            old.push_back(c.get());
+            if (c->name == "Smile") ++smiles;
+        }
+    if (smiles != 5) return;   // already the new face (or a custom one)
+    for (SceneNode* o : old) m_scene->removeNode(o);
+    addFace(head);
+    m_scene->markDirty();
 }
 
 bool Player::usePlayerModel(SceneNode& part) {
@@ -139,7 +275,15 @@ glm::vec3 Player::focusPoint() const {
     if (m_dead && m_ragdoll.active()) return m_ragdoll.center();
     if (m_dead)
         if (SceneNode* t = part("Torso")) return glm::vec3(t->worldMatrix()[3]);
-    return position() + glm::vec3(0.0f, 1.6f, 0.0f);
+    // Like Roblox, the camera looks at (and in first person, sits in) the head.
+    // (Where the head is on the body, not how it bobs, so the view stays steady.)
+    if (SceneNode* r = root())
+        if (SceneNode* h = part("Head")) {
+            auto it = m_rest.find(h->id);
+            glm::vec3 local = it != m_rest.end() ? it->second.position : h->transform.position;
+            return glm::vec3(r->worldMatrix() * glm::vec4(local, 1.0f));
+        }
+    return position() + glm::vec3(0.0f, 2.3f, 0.0f);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +332,7 @@ const char* Player::hatName(HatStyle s) {
         case HatStyle::TopHat: return "Top Hat";
         case HatStyle::Cap:    return "Cap";
         case HatStyle::Crown:  return "Crown";
+        case HatStyle::Ponytail: return "Ponytail";
         default:               return "None";
     }
 }
@@ -241,8 +386,17 @@ void Player::applyHat(Scene& scene, SceneNode* r, HatStyle style, glm::vec3 tint
             addW("Hat",       PrimitiveType::Cylinder, {0, top + 0.14f, 0}, {0.74f, 0.28f, 0.74f}, main({1.0f, 0.78f, 0.2f}), Material::Metal);
             addW("Hat Jewel", PrimitiveType::Cube, {0, top + 0.14f, 0.37f}, {0.12f, 0.12f, 0.05f}, {0.9f, 0.1f, 0.2f}, Material::Neon);
             break;
+        case HatStyle::Ponytail: {   // hair: a cap over the top and back of the head, a bun and a tail
+            const glm::vec3 hair = main({0.86f, 0.2f, 0.62f});
+            addW("Hat",       PrimitiveType::Sphere, {0, top - 0.1f, -0.05f}, {0.8f, 0.46f, 0.82f}, hair);
+            addW("Hat Back",  PrimitiveType::Cube,   {0, top - 0.3f, -0.3f}, {0.74f, 0.42f, 0.16f}, hair);
+            addW("Hat Bun",   PrimitiveType::Sphere, {0, top + 0.12f, -0.3f}, {0.36f, 0.34f, 0.36f}, hair);
+            addW("Hat Tail",  PrimitiveType::Sphere, {0, top - 0.14f, -0.5f}, {0.26f, 0.56f, 0.26f}, hair);
+            break;
+        }
         default: break;
     }
+    hideBuiltInHat(r);
     scene.markDirty();
 }
 
@@ -540,6 +694,26 @@ bool Player::consumeDied() {
     return d;
 }
 
+namespace {
+bool flagged(const SceneNode* n, const char* what) {
+    if (std::find(n->tags.begin(), n->tags.end(), what) != n->tags.end()) return true;
+    const Attribute* a = n->findAttribute(what);
+    return a && ((a->type == Attribute::Bool && a->b) || (a->type == Attribute::Number && a->n != 0));
+}
+bool nameHas(const SceneNode* n, const char* word) { return n->name.find(word) != std::string::npos; }
+bool insideBox(const AABB& b, const glm::vec3& p, float pad = 0.0f) {
+    return p.x >= b.min.x - pad && p.x <= b.max.x + pad && p.y >= b.min.y - pad && p.y <= b.max.y + pad &&
+           p.z >= b.min.z - pad && p.z <= b.max.z + pad;
+}
+} // namespace
+
+bool Player::isClimbable(const SceneNode* n) {
+    return n->isPart() && n->canCollide && (nameHas(n, "Truss") || nameHas(n, "Ladder") || flagged(n, "Climbable"));
+}
+bool Player::isWater(const SceneNode* n) {
+    return n->isPart() && !n->canCollide && (n->name == "Water" || nameHas(n, "Water") || flagged(n, "Water"));
+}
+
 void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& physics) {
     SceneNode* r = root();
     if (!r) return;
@@ -564,11 +738,16 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
 
     glm::vec3 pos = r->transform.position;
 
-    // Ride moving platforms: follow whatever we stood on last frame.
+    // Ride moving platforms: whatever we stood on last frame carries us, sliding
+    // and spinning (a turntable turns you with it), and we keep its speed.
+    m_platformVel = glm::vec3(0.0f);
     if (m_groundId) {
         if (SceneNode* g = m_scene->findById(m_groundId)) {
-            glm::vec3 now = glm::vec3(g->worldMatrix()[3]);
-            pos += now - m_groundPrev;
+            glm::mat4 change = g->worldMatrix() * glm::inverse(m_groundPrevM);
+            glm::vec3 carried = glm::vec3(change * glm::vec4(pos, 1.0f));
+            if (dt > 0.0f) m_platformVel = (carried - pos) / dt;
+            pos = carried;
+            r->transform.rotation.y += glm::degrees(std::atan2(change[2][0], change[2][2]));
         }
     }
 
@@ -579,7 +758,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     if (moving) {
         horiz /= len;
         float amount = std::min(1.0f, len);   // a half-pushed thumbstick walks slower
-        if (m_humanoid.autoRotate) {
+        if (m_humanoid.autoRotate && !m_faceLock) {
             // Turn smoothly towards the direction of travel (shortest way round).
             float target = glm::degrees(std::atan2(horiz.x, horiz.z));
             float cur    = r->transform.rotation.y;
@@ -589,17 +768,83 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         horiz *= amount;
     }
 
-    // Gravity + jumping.
-    if (m_grounded && jump) {
-        m_velocity.y = m_humanoid.jumpPower;
-        m_grounded = false;
-        glm::vec3 at = pos + glm::vec3(0, 1, 0);
-        Audio::play("jump", 0.35f, 1.0f, false, &at);
+    // First person: the body faces wherever the camera looks.
+    if (m_faceLock) { r->transform.rotation.y = m_faceYaw; m_faceLock = false; }
+
+    // Trusses / ladders in front of us, and water around us.
+    const float yaw = glm::radians(r->transform.rotation.y);
+    const glm::vec3 facing(std::sin(yaw), 0.0f, std::cos(yaw));
+    const glm::vec3 ahead = moving ? glm::normalize(glm::vec3(horiz.x, 0.0f, horiz.z)) : facing;
+    bool truss = false, water = false;
+    float waterTop = -1e9f;
+    glm::vec3 current(0.0f);   // water flowing along (a "Flow" attribute)
+    WaterSystem& waves = m_scene->water();
+    m_climbCooldown = std::max(0.0f, m_climbCooldown - dt);
+    m_scene->forEach([&](SceneNode* n) {
+        if (!n->isPart() || m_scene->isCharacterPart(n)) return;
+        const bool climbable = m_climbCooldown <= 0.0f && isClimbable(n), wet = isWater(n);
+        if (!climbable && !wet) return;
+        AABB b = Physics::worldBounds(n);
+        if (climbable && !truss)
+            for (float h : {0.4f, 1.3f, 2.2f})
+                if (insideBox(b, pos + glm::vec3(0.0f, h, 0.0f) + ahead * 0.75f, 0.05f)) { truss = true; break; }
+        if (!wet) return;
+        // While playing, the surface moves with the waves.
+        const glm::vec3 chest = pos + glm::vec3(0.0f, 1.2f, 0.0f);
+        const float top = waves.active() ? waves.surfaceOf(n, chest.x, chest.z) : b.max.y;
+        AABB wetBox = b;
+        wetBox.max.y = top;
+        if (insideBox(wetBox, chest)) {
+            water = true;
+            waterTop = std::max(waterTop, top);
+            if (const WaterSystem::Body* wb = waves.find(n->id)) current = wb->flow;
+        }
+    });
+    // Flowing water from a WaterSource (floods, rivers).
+    if (!water && waves.active()) {
+        float top;
+        glm::vec3 flow;
+        if (waves.at(pos + glm::vec3(0.0f, 1.2f, 0.0f), &top, &flow)) { water = true; waterTop = top; current = flow; }
     }
-    m_velocity.y -= m_scene->world().gravity * dt;
+    // Climb when walking into a truss (or when already on one and still touching it).
+    const bool wasClimbing = m_climbing;
+    m_climbing = truss && (moving || (m_climbing && !m_grounded));
+    m_swimming = water && !m_climbing;
+    float speed = m_humanoid.walkSpeed * (m_swimming ? 0.75f : 1.0f);
+
+    // Gravity + jumping.
+    if (m_climbing) {
+        if (jump && wasClimbing && !m_grounded) {   // leap off backwards
+            m_climbing = false;
+            m_climbCooldown = 0.35f;
+            m_velocity = -ahead * 10.0f + glm::vec3(0.0f, m_humanoid.jumpPower * 0.7f, 0.0f);
+        } else {
+            m_velocity.y = moving ? m_humanoid.walkSpeed * 0.9f : 0.0f;   // stop pushing = hang on
+            m_climbPhase += dt * (moving ? 9.0f : 0.0f);
+            horiz *= 0.3f;   // (the truss is in the way anyway)
+        }
+    } else if (m_swimming) {
+        const float g = m_scene->world().gravity;
+        m_velocity.y -= g * 0.12f * dt;                       // almost floating
+        if (pos.y + 1.6f < waterTop) m_velocity.y += 5.0f * dt;   // deep: drift up
+        if (jump) m_velocity.y = std::min(m_velocity.y + 45.0f * dt, 9.0f);   // swim up (and jump out at the top)
+        m_velocity.y *= std::max(0.0f, 1.0f - 2.5f * dt);     // water slows everything
+        m_climbPhase += dt * 6.0f;
+    } else {
+        if (m_grounded && jump) {
+            // Jumping off something moving keeps its speed (off a train, you fly forward).
+            m_velocity.x += m_platformVel.x;
+            m_velocity.z += m_platformVel.z;
+            m_velocity.y = m_humanoid.jumpPower + std::max(0.0f, m_platformVel.y);
+            m_grounded = false;
+            glm::vec3 at = pos + glm::vec3(0, 1, 0);
+            Audio::play("jump", 0.35f, 1.0f, false, &at);
+        }
+        m_velocity.y -= m_scene->world().gravity * dt;
+    }
 
     // Walking plus any leftover push (from jump pads, etc.), which fades out.
-    glm::vec3 delta = horiz * m_humanoid.walkSpeed * dt;
+    glm::vec3 delta = horiz * speed * dt + current * (m_swimming ? dt : 0.0f);
     delta.x += m_velocity.x * dt;
     delta.z += m_velocity.z * dt;
     delta.y = m_velocity.y * dt;
@@ -607,7 +852,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_velocity.x *= drag;
     m_velocity.z *= drag;
 
-    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded);
+    Physics::MoveResult res = physics.moveCharacter(pos, delta, m_grounded, r->transform.rotation.y, m_rootId);
     // Walking into loose parts pushes them (heavier = harder, handled by the solver).
     for (auto& [node, dir] : res.pushed) {
         glm::vec3 want = dir * m_humanoid.walkSpeed * 0.9f;
@@ -619,9 +864,9 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     const WorldSettings& world = m_scene->world();
     float impact = -m_velocity.y;
     if (res.grounded && !m_grounded && world.fallDamage && impact > world.fallDamageSpeed &&
-        !hasForceField()) {
+        !hasForceField() && !m_swimming) {
         float over = impact - world.fallDamageSpeed;
-        float damage = over * 7.0f;
+        float damage = over * 7.0f * world.fallDamageScale;
         m_humanoid.health = std::max(0.0f, m_humanoid.health - damage);
         if (m_humanoid.health <= 0.0f)
             kill(std::clamp(over / 15.0f, 0.0f, 1.0f), glm::vec3(m_velocity.x, 2.0f, m_velocity.z));
@@ -632,15 +877,35 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     m_groundId = res.groundId;
     if (m_groundId)
         if (SceneNode* g = m_scene->findById(m_groundId))
-            m_groundPrev = glm::vec3(g->worldMatrix()[3]);
+            m_groundPrevM = g->worldMatrix();
+
+    // Loose parts that crash into us knock us back (a rolling boulder, a swinging
+    // wrecking ball), harder the heavier and faster they are.
+    for (const Physics::Shove& s : physics.shoves(res.position, r->transform.rotation.y, kBodyMass)) {
+        glm::vec3 dir(s.dir.x, 0.0f, s.dir.z);
+        float l = glm::length(dir);
+        if (l < 1e-3f) continue;
+        dir /= l;
+        float have = glm::dot(glm::vec3(m_velocity.x, 0.0f, m_velocity.z), dir);
+        if (s.speed > have) m_velocity += dir * (s.speed - have);
+        if (s.speed > 6.0f && !m_climbing) {   // a big hit throws you off your feet
+            m_velocity.y = std::max(m_velocity.y, s.speed * 0.35f);
+            m_grounded = false;
+            m_groundId = 0;
+        }
+    }
 
     r->transform.position = res.position;
 
     // Fell off the world.
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
-    animate(dt, moving, m_grounded);
-    footsteps(moving && m_grounded, res.position);
+    // How fast we really moved (not how hard the keys are pushed): walking into a
+    // wall doesn't run on the spot, and a slower WalkSpeed takes slower steps.
+    const float moved = dt > 0.0f ? glm::length(glm::vec2(res.position.x - pos.x, res.position.z - pos.z)) / dt : 0.0f;
+    m_groundSpeed = approach(m_groundSpeed, moving ? std::min(moved, m_humanoid.walkSpeed * 2.0f + 2.0f) : 0.0f, 12.0f, dt);
+    animate(dt, m_groundSpeed, m_grounded);
+    footsteps(m_groundSpeed > 0.5f && m_grounded && !m_swimming && !m_climbing, res.position);
     updateGrip();
 }
 
@@ -660,15 +925,20 @@ void Player::footsteps(bool running, const glm::vec3& at) {
     m_stepSound = Audio::play("footsteps", 0.35f, pitch, true, &feet);
 }
 
+bool Player::isLimb(const SceneNode* p) {
+    for (const char* n : kLimbs) if (p->name == n) return true;
+    return false;
+}
+
 bool Player::drivesPart(const SceneNode* p) const {
     for (const char* n : kLimbs) if (p->name == n) return true;
     return false;
 }
 
-void Player::animate(float dt, bool moving, bool grounded) {
-    m_swing    = approach(m_swing, (moving && grounded) ? 45.0f : 0.0f, 10.0f, dt);
+void Player::animate(float dt, float groundSpeed, bool grounded) {
+    m_swing    = approach(m_swing, grounded ? strideSwing(groundSpeed) : 0.0f, 10.0f, dt);
     m_airBlend = approach(m_airBlend, grounded ? 0.0f : 1.0f, 10.0f, dt);
-    if (moving) m_walkPhase += dt * (2.0f + m_humanoid.walkSpeed * 0.9f);
+    m_walkPhase += dt * strideRate(groundSpeed);
 
     m_holdBlend = approach(m_holdBlend, equippedTool() ? 1.0f : 0.0f, 12.0f, dt);
     float s = std::sin(m_walkPhase) * m_swing;
@@ -689,6 +959,15 @@ void Player::animate(float dt, bool moving, bool grounded) {
         -s * (1 - m_airBlend) + (  12.0f) * m_airBlend,   // Left Leg
         s  * (1 - m_airBlend) + ( -12.0f) * m_airBlend,   // Right Leg
     };
+    // Climbing: hand over hand, knees up. Swimming: big arm strokes, kicking legs.
+    m_climbBlend = approach(m_climbBlend, m_climbing ? 1.0f : 0.0f, 12.0f, dt);
+    m_swimBlend = approach(m_swimBlend, m_swimming ? 1.0f : 0.0f, 8.0f, dt);
+    const float c = std::sin(m_climbPhase);
+    const float climb[4] = {-150.0f + 30.0f * c, -150.0f - 30.0f * c, -35.0f - 25.0f * c, -35.0f + 25.0f * c};
+    const float swim[4] = {-90.0f + 85.0f * c, -90.0f - 85.0f * c, 20.0f * std::sin(m_climbPhase * 2.0f),
+                           -20.0f * std::sin(m_climbPhase * 2.0f)};
+    for (int i = 0; i < 4; ++i)
+        angles[i] = angles[i] * (1.0f - m_climbBlend - m_swimBlend) + climb[i] * m_climbBlend + swim[i] * m_swimBlend;
 
     for (int i = 0; i < 4; ++i) {
         SceneNode* limb = part(kLimbs[i]);

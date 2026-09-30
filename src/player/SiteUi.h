@@ -2,6 +2,7 @@
 // The Guts&Bolts site's look (2011-style): colours, buttons and drawings shared
 // by the site's pages (PlayerApp.cpp, PlayerOnline.cpp).
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include "../game/Catalog.h"
@@ -20,6 +21,18 @@ inline bool bigButton(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0))
     bool r = ImGui::Button(label, size);
     ImGui::PopStyleColor(3);
     return r;
+}
+
+// Inside a popup: was it just tapped / clicked outside? (Phones have no Esc key, so
+// tapping the dark area around a popup should close it.) Only for the top popup,
+// and not on the frame it opened (that click is the one that opened it).
+inline bool tappedOutside() {
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (ImGui::IsWindowAppearing() || g.OpenPopupStack.empty() || g.OpenPopupStack.back().Window != w) return false;
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return false;
+    ImVec2 m = ImGui::GetIO().MousePos;
+    return m.x < w->Pos.x || m.y < w->Pos.y || m.x > w->Pos.x + w->Size.x || m.y > w->Pos.y + w->Size.y;
 }
 
 // Tall (portrait) phone screen?
@@ -148,6 +161,20 @@ inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item&
         dl->AddRect(r0, r1, line, 0, 0, t);
         break;
     }
+    case Catalog::Type::Face: {   // a smiley on a yellow head
+        dl->AddRectFilled(ImVec2(c.x - s * 0.34f, c.y - s * 0.34f), ImVec2(c.x + s * 0.34f, c.y + s * 0.34f), IM_COL32(245, 211, 59, 255), s * 0.1f);
+        dl->AddCircleFilled(ImVec2(c.x - s * 0.12f, c.y - s * 0.08f), s * 0.05f, line);
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.12f, c.y - s * 0.08f), s * 0.05f, line);
+        dl->PathArcTo(ImVec2(c.x, c.y + s * 0.02f), s * 0.18f, 0.5f, 2.64f, 16);
+        dl->PathStroke(line, 0, t * 2);
+        break;
+    }
+    case Catalog::Type::Hair: case Catalog::Type::FaceAcc: case Catalog::Type::Neck:
+    case Catalog::Type::Shoulder: case Catalog::Type::Waist:   // made in Studio: a gem in its colour
+        dl->AddCircleFilled(c, s * 0.3f, fill, 32);
+        dl->AddCircle(c, s * 0.3f, line, 32, t);
+        dl->AddCircleFilled(c, s * 0.14f, IM_COL32(255, 255, 255, 90), 24);
+        break;
     default: break;
     }
 }

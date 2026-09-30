@@ -69,13 +69,14 @@ PlayerApp::Starter PlayerApp::onlineStarter(const std::string& id) {
 }
 
 void PlayerApp::playGame(const std::string& key, const std::string& title, Starter start) {
-    if (!Online::online()) { start(HostMode::Solo); return; }   // no server: just play
+    if (!Online::online()) { m_status = "You need to be connected to the Guts&Bolts server to play."; return; }
+    startLoadingScreen(key, title);
     m_busy = true;
     m_playMsg = "Finding a server...";
     Online::request("servers.play", {{"game", key}}, [this, title, start](const json& r) {
         m_busy = false;
         m_playMsg.clear();
-        if (!r.value("ok", false)) { m_status = "Couldn't find a server, so you're playing alone."; start(HostMode::Solo); return; }
+        if (!r.value("ok", false)) { m_status = r.value("error", std::string("Couldn't find a server. Try again.")); return; }
         if (r.contains("join")) joinRelay(r["join"].get<std::string>(), "", title);
         else start(HostMode::Public);   // nobody's playing: you're the first in a new public server
     }, 10);
@@ -96,6 +97,8 @@ void PlayerApp::joinRelay(const std::string& session, const std::string& code, c
         return;
     }
     m_currentTitle = title.empty() ? std::string("Joining...") : "Joining " + title + "...";
+    if (!m_connectScreen) { m_currentAuthor.clear(); m_loadingGameId.clear(); m_loadingIcon.clear(); m_loadingTitle.clear(); m_loadingAuthor.clear(); }   // (keep what Play knew)
+    m_loadingT = 0.9f;
     m_joinedOnce = false;
     m_paused = false;
     m_status.clear();
@@ -121,6 +124,7 @@ void PlayerApp::drawServersDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(560), 0));
     if (!ImGui::BeginPopupModal("Servers##dlg", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) return;
+    if (tappedOutside()) m_serversOpen = false;
     if (!m_serversOpen) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     const bool online = Online::online();
     auto start = [this](HostMode mode) {
@@ -140,15 +144,8 @@ void PlayerApp::drawServersDialog() {
     ImGui::BeginDisabled(!online);
     if (Classic::button("Private server", Classic::kBlue, ImVec2(bw, 34))) start(HostMode::Private);
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (Classic::button("Offline", ImVec4(0.35f, 0.38f, 0.45f, 1), ImVec2(bw, 34))) start(HostMode::Solo);
-    ImGui::SameLine();
-    if (ImGui::Button("Local network", ImVec2(bw, 34))) start(HostMode::Lan);
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled(online ? "Private: only your friends, and people you give the code to, can join. Offline: just you. "
-                                 "Local network: people on the same Wi-Fi."
-                               : "Private servers need a Guts&Bolts server (the button at the top of the site). "
-                                 "Offline: just you. Local network: people on the same Wi-Fi.");
+    ImGui::TextDisabled("Private: only your friends, and people you give the code to, can join.");
     ImGui::PopTextWrapPos();
 
     if (online) {
@@ -250,11 +247,7 @@ void PlayerApp::drawFriends() {
     ImGui::SetWindowFontScale(1.0f);
     ImGui::TextDisabled("See who's online and jump into their game.");
     ImGui::Spacing();
-    if (needsServer("Friends")) {
-        ImGui::Spacing();
-        if (smallLink("Same Wi-Fi? Join a game on your local network")) m_showJoin = true;
-        return;
-    }
+    if (needsServer("Friends")) return;
     if (ImGui::GetTime() - m_friendsAt > 15.0) refreshFriends();   // keep the online dots fresh
 
     const json& friends = m_friends.contains("friends") ? m_friends["friends"] : json::array();
@@ -370,7 +363,4 @@ void PlayerApp::drawFriends() {
         }
     }
 
-    ImGui::Spacing();
-    ImGui::Spacing();
-    if (smallLink("Same Wi-Fi? Join a game on your local network")) m_showJoin = true;
 }

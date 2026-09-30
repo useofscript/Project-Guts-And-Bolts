@@ -118,15 +118,21 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
     // Logging in happens from a new device, so `me` is that device's own
     // (empty) account; the real one is found by its username.
     User* u = findUsername(username);
+    // An account made on a device that never set a password can't be logged into anywhere else yet.
+    auto noLogin = [](const User* acc) -> std::string {
+        if (!acc) return "There's no account with that username.";
+        return "That account hasn't set a password yet, so it only works on the device it was made on. On that device, open the "
+               "Guts&Bolts Player, go to Avatar > Your account and press \"Set a password\". Then you can log in here.";
+    };
     if (name == "account.salt") {
-        if (!u || u->keyBlob.empty()) return fail("There's no account with that username.");
+        if (!u || u->keyBlob.empty()) return fail(noLogin(u));
         json r = okay();
         r["salt"] = u->pwSalt;
         return r;
     }
     if (name == "account.login") {
-        if (!u || u->keyBlob.empty()) return fail("There's no account with that username.");
-        if (u->banned) return fail("That account has been banned from this server.");
+        if (!u || u->keyBlob.empty()) return fail(noLogin(u));
+        if (u->banned) return fail(Online::banMessage(u->banReason, u->banNote));
         long long now = Online::unixNow();
         auto& fails = m_failedLogins[lower(username)];
         fails.erase(std::remove_if(fails.begin(), fails.end(), [&](long long t) { return now - t > kLockoutSeconds; }), fails.end());

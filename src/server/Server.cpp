@@ -121,7 +121,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
 
     User& me = user(account);
     me.lastSeen = now;
-    if (me.banned && opName != "hello") return fail("This account has been banned from this server.");
+    if (me.banned && opName != "hello") return fail(Online::banMessage(me.banReason, me.banNote));
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
@@ -195,7 +195,8 @@ bool GbServer::isVerified(const User& u) const {
 json GbServer::publicUser(const User& u) const {
     return {{"id", u.id}, {"name", u.name}, {"username", u.username}, {"userId", u.userId},
             {"verified", isVerified(u)}, {"staff", isStaff(u)},
-            {"official", isOfficial(u)}, {"created", u.created}, {"banned", u.banned}};
+            {"official", isOfficial(u)}, {"created", u.created}, {"banned", u.banned},
+            {"banReason", u.banned ? u.banReason : std::string()}};
 }
 
 json GbServer::meJson(const User& u) const {
@@ -219,9 +220,11 @@ json GbServer::publicAsset(const Asset& a) const {
     json j = {{"id", a.id}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
               {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
+    if (a.kind == "game") j["badges"] = a.badges;
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
+    j["creatorStaff"] = it != m_users.end() && isStaff(it->second);
     return j;
 }
 
@@ -299,6 +302,21 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         long long visits = 0;
         for (const auto& [id, a] : m_assets) if (a.creator == u->id && a.kind == "game") visits += a.plays;
         r["placeVisits"] = visits;
+        // Game badges (made by creators, earned in games), newest first.
+        json gameBadges = json::array();
+        for (const json& e : u->gameBadges) {
+            if (!e.is_array() || e.size() < 3) continue;
+            auto g = m_assets.find(e[1].get<std::string>());
+            if (g == m_assets.end()) continue;
+            for (const json& b : g->second.badges)
+                if (b.value("id", std::string()) == e[0].get<std::string>())
+                {
+                    json one = {{"id", b["id"]}, {"name", b["name"]}, {"description", b["description"]},
+                                {"color", b["color"]}, {"game", g->first}, {"gameName", g->second.name}, {"earned", e[2]}};
+                    gameBadges.insert(gameBadges.begin(), one);
+                }
+        }
+        r["gameBadges"] = gameBadges;
         return r;
     }
     if (name == "users.search") {
@@ -482,7 +500,18 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         if (name == "admin.ban") {
             if (isOfficial(*to)) return fail("You can't ban yourself.");
-            to->banned = args.value("on", true);
+            const bool on = args.value("on", true);
+            if (on) {
+                std::string reason = str("reason");
+                if (!Online::banReasonTitle(reason)) return fail("Pick a reason for the ban.");
+                to->banReason = reason;
+                to->banNote = Online::cleanText(str("note"), 200);
+            } else {
+                to->banReason.clear();
+                to->banNote.clear();
+            }
+            to->banned = on;
+            log(me.name + (on ? " banned " + to->name + " (" + to->banReason + ")" : " unbanned " + to->name));
             saveUsers();
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
@@ -497,8 +526,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (title.empty()) return fail("Give it a name.");
         std::string desc = Online::cleanText(str("description"), 1000, true);
         const bool verified = isVerified(me);
+        if (Online::isAccessory(kind) && !verified && !isStaff(me))
+            return fail("Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!");
         long long price = std::clamp(num("price"), 0LL, 1000000LL);
-        if (kind == "game") price = 0;   // games are free to play
+        if (kind == "game" || Online::alwaysFree(kind)) price = 0;   // games, decals and audio are free
         if (price > 0 && !verified) return fail("Only Verified creators can sell things. Upload it for free, or get Verified!");
         if (!verified) {
             if (me.uploadDay != today) { me.uploadDay = today; me.uploadsToday = 0; }
@@ -512,6 +543,29 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             return fail("That's too big (the most is " + std::to_string(Online::maxSize(kind) / 1024) + " KB).");
         json meta = args.contains("meta") && args["meta"].is_object() ? args["meta"] : json::object();
         if (meta.dump().size() > 4096) return fail("Too much extra information.");
+        meta.erase("image");
+        meta.erase("model");
+        if (Online::isAccessory(kind) && !data.empty()) {   // made in Studio's Accessory window
+            json acc = json::parse(data, nullptr, false);
+            if (!acc.is_object() || acc.value("format", std::string()) != "gbaccessory")
+                return fail("That isn't a Guts&Bolts accessory. Make it in Studio's Accessory window.");
+            meta["model"] = true;
+        }
+        if (kind == "face") {
+            if (!isOfficial(me)) return fail("Only Guts can make faces.");
+            if (data.size() < 8 || data.compare(1, 3, "PNG") != 0) return fail("Faces must be .png pictures.");
+            meta["image"] = true;
+            meta["ext"] = "png";
+        }
+        if ((kind == "shirt" || kind == "pants") && !data.empty()) {   // a clothing template picture
+            auto u = [&](size_t i) { return (uint32_t)(unsigned char)data[i]; };
+            if (data.size() < 24 || data.compare(1, 3, "PNG") != 0)
+                return fail("Clothing pictures must be .png files made from the template.");
+            uint32_t w = u(16) << 24 | u(17) << 16 | u(18) << 8 | u(19), h = u(20) << 24 | u(21) << 16 | u(22) << 8 | u(23);
+            if (w != 585 || h != 559) return fail("Clothing pictures must be 585 x 559 (the template's size).");
+            meta["image"] = true;
+            meta["ext"] = "png";
+        }
         if (kind == "audio") {
             std::string ext = lower(meta.value("ext", std::string()));
             if (ext != "mp3" && ext != "wav" && ext != "ogg" && ext != "flac") return fail("Audio must be .mp3, .wav, .ogg or .flac.");
@@ -546,6 +600,65 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         log(me.name + " uploaded " + kind + " \"" + title + "\" (" + std::to_string(data.size()) + " bytes)");
         json r = okay(); r["asset"] = publicAsset(a); r["me"] = meJson(me); r["fee"] = fee; return r;
     }
+    // --- Game badges: creators make them on their game's page, game scripts award them.
+    if (name == "gamebadge.create" || name == "gamebadge.delete") {
+        auto it = m_assets.find(str("game"));
+        if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
+        Asset& g = it->second;
+        if (g.creator != me.id) return fail("Only the game's creator can change its badges.");
+        if (name == "gamebadge.delete") {
+            json keep = json::array();
+            for (const json& b : g.badges) if (b.value("id", std::string()) != str("badge")) keep.push_back(b);
+            g.badges = keep;
+            saveAssets();
+            json r = okay(); r["badges"] = g.badges; return r;
+        }
+        if (g.badges.size() >= 30) return fail("A game can have up to 30 badges.");
+        std::string title = Online::cleanText(str("name"), 40);
+        if (title.empty()) return fail("Give the badge a name.");
+        json col = json::array({240, 180, 40});
+        if (args.contains("color") && args["color"].is_array() && args["color"].size() == 3) {
+            col = json::array();
+            for (const auto& v : args["color"]) col.push_back(std::clamp(v.is_number() ? v.get<int>() : 0, 0, 255));
+        }
+        json b = {{"id", "badge-" + Account::randomHex(5)}, {"name", title},
+                  {"description", Online::cleanText(str("description"), 300, true)}, {"color", col},
+                  {"created", Online::unixNow()}, {"awarded", 0}};
+        g.badges.push_back(b);
+        saveAssets();
+        json r = okay(); r["badge"] = b; r["badges"] = g.badges; return r;
+    }
+    if (name == "gamebadge.award") {
+        // Only the host of a live server of the badge's game, for someone in that server.
+        const std::string bid = str("badge");
+        Asset* g = nullptr;
+        json* b = nullptr;
+        for (auto& [id, a] : m_assets) {
+            if (a.kind != "game") continue;
+            for (json& x : a.badges) if (x.value("id", std::string()) == bid) { g = &a; b = &x; }
+            if (g) break;
+        }
+        if (!b) return fail("There's no badge with that ID.");
+        const Session* session = nullptr;
+        for (const auto& [sid, s] : m_sessions) if (s.host == me.id && s.game == g->id) session = &s;
+        if (!session) return fail("Badges can only be given in an online server of " + g->name + ".");
+        auto lower = [](std::string s) { for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+        const std::string who = lower(str("to"));
+        User* to = lower(me.name) == who ? &me : nullptr;
+        for (const Client* p : session->players) {
+            auto u = m_users.find(p->account);
+            if (!to && u != m_users.end() && lower(u->second.name) == who) to = &u->second;
+        }
+        if (!to) return fail("That player isn't in this server.");
+        if (to->userId == 0) return fail("Guests can't earn badges. Sign up to collect them!");
+        for (const json& e : to->gameBadges)
+            if (e.is_array() && !e.empty() && e[0] == bid) { json r = okay(); r["already"] = true; r["name"] = (*b)["name"]; return r; }
+        to->gameBadges.push_back(json::array({bid, g->id, Online::unixNow()}));
+        (*b)["awarded"] = b->value("awarded", 0) + 1;
+        saveUsers();
+        saveAssets();
+        json r = okay(); r["awarded"] = true; r["name"] = (*b)["name"]; r["player"] = to->name; return r;
+    }
     if (name == "update") {
         // The creator replaces their upload (a new version of a game or plugin).
         auto it = m_assets.find(str("id"));
@@ -560,7 +673,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         std::string title = Online::cleanText(str("name"), 50);
         if (!title.empty()) a.name = title;
         if (args.contains("description")) a.description = Online::cleanText(str("description"), 1000, true);
-        if (args.contains("price") && a.kind != "game") {
+        if (args.contains("price") && a.kind != "game" && !Online::alwaysFree(a.kind)) {
             long long price = std::clamp(num("price"), 0LL, 1000000LL);
             if (price > 0 && !isVerified(me)) return fail("Only Verified creators can sell things.");
             a.price = price;
@@ -659,9 +772,10 @@ void GbServer::saveUsers() {
         all[id] = {{"name", u.name}, {"created", u.created}, {"lastSeen", u.lastSeen}, {"ledger", ledger},
                    {"grants", u.grants}, {"owned", u.owned}, {"uploadDay", u.uploadDay}, {"uploadsToday", u.uploadsToday},
                    {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned},
+                   {"banReason", u.banReason}, {"banNote", u.banNote},
                    {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut},
                    {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
-                   {"keyBlob", u.keyBlob}, {"avatar", u.avatar}};
+                   {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -671,7 +785,7 @@ void GbServer::saveAssets() {
     for (const auto& [id, a] : m_assets)
         all[id] = {{"kind", a.kind}, {"name", a.name}, {"description", a.description}, {"creator", a.creator},
                    {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
-                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
+                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}};
     writeFile(m_opts.data / "assets.json", all.dump(1));
 }
 
@@ -700,12 +814,15 @@ void GbServer::load() {
                 u.playEarned = j.value("playEarned", 0LL);
                 u.lastPlay = j.value("lastPlay", 0LL);
                 u.banned = j.value("banned", false);
+                u.banReason = j.value("banReason", std::string());
+                u.banNote = j.value("banNote", std::string());
                 u.username = j.value("username", std::string());
                 u.userId = j.value("userId", 0LL);
                 u.pwSalt = j.value("pwSalt", std::string());
                 u.pwHash = j.value("pwHash", std::string());
                 u.keyBlob = j.value("keyBlob", std::string());
                 if (j.contains("avatar") && j["avatar"].is_object()) u.avatar = j["avatar"];
+                if (j.contains("gameBadges") && j["gameBadges"].is_array()) u.gameBadges = j["gameBadges"];
                 for (const char* k : {"friends", "friendIn", "friendOut"}) {
                     std::set<std::string>& set = std::string(k) == "friends" ? u.friends : std::string(k) == "friendIn" ? u.friendIn : u.friendOut;
                     if (j.contains(k) && j[k].is_array())
@@ -724,12 +841,13 @@ void GbServer::load() {
                 a.name = j.value("name", std::string());
                 a.description = j.value("description", std::string());
                 a.creator = j.value("creator", std::string());
-                a.price = j.value("price", 0LL);
+                a.price = Online::alwaysFree(a.kind) ? 0LL : j.value("price", 0LL);
                 a.created = j.value("created", 0LL);
                 a.sales = j.value("sales", 0LL);
                 a.plays = j.value("plays", 0LL);
                 a.size = j.value("size", (size_t)0);
                 if (j.contains("meta")) a.meta = j["meta"];
+                if (j.contains("badges") && j["badges"].is_array()) a.badges = j["badges"];
                 a.thumb = j.value("thumb", 0LL);
                 if (Online::validKind(a.kind)) m_assets[id] = a;
             }

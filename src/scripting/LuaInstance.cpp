@@ -7,6 +7,8 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../scene/Serializer.h"
+#include "../scene/Guis.h"
+#include "../game/GameGui.h"
 #include "../renderer/MeshLibrary.h"
 #include "../core/Audio.h"
 
@@ -65,6 +67,11 @@ bool isCharacterRoot(lua_State* L, const SceneNode* n) {
     return E(L)->scene()->isCharacterRoot(n->id);
 }
 
+// A player's character or an NPC: something with a Humanoid.
+bool hasHumanoid(lua_State* L, const SceneNode* n) {
+    return isCharacterRoot(L, n) || (n->kind == NodeKind::Model && E(L)->scene()->npcs().find(*E(L)->scene(), n->id));
+}
+
 const char* className(lua_State* L, const SceneNode* n) {
     if (n == E(L)->scene()->root()) return "Workspace";
     switch (n->kind) {
@@ -76,6 +83,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Value:      return n->valueClass();
         case NodeKind::Decal:      return "Decal";
         case NodeKind::Animation:  return "Animation";
+        case NodeKind::Gui:        return kGuiClassNames[(int)n->gui.type];
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::Constraint:
@@ -102,6 +110,13 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Tool && cls == "BackpackItem") return true;
     if (n->kind == NodeKind::Value && cls == "ValueBase") return true;
     if (n->kind == NodeKind::Decal && cls == "FaceInstance") return true;
+    if (n->isGui()) {
+        if (cls == "GuiBase" || (n->gui.type != GuiType::UICorner && n->gui.type != GuiType::UIStroke && cls == "GuiBase2d")) return true;
+        if (n->gui.type == GuiType::ScreenGui && (cls == "LayerCollector" || cls == "BasePlayerGui")) return true;
+        if (n->isGuiObject() && cls == "GuiObject") return true;
+        if (n->isGuiButton() && cls == "GuiButton") return true;
+        if ((n->gui.type == GuiType::UICorner || n->gui.type == GuiType::UIStroke) && cls == "UIComponent") return true;
+    }
     return false;
 }
 
@@ -118,7 +133,7 @@ glm::vec3 worldPosition(const SceneNode* n) { return glm::vec3(n->worldMatrix()[
 
 void setWorldPosition(lua_State* L, SceneNode* n, const glm::vec3& p) {
     // Moving the character's HumanoidRootPart teleports the whole character.
-    if (n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart") {
+    if (n->parent && hasHumanoid(L, n->parent) && n->name == "HumanoidRootPart") {
         n->parent->transform.position += p - worldPosition(n);
         return;
     }
@@ -150,7 +165,7 @@ int m_FindFirstChild(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string name = luaL_checkstring(L, 2);
     bool recursive = lua_toboolean(L, 3);
-    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (name == "Humanoid" && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     SceneNode* c = n->findChild(name, recursive);
     LuaApi::pushInstance(L, c ? c->id : 0);
     return 1;
@@ -159,7 +174,7 @@ int m_FindFirstChild(lua_State* L) {
 int m_FindFirstChildOfClass(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string cls = luaL_checkstring(L, 2);
-    if (cls == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (cls == "Humanoid" && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     for (auto& c : n->children)
         if (!c->internal && isA(L, c.get(), cls)) { LuaApi::pushInstance(L, c->id); return 1; }
     lua_pushnil(L);
@@ -169,7 +184,7 @@ int m_FindFirstChildOfClass(lua_State* L) {
 int m_WaitForChild(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
     std::string name = luaL_checkstring(L, 2);
-    if (name == "Humanoid" && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (name == "Humanoid" && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
     SceneNode* c = n->findChild(name);
     if (!c) return luaL_error(L, "'%s' has no child called '%s'", n->name.c_str(), name.c_str());
     LuaApi::pushInstance(L, c->id);
@@ -274,7 +289,7 @@ int m_Stop(lua_State* L) {
 // character:BreakJoints() — kill the character violently.
 int m_BreakJoints(lua_State* L) {
     SceneNode* n = LuaApi::checkNode(L, 1);
-    if (isCharacterRoot(L, n)) E(L)->scene()->killCharacter(n->id, 1.0f, glm::vec3(0, 4, 0));
+    if (hasHumanoid(L, n)) E(L)->scene()->killCharacter(n->id, 1.0f, glm::vec3(0, 4, 0));
     return 0;
 }
 
@@ -435,6 +450,144 @@ const luaL_Reg kMethods[] = {
 // Instance properties
 // ===========================================================================
 
+// --- Game UI properties (ScreenGui, Frame, TextLabel, TextButton, ImageLabel...) ---
+
+const char* alignName(int a, bool x) { return a == 0 ? (x ? "Left" : "Top") : a == 2 ? (x ? "Right" : "Bottom") : "Center"; }
+int parseAlign(const char* s) {
+    if (is(s, "Left") || is(s, "Top")) return 0;
+    if (is(s, "Right") || is(s, "Bottom")) return 2;
+    return 1;
+}
+bool hasText(const SceneNode* n) { return n->gui.type == GuiType::TextLabel || n->gui.type == GuiType::TextButton; }
+bool hasImage(const SceneNode* n) { return n->gui.type == GuiType::ImageLabel || n->gui.type == GuiType::ImageButton; }
+
+// Push a UI property; false if `k` isn't one.
+bool guiIndex(lua_State* L, SceneNode* n, const char* k) {
+    const GuiProps& g = n->gui;
+    if (is(k, "AbsoluteSize") || is(k, "AbsolutePosition")) GameGui::refresh(*E(L)->scene());
+    if (g.type == GuiType::ScreenGui) {
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
+        if (is(k, "DisplayOrder")) { lua_pushinteger(L, g.displayOrder); return true; }
+        if (is(k, "ResetOnSpawn") || is(k, "IgnoreGuiInset")) { lua_pushboolean(L, false); return true; }
+        if (is(k, "AbsoluteSize")) { LuaApi::pushVector2(L, g.absSize); return true; }
+        if (is(k, "AbsolutePosition")) { LuaApi::pushVector2(L, g.absPos); return true; }
+        return false;
+    }
+    if (g.type == GuiType::UICorner) {
+        if (is(k, "CornerRadius")) { LuaApi::pushUDim(L, g.corner.xs, g.corner.xo); return true; }
+        return false;
+    }
+    if (g.type == GuiType::UIStroke) {
+        if (is(k, "Color"))        { LuaApi::pushColor3(L, g.borderColor); return true; }
+        if (is(k, "Thickness"))    { lua_pushnumber(L, g.thickness); return true; }
+        if (is(k, "Transparency")) { lua_pushnumber(L, g.bgTransparency); return true; }
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
+        return false;
+    }
+    if (is(k, "Position"))         { LuaApi::pushUDim2(L, g.pos); return true; }
+    if (is(k, "Size"))             { LuaApi::pushUDim2(L, g.size); return true; }
+    if (is(k, "AnchorPoint"))      { LuaApi::pushVector2(L, g.anchor); return true; }
+    if (is(k, "AbsolutePosition")) { LuaApi::pushVector2(L, g.absPos); return true; }
+    if (is(k, "AbsoluteSize"))     { LuaApi::pushVector2(L, g.absSize); return true; }
+    if (is(k, "Visible"))          { lua_pushboolean(L, n->visible); return true; }
+    if (is(k, "BackgroundColor3")) { LuaApi::pushColor3(L, g.bg); return true; }
+    if (is(k, "BackgroundTransparency")) { lua_pushnumber(L, g.bgTransparency); return true; }
+    if (is(k, "BorderColor3"))     { LuaApi::pushColor3(L, g.borderColor); return true; }
+    if (is(k, "BorderSizePixel"))  { lua_pushinteger(L, g.border); return true; }
+    if (is(k, "ZIndex"))           { lua_pushinteger(L, g.zIndex); return true; }
+    if (is(k, "ClipsDescendants")) { lua_pushboolean(L, g.clips); return true; }
+    if (is(k, "Active"))           { lua_pushboolean(L, n->isGuiButton()); return true; }
+    if (is(k, "MouseEnter"))       { LuaApi::pushSignal(L, SignalKind::GuiEnter, n->id); return true; }
+    if (is(k, "MouseLeave"))       { LuaApi::pushSignal(L, SignalKind::GuiLeave, n->id); return true; }
+    if (hasText(n)) {
+        if (is(k, "Text"))             { lua_pushstring(L, g.text.c_str()); return true; }
+        if (is(k, "TextColor3"))       { LuaApi::pushColor3(L, g.textColor); return true; }
+        if (is(k, "TextSize") || is(k, "FontSize")) { lua_pushnumber(L, g.textSize); return true; }
+        if (is(k, "TextScaled"))       { lua_pushboolean(L, g.textScaled); return true; }
+        if (is(k, "TextWrapped"))      { lua_pushboolean(L, g.textWrapped); return true; }
+        if (is(k, "TextXAlignment"))   { lua_pushstring(L, alignName(g.xAlign, true)); return true; }
+        if (is(k, "TextYAlignment"))   { lua_pushstring(L, alignName(g.yAlign, false)); return true; }
+        if (is(k, "TextTransparency")) { lua_pushnumber(L, g.textTransparency); return true; }
+        if (is(k, "TextStrokeColor3")) { LuaApi::pushColor3(L, g.strokeColor); return true; }
+        if (is(k, "TextStrokeTransparency")) { lua_pushnumber(L, g.strokeTransparency); return true; }
+        if (is(k, "Font"))             { lua_pushstring(L, g.bold ? "SourceSansBold" : "SourceSans"); return true; }
+        if (is(k, "ContentText"))      { lua_pushstring(L, g.text.c_str()); return true; }
+    }
+    if (hasImage(n)) {
+        if (is(k, "Image"))             { lua_pushstring(L, g.image.c_str()); return true; }
+        if (is(k, "ImageColor3"))       { LuaApi::pushColor3(L, g.imageColor); return true; }
+        if (is(k, "ImageTransparency")) { lua_pushnumber(L, g.imageTransparency); return true; }
+    }
+    if (n->isGuiButton()) {
+        if (is(k, "MouseButton1Click") || is(k, "Activated")) { LuaApi::pushSignal(L, SignalKind::GuiClick, n->id); return true; }
+        if (is(k, "AutoButtonColor")) { lua_pushboolean(L, g.autoButtonColor); return true; }
+    }
+    return false;
+}
+
+// Set a UI property; false if `k` isn't one.
+bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
+    GuiProps& g = n->gui;
+    auto num = [&]() { return (float)luaL_checknumber(L, 3); };
+    auto t01 = [&]() { return std::clamp(num(), 0.0f, 1.0f); };
+    if (g.type == GuiType::ScreenGui) {
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
+        if (is(k, "DisplayOrder")) { g.displayOrder = (int)luaL_checkinteger(L, 3); return true; }
+        if (is(k, "ResetOnSpawn") || is(k, "IgnoreGuiInset") || is(k, "ZIndexBehavior")) return true;   // (accepted, no effect)
+        return false;
+    }
+    if (g.type == GuiType::UICorner) {
+        if (is(k, "CornerRadius")) { glm::vec2 u = LuaApi::checkUDim(L, 3); g.corner = {u.x, u.y, 0, 0}; return true; }
+        return false;
+    }
+    if (g.type == GuiType::UIStroke) {
+        if (is(k, "Color"))        { g.borderColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "Thickness"))    { g.thickness = std::max(0.0f, num()); return true; }
+        if (is(k, "Transparency")) { g.bgTransparency = t01(); return true; }
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
+        if (is(k, "ApplyStrokeMode") || is(k, "LineJoinMode")) return true;
+        return false;
+    }
+    if (is(k, "Position"))         { g.pos = LuaApi::checkUDim2(L, 3); return true; }
+    if (is(k, "Size"))             { g.size = LuaApi::checkUDim2(L, 3); return true; }
+    if (is(k, "AnchorPoint"))      { g.anchor = LuaApi::checkVector2(L, 3); return true; }
+    if (is(k, "Visible"))          { n->visible = lua_toboolean(L, 3); return true; }
+    if (is(k, "BackgroundColor3")) { g.bg = LuaApi::checkColor3(L, 3); return true; }
+    if (is(k, "BackgroundTransparency")) { g.bgTransparency = t01(); return true; }
+    if (is(k, "BorderColor3"))     { g.borderColor = LuaApi::checkColor3(L, 3); return true; }
+    if (is(k, "BorderSizePixel"))  { g.border = std::max(0, (int)luaL_checkinteger(L, 3)); return true; }
+    if (is(k, "ZIndex"))           { g.zIndex = (int)luaL_checkinteger(L, 3); return true; }
+    if (is(k, "ClipsDescendants")) { g.clips = lua_toboolean(L, 3); return true; }
+    if (is(k, "Active") || is(k, "Selectable")) return true;
+    if (hasText(n)) {
+        if (is(k, "Text"))             { g.text = luaL_tolstring(L, 3, nullptr); lua_pop(L, 1); return true; }
+        if (is(k, "TextColor3"))       { g.textColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "TextSize"))         { g.textSize = std::clamp(num(), 1.0f, 200.0f); return true; }
+        if (is(k, "TextScaled"))       { g.textScaled = lua_toboolean(L, 3); return true; }
+        if (is(k, "TextWrapped"))      { g.textWrapped = lua_toboolean(L, 3); return true; }
+        if (is(k, "TextXAlignment"))   { g.xAlign = parseAlign(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "TextYAlignment"))   { g.yAlign = parseAlign(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "TextTransparency")) { g.textTransparency = t01(); return true; }
+        if (is(k, "TextStrokeColor3")) { g.strokeColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "TextStrokeTransparency")) { g.strokeTransparency = t01(); return true; }
+        if (is(k, "Font")) {   // Enum.Font.SourceSansBold -> bold; every font looks the same otherwise
+            std::string f = luaL_tolstring(L, 3, nullptr);
+            lua_pop(L, 1);
+            g.bold = f.find("Bold") != std::string::npos || f.find("Black") != std::string::npos || f == "Arcade" ||
+                     f == "FredokaOne" || f == "LuckiestGuy";
+            return true;
+        }
+    }
+    if (hasImage(n)) {
+        if (is(k, "Image"))             { g.image = luaL_checkstring(L, 3); return true; }
+        if (is(k, "ImageColor3"))       { g.imageColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "ImageTransparency")) { g.imageTransparency = t01(); return true; }
+        if (is(k, "ScaleType")) return true;
+    }
+    if (n->isGuiButton() && is(k, "AutoButtonColor")) { g.autoButtonColor = lua_toboolean(L, 3); return true; }
+    return false;
+}
+
 int inst_index(lua_State* L) {
     auto* ref = static_cast<InstRef*>(luaL_checkudata(L, 1, kInst));
     const char* k = luaL_checkstring(L, 2);
@@ -458,6 +611,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Position"))      { LuaApi::pushVector3(L, n->transform.position); return 1; }
         if (is(k, "WorldPosition")) { LuaApi::pushVector3(L, worldPosition(n)); return 1; }
     }
+    if (n->isGui() && guiIndex(L, n, k)) return 1;
     if (n->isConstraint()) {
         bool weld = n->constraintType == ConstraintType::Weld;
         if ((!weld && is(k, "Attachment0")) || (weld && is(k, "Part0"))) { LuaApi::pushInstance(L, n->ref0); return 1; }
@@ -479,10 +633,12 @@ int inst_index(lua_State* L) {
     if (is(k, "CFrame"))    { LuaApi::pushCFrame(L, getCFrame(n)); return 1; }
     if (is(k, "Visible"))   { lua_pushboolean(L, n->visible); return 1; }
 
-    bool hrp = n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart";
+    bool hrp = n->parent && hasHumanoid(L, n->parent) && n->name == "HumanoidRootPart";
     if (hrp && (is(k, "Velocity") || is(k, "AssemblyLinearVelocity"))) {
         Player* me = E(L)->scene()->player();
-        LuaApi::pushVector3(L, me && n->parent->id == me->rootId() ? me->velocity() : glm::vec3(0.0f));
+        Npc* npc = E(L)->scene()->npcs().find(n->parent->id);
+        LuaApi::pushVector3(L, me && n->parent->id == me->rootId() ? me->velocity()
+                               : npc ? npc->velocity : glm::vec3(0.0f));
         return 1;
     }
 
@@ -555,8 +711,13 @@ int inst_index(lua_State* L) {
         if (is(k, "DeathStyle")) { lua_pushstring(L, w.deathStyle == DeathStyle::Ragdoll ? "Ragdoll" : "Classic"); return 1; }
         if (is(k, "Gore"))       { lua_pushstring(L, w.gore == GoreLevel::Blood ? "Blood" : w.gore == GoreLevel::OilAndBolts ? "Oil" : "Off"); return 1; }
         if (is(k, "FallDamage")) { lua_pushboolean(L, w.fallDamage); return 1; }
+        if (is(k, "SafeFallSpeed"))   { lua_pushnumber(L, w.fallDamageSpeed); return 1; }
+        if (is(k, "FallDamageScale")) { lua_pushnumber(L, w.fallDamageScale); return 1; }
+        if (is(k, "PlayerCollisions")) { lua_pushboolean(L, w.playerCollisions); return 1; }
+        if (is(k, "BloodColor"))  { LuaApi::pushColor3(L, w.bloodColor); return 1; }
+        if (is(k, "BloodAmount")) { lua_pushnumber(L, w.bloodAmount); return 1; }
     }
-    if (is(k, "Humanoid") && isCharacterRoot(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    if (is(k, "Humanoid") && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
 
     // Like Roblox, `workspace.Door` finds a child called "Door".
     if (SceneNode* c = n->findChild(k)) { LuaApi::pushInstance(L, c->id); return 1; }
@@ -586,6 +747,7 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Position"))      { n->transform.position = LuaApi::checkVector3(L, 3); return 0; }
         if (is(k, "WorldPosition")) { setWorldPosition(L, n, LuaApi::checkVector3(L, 3)); return 0; }
     }
+    if (n->isGui() && guiNewIndex(L, n, k)) return 0;
     if (n->isConstraint()) {
         bool weld = n->constraintType == ConstraintType::Weld;
         auto ref = [&](uint64_t& r) {
@@ -627,10 +789,11 @@ int inst_newindex(lua_State* L) {
     if (is(k, "Visible"))   { n->visible = lua_toboolean(L, 3); return 0; }
 
     // Setting the HumanoidRootPart's velocity launches the character.
-    bool hrp = n->parent && isCharacterRoot(L, n->parent) && n->name == "HumanoidRootPart";
+    bool hrp = n->parent && hasHumanoid(L, n->parent) && n->name == "HumanoidRootPart";
     if (hrp && (is(k, "Velocity") || is(k, "AssemblyLinearVelocity"))) {
         Player* me = scene->player();
         if (me && n->parent->id == me->rootId()) me->launch(LuaApi::checkVector3(L, 3));
+        else if (Npc* npc = scene->npcs().find(n->parent->id)) { npc->velocity = LuaApi::checkVector3(L, 3); npc->grounded = false; }
         else if (RemoteCharacter* rc = scene->findRemote(n->parent->id))
             rc->kills.push_back({-1.0f, LuaApi::checkVector3(L, 3)});   // force < 0 = just a push
         return 0;
@@ -724,6 +887,11 @@ int inst_newindex(lua_State* L) {
             return 0;
         }
         if (is(k, "FallDamage")) { w.fallDamage = lua_toboolean(L, 3); return 0; }
+        if (is(k, "SafeFallSpeed"))   { w.fallDamageSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "FallDamageScale")) { w.fallDamageScale = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
+        if (is(k, "PlayerCollisions")) { w.playerCollisions = lua_toboolean(L, 3); return 0; }
+        if (is(k, "BloodColor"))  { w.bloodColor = LuaApi::checkColor3(L, 3); return 0; }
+        if (is(k, "BloodAmount")) { w.bloodAmount = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 5.0f); return 0; }
     }
     return luaL_error(L, "'%s' can't be set on %s \"%s\"", k, className(L, n), n->name.c_str());
 }
@@ -770,6 +938,10 @@ int inst_new(lua_State* L) {
     } else if (cls == "Animation") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Animation);
         n->source = Anim::emptyClipText();
+    } else if (std::find(std::begin(kGuiClassNames), std::end(kGuiClassNames), cls) != std::end(kGuiClassNames)) {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Gui);
+        for (int i = 0; i < kGuiTypeCount; ++i) if (cls == kGuiClassNames[i]) n->gui.type = (GuiType)i;
+        Guis::setDefaults(*n);
     } else if (cls == "Decal") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Decal);
         n->color = {1.0f, 1.0f, 1.0f};
@@ -913,7 +1085,7 @@ int animr_index(lua_State* L) {
     if (is(k, "IsA"))                       { lua_pushcfunction(L, animr_isA); return 1; }
     if (is(k, "Name") || is(k, "ClassName")) { lua_pushstring(L, "Animator"); return 1; }
     if (is(k, "Parent")) {
-        if (E(L)->scene()->isCharacterRoot(a->rig)) LuaApi::pushHumanoid(L, a->rig);
+        if (E(L)->scene()->humanoidOf(a->rig)) LuaApi::pushHumanoid(L, a->rig);
         else LuaApi::pushInstance(L, a->rig);
         return 1;
     }
@@ -1085,6 +1257,35 @@ int hum_isA(lua_State* L) {
     return 1;
 }
 
+// humanoid:GetState() -> "Climbing", "Swimming", "Freefall", "Running", "Dead" (Enum.HumanoidStateType names)
+int hum_getState(lua_State* L) {
+    Player* p = E(L)->scene()->player();
+    const bool mine = p && p->rootId() == humRoot(L);
+    const char* st = "Running";
+    if (hum(L).health <= 0.0f) st = "Dead";
+    else if (mine && p->climbing()) st = "Climbing";
+    else if (mine && p->swimming()) st = "Swimming";
+    else if (mine && !p->grounded()) st = "Freefall";
+    else if (Npc* n = E(L)->scene()->npcs().find(humRoot(L)); n && !n->grounded) st = "Freefall";
+    lua_pushstring(L, st);
+    return 1;
+}
+
+// NPCs: humanoid:MoveTo(point [, part]) walks there (MoveToFinished fires when it
+// gets there, or gives up after 8 seconds); humanoid:Move(direction) keeps walking that way.
+Npc* npcOf(lua_State* L) { return E(L)->scene()->npcs().find(*E(L)->scene(), humRoot(L)); }
+int hum_moveTo(lua_State* L) {
+    glm::vec3 p = LuaApi::checkVector3(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) p = worldPosition(LuaApi::checkNode(L, 3));   // follow a part
+    if (Npc* n = npcOf(L)) { n->target = p; n->hasTarget = true; n->targetTime = 0.0f; n->moveDir = glm::vec3(0.0f); }
+    return 0;
+}
+int hum_move(lua_State* L) {
+    glm::vec3 d = LuaApi::checkVector3(L, 2);
+    if (Npc* n = npcOf(L)) { n->moveDir = d; n->hasTarget = false; }
+    return 0;
+}
+
 int hum_index(lua_State* L) {
     const char* k = luaL_checkstring(L, 2);
     Humanoid& h = hum(L);
@@ -1102,6 +1303,19 @@ int hum_index(lua_State* L) {
     if (is(k, "UnequipTools")) { lua_pushcfunction(L, hum_unequipTools); return 1; }
     if (is(k, "IsA"))        { lua_pushcfunction(L, hum_isA); return 1; }
     if (is(k, "LoadAnimation")) { lua_pushcfunction(L, hum_loadAnimation); return 1; }
+    if (is(k, "GetState"))   { lua_pushcfunction(L, hum_getState); return 1; }
+    if (is(k, "MoveTo"))     { lua_pushcfunction(L, hum_moveTo); return 1; }
+    if (is(k, "Move"))       { lua_pushcfunction(L, hum_move); return 1; }
+    if (is(k, "MoveToFinished")) { LuaApi::pushSignal(L, SignalKind::MoveToFinished, humRoot(L)); return 1; }
+    if (is(k, "Jump"))       { Npc* n = npcOf(L); lua_pushboolean(L, n && n->jump); return 1; }
+    if (is(k, "MoveDirection")) { Npc* n = npcOf(L); LuaApi::pushVector3(L, n ? n->moveDir : glm::vec3(0.0f)); return 1; }
+    if (is(k, "WalkToPoint")) { Npc* n = npcOf(L); LuaApi::pushVector3(L, n && n->hasTarget ? n->target : glm::vec3(0.0f)); return 1; }
+    if (is(k, "RootPart")) {
+        SceneNode* r = E(L)->scene()->findById(humRoot(L));
+        SceneNode* hrp = r ? r->findChild("HumanoidRootPart") : nullptr;
+        LuaApi::pushInstance(L, hrp ? hrp->id : 0);
+        return 1;
+    }
     if (is(k, "GetPlayingAnimationTracks")) { lua_pushcfunction(L, hum_playing); return 1; }
     if (is(k, "Animator"))   { pushAnimator(L, humRoot(L)); return 1; }
     if (is(k, "FindFirstChild") || is(k, "FindFirstChildOfClass") || is(k, "WaitForChild"))
@@ -1118,6 +1332,10 @@ int hum_newindex(lua_State* L) {
     else if (is(k, "WalkSpeed"))  h.walkSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3));
     else if (is(k, "JumpPower"))  h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3));
     else if (is(k, "AutoRotate")) h.autoRotate = lua_toboolean(L, 3);
+    else if (is(k, "Jump")) {
+        if (Npc* n = npcOf(L)) n->jump = lua_toboolean(L, 3);
+        return 0;
+    }
     else return luaL_error(L, "'%s' can't be set on Humanoid", k);
     touched(L);
     return 0;

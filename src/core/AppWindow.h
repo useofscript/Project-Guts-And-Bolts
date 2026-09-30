@@ -45,6 +45,14 @@ public:
     void  lockLandscape(bool on);
     void saveScreenshot(const std::string& path);         // binary PPM
 
+    // First-person mouse look (like Roblox): the pointer is hidden and kept at
+    // (x, y) in the window, and how far the mouse moved each frame is handed
+    // back instead. Ask for it every frame you want it; stop asking to let go.
+    static void  lockMouse(float x, float y);
+    static float mouseLookX();   // pixels moved since last frame while locked
+    static float mouseLookY();
+    static bool  mouseLocked();
+
 private:
 #ifdef GB_MOBILE
     SDL_Window* m_sdl = nullptr;

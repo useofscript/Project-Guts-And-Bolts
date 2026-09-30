@@ -20,6 +20,10 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const GuiState& 
 // Speech bubbles over characters' heads. `bubbles` maps a character's name to its text.
 void drawBubbles(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm::mat4& viewProj,
                  const std::unordered_map<std::string, std::pair<std::string, float>>& bubbles);
+// Names over characters' heads, like Roblox: every player (you too, until the
+// camera gets close) and NPCs. Others show a small health bar when they're hurt.
+void drawNameTags(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const glm::mat4& viewProj,
+                  const glm::vec3& cameraPos);
 // Everyone in the game (top-right, under the health bar). Administrators get
 // a little floating badge next to their name.
 void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players);

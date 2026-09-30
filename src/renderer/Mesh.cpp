@@ -55,6 +55,17 @@ void Mesh::upload(const std::vector<Vertex>& verts, const std::vector<uint32_t>&
     glBindVertexArray(0);
 }
 
+void Mesh::update(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices) {
+    if (!m_vao) { upload(verts, indices); return; }
+    m_indexCount = (int)indices.size();
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(verts.size() * sizeof(Vertex)), verts.data(), GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(indices.size() * sizeof(uint32_t)), indices.data(), GL_DYNAMIC_DRAW);
+    glBindVertexArray(0);
+}
+
 void Mesh::draw() const {
     glBindVertexArray(m_vao);
     glDrawElements(GL_TRIANGLES, m_indexCount, GL_UNSIGNED_INT, nullptr);

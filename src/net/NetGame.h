@@ -8,22 +8,61 @@
 #include <vector>
 #include "Socket.h"
 #include "../game/PlayerEntry.h"
+#include "../scene/Player.h"   // CharacterPose
 
 class Scene;
 class GameSession;
 
 // Chat messages and the speech bubbles above characters' heads.
 struct ChatLog {
-    struct Line { std::string from, text; bool system = false; bool admin = false; bool verified = false; };
+    struct Line {
+        std::string from, text;
+        bool system = false; bool admin = false; bool verified = false;
+        bool whisper = false; std::string to;   // a private message (/w name message): only the two see it
+    };
     std::vector<Line> lines;
     std::unordered_map<std::string, std::pair<std::string, float>> bubbles;   // name -> text, seconds left
 
     void add(const std::string& from, const std::string& text, bool system = false, bool admin = false,
              bool verified = false);
+    // Private messages get no speech bubble (everyone would see it).
+    void addWhisper(const std::string& from, const std::string& to, const std::string& text, bool admin = false,
+                    bool verified = false);
     void update(float dt);
+
+    // "/w name message" or "/whisper name message" (like Roblox). True if `text` is
+    // a whisper command; `to` and `message` may be empty if it's incomplete.
+    static bool parseWhisper(const std::string& text, std::string& to, std::string& message);
+    static constexpr const char* kWhisperHelp = "To whisper to someone: /w PlayerName your message";
 };
 
 inline constexpr int kDefaultPort = 7777;
+
+// Makes other players move smoothly. Their poses arrive about 20 times a second,
+// and not evenly (the internet bunches them up). Showing each one as it arrives
+// looks jumpy, so instead we keep the last second of poses, each stamped with the
+// time the sender took it, and show the player a tenth of a second in the past,
+// gliding between the two poses around that moment. If updates stop for a moment,
+// the player keeps going the way they were (briefly), then waits.
+class PoseBuffer {
+public:
+    // `sentAt`: the sender's clock when it took the pose; `now`: our clock.
+    void push(double sentAt, double now, const CharacterPose& pose);
+    // The pose to show right now. False until the first pose has arrived.
+    bool sample(double now, CharacterPose& out) const;
+    // Seconds behind: two updates' worth, more on a bumpy connection (up to a third of a second).
+    static constexpr double kDelay = 0.1, kMaxDelay = 0.35;
+    double delay() const;
+
+private:
+    struct Snap { double t; CharacterPose pose; };
+    std::vector<Snap> m_snaps;              // oldest first
+    double m_offset = 0.0;                  // our clock minus theirs (smallest seen, plus a slow drift)
+    bool   m_haveOffset = false;
+    double m_jitter = 0.0;                  // how late messages have been running (recently)
+    // The delay in use eases towards what's wanted (a sudden change would make them jump).
+    mutable double m_lag = 0.0, m_lastSample = -1.0;   // how far behind our clock we show them
+};
 
 // Hosting a multiplayer game. The host runs the scripts and physics for the
 // world; every joined player simulates their own character and sends its pose.
@@ -39,6 +78,7 @@ public:
     void stop();
     void update(float dt);
     void say(const std::string& text);                 // the host's own chat
+    void announce(const std::string& text);            // a grey system line for everyone ("X earned a badge!")
     std::vector<PlayerEntry> players() const;
     ChatLog& chat() { return m_chat; }
     int port() const { return m_port; }
@@ -51,6 +91,8 @@ private:
     struct Client;
     struct NodeState;
     void handle(Client& c, const std::string& msg);
+    Client* findClient(const std::string& name);                        // a joined player, by name (any capitals)
+    static bool sameName(const std::string& a, const std::string& b);
     void addClient(std::unique_ptr<Net::Connection> conn);
     void updateRelay(float dt);
     void sendTick();
@@ -65,6 +107,7 @@ private:
     std::vector<std::unique_ptr<Client>> m_clients;
     std::unordered_map<uint64_t, std::string> m_sent;   // node id -> last replicated state
     std::string m_lastEnv, m_lastGui;
+    std::unordered_map<uint64_t, PoseBuffer> m_poses;   // joined players' characters, shown smoothly
     ChatLog     m_chat;
     float       m_tick = 0.0f;
     int         m_nextId = 1;
@@ -109,6 +152,7 @@ private:
     std::string  m_error, m_title;
     uint64_t     m_myServerRoot = 0;     // our character on the host (hidden here)
     std::map<uint64_t, std::string> m_charNames;
+    std::unordered_map<uint64_t, PoseBuffer> m_poses;   // other players' characters, shown smoothly
     std::vector<PlayerEntry> m_players;
     std::string  m_nonce;                 // we ask the host to sign this, to prove who it is
     uint64_t     m_hostRoot = 0;

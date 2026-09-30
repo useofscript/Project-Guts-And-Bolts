@@ -183,18 +183,45 @@ export async function signUp(username, password) {
   return r;
 }
 
-export async function logIn(username, password) {
+// `code`: the emailed code, for accounts with two-step verification (r.needCode asks for it).
+export async function logIn(username, password, code = '') {
   const s = await call('account.salt', { username });
   if (!s.ok) return s;
   const keys = await passwordKeys(password, s.salt || '');
   if (!keys) return { ok: false, error: 'Something went wrong. Try again.' };
-  const r = await call('account.login', { username, auth: keys.auth });
+  const r = await call('account.login', code ? { username, auth: keys.auth, code } : { username, auth: keys.auth });
   if (!r.ok) return r;
   const key = await unlockKey(keys.lock, r.key);
-  if (!key || hex(key.slice(32, 64)) !== String(r.account).toLowerCase())
+  if (!key || hex(key.slice(32, 64)) !== String(r.keyAccount || r.account).toLowerCase())
     return { ok: false, error: 'Couldn\'t unlock your account in this browser.' };
   await setKey(key);
   return r;
+}
+
+// Proof that you know your password (for changing your email or two-step settings).
+export async function passwordProof(username, password) {
+  const s = await call('account.salt', { username });
+  if (!s.ok) return '';
+  const keys = await passwordKeys(password, s.salt || '');
+  return keys ? keys.auth : '';
+}
+
+// Change your password: this browser has the key, so it locks it with the new one.
+export async function changePassword(username, current, next) {
+  const auth = await passwordProof(username, current);
+  if (!auth) return { ok: false, error: 'Something went wrong. Try again.' };
+  const salt = randomHex(16);
+  const keys = await passwordKeys(next, salt);
+  if (!keys) return { ok: false, error: 'Something went wrong. Try again.' };
+  return call('account.password', { auth, salt, newAuth: keys.auth, key: await lockKey(keys.lock, await loadKey()) });
+}
+
+// Forgot password: with the emailed code, this browser's key takes over the account.
+export async function resetPassword(username, code, password) {
+  const salt = randomHex(16);
+  const keys = await passwordKeys(password, salt);
+  if (!keys) return { ok: false, error: 'Something went wrong. Try again.' };
+  return call('account.reset', { username, code, salt, auth: keys.auth, key: await lockKey(keys.lock, await loadKey()) });
 }
 
 // Files for uploads, as base64.

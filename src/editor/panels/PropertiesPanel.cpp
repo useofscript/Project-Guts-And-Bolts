@@ -38,12 +38,121 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Value      ? node->valueClass()
                     : node->kind == NodeKind::Decal      ? "Decal"
                     : node->kind == NodeKind::Animation  ? "Animation"
+                    : node->kind == NodeKind::Gui        ? kGuiClassNames[(int)node->gui.type]
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
 
     renderProperties(node);
     if (node != m_scene->root()) renderAttributes(node);
     ImGui::End();
+}
+
+// Game UI objects: sizes and places as UDim2 (a fraction of the parent + pixels).
+namespace {
+bool editUDim2(const char* label, UDim2& u, float scaleStep = 0.005f) {
+    bool changed = false;
+    ImGui::PushID(label);
+    ImGui::TextUnformatted(label);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+    changed |= ImGui::DragFloat2("X (scale, pixels)", &u.xs, 1.0f, 0, 0, "%.3f");
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+    changed |= ImGui::DragFloat2("Y (scale, pixels)", &u.ys, 1.0f, 0, 0, "%.3f");
+    (void)scaleStep;
+    ImGui::PopID();
+    return changed;
+}
+} // namespace
+
+void PropertiesPanel::renderGui(SceneNode* node) {
+    GuiProps& g = node->gui;
+    if (g.type != GuiType::UICorner)
+        ImGui::Checkbox(g.type == GuiType::ScreenGui || g.type == GuiType::UIStroke ? "Enabled" : "Visible",
+                        g.type == GuiType::ScreenGui || g.type == GuiType::UIStroke ? &node->enabled : &node->visible);
+    if (g.type == GuiType::ScreenGui) {
+        ImGui::InputInt("DisplayOrder", &g.displayOrder);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("ScreenGuis with a higher number are drawn on top.");
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("A ScreenGui is a layer of UI over the game. Insert Frames, TextLabels, TextButtons and "
+                            "ImageLabels inside it. Click them in the viewport to pick them, drag to move, drag the "
+                            "blue corner to resize.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+    if (g.type == GuiType::UICorner) {
+        ImGui::SeparatorText("UICorner");
+        ImGui::DragFloat2("CornerRadius (scale, pixels)", &g.corner.xs, 0.5f, 0.0f, 500.0f, "%.2f");
+        ImGui::TextDisabled("Rounds the corners of the object it's in.");
+        return;
+    }
+    if (g.type == GuiType::UIStroke) {
+        ImGui::SeparatorText("UIStroke");
+        ImGui::ColorEdit3("Color", &g.borderColor.x);
+        ImGui::DragFloat("Thickness", &g.thickness, 0.1f, 0.0f, 50.0f, "%.1f");
+        ImGui::SliderFloat("Transparency", &g.bgTransparency, 0.0f, 1.0f);
+        ImGui::TextDisabled("An outline around the object it's in.");
+        return;
+    }
+
+    ImGui::SeparatorText("Layout");
+    editUDim2("Position", g.pos);
+    editUDim2("Size", g.size);
+    ImGui::DragFloat2("AnchorPoint", &g.anchor.x, 0.01f, 0.0f, 1.0f, "%.2f");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Which point of it sits at Position: 0,0 = top-left, 0.5,0.5 = middle.");
+    ImGui::InputInt("ZIndex", &g.zIndex);
+    ImGui::Checkbox("ClipsDescendants", &g.clips);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hide the parts of things inside it that stick out.");
+    ImGui::TextDisabled("Scale 1 = the whole of the parent; pixels are added on top.");
+
+    ImGui::SeparatorText("Background");
+    ImGui::ColorEdit3("BackgroundColor3", &g.bg.x);
+    ImGui::SliderFloat("BackgroundTransparency", &g.bgTransparency, 0.0f, 1.0f);
+    ImGui::ColorEdit3("BorderColor3", &g.borderColor.x);
+    ImGui::SliderInt("BorderSizePixel", &g.border, 0, 10);
+
+    if (g.type == GuiType::TextLabel || g.type == GuiType::TextButton) {
+        ImGui::SeparatorText("Text");
+        ImGui::InputTextMultiline("Text", &g.text, ImVec2(-1, ImGui::GetTextLineHeight() * 3));
+        ImGui::ColorEdit3("TextColor3", &g.textColor.x);
+        ImGui::DragFloat("TextSize", &g.textSize, 0.5f, 4.0f, 200.0f, "%.0f");
+        ImGui::Checkbox("TextScaled", &g.textScaled);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Make the text as big as fits in the box.");
+        ImGui::SameLine();
+        ImGui::Checkbox("TextWrapped", &g.textWrapped);
+        ImGui::SameLine();
+        ImGui::Checkbox("Bold", &g.bold);
+        const char* xs[] = {"Left", "Center", "Right"};
+        const char* ys[] = {"Top", "Center", "Bottom"};
+        ImGui::Combo("TextXAlignment", &g.xAlign, xs, 3);
+        ImGui::Combo("TextYAlignment", &g.yAlign, ys, 3);
+        ImGui::SliderFloat("TextTransparency", &g.textTransparency, 0.0f, 1.0f);
+        ImGui::ColorEdit3("TextStrokeColor3", &g.strokeColor.x);
+        ImGui::SliderFloat("TextStrokeTransparency", &g.strokeTransparency, 0.0f, 1.0f);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = a solid outline around the letters, 1 = none.");
+    }
+    if (g.type == GuiType::ImageLabel || g.type == GuiType::ImageButton) {
+        ImGui::SeparatorText("Image");
+        ImGui::InputText("Image", &g.image);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A picture: a .png / .jpg in the games folder, a full path,\nor gb:<id> for one uploaded on the Create page.");
+        if (FileDialog::available()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...")) {
+                std::string path = FileDialog::openImage("Pick a picture");
+                if (!path.empty()) { g.image = Paths::relativeToGames(path); m_scene->markDirty(); }
+            }
+        }
+        ImGui::ColorEdit3("ImageColor3", &g.imageColor.x);
+        ImGui::SliderFloat("ImageTransparency", &g.imageTransparency, 0.0f, 1.0f);
+    }
+    if (node->isGuiButton()) {
+        ImGui::SeparatorText("Button");
+        ImGui::Checkbox("AutoButtonColor", &g.autoButtonColor);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Get darker when the mouse is over it or presses it.");
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("In a script: button.MouseButton1Click:Connect(function() ... end)");
+        ImGui::PopTextWrapPos();
+    }
 }
 
 void PropertiesPanel::renderProperties(SceneNode* node) {
@@ -86,6 +195,8 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::PopTextWrapPos();
         return;
     }
+
+    if (node->isGui()) { renderGui(node); return; }
 
     if (node->isDecal()) {
         ImGui::SeparatorText("Decal");

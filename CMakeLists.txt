@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.4.0 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.6.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -264,6 +264,8 @@ file(MAKE_DIRECTORY "${GB_GENERATED}")
 # The default character (assets/models/player.obj), baked into the program.
 include(cmake/Embed.cmake)
 gb_embed("${CMAKE_SOURCE_DIR}/assets/models/player.obj" kPlayerObj "${GB_GENERATED}/PlayerObj.h")
+gb_embed("${CMAKE_SOURCE_DIR}/assets/templates/shirt_template.png" kShirtTemplate "${GB_GENERATED}/ShirtTemplate.h")
+gb_embed("${CMAKE_SOURCE_DIR}/assets/templates/pants_template.png" kPantsTemplate "${GB_GENERATED}/PantsTemplate.h")
 # Recorded sound effects (the rest are made in code, see Audio.cpp).
 gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/jump.wav"    kSoundJump    "${GB_GENERATED}/SoundJump.h")
 gb_embed("${CMAKE_SOURCE_DIR}/assets/sounds/respawn.wav" kSoundRespawn "${GB_GENERATED}/SoundRespawn.h")
@@ -301,6 +303,10 @@ add_library(gb_engine STATIC
     src/scene/Scene.cpp
     src/scene/Player.cpp
     src/scene/Physics.cpp
+    src/scene/Pathfinding.cpp
+    src/scene/Npc.cpp
+    src/scene/Water.cpp
+    src/scene/Flood.cpp
     src/scene/RigidBodies.cpp
     src/scene/Particles.cpp
     src/scene/Animation.cpp
@@ -315,6 +321,8 @@ add_library(gb_engine STATIC
     src/scripting/LuaInstance.cpp
     src/game/GameSession.cpp
     src/game/Hud.cpp
+    src/game/GameGui.cpp
+    src/game/PlayCamera.cpp
     src/game/SettingsWindow.cpp
     src/game/Profile.cpp
     src/game/UpdateToast.cpp
@@ -384,7 +392,7 @@ endif()
 if(GB_MOBILE)
     # Phones and tablets get the Player only. On Android it's a library that
     # SDL's Java activity loads (it must be called "main").
-    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp)
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/LaunchLink.cpp)
     if(ANDROID)
         add_library(main SHARED ${PLAYER_SOURCES})
         target_link_libraries(main PRIVATE gb_engine)
@@ -408,11 +416,15 @@ set(EDITOR_SOURCES
     src/main.cpp
     src/Application.cpp
     src/editor/Editor.cpp
+    src/editor/AiTools.cpp
+    src/editor/StudioMcp.cpp
+    src/editor/panels/AssistantPanel.cpp
     src/editor/EditorRibbon.cpp
     src/editor/Icons.cpp
     src/editor/panels/ViewportModeling.cpp
     src/editor/EditorModes.cpp
     src/editor/EditorOnline.cpp
+    src/editor/Thumbnailer.cpp
     src/editor/Plugins.cpp
     src/editor/Premades.cpp
     src/editor/TeamCreate.cpp
@@ -442,6 +454,7 @@ set(PLAYER_SOURCES
     src/player/PlayerSocial.cpp
     src/player/PlayerFriends.cpp
     src/player/PlayerLogin.cpp
+    src/player/LaunchLink.cpp
 )
 if(WIN32)
     list(APPEND PLAYER_SOURCES resources/app.rc)

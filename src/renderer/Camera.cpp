@@ -51,8 +51,15 @@ glm::vec3 Camera::position() const {
     );
 }
 
+glm::vec3 Camera::forward() const {
+    float yr = glm::radians(yaw), pr = glm::radians(pitch);
+    return -glm::vec3(std::cos(pr) * std::cos(yr), std::sin(pr), std::cos(pr) * std::sin(yr));
+}
+
 glm::mat4 Camera::view() const {
-    return glm::lookAt(position(), pivot, glm::vec3(0,1,0));
+    // Looks along the orbit direction, so it also works at distance 0 (first person).
+    glm::vec3 eye = position();
+    return glm::lookAt(eye, eye + forward(), glm::vec3(0,1,0));
 }
 
 glm::mat4 Camera::projection() const {

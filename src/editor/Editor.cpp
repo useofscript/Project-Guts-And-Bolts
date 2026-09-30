@@ -1,4 +1,6 @@
 #include "Editor.h"
+#include <sstream>
+#include "../scene/Guis.h"
 #include "../game/Profile.h"
 #include "../scene/EditMesh.h"
 #include "../online/OnlineClient.h"
@@ -13,7 +15,9 @@
 #include "panels/PropertiesPanel.h"
 #include "panels/EnvironmentPanel.h"
 #include "panels/ToolboxPanel.h"
+#include "Thumbnailer.h"
 #include "panels/PlayerPanel.h"
+#include "panels/AssistantPanel.h"
 #include "panels/OutputPanel.h"
 #include "panels/ScriptEditorPanel.h"
 #include "panels/AnimationEditor.h"
@@ -78,6 +82,7 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_output       = std::make_unique<OutputPanel>();
     m_scriptEditor = std::make_unique<ScriptEditorPanel>(scene);
     m_animEditor   = std::make_unique<AnimationEditor>(scene, &m_state);
+    m_assistant    = std::make_unique<AssistantPanel>(*this);
     m_team         = std::make_unique<TeamCreate>(scene);
     m_viewport->setTeam(m_team.get());
 
@@ -92,6 +97,13 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
         connectParts(m_state.connectTool, a, pa, b, pb);
     };
     actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
+    m_thumbnailer = std::make_unique<Thumbnailer>();
+    actions.thumbnail = [this](const std::string& key, const std::function<void(Scene&)>& build) {
+        return m_thumbnailer->texture(key, build);
+    };
+    actions.library = [this](bool mine, int kind, const std::string& query, bool reload, std::string& status) {
+        return libraryTiles(mine, kind, query, reload, status);
+    };
     m_toolbox = std::make_unique<ToolboxPanel>(actions);
 
     resetHistory();
@@ -129,7 +141,7 @@ void Editor::render(float dt) {
         m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true);
         m_state.simStep = false;
         Player* p = m_scene->player();
-        if (p && !m_session->runOnly()) m_viewport->frameOn(p->focusPoint());   // Run: the camera stays free
+        if (p && !m_session->runOnly()) m_viewport->followPlayer(*p, dt);   // Run: the camera stays free
     }
     buildDockspace();
     if (!m_playing) m_animEditor->update(dt, m_viewport->gizmoInUse());   // show the rig posed
@@ -138,19 +150,23 @@ void Editor::render(float dt) {
     if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
     if (m_showPanel[kPanelProperties]) m_properties->render();
     if (m_showPanel[kPanelLighting])   m_environment->render();
-    if (m_showPanel[kPanelToolbox])    m_toolbox->render();
+    if (m_showPanel[kPanelToolbox])    { m_thumbnailer->newFrame(); m_toolbox->render(); }
     if (m_showPanel[kPanelPlayer])     m_player->render();
     if (m_showPanel[kPanelOutput])     m_output->render();
     if (m_showPanel[kPanelScript])     m_scriptEditor->render();
     m_scriptEditor->renderFindAll();
     renderServerDialog();
     renderPublishDialog();
-    renderMarketplace();
+    renderPublishModelDialog();
+    renderAccessoryWindow();
+    renderPluginLibrary();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
     renderInsertObject();
     renderDialogs();
     renderShortcuts();
     if (m_showPanel[kPanelTeam]) renderTeamPanel();
+    m_assistant->update();
+    if (m_showPanel[kPanelAssistant]) m_assistant->render(&m_showPanel[kPanelAssistant]);
     if (m_showPanel[kPanelAnimation] && !m_playing) {
         // A tab next to Output (like Roblox's, along the bottom), in front when just opened.
         if (ImGuiWindow* out = ImGui::FindWindowByName("Output"); out && out->DockId)
@@ -321,6 +337,12 @@ void Editor::startTeamCreate(bool host, const std::string& address) {
     std::string err;
     bool ok = host ? m_team->host(kTeamCreatePort, err) : m_team->join(address, err);
     if (!ok) Log::error("Team Create: " + err);
+}
+
+void Editor::testInsert(const std::string& names) {
+    std::stringstream ss(names);
+    std::string w;
+    while (ss >> w) insertObject(w, m_scene->selected());
 }
 
 void Editor::testAddPart(const std::string& name) {
@@ -893,6 +915,35 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         mp->transform.scale = glm::vec3(2.0f);
         setMode(StudioMode::Modeling);
     }
+    else if (what == "TrussPart") {   // walk into it to climb
+        SceneNode* t = part("TrussPart", PrimitiveType::Cube);
+        t->transform.scale = {2, 10, 2};
+        t->transform.position.y += 4.5f;
+        t->color = {0.6f, 0.62f, 0.66f};
+        t->material = Material::Metal;
+    }
+    else if (what == "Water") {   // swim in it
+        SceneNode* w = part("Water", PrimitiveType::Cube);
+        w->transform.scale = {16, 6, 16};
+        w->transform.position.y += 2.5f;
+        w->color = {0.2f, 0.5f, 0.95f};
+        w->transparency = 0.45f;
+        w->material = Material::Glass;
+        w->canCollide = false;
+        w->castShadow = false;
+    }
+    else if (what == "WaterSource") {   // pours water that flows downhill and fills things up
+        SceneNode* w = part("WaterSource", PrimitiveType::Cylinder);
+        w->transform.scale = {1.2f, 0.4f, 1.2f};
+        w->transform.position.y += 6.0f;
+        w->color = {0.2f, 0.5f, 0.95f};
+        w->material = Material::Metal;
+        w->canCollide = false;
+        Attribute rate;
+        rate.name = "Rate";
+        rate.n = 8.0;
+        w->attributes.push_back(rate);
+    }
     else if (what == "SpawnLocation") {
         SceneNode* sp = part("SpawnLocation", PrimitiveType::Cube);
         sp->transform.scale = {3, 0.2f, 3};
@@ -931,6 +982,37 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         if (parent && parent != m_scene->root()) m_scene->reparent(rig, parent);
         m_scene->select(rig);
     }
+    else if (GuiType gt; Guis::typeFromName(what, gt)) {
+        // Game UI: a ScreenGui goes in the StarterGui folder; the rest go inside
+        // the selected UI object (or a new ScreenGui if nothing like that is picked).
+        auto uiFolder = [&]() {
+            SceneNode* f = m_scene->root()->findChild("StarterGui");
+            if (!f || f->kind != NodeKind::Model)
+                f = m_scene->insert(std::make_unique<SceneNode>("StarterGui", NodeKind::Model), m_scene->root());
+            return f;
+        };
+        auto make = [&](GuiType t) {
+            auto n = std::make_unique<SceneNode>(kGuiClassNames[(int)t], NodeKind::Gui);
+            n->gui.type = t;
+            Guis::setDefaults(*n);
+            return n;
+        };
+        if (gt == GuiType::ScreenGui) {
+            if (!parent || parent == m_scene->root()) parent = uiFolder();
+        } else if (!parent || !parent->isGui() || parent->gui.type == GuiType::UICorner || parent->gui.type == GuiType::UIStroke) {
+            if (gt == GuiType::UICorner || gt == GuiType::UIStroke) { Log::warn("Put a " + what + " inside a Frame, label or button."); return; }
+            SceneNode* screen = nullptr;   // reuse the first ScreenGui, or make one
+            for (auto& c : uiFolder()->children) if (c->isGui() && c->gui.type == GuiType::ScreenGui) { screen = c.get(); break; }
+            if (!screen) screen = m_scene->insert(make(GuiType::ScreenGui), uiFolder());
+            parent = screen;
+        }
+        auto n = make(gt);
+        if (gt != GuiType::ScreenGui && gt != GuiType::UICorner && gt != GuiType::UIStroke && parent->gui.type == GuiType::ScreenGui) {
+            n->gui.pos = {0.5f, 0, 0.5f, 0};   // in the middle of the screen, so you see it
+            n->gui.anchor = {0.5f, 0.5f};
+        }
+        put(std::move(n));
+    }
     else if (what == "Decal") {
         auto d = std::make_unique<SceneNode>("Decal", NodeKind::Decal);
         d->color = {1.0f, 1.0f, 1.0f};
@@ -967,11 +1049,14 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
         {"Animation", Icons::Id::Animation}, {"Rig", Icons::Id::Rig},
+        {"ScreenGui", Icons::Id::ScreenGui}, {"Frame", Icons::Id::GuiFrame}, {"TextLabel", Icons::Id::GuiText},
+        {"TextButton", Icons::Id::GuiButton}, {"ImageLabel", Icons::Id::GuiImage}, {"ImageButton", Icons::Id::GuiButton},
+        {"UICorner", Icons::Id::GuiCorner}, {"UIStroke", Icons::Id::GuiCorner},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;
@@ -999,6 +1084,12 @@ void Editor::renderInsertObject() {
 // Command Bar: run a bit of Lua against the game right now (undoable).
 void Editor::runCommand(const std::string& code) {
     Log::info("> " + code);
+    // While playing, the code runs inside the game (so it can connect events and wait).
+    if (m_session && m_session->running() && m_session->scripts().running()) {
+        std::string err;
+        if (!m_session->scripts().runCommand(code, err)) Log::error(err);
+        return;
+    }
     ScriptEngine engine(m_scene);
     engine.start(false);
     std::string err;
@@ -1177,6 +1268,7 @@ void Editor::buildDockspace() {
         ImGui::DockBuilderDockWindow("Animation Editor", bottomLeft);
         ImGui::DockBuilderDockWindow("Command Bar",   bottomRight);
         ImGui::DockBuilderDockWindow("Team",          bottomRight);
+        ImGui::DockBuilderDockWindow("Assistant",     bottomRight);
         ImGui::DockBuilderDockWindow("Explorer",      rightTop);
         ImGui::DockBuilderDockWindow("Properties",    rightBottom);
         ImGui::DockBuilderDockWindow("Lighting",      rightBottom);
@@ -1220,8 +1312,9 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Game Settings...")) m_openInfo = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
+        if (ImGui::MenuItem("Publish Selection to Library...", nullptr, false, m_scene->selected() != nullptr)) m_openPublishModel = true;
         if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
-        if (ImGui::MenuItem("Marketplace (plugins, audio)")) m_showMarketplace = true;
+        if (ImGui::MenuItem("Library (plugins, audio)")) m_showPluginLibrary = true;
         ImGui::Separator();
         if (ImGui::MenuItem("Play in Guts&BoltsPlayer")) {
             if (m_path.empty()) {
@@ -1440,12 +1533,25 @@ void Editor::renderDialogs() {
     // --- Game settings (shown in the Player app) ---
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal("Game Settings", nullptr)) {
-        GameInfo& info = m_scene->info();
-        ImGui::TextDisabled("How your game shows up in Guts&BoltsPlayer");
-        ImGui::InputText("Title",  &info.title);
-        ImGui::InputText("Author", &info.author);
-        ImGui::InputTextMultiline("Description", &info.description, ImVec2(-1, 90));
+        if (ImGui::BeginTabBar("##gamesettings")) {
+            if (ImGui::BeginTabItem("Basic Info")) {
+                GameInfo& info = m_scene->info();
+                ImGui::TextDisabled("How your game shows up in Guts&BoltsPlayer");
+                ImGui::InputText("Title",  &info.title);
+                ImGui::InputText("Author", &info.author);
+                ImGui::InputTextMultiline("Description", &info.description, ImVec2(-1, 90));
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Damage & Blood")) {
+                ImGui::TextDisabled("Fall damage, deaths and gore in your game");
+                drawGameRules(m_scene->world());
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::Separator();
         if (ImGui::Button("Done", ImVec2(100, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }

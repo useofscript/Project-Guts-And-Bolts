@@ -26,7 +26,49 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Decal      — a picture on one side of the part it's inside
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
-enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation };
+enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui };
+
+// Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
+// buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
+enum class GuiType { ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke };
+inline constexpr int kGuiTypeCount = 8;
+inline const char* const kGuiClassNames[kGuiTypeCount] = {"ScreenGui", "Frame", "TextLabel", "TextButton",
+                                                          "ImageLabel", "ImageButton", "UICorner", "UIStroke"};
+struct UDim2 {
+    float xs = 0.0f, xo = 0.0f, ys = 0.0f, yo = 0.0f;   // X scale, X offset (pixels), Y scale, Y offset
+    bool operator==(const UDim2& o) const { return xs == o.xs && xo == o.xo && ys == o.ys && yo == o.yo; }
+};
+struct GuiProps {
+    GuiType   type = GuiType::Frame;
+    UDim2     pos;                                  // Position
+    UDim2     size{0.0f, 100.0f, 0.0f, 100.0f};     // Size
+    glm::vec2 anchor{0.0f};                         // AnchorPoint (0..1: which point of it sits at Position)
+    glm::vec3 bg{1.0f};                             // BackgroundColor3
+    float     bgTransparency = 0.0f;
+    glm::vec3 borderColor{0.11f, 0.16f, 0.2f};      // BorderColor3 (and UIStroke.Color)
+    int       border = 1;                           // BorderSizePixel
+    int       zIndex = 1;
+    bool      clips = false;                        // ClipsDescendants
+    // Text (TextLabel / TextButton)
+    std::string text;
+    glm::vec3 textColor{0.1f};
+    float     textSize = 14.0f;
+    bool      textScaled = false, textWrapped = false, bold = false;
+    int       xAlign = 1, yAlign = 1;               // 0 = Left/Top, 1 = Center, 2 = Right/Bottom
+    float     textTransparency = 0.0f;
+    glm::vec3 strokeColor{0.0f};                    // TextStrokeColor3
+    float     strokeTransparency = 1.0f;            // TextStrokeTransparency (1 = no outline)
+    // Pictures (ImageLabel / ImageButton): "gb:<id>" or a file, like a Decal
+    std::string image;
+    glm::vec3 imageColor{1.0f};
+    float     imageTransparency = 0.0f;
+    bool      autoButtonColor = true;               // buttons darken when you point at / press them
+    int       displayOrder = 0;                     // ScreenGui: higher ones are drawn on top
+    UDim2     corner{0.0f, 8.0f, 0.0f, 0.0f};       // UICorner.CornerRadius (xs, xo used)
+    float     thickness = 1.0f;                     // UIStroke.Thickness
+    // Where it was last drawn (AbsolutePosition / AbsoluteSize). Runtime only.
+    glm::vec2 absPos{0.0f}, absSize{0.0f};
+};
 
 // Sides of a part, in Roblox's NormalId order.
 enum class Face { Right, Top, Back, Left, Bottom, Front };
@@ -81,6 +123,10 @@ public:
 
     // Appearance
     float    transparency = 0.0f;            // 0 = opaque, 1 = invisible
+    // Extra see-through-ness only this screen uses (Roblox's LocalTransparencyModifier):
+    // your own character fades as the camera comes close. Never saved or sent.
+    float    localTransparency = 0.0f;
+    float    shownTransparency() const { return 1.0f - (1.0f - transparency) * (1.0f - localTransparency); }
     Material material      = Material::Plastic;
 
     // Behaviour
@@ -137,6 +183,9 @@ public:
     std::string texture;                   // "gb:<id>", a file in the games folder, or a path
     Face        face = Face::Front;
 
+    // Game UI (kind == Gui). `visible` is Visible; `enabled` is a ScreenGui's Enabled.
+    GuiProps    gui;
+
     // Value (kind == Value): its type and contents (the name inside isn't used).
     Attribute   value;
     bool        intValue = false;          // an IntValue (Number, whole numbers only)
@@ -172,6 +221,12 @@ public:
     bool isValue()  const { return kind == NodeKind::Value; }
     bool isDecal()  const { return kind == NodeKind::Decal; }
     bool isAnimation() const { return kind == NodeKind::Animation; }
+    bool isGui() const { return kind == NodeKind::Gui; }
+    // A Frame / label / button / picture (not a ScreenGui, UICorner or UIStroke).
+    bool isGuiObject() const {
+        return kind == NodeKind::Gui && gui.type != GuiType::ScreenGui && gui.type != GuiType::UICorner && gui.type != GuiType::UIStroke;
+    }
+    bool isGuiButton() const { return kind == NodeKind::Gui && (gui.type == GuiType::TextButton || gui.type == GuiType::ImageButton); }
     // "IntValue", "StringValue"... (kind == Value)
     const char* valueClass() const {
         switch (value.type) {

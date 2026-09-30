@@ -1,4 +1,6 @@
 #include "ViewportPanel.h"
+#include "../../core/Settings.h"
+#include "../../game/GameGui.h"
 #include <stb_image_write.h>   // (its code is in renderer/Textures.cpp)
 #include <string>
 #include <vector>
@@ -8,6 +10,9 @@
 #include "../../scene/Physics.h"
 #include "../../scene/EditMesh.h"
 #include "../../game/GameSession.h"
+#include "../../game/PlayCamera.h"
+#include "../../core/AppWindow.h"
+#include "../../scene/Player.h"
 #include "../../game/Hud.h"
 #include "../../core/Audio.h"
 #include "../TeamCreate.h"
@@ -119,6 +124,11 @@ void ViewportPanel::stopAtCollisions(Scene& scene, const std::vector<SceneNode*>
 
 void ViewportPanel::frameOn(const glm::vec3& target) { m_camera.pivot = target; }
 
+void ViewportPanel::followPlayer(Player& p, float dt) {
+    PlayCamera::follow(m_camera, p, dt, m_shiftLock);
+    PlayCamera::fade(*m_scene, p, m_camera);
+}
+
 bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing(); }
 
 bool ViewportPanel::focusSelected() {
@@ -156,11 +166,33 @@ void ViewportPanel::handleInput(float dt) {
     bool playing = m_session != nullptr && !m_session->runOnly();   // Run: fly around like when editing
     bool focused = ImGui::IsWindowFocused();
 
+    if (!playing) m_shiftLock = false;
     if (playing) {
         if (!m_hovered) return;
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
-            m_camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
-        if (io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
+        const bool firstPerson = PlayCamera::firstPerson(m_camera);
+        // Shift toggles Shift Lock, same as in the Player app.
+        if (!GraphicsSettings::get().shiftLockSwitch) m_shiftLock = false;
+        else if (!io.WantTextInput && !firstPerson &&
+                 (ImGui::IsKeyPressed(ImGuiKey_LeftShift, false) || ImGui::IsKeyPressed(ImGuiKey_RightShift, false)))
+            m_shiftLock = !m_shiftLock;
+        if ((firstPerson || m_shiftLock) && !io.WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+            // First person / Shift Lock: the hidden mouse looks around (Esc / F5 stops playing as usual).
+            ImVec2 mid(m_viewMin.x + (m_viewMax.x - m_viewMin.x) * 0.5f, m_viewMin.y + (m_viewMax.y - m_viewMin.y) * 0.5f);
+            AppWindow::lockMouse(mid.x, mid.y);
+            PlayCamera::turn(m_camera, AppWindow::mouseLookX(), AppWindow::mouseLookY());
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            if (m_shiftLock && !firstPerson) {
+                fg->AddCircle(mid, 11.0f, IM_COL32(0, 0, 0, 120), 24, 4.0f);
+                fg->AddCircle(mid, 11.0f, IM_COL32(255, 255, 255, 235), 24, 2.0f);
+                fg->AddCircleFilled(mid, 2.5f, IM_COL32(255, 255, 255, 235));
+            } else {
+                fg->AddCircleFilled(mid, 3.5f, IM_COL32(0, 0, 0, 160));
+                fg->AddCircleFilled(mid, 2.0f, IM_COL32(255, 255, 255, 230));
+            }
+        } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+            PlayCamera::turn(m_camera, io.MouseDelta.x, io.MouseDelta.y);
+        }
+        PlayCamera::zoom(m_camera, io.MouseWheel);
         return;
     }
 
@@ -233,8 +265,8 @@ void ViewportPanel::mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, co
 void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                               const glm::vec2& imgMin, const glm::vec2& imgSize) {
     SceneNode* sel = m_scene->selected();
-    if (!sel || sel == m_scene->root() || sel->isScript() || m_state->tool == GizmoTool::Select)
-        return;
+    if (!sel || sel == m_scene->root() || sel->isScript() || sel->isGui() || m_state->tool == GizmoTool::Select)
+        return;   // (game UI is moved by dragging it in the viewport)
 
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist();
@@ -339,12 +371,14 @@ void ViewportPanel::render(float dt) {
         bool playing = m_session != nullptr;
         m_renderer.setGridSpacing(m_state->snapEnabled && m_state->snapTranslate >= 0.25f ? m_state->snapTranslate : 1.0f);
         m_renderer.render(*m_scene, m_camera, m_fbo, m_state->showGrid && (!playing || m_session->runOnly()));
-        Audio::setListener(m_camera.position(), glm::normalize(m_camera.pivot - m_camera.position()));
+        Audio::setListener(m_camera.position(), m_camera.forward());
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();
         // Flip V so the framebuffer texture is the right way up in ImGui.
         ImGui::Image((ImTextureID)(intptr_t)m_fbo.colorTexture(),
                      avail, ImVec2(0, 1), ImVec2(1, 0));
+        m_viewMin = imgPos;
+        m_viewMax = ImVec2(imgPos.x + avail.x, imgPos.y + avail.y);
         if (drawModeMenu(imgPos)) m_hovered = false;   // clicks on the menu aren't clicks in the world
 
         glm::mat4 view = m_camera.view();
@@ -374,6 +408,7 @@ void ViewportPanel::render(float dt) {
                 }
                 if (hit) m_scene->select(hit); else m_scene->deselect();
             }
+            GameGui::draw(dl, imgPos, imgMax, *m_scene);
             Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui(), 0.0f, false);
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 170, 230, 255), 0.0f, 0, 3.0f);   // blue frame = simulating
             const char* tip = m_state->simPaused
@@ -383,7 +418,12 @@ void ViewportPanel::render(float dt) {
         } else if (playing) {
             // Clicks go to the game (part.Clicked / MouseButton1), not the editor.
             const bool onHotbar = Hud::overHotbar(imgPos, imgMax, *m_scene, ImGui::GetMousePos());
-            if (m_hovered && !onHotbar && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            std::vector<GameGui::Event> guiEvents;   // the game's own UI gets the mouse first
+            const bool onGui = GameGui::handle(*m_scene, imgPos, imgMax, ImGui::GetMousePos(), m_hovered && !onHotbar,
+                                               ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                                               ImGui::IsMouseReleased(ImGuiMouseButton_Left), false, m_guiInput, guiEvents);
+            m_session->guiEvents(guiEvents);
+            if (m_hovered && !onHotbar && !onGui && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 m = ImGui::GetMousePos();
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
@@ -391,6 +431,8 @@ void ViewportPanel::render(float dt) {
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd, nullptr, character);
                 m_session->click(hit ? hit->id : 0);
             }
+            Hud::drawNameTags(dl, imgPos, imgMax, *m_scene, proj * view, m_camera.position());
+            GameGui::draw(dl, imgPos, imgMax, *m_scene, &m_guiInput);
             Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
             if (int slot = Hud::drawHotbar(dl, imgPos, imgMax, *m_scene); slot >= 0 && m_hovered) m_session->selectToolSlot(slot);
             // The leaderboard, once the game gives the player some leaderstats.
@@ -503,6 +545,54 @@ void ViewportPanel::render(float dt) {
                 return;
             }
 
+            // Game UI shows on top while you build; click it to pick, drag to move,
+            // drag the blue corner to resize (Roblox Studio works the same way).
+            {
+                SceneNode* sel = m_scene->selected();
+                const uint64_t selGui = sel && sel->isGuiObject() ? sel->id : 0;
+                GameGui::draw(dl, imgPos, imgMax, *m_scene, nullptr, selGui);
+                ImVec2 mp = ImGui::GetMousePos();
+                if (m_guiDrag && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                    if (SceneNode* g = m_scene->findById(m_guiDragId); g && g->isGuiObject()) {
+                        float dx = std::round(mp.x - m_guiDragFrom.x), dy = std::round(mp.y - m_guiDragFrom.y);
+                        if (m_guiDrag == 1) { g->gui.pos = m_guiDragStart; g->gui.pos.xo += dx; g->gui.pos.yo += dy; }
+                        else {
+                            g->gui.size = m_guiDragStart;
+                            g->gui.size.xo += dx; g->gui.size.yo += dy;
+                            // keep at least 4 pixels on screen
+                            float w = g->gui.absSize.x, h = g->gui.absSize.y;
+                            if (w < 4) g->gui.size.xo += 4 - w;
+                            if (h < 4) g->gui.size.yo += 4 - h;
+                        }
+                    }
+                    ImGui::End();
+                    ImGui::PopStyleVar();
+                    return;
+                }
+                m_guiDrag = 0;
+                bool overGizmoNow = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+                if (m_hovered && !overGizmoNow && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    ImVec2 a, b;
+                    SceneNode* hitGui = nullptr;
+                    if (selGui && GameGui::rectOf(*m_scene, imgPos, imgMax, sel, a, b) &&
+                        std::abs(mp.x - b.x) < 8 && std::abs(mp.y - b.y) < 8) {
+                        m_guiDrag = 2;   // resize from the corner
+                        hitGui = sel;
+                    } else if ((hitGui = GameGui::pick(*m_scene, imgPos, imgMax, mp))) {
+                        m_guiDrag = 1;
+                        m_scene->select(hitGui);
+                    }
+                    if (hitGui) {
+                        m_guiDragId = hitGui->id;
+                        m_guiDragFrom = mp;
+                        m_guiDragStart = m_guiDrag == 1 ? hitGui->gui.pos : hitGui->gui.size;
+                        ImGui::End();
+                        ImGui::PopStyleVar();
+                        return;
+                    }
+                }
+            }
+
             // Left-click to pick — but not while interacting with the gizmo.
             bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
             // Ctrl+click adds / removes, Shift+click adds.
@@ -588,17 +678,34 @@ bool ViewportPanel::drawModeMenu(ImVec2 imgPos) {
 // A picture of the game for the site (Studio sends it when you publish)
 // ---------------------------------------------------------------------------
 
-std::string ViewportPanel::snapshotPng(int width, int height) {
+std::string ViewportPanel::snapshotAround(int width, int height, glm::vec3 center, float radius) {
+    m_aimSnapshot = true;
+    m_aimCenter = center;
+    m_aimRadius = std::max(0.5f, radius);
+    std::string png = snapshotPng(width, height, false);
+    m_aimSnapshot = false;
+    return png;
+}
+
+std::string ViewportPanel::snapshotPng(int width, int height, bool fromView) {
     // Look at the spawn point, like the Player's game cards do.
     Camera cam;
+    if (fromView) cam = m_camera;
     cam.resize(width, height);
-    glm::vec3 target(0.0f, 1.0f, 0.0f);
-    if (SceneNode* spawn = m_scene->root()->findChild("SpawnLocation", true))
-        target = glm::vec3(spawn->worldMatrix()[3]) + glm::vec3(0.0f, 1.5f, 0.0f);
-    cam.pivot = target;
-    cam.yaw = 45.0f;
-    cam.pitch = 28.0f;
-    cam.distance = 22.0f;
+    if (m_aimSnapshot) {
+        cam.pivot = m_aimCenter;
+        cam.yaw = 35.0f;
+        cam.pitch = 22.0f;
+        cam.distance = std::max(2.0f, m_aimRadius / std::sin(glm::radians(cam.fov * 0.5f)) * 1.1f);
+    } else if (!fromView) {
+        glm::vec3 target(0.0f, 1.0f, 0.0f);
+        if (SceneNode* spawn = m_scene->root()->findChild("SpawnLocation", true))
+            target = glm::vec3(spawn->worldMatrix()[3]) + glm::vec3(0.0f, 1.5f, 0.0f);
+        cam.pivot = target;
+        cam.yaw = 45.0f;
+        cam.pitch = 28.0f;
+        cam.distance = 22.0f;
+    }
 
     // No selection outlines in the picture.
     std::vector<SceneNode*> selected;

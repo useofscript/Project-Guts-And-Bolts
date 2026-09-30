@@ -26,8 +26,16 @@ const $ = (sel, root = document) => root.querySelector(sel);
 
 function show(content) { view.innerHTML = content.s; }
 const view = $('#view');
-const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal' };
-const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0 };
+const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
+  hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face' };
+// Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
+const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
+const WEARABLE = ['shirt', 'pants', 'face', ...ACCESSORIES];
+// Only Guts' own accessories and faces can be Limited.
+const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
+// Items with a real picture (Studio accessories, faces) show that instead of a drawing.
+const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || (a.meta && a.meta.model));
+const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0 };
 
 let me = null;          // our account on the server (from "hello")
 let pageToken = 0;      // goes up with every page change; a slower old page must not draw over a newer one
@@ -67,6 +75,7 @@ function gameColors(id) {
 
 // Hats, shirts and pants, drawn in their colour.
 function itemIcon(a) {
+  if (hasPicture(a)) return html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">`;
   const m = a.meta || {};
   const c = Array.isArray(m.color) ? `rgb(${m.color.map((x) => Number(x) | 0).join(',')})` : '#c33';
   const k = a.kind;
@@ -82,6 +91,11 @@ function itemIcon(a) {
     shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="${c}"/>`;
   } else if (k === 'pants') {
     shape = `<path d="M30 18 L70 18 L74 84 L56 84 L50 42 L44 84 L26 84 Z" fill="${c}"/><rect x="30" y="18" width="40" height="7" fill="rgba(0,0,0,.2)"/>`;
+  } else if (k === 'face') {
+    shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
+      <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+  } else if (ACCESSORIES.includes(k)) {
+    shape = `<circle cx="50" cy="50" r="30" fill="${c}"/><circle cx="50" cy="50" r="14" fill="rgba(255,255,255,.35)"/>`;
   } else {
     return html`<span>${KINDS[k] || '?'}</span>`;
   }
@@ -93,6 +107,33 @@ function gamePic(g, cls = 'pic') {
   if (g.thumb) return html`<div class="${cls}" style="background:#223 center / cover no-repeat url('/thumb/${encodeURIComponent(g.id)}?v=${g.thumb}')"
     role="img" aria-label="${g.name}"></div>`;
   return html`<div class="${cls}" style="background:${raw(gameColors(g.id))}">${g.name}</div>`;
+}
+
+// A game's icon (a small square picture), or its first letter on its colours.
+function gameIcon(g, size = 48) {
+  if (g.icon) return html`<img class="game-icon" src="/icon/${encodeURIComponent(g.id)}?v=${g.icon}" alt="" width="${size}" height="${size}">`;
+  return html`<span class="game-icon" style="width:${size}px;height:${size}px;background:${raw(gameColors(g.id))}">${(g.name || '?').slice(0, 1)}</span>`;
+}
+const ACCESS_NAMES = { public: 'Public', friends: 'Friends only', private: 'Private' };
+
+// Shrink a picture the visitor picked to w x h (cropping to fit), as JPEG base64.
+function pictureBase64(file, w, h) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const k = Math.max(w / img.width, h / img.height);
+      const dw = img.width * k, dh = img.height * k;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+      g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL('image/jpeg', 0.88).split(',')[1]);
+    };
+    img.onerror = () => reject(new Error('That file isn\'t a picture.'));
+    img.src = URL.createObjectURL(file);
+  });
 }
 
 // --- avatars ---
@@ -108,8 +149,8 @@ const PRESETS = [
 ];
 const PARTS = ['head', 'torso', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
 const PART_NAMES = { head: 'Head', torso: 'Torso', leftArm: 'Left Arm', rightArm: 'Right Arm', leftLeg: 'Left Leg', rightLeg: 'Right Leg' };
-const HATS = ['None', 'Top Hat', 'Cap', 'Crown'];
-const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40] };   // a hat's normal colours
+const HATS = ['None', 'Top Hat', 'Cap', 'Crown', 'Ponytail'];
+const HAT_COLORS = { 1: [30, 30, 36], 2: [204, 46, 41], 3: [240, 190, 40], 4: [219, 51, 158] };   // a hat's normal colours
 
 function defaultAvatar() {
   const a = { hat: 0, hatColor: [-1, -1, -1], wearing: [] };
@@ -121,7 +162,8 @@ const hexOf = (c) => '#' + c.map((x) => (Math.max(0, Math.min(255, x | 0))).toSt
 const fromHex = (h) => [1, 3, 5].map((i) => parseInt(h.substr(i, 2), 16));
 
 // A blocky character, front view. Clothes from the catalog colour the parts they cover.
-function avatarSvg(av, size = 160, items = []) {
+// `head`: just the head and hat, square (the round faces on server cards).
+function avatarSvg(av, size = 160, items = [], head = false) {
   const a = Object.assign(defaultAvatar(), av || {});
   const col = {};
   PARTS.forEach((p) => { col[p] = rgbCss(Array.isArray(a[p]) ? a[p] : defaultAvatar()[p]); });
@@ -137,11 +179,13 @@ function avatarSvg(av, size = 160, items = []) {
     1: `<rect x="37" y="-6" width="26" height="22" rx="2" fill="${hatCol}"/><rect x="30" y="13" width="40" height="5" rx="2" fill="${hatCol}"/><rect x="37" y="9" width="26" height="4" fill="rgba(0,0,0,.25)"/>`,
     2: `<path d="M34 17 Q35 3 50 3 Q65 3 66 17 Z" fill="${hatCol}"/><path d="M50 15 L76 15 Q76 19 70 19 L50 19 Z" fill="${hatCol}"/>`,
     3: `<path d="M35 16 L36 2 L43 9 L50 0 L57 9 L64 2 L65 16 Z" fill="${hatCol}"/><rect x="35" y="13" width="30" height="4" fill="rgba(0,0,0,.2)"/>`,
+    4: `<path d="M35 20 Q35 9 50 9 Q65 9 65 20 Q58 14 50 15 Q42 14 35 20 Z" fill="${hatCol}"/><circle cx="50" cy="6" r="6" fill="${hatCol}"/>`,
   };
-  const svg = `<svg viewBox="0 -8 100 128" width="${size}" height="${size * 1.28}" role="img" aria-label="Avatar">
+  const box = head ? '28 -6 44 44' : '0 -8 100 128', tall = head ? size : size * 1.28;
+  const svg = `<svg viewBox="${box}" width="${size}" height="${tall}" role="img" aria-label="Avatar">
     <rect x="37" y="12" width="26" height="22" rx="4" fill="${col.head}" stroke="rgba(0,0,0,.25)"/>
-    <circle cx="45" cy="21" r="1.8" fill="#222"/><circle cx="55" cy="21" r="1.8" fill="#222"/>
-    <path d="M44 27 Q50 31 56 27" stroke="#222" stroke-width="1.6" fill="none"/>
+    <ellipse cx="47.5" cy="19.5" rx="1.3" ry="2.4" fill="#111"/><ellipse cx="52.5" cy="19.5" rx="1.3" ry="2.4" fill="#111"/>
+    <path d="M44.5 24.5 Q46 30.5 50 30.5 Q54 30.5 55.5 24.5" stroke="#111" stroke-width="1.8" fill="none" stroke-linecap="round"/>
     <rect x="30" y="35" width="40" height="38" fill="${col.torso}" stroke="rgba(0,0,0,.25)"/>
     <rect x="12" y="35" width="17" height="38" fill="${col.rightArm}" stroke="rgba(0,0,0,.25)"/>
     <rect x="71" y="35" width="17" height="38" fill="${col.leftArm}" stroke="rgba(0,0,0,.25)"/>
@@ -151,19 +195,148 @@ function avatarSvg(av, size = 160, items = []) {
   return raw(svg);
 }
 
+// How many people are in each game's servers right now (game id -> players), for the cards.
+let playingNow = {};
+async function loadPlaying() {
+  const r = await gb.call('servers.list', {});
+  playingNow = {};
+  if (r.ok) for (const s of r.servers) playingNow[s.game] = (playingNow[s.game] || 0) + (s.players || 0);
+}
+
+// Genres a game can pick (the server has the same list).
+const GENRES = ['Adventure', 'Obby', 'Fighting', 'Horror', 'Roleplay', 'Simulator', 'Tycoon', 'Racing', 'Sports',
+  'Shooter', 'Puzzle', 'Survival', 'Comedy', 'Building', 'Sandbox', 'Showcase', 'Town and City', 'Destruction'];
+// "87%" liked, or '' before anyone has voted.
+const likedPercent = (g) => (g.likes || 0) + (g.dislikes || 0) ? Math.round(100 * g.likes / (g.likes + g.dislikes)) + '%' : '';
+
 function gameCard(g) {
+  const n = playingNow[g.id] || g.playing || 0, liked = likedPercent(g);
   return html`<a class="card" href="#/game/${g.id}">
     ${gamePic(g)}
     <div class="name">${g.name}</div>
-    <div class="by">by ${g.creatorName}${verified(g.creatorVerified)} · ${g.plays || 0} plays</div></a>`;
+    <div class="by">by ${g.creatorName}${verified(g.creatorVerified)}</div>
+    <div class="by">${liked ? html`<span class="liked" title="${g.likes} likes, ${g.dislikes} dislikes">&#128077; ${liked}</span> · ` : ''}${n ? html`<b class="playing">${n} playing</b>` : html`${g.plays || 0} visits`}</div>
+    ${(g.genres || []).length ? html`<div class="by small">${g.genres.join(' · ')}</div>` : ''}</a>`;
+}
+
+// Catalog items in 3D: each one worn by a plain grey mannequin (the drawing is
+// swapped in once WebGL has made the picture; itemIcon's flat drawing until then).
+const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
+  leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
+const items3d = new Map();   // id -> item, for the pictures below
+// Shirts, pants and shape hats: the 3D mannequin can wear them.
+const drawable3d = (a) => ['shirt', 'pants'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
+
+// Fills in <img data-thumb="id"> with the item's picture.
+function loadThumbs(root = view) {
+  root.querySelectorAll('img[data-thumb]').forEach(async (img) => {
+    if (img.src) return;
+    const t = await call('thumb.get', { id: img.dataset.thumb });
+    if (t.ok && t.data) img.src = 'data:image/png;base64,' + t.data;
+  });
+}
+
+function upgradeItemPictures() {
+  loadThumbs();
+  view.querySelectorAll('[data-item3d]').forEach(async (el) => {
+    const it = items3d.get(el.dataset.item3d);
+    if (!it || !drawable3d(it)) return;
+    const url = await avatarPicture(MANNEQUIN, [it], 150);
+    if (url && el.isConnected) el.innerHTML = html`<img class="item3d" src="${url}" alt="${it.name}">`.s;
+  });
+}
+
+// The gold badge on things made by Guts&Bolts staff: official, safe to use (like Roblox's).
+function officialBadge(a) {
+  if (!a.creatorStaff) return '';
+  return raw(`<span class="official-badge" title="Official: made by Guts&amp;Bolts staff, safe to use"><svg viewBox="0 0 24 26" width="24" height="26" aria-label="Official">
+    <path d="M1 1 H23 V14 L12 25 L1 14 Z" fill="#f5ac26" stroke="#fff" stroke-width="2"/>
+    <circle cx="8.5" cy="8" r="3" fill="#fff"/><path d="M16 4 L20 11 L12 11 Z" fill="#fff"/><rect x="10" y="12.5" width="5.5" height="5.5" fill="#fff"/></svg></span>`);
 }
 
 function itemCard(a) {
+  items3d.set(a.id, a);
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic">${itemIcon(a)}</div>
+    <div class="pic-wrap"><div class="pic" data-item3d="${a.id}">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
     <div class="name">${a.name}</div>
-    <div class="by">${a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
+    <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
+      : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
 }
+
+// A game badge: a coloured medal with a star (games' own badges, made by their creators).
+function gameBadgeIcon(b, size = 56) {
+  const c = rgbCss(Array.isArray(b.color) ? b.color : [240, 180, 40]);
+  return raw(`<svg viewBox="0 0 60 60" width="${size}" height="${size}" aria-hidden="true">
+    <circle cx="30" cy="30" r="27" fill="${c}" stroke="rgba(0,0,0,.3)" stroke-width="2"/>
+    <circle cx="30" cy="30" r="20" fill="rgba(255,255,255,.18)"/>
+    <path d="M30 15 L34.4 25.2 L45.5 26.2 L37.1 33.5 L39.6 44.4 L30 38.7 L20.4 44.4 L22.9 33.5 L14.5 26.2 L25.6 25.2 Z" fill="#fff" opacity=".9"/></svg>`);
+}
+
+// Why staff can ban someone (the server has the same list).
+const BAN_REASONS = [
+  ['sexual', 'Sexual content'], ['extremism', 'Violent extremism'], ['harassment', 'Harassment or bullying'],
+  ['hate', 'Hate speech or discrimination'], ['threats', 'Threats of violence'], ['selfharm', 'Promoting self-harm'],
+  ['scam', 'Scamming or phishing'], ['personal', 'Sharing personal information'], ['exploit', 'Cheating or exploiting'],
+  ['spam', 'Spam'], ['impersonation', 'Impersonation'], ['inappropriate', 'Inappropriate content'],
+  ['underage', 'Underage safety violation'], ['other', 'Breaking the rules'],
+];
+
+// A classic white popup over a dark page. `body` is html``; returns the box.
+function popup(body, cls = '') {
+  document.querySelectorAll('.modal').forEach((m) => m.remove());
+  const box = document.createElement('div');
+  box.className = 'modal';
+  box.innerHTML = html`<div class="popup ${cls}"><button class="popup-x" data-act="closeModal" aria-label="Close">&times;</button>${body}</div>`.s;
+  box.addEventListener('click', (e) => { if (e.target === box) box.remove(); });
+  document.body.appendChild(box);
+  return box;
+}
+
+// The two guest looks (the app has the same): black clothes, and a black cap or a ponytail.
+const GUEST_LOOKS = {
+  boy: { head: [240, 240, 235], torso: [27, 27, 30], leftArm: [27, 27, 30], rightArm: [27, 27, 30], leftLeg: [27, 27, 30],
+    rightLeg: [27, 27, 30], hat: 2, hatColor: [25, 25, 28], wearing: [] },
+  girl: { head: [240, 240, 235], torso: [27, 27, 30], leftArm: [27, 27, 30], rightArm: [27, 27, 30], leftLeg: [27, 27, 30],
+    rightLeg: [27, 27, 30], hat: 4, hatColor: [-1, -1, -1], wearing: [] },
+};
+function guestPicker(id, name) {
+  const pick = (guest, label) => html`<a href="#" class="charpick-one" data-act="pickGuest" data-guest="${guest}" data-id="${id}" data-name="${name}">
+      <span class="charpick-pic" data-guest-pic="${guest}">${avatarSvg(GUEST_LOOKS[guest], 120)}</span><b>${label}</b></a>`;
+  popup(html`<h1 class="popup-title">Choose Your Character:</h1>
+    <div class="charpick">${pick('boy', 'Play As Boy')}${pick('girl', 'Play As Girl')}</div>
+    <p><a class="charpick-account" href="#/login">Have an Account?</a></p>`, 'wide');
+  for (const g of ['boy', 'girl'])
+    avatarPicture(GUEST_LOOKS[g], [], 150).then((url) => {
+      const el = document.querySelector(`[data-guest-pic="${g}"]`);
+      if (url && el) el.innerHTML = html`<img src="${url}" alt="" width="150" height="188">`.s;
+    }).catch(() => {});
+}
+// Open the app on this game (if it's installed), with a way to get it if not.
+function launchGame(id, name, guest, server = '') {
+  const q = [guest ? 'guest=' + guest : '', server ? 'server=' + encodeURIComponent(server) : ''].filter(Boolean).join('&');
+  const url = 'gutsandbolts://play/' + encodeURIComponent(id) + (q ? '?' + q : '');
+  popup(html`<h1 class="popup-title">Starting Guts&amp;Bolts...</h1>
+    <div class="launch-spin" aria-hidden="true"></div>
+    <p>Opening <b>${name}</b> in the Guts&amp;Bolts app${guest ? ' as a guest' : ''}.</p>
+    <p class="small muted">If your browser asks, choose <b>Open Guts&amp;Bolts</b>.</p>
+    <p class="popup-buttons"><a class="btn green" href="${url}">Try again</a> <a class="btn" href="../#download">Download the app</a></p>
+    <p class="small muted">Don't have it yet? Download it (Windows, Mac, Linux or Android), open it once, then press Play again.</p>`);
+  location.href = url;
+}
+
+// Visitors can look at everything; doing things needs an account.
+function loginPopup(what) {
+  popup(html`<h1 class="popup-title">You need to log in</h1>
+    <p>Log in or sign up (it's free!) to ${what}.</p>
+    <p class="popup-buttons"><a class="btn green big" href="#/signup">Sign Up</a> <a class="btn blue big" href="#/login">Log In</a></p>
+    <p><a href="#" data-act="closeModal">Not now</a></p>`);
+}
+// Which clicks and forms need an account, and what to say.
+const NEEDS_ACCOUNT = {
+  buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
+  friend: 'add friends', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
+  groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
+};
 
 function needSignIn(what) {
   return html`<div class="box info">You need to be signed in to ${what}.
@@ -193,10 +366,10 @@ function setMe(m) {
   if (staffLink) staffLink.hidden = !(signedIn() && me.staff);
   const box = $('#me');
   if (signedIn()) {
-    box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}<br>
-      <a href="#/bolts">${bolts(me.bolts)}</a> · <a href="#" data-act="logout">Log out</a>`.s;
+    box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}
+      | <a href="#/bolts">${bolts(me.bolts)}</a> | <a href="#/settings">Settings</a> | <a href="#" data-act="logout">Logout</a>`.s;
   } else {
-    box.innerHTML = html`<a href="#/login">Log in</a> · <a href="#/signup"><b>Sign up</b></a>`.s;
+    box.innerHTML = html`<a href="#/signup">Sign Up</a> | <a href="#/login">Login</a>`.s;
   }
 }
 
@@ -234,60 +407,181 @@ async function hello() {
 const pages = {};
 
 pages.home = async () => {
-  const games = await pageCall('list', { kind: 'game', sort: 'popular', limit: 12 });
-  const items = await pageCall('list', { kind: 'clothing', limit: 6 });
-  let top = '';
-  if (signedIn()) {
-    top = html`<h1>Welcome back, ${me.username}!</h1>
-      ${me.canDaily ? html`<div class="box gold row"><div class="grow"><b>Your daily Bolts are ready!</b><br>
-        <span class="small">Claim 25 Bolts every day. Spend them in the Catalog.</span></div>
-        <button class="btn green" data-act="daily">Claim</button></div>` : ''}`;
-  } else {
-    top = html`<h1>Welcome to Guts&amp;Bolts!</h1>
-      <div class="box info row"><div class="grow">Build games, play them with friends and fall apart spectacularly.
-        Sign up to get <b>100 Bolts</b>, make friends and upload your own stuff.</div>
-        <a class="btn green" href="#/signup">Sign up</a><a class="btn" href="#/login">Log in</a></div>`;
-  }
-  show(html`${top}
-    <h2>Popular games <a class="btn blue small" href="#/games" style="float:right">See all</a></h2>
-    ${games.ok && games.assets.length ? html`<div class="grid">${games.assets.map(gameCard)}</div>`
-      : html`<p class="muted">${games.ok ? 'No games published yet. Publish one from Studio!' : games.error}</p>`}
-    <h2>New in the catalog <a class="btn blue small" href="#/catalog" style="float:right">See all</a></h2>
+  const [games, items, fr] = await Promise.all([
+    pageCall('list', { kind: 'game', sort: 'popular', limit: 8 }),
+    pageCall('list', { kind: 'clothing', limit: 6 }),
+    signedIn() ? pageCall('friends.list', {}) : Promise.resolve({ ok: false }),
+    loadPlaying(),
+  ]);
+  const gameBox = (title, r, more) => html`<div class="box"><h2 class="boxhead">${title}
+      <a href="${more}" style="float:right">See more &raquo;</a></h2>
+    ${r.ok && r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
+      : html`<p class="muted small">${r.ok ? 'No games published yet. Publish one from Studio!' : r.error}</p>`}</div>`;
+  const shopBox = html`<div class="box"><h2 class="boxhead">New in the Catalog
+      <a href="#/catalog" style="float:right">See more &raquo;</a></h2>
     ${items.ok && items.assets.length ? html`<div class="grid">${items.assets.map(itemCard)}</div>`
-      : html`<p class="muted">Nothing here yet.</p>`}`);
+      : html`<p class="muted small">Nothing here yet.</p>`}</div>`;
+  if (!signedIn()) {
+    show(html`<div class="welcome">
+        <div><h1>Welcome to Guts&amp;Bolts!</h1>
+          <p>Build games, play them with your friends and fall apart spectacularly.
+            Sign up to get <b>100 Bolts</b>, dress up your character, make friends and upload your own stuff.</p>
+          <p><a class="btn green big" href="#/signup">Sign Up and Play</a>
+            <a class="btn" href="#/login">Login</a></p></div>
+        <div class="welcome-guy" id="homeAvatar">${avatarSvg(defaultAvatar(), 150)}</div></div>
+      ${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}`);
+    mountAvatar($('#homeAvatar'), defaultAvatar(), [], { width: 170 }).catch(() => {});
+    return;
+  }
+  const friends = fr.ok ? fr.friends || [] : [];
+  const onlineFriends = friends.filter((p) => p.online);
+  show(html`<div class="home">
+      <div class="home-left">
+        <div class="box avatar-box"><h2 class="boxhead">Hi, ${me.username}!</h2>
+          <div id="homeAvatar">${avatarSvg(me.avatar || defaultAvatar(), 150)}</div>
+          <p class="small"><a href="#/avatar">Change your avatar</a> | <a href="#/user/${me.userId}">Profile</a></p></div>
+        <div class="box"><h2 class="boxhead">Your Bolts</h2>
+          <div style="font-size:18px">${bolts(me.bolts)}</div>
+          ${me.canDaily ? html`<p class="small">Your daily Bolts are ready!</p>
+              <button class="btn green" data-act="daily">Claim 25 Bolts</button>`
+            : html`<p class="small muted">Come back tomorrow for 25 more.</p>`}</div>
+        <div class="box"><h2 class="boxhead">Friends online (${onlineFriends.length})</h2>
+          ${onlineFriends.length ? html`<div class="list">${onlineFriends.slice(0, 8).map((p) => html`<div>
+              <span class="dot on"></span><a class="grow" href="#/user/${p.userId}">${p.username || p.name}</a></div>`)}</div>`
+            : html`<p class="small muted">${friends.length ? 'None of your friends are on right now.' : html`No friends yet. <a href="#/people">Find some!</a>`}</p>`}</div>
+      </div>
+      <div class="home-right">${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
+    </div>`);
+  mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), [], { width: 170 }).catch(() => {});
 };
 
 pages.games = async () => {
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
-  const sort = q.get('sort') || 'popular', query = q.get('q') || '';
+  const sort = q.get('sort') || 'popular', query = q.get('q') || '', genre = q.get('genre') || '';
   show(html`<h1>Games</h1><p class="muted">Loading...</p>`);
-  const r = await pageCall('list', { kind: 'game', sort, query, limit: 100 });
-  show(html`<h1>Games</h1>
-    <form class="row" data-form="gameSearch">
-      <input type="search" name="q" placeholder="Search games" value="${query}" style="max-width:280px">
-      <select name="sort" style="width:auto"><option value="popular" ${sort === 'popular' ? 'selected' : ''}>Most played</option>
-        <option value="new" ${sort === 'new' ? 'selected' : ''}>Newest</option></select>
-      <button class="btn blue">Search</button></form><br>
-    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>` : html`<p class="muted">No games found.</p>`)
+  const [r] = await Promise.all([pageCall('list', { kind: 'game', sort, query, genre, limit: 100 }), loadPlaying()]);
+  const sorts = [['popular', 'Most played'], ['playing', 'Playing now'], ['rated', 'Top rated'], ['new', 'Newest'], ['updated', 'Recently updated']];
+  const link = (over) => '#/games?' + new URLSearchParams(Object.assign({ q: query, sort, genre }, over));
+  show(html`<h1>Games${genre ? html` <span class="muted">· ${genre}</span>` : ''}</h1>
+    <form class="row" data-form="gameSearch"><input type="hidden" name="genre" value="${genre}">
+      <input type="search" name="q" placeholder="Search games, genres, descriptions" value="${query}" style="max-width:280px">
+      <select name="sort" style="width:auto">${sorts.map(([k, l]) => html`<option value="${k}" ${sort === k ? 'selected' : ''}>${l}</option>`)}</select>
+      <button class="btn blue">Search</button></form>
+    <div class="genre-chips"><a class="chip ${genre ? '' : 'on'}" href="${link({ genre: '' })}">All</a>
+      ${GENRES.map((gn) => html`<a class="chip ${genre === gn ? 'on' : ''}" href="${link({ genre: gn })}">${gn}</a>`)}</div>
+    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
+        : html`<p class="muted">No games found${genre ? ' in ' + genre : ''}. ${genre || query ? html`<a href="#/games">See all games</a>` : ''}</p>`)
       : html`<p class="error">${r.error}</p>`}`);
 };
 
+// Create > Library: everything people have made public, to use in your games.
+async function libraryPage(head) {
+  const q = new URLSearchParams(location.hash.split('?')[1] || '');
+  const kind = q.get('kind') || 'model', query = q.get('q') || '';
+  const r = await pageCall('list', { kind, query, sort: 'popular', limit: 100 });
+  const chip = (k, l) => html`<a class="chip ${kind === k ? 'on' : ''}" href="#/create/library?kind=${k}">${l}</a>`;
+  const card = (a) => html`<div class="card square lib-card">
+      <div class="pic">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
+        : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
+        : html`<span class="lib-kind">${KINDS[a.kind] || a.kind}</span>`}${officialBadge(a)}</div>
+      <div class="name">${a.name}</div>
+      <div class="by">by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
+      <div class="by small"><button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button></div></div>`;
+  show(html`${head}
+    <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> (the
+      <b>Library</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
+    <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
+      <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
+    <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>
+    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(card)}</div>` : html`<p class="muted">Nothing here yet.</p>`) : html`<p class="error">${r.error}</p>`}`);
+  view.querySelectorAll('img[data-decal]').forEach(decalPicture);
+  loadThumbs();
+}
+
+// Create > Accessories: hats, hair and the rest, made and placed in Studio.
+async function myAccessoriesPage(head) {
+  if (!signedIn()) { show(html`${head}${needSignIn('see your accessories')}`); return; }
+  const r = await pageCall('list', { creator: me.id, limit: 100 });
+  const list = (r.assets || []).filter((a) => ACCESSORIES.includes(a.kind));
+  show(html`${head}
+    <div class="box">${me.verified || me.staff ? html`Make accessories in <b>Studio</b>: build it, open <b>Avatar &gt; Accessories</b>, pick the type
+      (hat, hair, face, neck, shoulder or waist), move it into place on the mannequin, <b>Save position</b>, then <b>Upload</b>.`
+      : html`<b>Only Verified creators can make accessories.</b> You can still make <a href="#/create/shirt">shirts</a> and <a href="#/create/pants">pants</a>!`}</div>
+    <h2>My accessories</h2>
+    ${list.length ? html`<div class="grid">${list.map(itemCard)}</div>` : html`<p class="muted">Nothing yet.</p>`}`);
+  upgradeItemPictures();
+}
+
+// Create > Models: the models you published from Studio, public or private.
+async function myModelsPage(head) {
+  if (!signedIn()) { show(html`${head}${needSignIn('see your models')}`); return; }
+  const r = await pageCall('list', { creator: me.id, kind: 'model', limit: 100 });
+  const left = me.publicModelsLeft;
+  show(html`${head}
+    <div class="box">Publish models from <b>Studio</b>: select objects, then <b>File &gt; Publish Selection to Library</b>.
+      Public models show in everyone's Library; private ones only for you.
+      ${left >= 0 ? html`<br><span class="muted">You can make ${left} more model${left === 1 ? '' : 's'} public this week (Verified creators have no limit).</span>` : ''}</div>
+    <h2>My Models</h2>
+    ${r.ok && r.assets.length ? html`<div class="list">${r.assets.map((a) => html`<div>
+        <span class="grow"><b>${a.name}</b> <span class="small muted">${a.id}</span></span>
+        <span class="badge-pill">${a.access === 'private' ? 'Private' : 'Public'}</span>
+        <button class="btn small" data-act="modelAccess" data-id="${a.id}" data-access="${a.access === 'private' ? 'public' : 'private'}">Make ${a.access === 'private' ? 'public' : 'private'}</button>
+        <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`)}</div>`
+      : html`<p class="muted">No models yet.</p>`}`);
+}
+
+let serverPage = 1;   // which page of a game's server cards
 pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id);
-  if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted.' : r.error}</p>`); return; }
+  if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
+  const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
+  const shared = new URLSearchParams(location.hash.split('?')[1] || '').get('server') || '';
+  // Roblox-style server cards: faces of who's in it, how full it is, Join and Share. 8 a page.
+  const perPage = 8, pages = Math.max(1, Math.ceil(servers.length / perPage));
+  serverPage = Math.min(Math.max(1, serverPage), pages);
+  const shown = servers.slice((serverPage - 1) * perPage, serverPage * perPage);
+  const card = (sv) => {
+    const people = sv.people || [], more = (sv.players || 1) - people.length;
+    return html`<div class="server-card ${sv.id === shared ? 'shared' : ''}">
+      <div class="server-faces">${people.map((p) => html`<a class="face" href="#/user/${p.id}" title="${p.name}">${avatarSvg(p.avatar, 52, [], true)}</a>`)}
+        ${more > 0 ? html`<span class="face more">+${more}</span>` : ''}</div>
+      <p class="server-count">${sv.players || 1} of ${sv.max || '?'} people max${sv.private ? html` <span class="badge-pill">Private</span>` : ''}</p>
+      ${sv.friends ? html`<p class="small muted">${sv.friends} friend${sv.friends === 1 ? '' : 's'} here</p>` : ''}
+      <div class="server-buttons"><button class="btn green small" data-act="joinServer" data-id="${g.id}" data-name="${g.name}" data-server="${sv.id}">Join</button>
+        <button class="btn small" data-act="shareServer" data-id="${g.id}" data-server="${sv.id}">Share</button></div>
+      <p class="small muted">ID: ${sv.id.replace(/^s-/, '')}</p></div>`;
+  };
+  const pager = pages > 1 ? html`<div class="pager">
+      <button class="btn small" data-act="serverPage" data-to="1" ${serverPage === 1 ? 'disabled' : ''}>&laquo;</button>
+      <button class="btn small" data-act="serverPage" data-to="${serverPage - 1}" ${serverPage === 1 ? 'disabled' : ''}>&lsaquo;</button>
+      <span>Page ${serverPage} of ${pages}</span>
+      <button class="btn small" data-act="serverPage" data-to="${serverPage + 1}" ${serverPage === pages ? 'disabled' : ''}>&rsaquo;</button>
+      <button class="btn small" data-act="serverPage" data-to="${pages}" ${serverPage === pages ? 'disabled' : ''}>&raquo;</button></div>` : '';
   show(html`<p><a href="#/games">&lt; Games</a></p>
     <div class="hero">${gamePic(g)}
-      <div><h1>${g.name}</h1>
+      <div><h1 class="game-title">${gameIcon(g, 40)} ${g.name}</h1>
+        ${g.access && g.access !== 'public' ? html`<p><span class="badge-pill">${ACCESS_NAMES[g.access]}</span></p>` : ''}
         <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
-        <p class="muted">${g.plays || 0} plays · published ${ago(g.created)}</p>
-        <button class="btn green big" data-act="play" data-name="${g.name}">Play</button>
+        ${(g.genres || []).length ? html`<p>${g.genres.map((gn) => html`<a class="chip" href="#/games?genre=${encodeURIComponent(gn)}">${gn}</a> `)}</p>` : ''}
+        <div class="votes">
+          <button class="btn small ${g.myVote === 1 ? 'green' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === 1 ? 0 : 1}" title="I like it">&#128077; ${g.likes || 0}</button>
+          <div class="vote-bar"><div style="width:${(g.likes || 0) + (g.dislikes || 0) ? Math.round(100 * g.likes / (g.likes + g.dislikes)) : 50}%"></div></div>
+          <button class="btn small ${g.myVote === -1 ? 'red' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === -1 ? 0 : -1}" title="Not for me">&#128078; ${g.dislikes || 0}</button></div>
+        <table class="stats game-stats">
+          <tr><td>Playing</td><td>${g.playing || 0}</td><td>Visits</td><td>${g.plays || 0}</td></tr>
+          <tr><td>Created</td><td>${new Date(g.created * 1000).toLocaleDateString()}</td><td>Updated</td><td>${ago(g.updated || g.created)}</td></tr>
+          <tr><td>Server size</td><td>${g.maxPlayers || 12}</td><td>Genre</td><td>${(g.genres || []).join(', ') || 'All'}</td></tr></table>
+        <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
+        ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
+    ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
+        ${gameBadgeIcon(b, 44)}<span class="grow"><b>${b.name}</b><br><span class="small muted">${b.description || ''}</span></span>
+        <span class="small muted">Won ${b.awarded || 0} time${b.awarded === 1 ? '' : 's'}</span></div>`)}</div>` : ''}
     <h2>Servers</h2>
-    ${servers.length ? html`<div class="list">${servers.map((sv) => html`<div><span class="grow">${sv.title || g.name}</span>
-        <span class="muted">${sv.players || 1} / ${sv.max || '?'} players${sv.friends ? html` · ${sv.friends} friend(s)` : ''}</span></div>`)}</div>`
+    ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
 };
 
@@ -297,12 +591,14 @@ pages.catalog = async () => {
   const r = await pageCall('list', { kind, query, limit: 100 });
   const tab = (k, label) => html`<a class="btn ${kind === k ? 'blue' : ''}" href="#/catalog?kind=${k}">${label}</a>`;
   show(html`<h1>Catalog</h1>
-    <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('shirt', 'Shirts')}${tab('pants', 'Pants')}</div>
+    <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('hair', 'Hair')}${tab('face', 'Faces')}${tab('faceacc', 'Face Accessories')}${tab('neck', 'Neck')}
+      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('pants', 'Pants')}</div>
     <form class="row" data-form="catalogSearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the catalog" value="${query}" style="max-width:280px">
       <button class="btn blue">Search</button></form><br>
     ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(itemCard)}</div>` : html`<p class="muted">Nothing here yet.</p>`)
       : html`<p class="error">${r.error}</p>`}`);
+  upgradeItemPictures();
 };
 
 pages.item = async (id) => {
@@ -310,14 +606,52 @@ pages.item = async (id) => {
   const a = r.ok && r.assets.find((x) => x.id === id);
   if (!a) { show(html`<h1>Item not found</h1>`); return; }
   const owned = signedIn() && (me.owned || []).includes(a.id);
+  const canEdit = signedIn() && (a.creator === me.id || me.staff);
+  const L = a.limited;
+  const copies = L ? ((await pageCall('item.copies', { id: a.id })).copies || []) : [];
+  const forSale = copies.filter((c) => c.price > 0 && !c.mine).sort((x, y) => x.price - y.price);
+  const mineCopies = copies.filter((c) => c.mine);
+  const soldOut = L && L.left <= 0;
+  const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
-    <div class="hero"><div class="card square"><div class="pic">${itemIcon(a)}</div></div>
+    <div class="hero"><div class="card square"><div class="pic" id="item3d">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}
+      ${drawable3d(a) ? html`<div class="small muted" style="text-align:center">Drag to turn</div>` : ''}</div>
       <div><h1>${a.name}</h1><p>${KINDS[a.kind]} by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</p>
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
-        ${owned ? html`<p class="ok"><b>You own this.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
-          : signedIn() ? html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`
-            : needSignIn('buy things')}
-        <p style="white-space:pre-wrap">${a.description}</p></div></div>`);
+        ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
+          ${L.resellers ? html` · ${L.resellers} for resale from ${bolts(L.lowest)}` : ''}</p>` : ''}
+        ${owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
+          : soldOut ? html`<button class="btn big" disabled>Sold out</button>`
+          : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
+        ${canEdit ? html` <button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button>` : ''}
+        <p style="white-space:pre-wrap">${a.description}</p></div></div>
+    ${canEdit ? html`<div class="box" id="itemEdit" hidden><h2 class="boxhead">Edit item</h2>
+      <form class="form" data-form="itemEdit"><input type="hidden" name="id" value="${a.id}">
+        <label>Name</label><input type="text" name="name" maxlength="50" value="${a.name}" required>
+        <label>Description</label><textarea name="description" maxlength="1000">${a.description || ''}</textarea>
+        <label>Price (Bolts)</label><input type="number" name="price" min="0" value="${a.price || 0}" style="max-width:140px">
+        ${drawable3d(a) ? html`<label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">` : ''}
+        ${a.kind === 'face' ? html`<label>New picture <span class="muted small">(optional, a .png face)</span></label><input type="file" name="picture" accept="image/png">`
+          : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
+          : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
+          : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
+        <p><button class="btn green">Save</button> <span id="itemEditMsg"></span></p></form>
+      ${me.official && a.creator === me.id && canBeLimited(a) ? html`<form class="form" data-form="itemLimited"><input type="hidden" name="id" value="${a.id}">
+        <label>${L ? 'Change the stock' : 'Make it Limited'} <span class="muted small">(only Guts can do this)</span></label>
+        <input type="number" name="stock" min="1" value="${L ? L.stock : 100}" style="max-width:140px">
+        <p class="small muted">A Limited has a fixed number of numbered copies. When they're sold out, people buy and sell them from each other, and trade them.</p>
+        <p><button class="btn gold">${L ? 'Save stock' : 'Make Limited'}</button></p></form>` : ''}</div>` : ''}
+    ${L ? html`<h2>Resellers</h2>${forSale.length ? html`<table class="stats resellers"><tr><th>Seller</th><th>Copy</th><th>Price</th><th></th></tr>
+        ${forSale.map((c) => html`<tr><td><a href="#/user/${c.owner}">${c.ownerName}</a></td><td>#${c.serial}</td><td>${bolts(c.price)}</td>
+          <td><button class="btn green small" data-act="resaleBuy" data-id="${a.id}" data-serial="${c.serial}" data-price="${c.price}">Buy</button></td></tr>`)}</table>`
+        : html`<p class="muted">Nobody is selling a copy right now.</p>`}
+      ${mineCopies.length ? html`<h2>Your copies</h2>${mineCopies.map((c) => html`<form class="row" data-form="resaleList"><input type="hidden" name="id" value="${a.id}">
+          <input type="hidden" name="serial" value="${c.serial}"><b>#${c.serial}</b>
+          <input type="number" name="price" min="0" value="${c.price || ''}" placeholder="Price in Bolts" style="max-width:150px">
+          <button class="btn small ${c.price ? '' : 'blue'}">${c.price ? 'Change price' : 'Sell'}</button>
+          ${c.price ? html`<span class="muted small">On sale for ${c.price}. Set 0 to take it off sale.</span>` : html`<span class="muted small">You get ${70}% when it sells.</span>`}</form>`)}` : ''}` : ''}`);
+  if (drawable3d(a)) mountAvatar($('#item3d'), MANNEQUIN, [a], { width: 300, height: 340 }).catch(() => {});   // a turnable 3D view
+  else loadThumbs();
 };
 
 // Decal pictures: fetched once, shown from memory.
@@ -337,17 +671,22 @@ async function decalPicture(img) {
 }
 
 pages.create = async (tab = 'games') => {
-  const tabs = [['games', 'My Games'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['shirt', 'Shirts'], ['pants', 'Pants'], ['plugin', 'Plugins']];
+  const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['accessory', 'Accessories'],
+    ['shirt', 'Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
-  if (!signedIn()) { show(html`${head}${needSignIn('upload things')}`); return; }
-  const r = await pageCall('list', { creator: me.id, limit: 100 });
+  if (tab === 'library') { await libraryPage(head); return; }
+  if (tab === 'model') { await myModelsPage(head); return; }
+  if (tab === 'accessory') { await myAccessoriesPage(head); return; }
+  const r = signedIn() ? await pageCall('list', { creator: me.id, limit: 100 }) : { ok: true, assets: [] };
   const mine = r.ok ? r.assets : [];
   const kind = tab === 'games' ? 'game' : tab;
   const list = mine.filter((a) => a.kind === kind);
-  const costs = me.verified ? html`<b>You're Verified!</b> Uploading is free, with no daily limit, and you can sell what you make.`
+  const costs = !signedIn() ? html`Make games in <b>Studio</b> and publish them here, and upload decals, audio, clothes and plugins.
+      <a href="#/signup">Sign up</a> or <a href="#/login">log in</a> to start.`
+    : me.verified ? html`<b>You're Verified!</b> Uploading is free, with no daily limit, and you can sell what you make.`
     : html`Uploading costs a few Bolts (decals 5, clothes 10, audio 20, plugins 20; games are free).
       <span class="muted">${me.uploadsLeft} uploads left today.</span>`;
-  const clothing = ['hat', 'shirt', 'pants'].includes(kind);
+  const clothing = ['hat', 'shirt', 'pants'].includes(kind), face = kind === 'face';
   const accept = { decal: '.png,.jpg,.jpeg', audio: '.mp3,.wav,.ogg,.flac', plugin: '.lua', game: '.gbscene' }[kind] || '';
   const form = html`<h2>${kind === 'game' ? 'Publish a game' : 'Upload a new ' + KINDS[kind]}</h2>
     <form class="form" data-form="upload"><input type="hidden" name="kind" value="${kind}">
@@ -355,31 +694,152 @@ pages.create = async (tab = 'games') => {
       <label>Description</label><textarea name="description" maxlength="1000"></textarea>
       ${clothing ? html`${kind === 'hat' ? html`<label>Style</label><select name="style"><option value="1">Top Hat</option>
           <option value="2" selected>Cap</option><option value="3">Crown</option></select>` : ''}
-        <label>Colour</label><input type="color" name="color" value="#e63333">`
+        <label>Colour</label><input type="color" name="color" value="#e63333">
+        ${kind !== 'hat' ? html`<label>Picture <span class="muted small">(optional)</span></label>
+          <input type="file" name="picture" accept="image/png">
+          <p class="small muted">A 585 x 559 .png painted on the
+            <a href="templates/${kind}_template.png" download>${kind} template</a>. See-through bits show the colour above.</p>` : ''}`
+      : face ? html`<label>Picture</label><input type="file" name="file" accept="image/png" required>
+        <p class="small muted">A square .png of the face, see-through around the eyes and mouth (like 256 x 256). It's drawn on the front of the head.</p>`
       : html`<label>File</label><input type="file" name="file" accept="${accept}" required>
         <p class="small muted">${{ decal: 'A .png or .jpg picture (up to 4 MB).', audio: 'An .mp3, .wav, .ogg or .flac file (up to 6 MB).',
           plugin: 'A Lua plugin for Studio.', game: 'A .gbscene file saved from Studio (or use File > Publish in Studio).' }[kind]}</p>`}
-      ${me.verified && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
-      ${kind === 'decal' ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
+      ${['decal', 'audio'].includes(kind) ? html`<p class="small muted">${kind === 'decal' ? 'Decals' : 'Sounds'} are always free: anyone can use them in their games.</p>`
+        : (me.verified || face) && kind !== 'game' ? html`<label>Price (Bolts)</label><input type="number" name="price" min="0" value="0">` : ''}
+      ${kind === 'decal' || face ? html`<img class="thumb" id="preview" alt="Preview" hidden style="width:120px;height:120px;margin-top:10px">` : ''}
       <p><button class="btn green">${FEES[kind] && !me.verified ? 'Upload for ' + FEES[kind] + ' Bolts' : 'Upload (free)'}</button>
         <span id="uploadMsg"></span></p></form>`;
+  // Hats are for Verified creators; shirts and pants are open to everyone.
+  const hatLocked = kind === 'hat' && signedIn() && !me.verified;
+  const shownForm = hatLocked ? html`<h2>Upload a new Hat</h2><p class="error">Only Verified creators can make hats.</p>
+    <p class="muted">You can still make <a href="#/create/shirt">shirts</a> and <a href="#/create/pants">pants</a>!</p>`
+    : face && !(signedIn() && me.official) ? html`<p class="error">Only Guts can make faces.</p>`
+    : kind === 'hat' ? html`${form}<p class="small muted">Want a hat that's your own shape? Build it in <b>Studio</b> and use
+      <b>Avatar &gt; Accessories</b> to place it on the head and upload it.</p>` : form;
   const row = (a) => html`<div>
+      ${a.kind === 'game' ? gameIcon(a, 48) : ''}
       ${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="">` : ''}
-      ${clothing ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
+      ${clothing || face ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
       <div class="grow"><b>${a.name}</b><br><span class="small muted">
-        ${a.kind === 'game' ? html`${a.plays} plays` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
+        ${a.kind === 'game' ? html`${a.plays} plays · ${ACCESS_NAMES[a.access || 'public']}` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
         ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID gb:${a.id}` : ''}</span></div>
       ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button>` : ''}
       ${a.kind === 'game' ? html`<a class="btn small" href="#/game/${a.id}">View</a>
-        <button class="btn small" data-act="renameGame" data-id="${a.id}" data-name="${a.name}">Edit name</button>` : ''}
+        <a class="btn small blue" href="#/configure/${a.id}">Configure</a>` : ''}
       <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`;
   show(html`${head}<div class="box">${costs}</div>
     ${kind === 'game' ? html`<h2>My published games</h2>` : html`<h2>My ${KINDS[kind]}${kind === 'pants' ? '' : 's'}</h2>`}
-    ${list.length ? html`<div class="list">${list.map(row)}</div>` : html`<p class="muted">Nothing yet.</p>`}
-    ${form}`);
+    ${list.length ? html`<div class="list">${list.map(row)}</div>`
+      : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see what you\'ve made.'}</p>`}
+    ${shownForm}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
+  loadThumbs();
   const file = view.querySelector('input[type=file]'), prev = $('#preview');
   if (file && prev) file.addEventListener('change', () => { if (file.files[0]) { prev.src = URL.createObjectURL(file.files[0]); prev.hidden = false; } });
+};
+
+// Configure a game: name, description, who can play, thumbnail, icon, new version.
+pages.configure = async (id) => {
+  if (!signedIn()) { show(html`<h1>Configure game</h1>${needSignIn('change your games')}`); return; }
+  const r = await pageCall('list', { creator: me.id, kind: 'game', limit: 100 });
+  const g = r.ok && r.assets.find((a) => a.id === id);
+  if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
+  const access = g.access || 'public';
+  const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
+    <b>${label}</b> <span class="muted small">${note}</span></label>`;
+  show(html`<p><a href="#/create/games">&lt; My Games</a></p>
+    <h1>Configure: ${g.name}</h1>
+    <form class="configure" data-form="configure"><input type="hidden" name="id" value="${g.id}">
+      <div class="box"><h2 class="boxhead">Basic settings</h2>
+        <label>Name</label><input type="text" name="name" maxlength="50" value="${g.name}" required>
+        <label>Description</label><textarea name="description" maxlength="1000" rows="5">${g.description || ''}</textarea></div>
+      <div class="box"><h2 class="boxhead">Genres and players</h2>
+        <p class="small muted">Pick up to 3 genres so people can find your game.</p>
+        <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
+        <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px"></div>
+      <div class="box"><h2 class="boxhead">Who can play</h2>
+        ${choice('public', 'Public', 'Everyone can find and play it.')}
+        ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
+        ${choice('private', 'Private', 'Only you can see and play it.')}</div>
+      <div class="box"><h2 class="boxhead">Pictures</h2>
+        <div class="pics">
+          <div><label>Thumbnail <span class="muted small">(shown on the game's page and in lists)</span></label>
+            <div class="thumb-prev">${gamePic(g, 'pic')}</div>
+            <input type="file" name="thumb" accept="image/png,image/jpeg" data-preview="thumb">
+            <p class="small muted">Any picture; it's cropped to 16:9.</p></div>
+          <div><label>Icon <span class="muted small">(a small square)</span></label>
+            <div class="icon-prev">${gameIcon(g, 128)}</div>
+            <input type="file" name="icon" accept="image/png,image/jpeg" data-preview="icon">
+            <p class="small muted">Any picture; it's cropped to a square.</p></div>
+        </div></div>
+      <div class="box"><h2 class="boxhead">Update the game</h2>
+        <label>New version <span class="muted small">(optional)</span></label>
+        <input type="file" name="file" accept=".gbscene">
+        <p class="small muted">A .gbscene saved from Studio. Players get it the next time they join.</p></div>
+      <p><button class="btn green big">Save</button> <a class="btn" href="#/game/${g.id}">View game</a>
+        <button type="button" class="btn red" data-act="deleteAsset" data-id="${g.id}" data-name="${g.name}" style="float:right">Delete game</button>
+        <span id="configMsg"></span></p>
+    </form>
+    <div class="box"><h2 class="boxhead">Badges</h2>
+      <p class="small muted">Make badges players earn in your game. Give one from a script:
+        <code>game:GetService("BadgeService"):AwardBadge(player, "badge-id")</code>
+        (it only works in online servers of this game).</p>
+      ${(g.badges || []).length ? html`<div class="list">${g.badges.map((b) => html`<div>${gameBadgeIcon(b, 40)}
+          <span class="grow"><b>${b.name}</b> <span class="small muted">${b.description || ''}</span><br>
+            <code class="small">${b.id}</code> · <span class="small muted">won ${b.awarded || 0} times</span></span>
+          <button class="btn small" data-act="copyText" data-text="${b.id}">Copy ID</button>
+          <button class="btn small red" data-act="deleteBadge" data-game="${g.id}" data-badge="${b.id}" data-name="${b.name}">Delete</button></div>`)}</div>`
+        : html`<p class="muted">No badges yet.</p>`}
+      <form class="form" data-form="newBadge"><input type="hidden" name="game" value="${g.id}">
+        <label>Badge name</label><input type="text" name="name" maxlength="40" required>
+        <label>Description <span class="muted small">(how to get it)</span></label><input type="text" name="description" maxlength="300">
+        <label>Colour</label><input type="color" name="color" value="#f0b428">
+        <p><button class="btn green">Make badge</button></p></form></div>`);
+  // Show a picked picture straight away.
+  view.querySelectorAll('input[data-preview]').forEach((inp) => inp.addEventListener('change', () => {
+    const file = inp.files[0];
+    if (!file) return;
+    const box = view.querySelector(inp.dataset.preview === 'icon' ? '.icon-prev' : '.thumb-prev');
+    box.innerHTML = html`<img src="${URL.createObjectURL(file)}" alt="">`.s;
+  }));
+};
+
+// Trades: offers of your limited copies for someone else's.
+pages.trades = async () => {
+  if (!signedIn()) { show(html`<h1>Trades</h1>${needSignIn('trade Limited items')}`); return; }
+  const r = await pageCall('trade.list', {});
+  const list = (items) => items.map((i) => html`<a href="#/item/${i.id}">${i.name} #${i.serial}</a>`).reduce((acc, x, k) => html`${acc}${k ? ', ' : ''}${x}`, html``);
+  const row = (tr) => {
+    const incoming = tr.to === me.id;
+    return html`<div><span class="grow">${incoming ? html`<b><a href="#/user/${tr.from}">${tr.fromName}</a></b> offers ${list(tr.give)} for your ${list(tr.get)}`
+        : html`You offered ${list(tr.give)} to <b><a href="#/user/${tr.to}">${tr.toName}</a></b> for their ${list(tr.get)}`}
+      <br><span class="small muted">${ago(tr.created)} · ${tr.status}</span></span>
+      ${tr.status === 'open' ? (incoming ? html`<button class="btn green small" data-act="tradeAnswer" data-op="trade.accept" data-id="${tr.id}">Accept</button>
+          <button class="btn small" data-act="tradeAnswer" data-op="trade.decline" data-id="${tr.id}">Decline</button>`
+        : html`<button class="btn small" data-act="tradeAnswer" data-op="trade.cancel" data-id="${tr.id}">Cancel</button>`) : ''}</div>`;
+  };
+  const open = r.ok ? r.trades.filter((x) => x.status === 'open') : [], done = r.ok ? r.trades.filter((x) => x.status !== 'open') : [];
+  show(html`<h1>Trades</h1>
+    <p class="muted">Trade your Limited items with other players. Open someone's profile and press <b>Trade</b> to make an offer.</p>
+    <h2>Your Limiteds</h2>${r.ok && r.items.length ? html`<div class="row">${r.items.map((i) => html`<a class="chip" href="#/item/${i.id}">${i.name} #${i.serial}</a>`)}</div>`
+      : html`<p class="muted">You don't have any Limited items yet.</p>`}
+    <h2>Open</h2>${open.length ? html`<div class="list">${open.map(row)}</div>` : html`<p class="muted">No open trades.</p>`}
+    <h2>History</h2>${done.length ? html`<div class="list">${done.slice(0, 30).map(row)}</div>` : html`<p class="muted">Nothing yet.</p>`}`);
+};
+
+pages.trade = async (id) => {
+  if (!signedIn()) { show(html`<h1>Trade</h1>${needSignIn('trade Limited items')}`); return; }
+  const [theirs, mine] = await Promise.all([pageCall('trade.inventory', { user: id }), pageCall('trade.inventory', { user: me.id })]);
+  if (!theirs.ok) { show(html`<h1>Trade</h1><p class="error">${theirs.error}</p>`); return; }
+  const pickList = (items, side) => items.length ? html`<div class="trade-pick">${items.map((i) => html`<label class="choice">
+      <input type="checkbox" name="${side}" value="${i.id}|${i.serial}"> ${i.name} <b>#${i.serial}</b></label>`)}</div>`
+    : html`<p class="muted">No Limited items.</p>`;
+  show(html`<p><a href="#/user/${theirs.user.userId}">&lt; ${theirs.user.name}</a></p><h1>Trade with ${theirs.user.name}</h1>
+    <form class="trade" data-form="tradeSend"><input type="hidden" name="to" value="${theirs.user.id}">
+      <div class="trade-cols"><div class="box"><h2 class="boxhead">You give</h2>${pickList(mine.ok ? mine.items : [], 'give')}</div>
+        <div class="box"><h2 class="boxhead">You get</h2>${pickList(theirs.items, 'get')}</div></div>
+      <p class="small muted">Up to 4 on each side. They can accept or decline; the swap only happens if you both still have everything.</p>
+      <p><button class="btn green">Send trade offer</button> <span id="tradeMsg"></span></p></form>`);
 };
 
 pages.people = async () => {
@@ -397,12 +857,12 @@ pages.user = async (id) => {
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
   const f = r.friendship;
-  const friendBtn = !signedIn() || f === 'self' ? ''
+  const friendBtn = f === 'self' ? '' : !signedIn() ? html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`
     : f === 'friends' ? html`<button class="btn small" data-act="friend" data-op="friends.remove" data-user="${u.id}">Unfriend</button>`
       : f === 'sent' ? html`<button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${u.id}">Cancel request</button>`
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
           : html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`;
-  const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => ['hat', 'shirt', 'pants'].includes(a.kind));
+  const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => WEARABLE.includes(a.kind));
   // What they wear (older servers don't say: look it up in the catalog).
   let worn = r.wearing;
   if (!worn) {
@@ -415,7 +875,9 @@ pages.user = async (id) => {
   show(html`<div class="profile-head">
       <h1>${u.username}${verified(u.verified)}</h1>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
-      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>` : ''}</div>
+      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
+        : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
+    ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
       <div class="profile-left">
         <div class="box avatar-box"><div id="profileAvatar">${avatarSvg(u.avatar, 200, worn)}</div>
@@ -430,9 +892,14 @@ pages.user = async (id) => {
             <tr><td>Friends</td><td>${r.friendCount}</td></tr>
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
-          ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned</p>` : ''}</div>
-        ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Badges</h2><div class="row">
+          ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
+        ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Guts&amp;Bolts Badges</h2>
+          <p class="small muted">Given by Guts&amp;Bolts staff.</p><div class="row">
           ${u.badges.map((b) => html`<span class="badge-pill">${badgeNames[b] || b}</span>`)}</div></div>` : ''}
+        <div class="box"><h2 class="boxhead">Game Badges (${(r.gameBadges || []).length})</h2>
+          ${(r.gameBadges || []).length ? html`<div class="badge-grid">${r.gameBadges.slice(0, 24).map((b) => html`<a class="game-badge" href="#/game/${b.game}"
+              title="${b.name}${b.description ? ': ' + b.description : ''} (${b.gameName})">${gameBadgeIcon(b, 48)}<span>${b.name}</span></a>`)}</div>`
+            : html`<p class="muted small">No badges from games yet.</p>`}</div>
       </div>
       <div class="profile-right">
         <div class="box"><h2 class="boxhead">Friends (${r.friendCount})${f === 'self' ? html` <a class="small" href="#/friends" style="float:right">See all</a>` : ''}</h2>
@@ -459,8 +926,7 @@ pages.user = async (id) => {
 };
 
 pages.friends = async () => {
-  if (!signedIn()) { show(html`<h1>Friends</h1>${needSignIn('have friends')}`); return; }
-  const r = await pageCall('friends.list', {});
+  const r = signedIn() ? await pageCall('friends.list', {}) : { ok: true, friends: [], incoming: [], outgoing: [] };
   if (!r.ok) { show(html`<h1>Friends</h1><p class="error">${r.error}</p>`); return; }
   const person = (p) => html`<a class="grow" href="#/user/${p.id}"><b>${p.name}</b></a>${verified(p.verified)}`;
   show(html`<h1>Friends</h1>
@@ -471,7 +937,9 @@ pages.friends = async () => {
     ${r.friends.length ? html`<div class="list">${r.friends.map((p) => html`<div><span class="dot ${p.online ? 'on' : ''}"></span>${person(p)}
       <span class="muted small">${p.playing ? 'Playing ' + p.playing.title : p.online ? 'Online' : 'Offline'}</span>
       <button class="btn small" data-act="friend" data-op="friends.remove" data-user="${p.id}">Unfriend</button></div>`)}</div>`
-      : html`<p class="muted">No friends yet. Find people on the <a href="#/people">People</a> page!</p>`}
+      : signedIn() ? html`<p class="muted">No friends yet. Find people on the <a href="#/people">People</a> page!</p>`
+        : html`<p class="muted">Your friends show up here once you <a href="#/login">log in</a>.
+          Meanwhile, look around the <a href="#/people">People</a> page!</p>`}
     ${r.outgoing.length ? html`<h2>Waiting for them</h2><div class="list">${r.outgoing.map((p) => html`<div>${person(p)}
       <button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${p.id}">Cancel</button></div>`)}</div>` : ''}`);
 };
@@ -493,7 +961,9 @@ pages.groups = async () => {
       <label>Description</label><textarea name="description" maxlength="1000"></textarea>
       <label>Colour</label><input type="color" name="color" value="#3a7bd5">
       <label><input type="checkbox" name="open" checked> Anyone can join (untick: people ask to join)</label>
-      <p><button class="btn green">Make it${me.verified ? ' (free)' : ' for 50 Bolts'}</button></p></form>` : needSignIn('make a group')}`);
+      <p><button class="btn green">Make it${me.verified ? ' (free)' : ' for 50 Bolts'}</button></p></form>` : html`<form class="form" data-form="groupCreate">
+      <label>Name</label><input type="text" name="name" maxlength="40">
+      <p><button class="btn green">Make a group</button></p></form>`}`);
 };
 
 pages.group = async (id) => {
@@ -501,7 +971,7 @@ pages.group = async (id) => {
   if (!r.ok) { show(html`<h1>Group not found</h1><p class="muted">${r.error}</p>`); return; }
   const g = r.group, role = r.myRole, manage = role === 'Owner' || role === 'Admin';
   const color = '#' + Number(g.color).toString(16).padStart(6, '0');
-  const join = !signedIn() ? '' : role ? (role === 'Owner' ? '' : html`<button class="btn small" data-act="group" data-op="groups.leave" data-id="${g.id}">Leave</button>`)
+  const join = !signedIn() ? html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>` : role ? (role === 'Owner' ? '' : html`<button class="btn small" data-act="group" data-op="groups.leave" data-id="${g.id}">Leave</button>`)
     : r.requested ? html`<span class="muted">You asked to join.</span>`
       : html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>`;
   show(html`<p><a href="#/groups">&lt; Groups</a></p>
@@ -544,8 +1014,7 @@ pages.group = async (id) => {
 let avatarDraft = null;   // the avatar being edited (saved with the Save button)
 
 pages.avatar = async () => {
-  if (!signedIn()) { show(html`<h1>Avatar</h1>${needSignIn('change your avatar')}`); return; }
-  const r = await pageCall('list', { kind: 'clothing', limit: 100 });
+  const r = signedIn() ? await pageCall('list', { kind: 'clothing', limit: 100 }) : { ok: true, assets: [] };
   const owned = (r.ok ? r.assets : []).filter((a) => (me.owned || []).includes(a.id));
   if (!avatarDraft) avatarDraft = Object.assign(defaultAvatar(), JSON.parse(JSON.stringify(me.avatar || {})));
   const a = avatarDraft;
@@ -556,7 +1025,8 @@ pages.avatar = async () => {
         <div class="small muted">Drag to turn</div>
         <p><button class="btn green" data-act="saveAvatar">Save</button>
           <button class="btn" data-act="resetAvatar">Undo changes</button></p>
-        <p class="small muted" style="max-width:200px">Your avatar is the same in the app and on the website.</p></div>
+        <p class="small muted" style="max-width:200px">${signedIn() ? 'Your avatar is the same in the app and on the website.'
+          : 'Try things on! Log in to save your avatar.'}</p></div>
       <div class="grow">
         <h2 style="margin-top:0">Colours</h2>
         <div class="row">${PRESETS.map(([name], i) => html`<button class="btn small" data-act="avatarPreset" data-i="${i}">${name}</button>`)}</div>
@@ -615,18 +1085,87 @@ pages.staff = async () => {
 };
 
 pages.bolts = async () => {
-  if (!signedIn()) { show(html`<h1>Bolts</h1>${needSignIn('have Bolts')}`); return; }
-  const r = await pageCall('bolts.history', {});
+  const r = signedIn() ? await pageCall('bolts.history', {}) : { ok: true, history: [] };
   show(html`<h1>Bolts</h1>
-    <div class="box row"><div class="grow" style="font-size:24px">${bolts(me.bolts)}</div>
-      ${me.canDaily ? html`<button class="btn green" data-act="daily">Claim today's 25 Bolts</button>` : html`<span class="muted">Daily Bolts claimed. Come back tomorrow!</span>`}</div>
+    <div class="box row"><div class="grow" style="font-size:24px">${bolts(signedIn() ? me.bolts : 0)}</div>
+      ${!signedIn() || me.canDaily ? html`<button class="btn green" data-act="daily">Claim today's 25 Bolts</button>` : html`<span class="muted">Daily Bolts claimed. Come back tomorrow!</span>`}</div>
     <p class="muted">Earn Bolts every day, by playing games in the app (5 every 5 minutes, up to 50 a day) and by selling things you make.</p>
     <h2>Redeem a code</h2><form class="row" data-form="redeem"><input type="text" name="code" placeholder="BOLTS-..." style="max-width:360px">
       <button class="btn blue">Redeem</button></form>
     <h2>History</h2>
     <div class="list">${r.ok && r.history.length ? r.history.slice().reverse().map((h) => html`<div><span class="grow">${h.reason}</span>
       <span class="${h.amount >= 0 ? 'ok' : 'error'}">${h.amount >= 0 ? '+' : ''}${h.amount}</span><span class="small muted">${ago(h.time)}</span></div>`)
-      : html`<p class="muted">Nothing yet.</p>`}</div>`);
+      : html`<p class="muted">${signedIn() ? 'Nothing yet.' : 'Log in to see your Bolts. New accounts start with 100!'}</p>`}</div>`);
+};
+
+// Forgot password: a code goes to the account's email, then pick a new password.
+pages.forgot = async () => {
+  if (signedIn()) { show(html`<h1>Forgot password</h1><p>You're logged in as ${me.username}. You can change your password in
+    <a href="#/settings">Account Settings</a>.</p>`); return; }
+  show(html`<div class="form" style="margin:0 auto">
+    <h1>Forgot your password?</h1>
+    <p class="muted">If your account has an email, we'll send it a code.</p>
+    <form data-form="forgot"><label>Username</label><input type="text" name="username" autocomplete="username" required maxlength="20">
+      <p><button class="btn blue">Email me a code</button></p><p id="forgotMsg"></p></form>
+    <form data-form="reset" id="resetForm" hidden><input type="hidden" name="username">
+      <label>Code from your email</label><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <label>New password</label><input type="password" name="password" autocomplete="new-password" required>
+      <label>New password again</label><input type="password" name="password2" autocomplete="new-password" required>
+      <p><button class="btn green big" style="width:100%">Set new password</button></p><p class="error" id="resetMsg"></p>
+      <p class="small muted">This logs your other devices out. Log in on them again with the new password.</p></form>
+    <p class="small muted">No email on your account? Log in on a device where you're still logged in (like the Guts&amp;Bolts app)
+      and add one in Account Settings, so this works next time.</p></div>`);
+};
+
+// Account Settings: email, two-step verification, password.
+pages.settings = async () => {
+  if (!signedIn()) { show(html`<h1>Account Settings</h1>${needSignIn('change your account settings')}`); return; }
+  const noPw = !me.hasPassword;
+  show(html`<h1>Account Settings</h1>
+    <div class="settings">
+      <div class="box"><h2 class="boxhead">Account</h2>
+        <table class="stats"><tr><td>Username</td><td><b>${me.username}</b></td></tr><tr><td>User number</td><td>#${me.userId}</td></tr>
+          <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr>
+          ${(me.pastNames || []).length ? html`<tr><td>Past usernames</td><td>${me.pastNames.join(', ')}</td></tr>` : ''}
+          <tr><td>Joined</td><td>${me.created ? new Date(me.created * 1000).toLocaleDateString() : '?'}</td></tr></table>
+        ${me.official ? html`<form class="form" data-form="joinDate"><label>Join date <span class="muted small">(Guts only)</span></label>
+          <input type="date" name="date" required value="${me.created ? new Date(me.created * 1000).toISOString().slice(0, 10) : ''}" style="max-width:180px">
+          <p><button class="btn blue">Save join date</button> <span id="joinMsg"></span></p></form>` : ''}
+        <form class="form" data-form="rename"><label>Change your username <span class="muted small">(1,000 Bolts)</span></label>
+          <input type="text" name="username" maxlength="20" required placeholder="3-20 letters or numbers" autocomplete="off">
+          <p class="small muted">Your old username stays on your profile under "Past usernames", and nobody else can ever take it.
+            You can switch back to it later (for the same price).</p>
+          <p><button class="btn blue">Change username</button> <span id="renameMsg"></span></p></form></div>
+      <div class="box"><h2 class="boxhead">Email</h2>
+        ${me.canMail ? '' : html`<p class="box gold small">Email isn't switched on for this server yet, so codes can't be sent.</p>`}
+        <p>${me.email ? html`Your email: <b>${me.email}</b> <span class="ok">(confirmed)</span>` : html`<span class="muted">No email yet.</span>
+          Add one so you can reset your password and turn on two-step verification.`}</p>
+        <form class="form" data-form="setEmail"><label>${me.email ? 'Change email' : 'Add an email'}</label>
+          <input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="you@example.com">
+          ${me.twoStep ? html`<label>Password</label><input type="password" name="password" autocomplete="current-password" required>` : ''}
+          <p><button class="btn blue">Send a code</button> <span id="emailMsg"></span></p></form>
+        <form class="form" data-form="verifyEmail" ${me.emailPending ? '' : 'hidden'} id="verifyForm">
+          <label>Code we sent to <span id="pendingTo">${me.emailPending}</span></label>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+          <p><button class="btn green">Confirm email</button> <span id="verifyMsg"></span></p></form>
+        ${me.email ? html`<form class="form" data-form="removeEmail"><label>Remove your email</label>
+          ${noPw ? '' : html`<input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>`}
+          <p><button class="btn red small">Remove email</button></p></form>` : ''}</div>
+      <div class="box"><h2 class="boxhead">Two-step verification</h2>
+        <p>${me.twoStep ? html`<b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> a code we email you.`
+          : html`<b>Off.</b> Turn it on so a stolen password isn't enough to get into your account: logging in also needs a code
+            from your email.`}</p>
+        ${noPw ? html`<p class="muted small">Set a password first.</p>` : !me.email && !me.twoStep ? html`<p class="muted small">Add and confirm an email first.</p>`
+          : html`<form class="form" data-form="twoStep"><input type="hidden" name="on" value="${me.twoStep ? '' : '1'}">
+            <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>
+            <p><button class="btn ${me.twoStep ? '' : 'green'}">${me.twoStep ? 'Turn off' : 'Turn on'}</button> <span id="twoStepMsg"></span></p></form>`}</div>
+      ${noPw ? '' : html`<div class="box"><h2 class="boxhead">Change password</h2>
+        <form class="form" data-form="changePassword">
+          <label>Current password</label><input type="password" name="current" autocomplete="current-password" required>
+          <label>New password</label><input type="password" name="password" autocomplete="new-password" required>
+          <label>New password again</label><input type="password" name="password2" autocomplete="new-password" required>
+          <p><button class="btn blue">Change password</button> <span id="pwMsg"></span></p></form></div>`}
+    </div>`);
 };
 
 pages.login = async () => loginPage(false);
@@ -643,7 +1182,10 @@ function loginPage(signup) {
         ${signup ? raw('placeholder="3-20 letters or numbers"') : ''}>
       ${signup ? html`<div class="small" id="nameCheck"></div>` : ''}
       <label>Password</label><input type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required>
-      ${signup ? html`<label>Password again</label><input type="password" name="password2" autocomplete="new-password" required>` : ''}
+      ${signup ? html`<label>Password again</label><input type="password" name="password2" autocomplete="new-password" required>`
+        : html`<div id="codeBox" hidden><label>Code from your email</label>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits"></div>
+          <p class="small"><a href="#/forgot">Forgot your password?</a></p>`}
       <p><button class="btn green big" style="width:100%">${signup ? 'Sign Up' : 'Log In'}</button></p>
       <p class="error" id="loginMsg"></p></form>
     <p class="small muted">${signup ? 'Usernames can\'t be changed. Your password never leaves this page: if you forget it, nobody can get it back, so write it down somewhere safe.'
@@ -680,16 +1222,58 @@ const actions = {
     toast(r.ok ? 'You got 25 Bolts!' : r.error);
     render();
   },
+  // Play: games run in the Guts&Bolts app, so the website opens it with a
+  // gutsandbolts:// link. Visitors pick a guest character first, like the old sites.
   play(d) {
-    const box = document.createElement('div');
-    box.className = 'modal';
-    box.innerHTML = html`<div><h1>Play ${d.name}</h1>
-      <p>Games run in the <b>Guts&amp;Bolts app</b>:</p>
-      <ol><li><a href="../#download">Download it</a> (Windows, Mac, Linux or Android) and open <b>Guts&amp;Bolts Player</b>.</li>
-        <li>Click <b>Offline</b> in its menu bar and connect to the same server as this website.</li>
-        <li>Log in with the same username and password, and find <b>${d.name}</b> under <b>Online Games</b>.</li></ol>
-      <p><button class="btn blue" data-act="closeModal">OK</button></p></div>`.s;
-    document.body.appendChild(box);
+    if (!signedIn()) { guestPicker(d.id, d.name); return; }
+    launchGame(d.id, d.name, '');
+  },
+  pickGuest(d) { launchGame(d.id, d.name, d.guest); },
+  joinServer(d) {
+    if (!signedIn()) { guestPicker(d.id, d.name); return; }
+    launchGame(d.id, d.name, '', d.server);
+  },
+  async shareServer(d) {
+    const link = location.origin + location.pathname + '#/game/' + encodeURIComponent(d.id) + '?server=' + encodeURIComponent(d.server);
+    try { await navigator.clipboard.writeText(link); toast('Link copied! Friends who open it can join this server.'); }
+    catch { prompt('Copy this link:', link); }
+  },
+  serverPage(d) { serverPage = Number(d.to) || 1; render(); },
+  toggle(d) { const el = $(d.target); if (el) el.hidden = !el.hidden; },
+  async modelAccess(d) {
+    const r = await call('model.access', { id: d.id, access: d.access });
+    if (r.ok && r.me) setMe(r.me);
+    toast(r.ok ? (d.access === 'public' ? 'It\'s public now.' : 'It\'s private now.') : r.error);
+    render();
+  },
+  async resaleBuy(d) {
+    if (!signedIn()) { loginPopup('buy items'); return; }
+    if (!confirm('Buy copy #' + d.serial + ' for ' + d.price + ' Bolts?')) return;
+    const r = await call('resale.buy', { id: d.id, serial: Number(d.serial) });
+    if (r.ok) setMe(r.me);
+    toast(r.ok ? 'It\'s yours!' : r.error);
+    render();
+  },
+  async tradeAnswer(d) {
+    const r = await call(d.op, { id: d.id });
+    if (r.ok && r.me) setMe(r.me);
+    toast(r.ok ? ({ 'trade.accept': 'Trade done!', 'trade.decline': 'Declined.', 'trade.cancel': 'Cancelled.' }[d.op]) : r.error);
+    render();
+  },
+  async vote(d) {
+    if (!signedIn()) { loginPopup('vote on games'); return; }
+    const r = await call('game.vote', { id: d.id, vote: Number(d.vote) });
+    if (!r.ok) toast(r.error);
+    render();
+  },
+  async copyText(d) {
+    try { await navigator.clipboard.writeText(d.text); toast('Copied ' + d.text); } catch { prompt('Copy this:', d.text); }
+  },
+  async deleteBadge(d) {
+    if (!confirm('Delete the badge "' + d.name + '"? Players who earned it lose it from their profile.')) return;
+    const r = await call('gamebadge.delete', { game: d.game, badge: d.badge });
+    toast(r.ok ? 'Deleted.' : r.error);
+    render();
   },
   closeModal(d, el) { el.closest('.modal').remove(); },
   async buy(d) {
@@ -757,10 +1341,26 @@ const actions = {
       if (!amount) return;
       r = await call('admin.giveBolts', { to: d.id, amount, reason: '' });
     } else if (d.op === 'ban') {
-      if (d.on && !confirm('Ban this account?')) return;
-      r = await call('admin.ban', { to: d.id, on: !!d.on });
+      if (d.on) {   // pick why first (the banned player sees it)
+        popup(html`<h1 class="popup-title">Ban this account</h1>
+          <p>Why are they being banned? They'll see this reason.</p>
+          <p><select id="banReason">${BAN_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
+          <p><input id="banNote" maxlength="200" placeholder="Note for them (optional)"></p>
+          <p><button class="btn red" data-act="doBan" data-id="${d.id}">Ban</button>
+             <button class="btn" data-act="closeModal">Cancel</button></p>`);
+        return;
+      }
+      r = await call('admin.ban', { to: d.id, on: false });
     }
     toast(r && r.ok ? 'Done.' : (r && r.error) || 'That didn\'t work.');
+    render();
+  },
+  async doBan(d) {
+    const reason = document.getElementById('banReason').value;
+    const note = document.getElementById('banNote').value;
+    const r = await call('admin.ban', { to: d.id, on: true, reason, note });
+    document.querySelectorAll('.modal').forEach((m) => m.remove());
+    toast(r && r.ok ? 'Banned.' : (r && r.error) || 'That didn\'t work.');
     render();
   },
   async friend(d) {
@@ -785,7 +1385,99 @@ const actions = {
 };
 
 const forms = {
-  gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value }); },
+  async forgot(f) {
+    const msg = $('#forgotMsg');
+    msg.className = 'muted'; msg.textContent = 'Sending...';
+    const r = await call('account.forgot', { username: f.username.value.trim() });
+    msg.className = r.ok ? 'ok' : 'error';
+    msg.textContent = r.ok ? r.message : r.error;
+    if (r.ok) { const rf = $('#resetForm'); rf.hidden = false; rf.username.value = f.username.value.trim(); rf.code.focus(); }
+  },
+  async reset(f) {
+    const msg = $('#resetMsg');
+    if (f.password.value.length < 8) { msg.textContent = 'Your password needs at least 8 characters.'; return; }
+    if (f.password.value !== f.password2.value) { msg.textContent = 'The two passwords don\'t match.'; return; }
+    msg.className = 'muted'; msg.textContent = 'Setting your new password...';
+    const r = await gb.resetPassword(f.username.value, f.code.value.trim(), f.password.value);
+    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    await hello();
+    toast('Your password is changed, ' + me.username + '. You\'re logged in.', 6000);
+    location.hash = '#/';
+  },
+  async setEmail(f) {
+    const msg = $('#emailMsg');
+    msg.className = 'muted'; msg.textContent = 'Sending...';
+    const args = { email: f.email.value.trim() };
+    if (f.password) args.auth = await gb.passwordProof(me.username, f.password.value);
+    const r = await call('account.email', args);
+    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    msg.className = 'ok'; msg.textContent = 'Sent! Check your inbox (and spam).';
+    $('#pendingTo').textContent = r.sentTo;
+    $('#verifyForm').hidden = false;
+    $('#verifyForm').code.focus();
+  },
+  async verifyEmail(f) {
+    const r = await call('account.emailVerify', { code: f.code.value.trim() });
+    if (!r.ok) { const m = $('#verifyMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    me = r.me; toast('Email confirmed!'); render();
+  },
+  async removeEmail(f) {
+    if (!confirm('Remove your email? You won\'t be able to reset your password, and two-step verification turns off.')) return;
+    const r = await call('account.emailRemove', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});
+    if (!r.ok) { toast(r.error); return; }
+    me = r.me; toast('Email removed.'); render();
+  },
+  async twoStep(f) {
+    const r = await call('account.twoStep', { on: !!f.on.value, auth: await gb.passwordProof(me.username, f.password.value) });
+    if (!r.ok) { const m = $('#twoStepMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    me = r.me; toast(me.twoStep ? 'Two-step verification is on.' : 'Two-step verification is off.'); render();
+  },
+  async changePassword(f) {
+    const msg = $('#pwMsg');
+    if (f.password.value.length < 8) { msg.className = 'error'; msg.textContent = 'Your new password needs at least 8 characters.'; return; }
+    if (f.password.value !== f.password2.value) { msg.className = 'error'; msg.textContent = 'The two new passwords don\'t match.'; return; }
+    msg.className = 'muted'; msg.textContent = 'Changing...';
+    const r = await gb.changePassword(me.username, f.current.value, f.password.value);
+    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    toast('Password changed.'); render();
+  },
+  async newBadge(f) {
+    const hex = f.color.value.replace('#', '');
+    const color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16));
+    const r = await call('gamebadge.create', { game: f.game.value, name: f.name.value, description: f.description.value, color });
+    toast(r.ok ? 'Badge made! Copy its ID into your script.' : r.error);
+    if (r.ok) render();
+  },
+  async configure(f) {
+    const msg = $('#configMsg'), say = (t, cls = 'muted') => { msg.className = cls; msg.textContent = ' ' + t; };
+    const id = f.id.value;
+    say('Saving...');
+    try {
+      const genres = [...f.querySelectorAll('input[name=genre]:checked')].map((x) => x.value);
+      if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
+      let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
+        genres, maxPlayers: Number(f.maxPlayers.value) || 12 });
+      if (!r.ok) { say(r.error, 'error'); return; }
+      if (f.thumb.files[0]) {
+        r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });
+        if (!r.ok) { say('Thumbnail: ' + r.error, 'error'); return; }
+      }
+      if (f.icon.files[0]) {
+        r = await call('icon.set', { id, data: await pictureBase64(f.icon.files[0], 256, 256) });
+        if (!r.ok) { say('Icon: ' + r.error, 'error'); return; }
+      }
+      if (f.file.files[0]) {
+        say('Uploading the new version...');
+        r = await call('update', { id, data: await gb.fileBase64(f.file.files[0]) });
+        if (!r.ok) { say('New version: ' + r.error, 'error'); return; }
+      }
+    } catch (err) { say(String(err.message || err), 'error'); return; }
+    toast('Saved!');
+    render();
+  },
+  topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
+  librarySearch(f) { location.hash = '#/create/library?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
+  gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value, genre: f.genre.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   peopleSearch(f) { location.hash = '#/people?' + new URLSearchParams({ q: f.q.value }); },
   staffSearch(f) { location.hash = '#/staff?' + new URLSearchParams({ q: f.q.value }); },
@@ -799,8 +1491,9 @@ const forms = {
     setTimeout(checkRequests, 1500);
     const msg = $('#loginMsg');
     msg.className = 'muted'; msg.textContent = 'Logging in...';
-    const r = await gb.logIn(f.username.value.trim(), f.password.value);
-    if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
+    const r = await gb.logIn(f.username.value.trim(), f.password.value, f.code ? f.code.value.trim() : '');
+    if (r.needCode) { $('#codeBox').hidden = false; f.code.focus(); }   // two-step verification: type the emailed code
+    if (!r.ok) { msg.className = r.needCode ? 'muted' : 'error'; msg.textContent = r.error; return; }
     await hello();
     toast('Welcome back, ' + me.username + '!');
     location.hash = '#/';
@@ -823,7 +1516,7 @@ const forms = {
       const c = f.color.value;
       args.meta = { color: [1, 3, 5].map((i) => parseInt(c.substr(i, 2), 16)) };
       if (kind === 'hat') args.meta.style = Number(f.style.value);
-      args.data = '';
+      args.data = f.picture && f.picture.files[0] ? await gb.fileBase64(f.picture.files[0]) : '';
     } else {
       const file = f.file.files[0];
       if (!file) { msg.textContent = 'Pick a file first.'; return; }
@@ -836,6 +1529,50 @@ const forms = {
     f.querySelector('button').disabled = false;
     if (!r.ok) { msg.className = 'error'; msg.textContent = ' ' + r.error; return; }
     toast('Uploaded "' + r.asset.name + '"!' + (r.fee ? ' (' + r.fee + ' Bolts)' : ''));
+    render();
+  },
+  async itemEdit(f) {
+    const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0 };
+    if (f.color) { const hex = f.color.value.replace('#', ''); args.color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)); }
+    if (f.style) args.style = Number(f.style.value);
+    if (f.picture && f.picture.files[0]) args.data = await gb.fileBase64(f.picture.files[0]);
+    const r = await call('item.edit', args);
+    if (!r.ok) { const m = $('#itemEditMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    toast('Saved!');
+    render();
+  },
+  async joinDate(f) {
+    const r = await call('account.joinDate', { date: f.date.value });
+    if (!r.ok) { const m = $('#joinMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    toast('Join date saved!');
+    await hello();
+    render();
+  },
+  async itemLimited(f) {
+    const r = await call('item.limited', { id: f.id.value, stock: Number(f.stock.value) || 0 });
+    toast(r.ok ? 'It\'s Limited now!' : r.error);
+    render();
+  },
+  async resaleList(f) {
+    const r = await call('resale.list', { id: f.id.value, serial: Number(f.serial.value), price: Number(f.price.value) || 0 });
+    toast(r.ok ? (Number(f.price.value) > 0 ? 'On sale!' : 'Taken off sale.') : r.error);
+    render();
+  },
+  async tradeSend(f) {
+    const pick = (side) => [...f.querySelectorAll('input[name=' + side + ']:checked')].map((x) => { const [id, serial] = x.value.split('|'); return { id, serial: Number(serial) }; });
+    const r = await call('trade.send', { to: f.to.value, give: pick('give'), get: pick('get') });
+    if (!r.ok) { const m = $('#tradeMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    toast('Trade offer sent!');
+    location.hash = '#/trades';
+  },
+  async rename(f) {
+    const want = f.username.value.trim();
+    if (!confirm('Change your username to "' + want + '" for 1,000 Bolts?')) return;
+    const r = await call('account.rename', { username: want });
+    const msg = $('#renameMsg');
+    if (!r.ok) { msg.className = 'error'; msg.textContent = ' ' + r.error; return; }
+    setMe(r.me);
+    toast('You\'re now ' + r.me.username + '!');
     render();
   },
   async groupCreate(f) {
@@ -864,6 +1601,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
   if (!el || !actions[el.dataset.act]) return;
   e.preventDefault();
+  if (!signedIn() && NEEDS_ACCOUNT[el.dataset.act]) { loginPopup(NEEDS_ACCOUNT[el.dataset.act]); return; }
   if (el.disabled) return;
   el.disabled = true;
   try { await actions[el.dataset.act](el.dataset, el); } finally { el.disabled = false; }
@@ -873,6 +1611,7 @@ document.addEventListener('submit', async (e) => {
   const f = e.target;
   if (!f.dataset.form || !forms[f.dataset.form]) return;
   e.preventDefault();
+  if (!signedIn() && NEEDS_ACCOUNT[f.dataset.form]) { loginPopup(NEEDS_ACCOUNT[f.dataset.form]); return; }
   const btn = f.querySelector('button:not([type=button])');
   if (btn) btn.disabled = true;
   try { await forms[f.dataset.form](f); } finally { if (btn) btn.disabled = false; }

@@ -1,4 +1,5 @@
 #include "RobloxFile.h"
+#include "Guis.h"
 #include "Scene.h"
 #include "SceneNode.h"
 #include "Environment.h"
@@ -46,13 +47,14 @@ bool endsWith(const std::string& s, const std::string& e) {
 // ===========================================================================
 
 struct Value {
-    enum Kind { None, Str, Bool, Num, Vec3, CFrame, Color, Ref, Token } kind = None;
+    enum Kind { None, Str, Bool, Num, Vec3, CFrame, Color, Ref, Token, UDim, UDim2, Vec2 } kind = None;
     std::string s;
     bool        b = false;
     double      n = 0.0;
     glm::vec3   v{0.0f};          // Vector3 / Color3 (0..1) / CFrame position
     glm::mat3   r{1.0f};          // CFrame rotation (columns = right, up, back)
     int64_t     ref = -1;
+    glm::vec4   q{0.0f};          // UDim2 (x scale, x offset, y scale, y offset), UDim (scale, offset), Vector2 (x, y)
 };
 
 struct Inst {
@@ -288,6 +290,23 @@ bool readBinary(const std::vector<uint8_t>& data, Document& doc) {
             case 0x05:                                             // Float64
                 for (size_t i = 0; i < n; ++i) { Value v; v.kind = Value::Num; v.n = r.f64(); set(i, v); }
                 break;
+            case 0x06: {                                           // UDim
+                auto S = floats(r, n); auto O = ints(r, n);
+                for (size_t i = 0; i < n; ++i) { Value v; v.kind = Value::UDim; v.q = {S[i], (float)O[i], 0, 0}; set(i, v); }
+                break;
+            }
+            case 0x07: {                                           // UDim2
+                auto SX = floats(r, n), SY = floats(r, n); auto OX = ints(r, n), OY = ints(r, n);
+                for (size_t i = 0; i < n; ++i) {
+                    Value v; v.kind = Value::UDim2; v.q = {SX[i], (float)OX[i], SY[i], (float)OY[i]}; set(i, v);
+                }
+                break;
+            }
+            case 0x0D: {                                           // Vector2
+                auto X = floats(r, n), Y = floats(r, n);
+                for (size_t i = 0; i < n; ++i) { Value v; v.kind = Value::Vec2; v.q = {X[i], Y[i], 0, 0}; set(i, v); }
+                break;
+            }
             case 0x0C: {                                           // Color3
                 auto R = floats(r, n), G = floats(r, n), B = floats(r, n);
                 for (size_t i = 0; i < n; ++i) { Value v; v.kind = Value::Color; v.v = {R[i], G[i], B[i]}; set(i, v); }
@@ -508,6 +527,12 @@ void readXmlItem(const XmlNode& x, Inst* parent, Document& doc, std::map<std::st
                 v.kind = Value::Token; v.n = std::atof(text.c_str());
             } else if (t == "Vector3") {
                 v.kind = Value::Vec3; v.v = {fnum(p->child("X")), fnum(p->child("Y")), fnum(p->child("Z"))};
+            } else if (t == "UDim2") {
+                v.kind = Value::UDim2; v.q = {fnum(p->child("XS")), fnum(p->child("XO")), fnum(p->child("YS")), fnum(p->child("YO"))};
+            } else if (t == "UDim") {
+                v.kind = Value::UDim; v.q = {fnum(p->child("S")), fnum(p->child("O")), 0, 0};
+            } else if (t == "Vector2") {
+                v.kind = Value::Vec2; v.q = {fnum(p->child("X")), fnum(p->child("Y")), 0, 0};
             } else if (t == "Color3") {
                 v.kind = Value::Color;
                 if (p->child("R")) v.v = {fnum(p->child("R")), fnum(p->child("G")), fnum(p->child("B"))};
@@ -707,6 +732,60 @@ struct Converter {
             node->value.n = in.num("Value", 0.0);
             node->value.b = in.num("Value", 0.0) != 0.0;
             node->value.s = in.str("Value");
+        } else if (GuiType gt; Guis::typeFromName(c, gt) || c == "BillboardGui" || c == "SurfaceGui") {
+            // Game UI (ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke).
+            if (c == "BillboardGui" || c == "SurfaceGui") {
+                note(c + "s aren't supported yet (only ScreenGui UI is).");
+                return nullptr;
+            }
+            node = std::make_unique<SceneNode>(name, NodeKind::Gui);
+            node->gui.type = gt;
+            Guis::setDefaults(*node);
+            GuiProps& g = node->gui;
+            auto u2 = [&](const char* k, UDim2& out) {
+                if (const Value* v = in.get(k); v && v->kind == Value::UDim2) out = {v->q.x, v->q.y, v->q.z, v->q.w};
+            };
+            auto col = [&](const char* k, glm::vec3& out) { if (const Value* v = in.get(k)) out = v->v; };
+            auto f = [&](const char* k, float& out) { if (in.get(k)) out = (float)in.num(k, out); };
+            u2("Position", g.pos);
+            u2("Size", g.size);
+            if (const Value* v = in.get("AnchorPoint"); v && v->kind == Value::Vec2) g.anchor = {v->q.x, v->q.y};
+            col("BackgroundColor3", g.bg);
+            f("BackgroundTransparency", g.bgTransparency);
+            col("BorderColor3", g.borderColor);
+            g.border = (int)in.num("BorderSizePixel", g.border);
+            g.zIndex = (int)in.num("ZIndex", g.zIndex);
+            g.clips = in.flag("ClipsDescendants", false);
+            node->visible = in.flag("Visible", true);
+            if (gt == GuiType::TextLabel || gt == GuiType::TextButton) {
+                g.text = in.str("Text");
+                col("TextColor3", g.textColor);
+                f("TextSize", g.textSize);
+                g.textScaled = in.flag("TextScaled", false);
+                g.textWrapped = in.flag("TextWrapped", false);
+                int xa = (int)in.num("TextXAlignment", 2), ya = (int)in.num("TextYAlignment", 1);   // Roblox: Left 0, Right 1, Center 2
+                g.xAlign = xa == 0 ? 0 : xa == 1 ? 2 : 1;
+                g.yAlign = std::clamp(ya, 0, 2);
+                f("TextTransparency", g.textTransparency);
+                col("TextStrokeColor3", g.strokeColor);
+                f("TextStrokeTransparency", g.strokeTransparency);
+            }
+            if (gt == GuiType::ImageLabel || gt == GuiType::ImageButton) {
+                g.image = in.str("Image");   // rbxassetid:// pictures won't load here, but are kept
+                col("ImageColor3", g.imageColor);
+                f("ImageTransparency", g.imageTransparency);
+                if (g.image.find("rbxasset") != std::string::npos) note("Roblox pictures can't be downloaded; pick one for " + name + ".");
+            }
+            if (gt == GuiType::TextButton || gt == GuiType::ImageButton) g.autoButtonColor = in.flag("AutoButtonColor", true);
+            if (gt == GuiType::ScreenGui) { node->enabled = in.flag("Enabled", true); g.displayOrder = (int)in.num("DisplayOrder", 0); }
+            if (gt == GuiType::UICorner)
+                if (const Value* v = in.get("CornerRadius"); v && v->kind == Value::UDim) g.corner = {v->q.x, v->q.y, 0, 0};
+            if (gt == GuiType::UIStroke) {
+                col("Color", g.borderColor);
+                f("Thickness", g.thickness);
+                g.bgTransparency = (float)in.num("Transparency", 0.0);
+                node->enabled = in.flag("Enabled", true);
+            }
         } else if (c == "Decal" || c == "Texture") {
             node = std::make_unique<SceneNode>(name, NodeKind::Decal);
             node->texture = in.str("Texture");   // rbxassetid:// links won't load here, but are kept
@@ -881,6 +960,13 @@ struct XmlWriter {
     void vec3(const char* n, glm::vec3 v) {
         o << "<Vector3 name=\"" << n << "\"><X>" << v.x << "</X><Y>" << v.y << "</Y><Z>" << v.z << "</Z></Vector3>\n";
     }
+    void udim2(const char* n, const UDim2& u) {
+        o << "<UDim2 name=\"" << n << "\"><XS>" << u.xs << "</XS><XO>" << (int)std::lround(u.xo) << "</XO><YS>" << u.ys
+          << "</YS><YO>" << (int)std::lround(u.yo) << "</YO></UDim2>\n";
+    }
+    void vec2(const char* n, glm::vec2 v) {
+        o << "<Vector2 name=\"" << n << "\"><X>" << v.x << "</X><Y>" << v.y << "</Y></Vector2>\n";
+    }
     void color3(const char* n, glm::vec3 c) {
         o << "<Color3 name=\"" << n << "\"><R>" << c.r << "</R><G>" << c.g << "</G><B>" << c.b << "</B></Color3>\n";
     }
@@ -958,6 +1044,7 @@ struct XmlWriter {
             case NodeKind::Tool:       cls = "Tool"; break;
             case NodeKind::Decal:      cls = "Decal"; break;
             case NodeKind::Animation:  cls = nullptr; break;   // (Roblox keeps animations online)
+            case NodeKind::Gui:        cls = kGuiClassNames[(int)n.gui.type]; break;
             case NodeKind::Value:
                 cls = n.value.type == Attribute::Vector3 || n.value.type == Attribute::Color3 ? nullptr : n.valueClass();
                 break;
@@ -971,6 +1058,45 @@ struct XmlWriter {
         o << "<Item class=\"" << cls << "\" referent=\"" << ref(n.id) << "\">\n<Properties>\n";
         common(n);
         switch (n.kind) {
+        case NodeKind::Gui: {
+            const GuiProps& g = n.gui;
+            if (g.type == GuiType::ScreenGui) { boolean("Enabled", n.enabled); o << "<int name=\"DisplayOrder\">" << g.displayOrder << "</int>\n"; boolean("ResetOnSpawn", false); break; }
+            if (g.type == GuiType::UICorner) {
+                o << "<UDim name=\"CornerRadius\"><S>" << g.corner.xs << "</S><O>" << (int)std::lround(g.corner.xo) << "</O></UDim>\n";
+                break;
+            }
+            if (g.type == GuiType::UIStroke) { color3("Color", g.borderColor); flt("Thickness", g.thickness); flt("Transparency", g.bgTransparency); boolean("Enabled", n.enabled); break; }
+            udim2("Position", g.pos);
+            udim2("Size", g.size);
+            vec2("AnchorPoint", g.anchor);
+            color3("BackgroundColor3", g.bg);
+            flt("BackgroundTransparency", g.bgTransparency);
+            color3("BorderColor3", g.borderColor);
+            o << "<int name=\"BorderSizePixel\">" << g.border << "</int>\n";
+            o << "<int name=\"ZIndex\">" << g.zIndex << "</int>\n";
+            boolean("ClipsDescendants", g.clips);
+            boolean("Visible", n.visible);
+            if (g.type == GuiType::TextLabel || g.type == GuiType::TextButton) {
+                str("Text", g.text);
+                color3("TextColor3", g.textColor);
+                flt("TextSize", g.textSize);
+                boolean("TextScaled", g.textScaled);
+                boolean("TextWrapped", g.textWrapped);
+                token("TextXAlignment", g.xAlign == 0 ? 0 : g.xAlign == 2 ? 1 : 2);
+                token("TextYAlignment", g.yAlign);
+                flt("TextTransparency", g.textTransparency);
+                color3("TextStrokeColor3", g.strokeColor);
+                flt("TextStrokeTransparency", g.strokeTransparency);
+                token("Font", g.bold ? 4 : 3);   // SourceSansBold / SourceSans
+            }
+            if (g.type == GuiType::ImageLabel || g.type == GuiType::ImageButton) {
+                o << "<Content name=\"Image\"><url>" << esc(g.image) << "</url></Content>\n";
+                color3("ImageColor3", g.imageColor);
+                flt("ImageTransparency", g.imageTransparency);
+            }
+            if (g.type == GuiType::TextButton || g.type == GuiType::ImageButton) boolean("AutoButtonColor", g.autoButtonColor);
+            break;
+        }
         case NodeKind::Decal:
             o << "<Content name=\"Texture\"><url>" << n.texture << "</url></Content>\n";
             o << "<token name=\"Face\">" << (int)n.face << "</token>\n";
@@ -1118,7 +1244,7 @@ bool importPlace(Scene& scene, const std::string& path, Report& report, std::str
     Converter conv{scene, report, {}};
     for (const Inst* k : ws->children) conv.convert(*k, nullptr);
     // Scripts that run on the server live in ServerScriptService in Roblox.
-    for (const char* svc : {"ServerScriptService", "ReplicatedStorage", "ServerStorage", "StarterPlayer", "ReplicatedFirst"}) {
+    for (const char* svc : {"StarterGui", "ServerScriptService", "ReplicatedStorage", "ServerStorage", "StarterPlayer", "ReplicatedFirst"}) {
         const Inst* s = findChild(doc.roots, svc);
         if (!s || s->children.empty()) continue;
         auto folder = std::make_unique<SceneNode>(svc, NodeKind::Model);
@@ -1179,8 +1305,17 @@ bool exportPlace(Scene& scene, const std::string& path, std::string& error) {
     w.str("Name", "Workspace");
     w.flt("Gravity", scene.world().gravity / 22.0f * kRobloxGravity);
     w.o << "</Properties>\n";
-    for (auto& c : scene.root()->children) w.item(*c);
+    const SceneNode* ui = scene.root()->findChild("StarterGui");
+    if (ui && ui->kind != NodeKind::Model) ui = nullptr;
+    for (auto& c : scene.root()->children) if (c.get() != ui) w.item(*c);
     w.o << "</Item>\n";
+    if (ui) {   // our StarterGui folder is Roblox's StarterGui service
+        w.o << "<Item class=\"StarterGui\" referent=\"RBXSTARTERGUI\">\n<Properties>\n";
+        w.str("Name", "StarterGui");
+        w.o << "</Properties>\n";
+        for (auto& c : ui->children) w.item(*c);
+        w.o << "</Item>\n";
+    }
     w.o << "<Item class=\"Lighting\" referent=\"RBXLIGHTING\">\n<Properties>\n";
     w.str("Name", "Lighting");
     {

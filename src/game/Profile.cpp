@@ -25,7 +25,7 @@ void Profile::load() {
     nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
     if (!j.is_object()) return;
     if (j.contains("name") && j["name"].is_string()) name = j["name"].get<std::string>();
-    if (j.contains("hat") && j["hat"].is_number_integer()) hat = (HatStyle)j["hat"].get<int>();
+    if (j.contains("hat") && j["hat"].is_number_integer()) hat = (HatStyle)std::clamp(j["hat"].get<int>(), 0, kHatStyleCount - 1);
     if (j.contains("recent") && j["recent"].is_array())
         for (auto& r : j["recent"]) if (r.is_string()) recent.push_back(r.get<std::string>());
     if (j.contains("grants") && j["grants"].is_array())
@@ -43,6 +43,15 @@ void Profile::load() {
     if (!j.value("serverChecked", false) && server.empty()) server = Online::kOfficialServer;
     strings("wearing", wearing);
     avatarUpdated = j.value("avatarUpdated", 0LL);
+    auto safeImage = [](std::string s) {   // only server clothing pictures
+        return s.rfind("gb:", 0) == 0 && s.size() < 64 ? s : std::string();
+    };
+    shirtImage = safeImage(j.value("shirtImage", std::string()));
+    pantsImage = safeImage(j.value("pantsImage", std::string()));
+    faceImage = safeImage(j.value("faceImage", std::string()));
+    if (j.contains("accessories") && j["accessories"].is_object())
+        for (auto& [k, v] : j["accessories"].items())
+            if (v.is_string() && !safeImage(v.get<std::string>()).empty()) accessories[k] = v.get<std::string>();
     // Nobody else gets to be called Guts, even by editing profile.json.
     if (Account::nameIsReserved(name) && !Account::iAmStaff()) name = "Player";
     hatColor        = vec(j, "hatColor", hatColor);
@@ -61,7 +70,8 @@ void Profile::save() const {
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
         {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server}, {"serverChecked", true},
-        {"avatarUpdated", avatarUpdated},
+        {"avatarUpdated", avatarUpdated}, {"shirtImage", shirtImage}, {"pantsImage", pantsImage},
+        {"faceImage", faceImage}, {"accessories", accessories},
     };
     std::ofstream f(Paths::file("profile.json"));
     if (f) f << j.dump(2);

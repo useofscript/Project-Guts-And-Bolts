@@ -59,10 +59,7 @@ bool PlayerApp::needsServer(const char* what) {
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("%s live on a Guts&Bolts server, so you need to be connected to one.", what);
     ImGui::PopTextWrapPos();
-    if (Classic::button("Pick a server", Classic::kBlue, ImVec2(160, 30))) {
-        m_serverInput = Online::serverAddress();
-        m_showServer = true;
-    }
+    if (Classic::button("Try again", Classic::kBlue, ImVec2(160, 30))) Online::connect();
     return true;
 }
 
@@ -174,7 +171,7 @@ void PlayerApp::buildProfileStage(const json& av, const json& wearing) {
     };
     color("head", bc.head); color("torso", bc.torso); color("leftArm", bc.leftArm);
     color("rightArm", bc.rightArm); color("leftLeg", bc.leftLeg); color("rightLeg", bc.rightLeg);
-    HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, 3) : HatStyle::None;
+    HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, kHatStyleCount - 1) : HatStyle::None;
     glm::vec3 hatTint(-1.0f);
     color("hatColor", hatTint);
     if (wearing.is_array())
@@ -304,7 +301,7 @@ void PlayerApp::drawProfile() {
     }
     ImGui::Spacing();
 
-    boxTitle("Badges");
+    boxTitle("Guts&Bolts Badges");   // given by staff
     int shown = 0;
     if (u.contains("badges"))
         for (const auto& k : u["badges"]) {
@@ -317,6 +314,41 @@ void PlayerApp::drawProfile() {
             ImGui::EndGroup();
         }
     if (!shown) ImGui::TextDisabled("No badges yet.");
+    ImGui::Spacing();
+
+    // Game badges: made by game creators, earned by playing their games.
+    const json& gb = m_profile.contains("gameBadges") && m_profile["gameBadges"].is_array() ? m_profile["gameBadges"] : json::array();
+    std::string gt = "Game Badges (" + std::to_string(gb.size()) + ")";
+    boxTitle(gt.c_str());
+    if (gb.empty()) ImGui::TextDisabled("No badges from games yet.");
+    for (size_t i = 0; i < gb.size() && i < 24; ++i) {
+        const json& b = gb[i];
+        if (i % 3) ImGui::SameLine(0, 14);
+        ImGui::BeginGroup();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(48, 48));
+        ImU32 col = IM_COL32(240, 180, 40, 255);
+        if (b.contains("color") && b["color"].is_array() && b["color"].size() == 3)
+            col = IM_COL32(b["color"][0].get<int>(), b["color"][1].get<int>(), b["color"][2].get<int>(), 255);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 c(p.x + 24, p.y + 24);
+        dl->AddCircleFilled(c, 22, col, 32);
+        dl->AddCircle(c, 22, IM_COL32(0, 0, 0, 80), 32, 2.0f);
+        for (int k = 0; k < 5; ++k) {   // a white star
+            float a0 = -1.5708f + k * 1.2566f, a1 = a0 + 0.6283f;
+            dl->AddTriangleFilled(c, ImVec2(c.x + std::cos(a0) * 13, c.y + std::sin(a0) * 13),
+                                  ImVec2(c.x + std::cos(a1) * 5.5f, c.y + std::sin(a1) * 5.5f), IM_COL32(255, 255, 255, 230));
+            dl->AddTriangleFilled(c, ImVec2(c.x + std::cos(a1) * 5.5f, c.y + std::sin(a1) * 5.5f),
+                                  ImVec2(c.x + std::cos(a0 + 1.2566f) * 13, c.y + std::sin(a0 + 1.2566f) * 13), IM_COL32(255, 255, 255, 230));
+        }
+        std::string name = b.value("name", std::string());
+        if (name.size() > 12) name = name.substr(0, 11) + "...";
+        ImGui::TextDisabled("%s", name.c_str());
+        ImGui::EndGroup();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\n%s\nFrom %s", b.value("name", std::string()).c_str(), b.value("description", std::string()).c_str(),
+                              b.value("gameName", std::string()).c_str());
+    }
     ImGui::EndChild();
     ImGui::EndGroup();
     if (!tall) ImGui::SameLine(0, 18);

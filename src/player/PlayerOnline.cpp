@@ -11,6 +11,8 @@
 #include "../online/AssetCache.h"
 #include "../online/OnlineClient.h"
 #include "../online/Protocol.h"
+#include "ShirtTemplate.h"   // generated: the clothing templates
+#include "PantsTemplate.h"
 #include "../renderer/Framebuffer.h"
 #include "../renderer/Textures.h"
 #include "../scene/Scene.h"
@@ -76,11 +78,8 @@ void PlayerApp::drawServerButton(ImVec2 at) {
     ImVec2 ts = ImGui::CalcTextSize(label.c_str());
     ImVec2 b(at.x + ts.x + 30, at.y + 22);
     ImGui::SetCursorScreenPos(at);
-    if (ImGui::InvisibleButton("##server", ImVec2(b.x - at.x, b.y - at.y))) {
-        m_serverInput = Online::serverAddress();
-        m_serverMsg.clear();
-        m_showServer = true;
-    }
+    if (ImGui::InvisibleButton("##server", ImVec2(b.x - at.x, b.y - at.y)) && st != Online::Status::Online)
+        Online::connect();   // try again
     ImDrawList* dl = ImGui::GetWindowDrawList();
     bool hover = ImGui::IsItemHovered();
     dl->AddRectFilled(at, b, hover ? IM_COL32(255, 255, 255, 235) : IM_COL32(255, 255, 255, 200), 11.0f);
@@ -89,62 +88,9 @@ void PlayerApp::drawServerButton(ImVec2 at) {
               : st == Online::Status::Connecting ? IM_COL32(240, 180, 40, 255) : IM_COL32(150, 150, 160, 255);
     dl->AddCircleFilled(ImVec2(at.x + 12, at.y + 11), 5.0f, dot);
     dl->AddText(ImVec2(at.x + 22, at.y + 11 - ts.y * 0.5f), IM_COL32(30, 40, 60, 255), label.c_str());
-    if (hover) ImGui::SetTooltip("%s\nClick to pick a Guts&Bolts server", Online::statusText().c_str());
+    if (hover) ImGui::SetTooltip("%s%s", Online::statusText().c_str(), st == Online::Status::Online ? "" : "\nClick to try again");
 }
 
-void PlayerApp::drawServerDialog() {
-    if (m_showServer) { ImGui::OpenPopup("Guts&Bolts Server"); m_showServer = false; }
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(fitWidth(560), 0));
-    if (!ImGui::BeginPopupModal("Guts&Bolts Server", nullptr, ImGuiWindowFlags_NoResize)) return;
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextUnformatted("A Guts&Bolts server keeps your Bolts, badges and everything people upload (clothes, "
-                           "audio, plugins and games) in one place, so everyone sees the same site.");
-    ImGui::Spacing();
-    ImGui::TextDisabled("The official server runs on Cloudflare, so it's always on. You can also run your own "
-                        "GutsAndBoltsServer on a computer and type its address here, like 192.168.1.20 or "
-                        "myserver.com:7780.");
-    ImGui::PopTextWrapPos();
-    ImGui::Spacing();
-    ImGui::SetNextItemWidth(-1);
-    bool enter = ImGui::InputTextWithHint("##addr", "server address", &m_serverInput, ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::Spacing();
-    if (bigButton("Connect", kGreen, ImVec2(130, 32)) || enter) {
-        Online::setServerAddress(m_serverInput);
-        m_loaded.clear();
-        m_serverMsg = m_serverInput.empty() ? "Playing offline." : "Connecting...";
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Official server", ImVec2(130, 32))) {
-        m_serverInput = Online::kOfficialServer;
-        Online::setServerAddress(m_serverInput);
-        m_loaded.clear();
-        m_serverMsg = "Connecting...";
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Go offline", ImVec2(110, 32))) {
-        m_serverInput.clear();
-        Online::setServerAddress("");
-        m_loaded.clear();
-        m_serverMsg = "Playing offline.";
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Close", ImVec2(100, 32))) ImGui::CloseCurrentPopup();
-    ImGui::Spacing();
-    ImVec4 col = Online::online() ? ImVec4(0.3f, 0.85f, 0.4f, 1) : Online::status() == Online::Status::Failed
-                 ? ImVec4(1.0f, 0.45f, 0.4f, 1) : ImVec4(0.8f, 0.8f, 0.85f, 1);
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextColored(col, "%s", Online::configured() ? Online::statusText().c_str() : "Offline (no server)");
-    ImGui::PopTextWrapPos();
-    if (Online::online()) {
-        const json& me = Online::me();
-        ImGui::Text("Signed in as %s", me.value("name", std::string()).c_str());
-        if (me.value("verified", false)) { ImGui::SameLine(0, 4); Badges::check(); }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%s Bolts)", Bolts::format(Online::bolts()).c_str());
-    }
-    ImGui::EndPopup();
-}
 
 // Fetch a list from the server (once per visit to a page, or again on request).
 void PlayerApp::refreshOnline(const std::string& what) {
@@ -191,18 +137,22 @@ void PlayerApp::drawOnlineCatalog() {
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted("Catalog");
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("Hats, shirts and pants made by the Guts&Bolts community.");
+    ImGui::TextDisabled("Hats, hair, faces, accessories and clothes made by the Guts&Bolts community.");
     ImGui::Spacing();
-    const char* tabs[] = {"All", "Hats", "Shirts", "Pants"};
-    const char* kinds[] = {"", "hat", "shirt", "pants"};
-    float tabW = std::min(90.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
-    for (int i = 0; i < 4; ++i) {
-        if (i > 0) ImGui::SameLine();
+    // "Accessories" covers face, neck, shoulder and waist accessories.
+    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "Pants"};
+    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "pants"};
+    const int nTabs = 7;
+    float tabW = std::min(100.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
+    float rowRight = ImGui::GetContentRegionMax().x;
+    for (int i = 0; i < nTabs; ++i) {
+        if (i > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + tabW <= ImGui::GetWindowPos().x + rowRight) ImGui::SameLine();
         bool on = m_itemType == i - 1;
         if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(tabW, 28)) : ImGui::Button(tabs[i], ImVec2(tabW, 28)))
             m_itemType = i - 1;
     }
-    if (portraitScreen()) ImGui::Spacing(); else ImGui::SameLine(ImGui::GetContentRegionMax().x - 140);
+    bool roomForCreate = ImGui::GetItemRectMax().x + 160 <= ImGui::GetWindowPos().x + rowRight;
+    if (portraitScreen() || !roomForCreate) ImGui::Spacing(); else ImGui::SameLine(rowRight - 140);
     if (Classic::button("Create", Classic::kPlay, ImVec2(140, 28))) m_page = Page::Create;
     ImGui::Separator();
     ImGui::Spacing();
@@ -210,7 +160,9 @@ void PlayerApp::drawOnlineCatalog() {
     std::vector<int> list;
     for (int i = 0; i < (int)m_onlineItems.size(); ++i) {
         std::string k = m_onlineItems[i].value("kind", std::string());
-        if (m_itemType < 0 || k == kinds[m_itemType + 1]) list.push_back(i);
+        const std::string want = m_itemType < 0 ? "" : kinds[m_itemType + 1];
+        bool acc = k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
+        if (want.empty() || k == want || (want == "acc" && acc)) list.push_back(i);
     }
     if (list.empty()) {
         ImGui::Dummy(ImVec2(0, 30));
@@ -252,6 +204,7 @@ void PlayerApp::drawOnlineItemDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(540), 0));
     if (!ImGui::BeginPopupModal("Item##online", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (tappedOutside()) m_openOnlineItem = -1;
     if (m_openOnlineItem < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     const json a = m_onlineItems[m_openOnlineItem];
     Catalog::Item it = Catalog::fromServer(a);
@@ -272,6 +225,16 @@ void PlayerApp::drawOnlineItemDialog() {
     else if (owned) ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "You own this");
     else Bolts::amount(it.price, 20.0f);
     ImGui::TextDisabled("%lld sold  -  made %s", a.value("sales", 0LL), ago(a.value("created", 0LL)).c_str());
+    const json lim = a.value("limited", json());
+    const bool soldOut = lim.is_object() && lim.value("left", 0) <= 0;
+    if (lim.is_object()) {
+        ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.22f, 1), "LIMITED");
+        ImGui::SameLine();
+        ImGui::PushTextWrapPos(0);
+        if (soldOut) ImGui::TextColored(ImVec4(0.75f, 0.2f, 0.15f, 1), "Sold out. Buy one from a reseller, or trade, on the website.");
+        else ImGui::Text("%d of %d left", lim.value("left", 0), lim.value("stock", 0));
+        ImGui::PopTextWrapPos();
+    }
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(it.description.c_str());
     ImGui::PopTextWrapPos();
@@ -281,10 +244,12 @@ void PlayerApp::drawOnlineItemDialog() {
     auto wearIt = [this, it]() {
         Catalog::applyLook(it);
         if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
+        Online::fetchSounds(*m_avatarScene);   // its clothing picture, if it has one
     };
     if (!owned) {
         std::string label = it.price > 0 ? "Buy for " + Bolts::format(it.price) : std::string("Get it");
-        ImGui::BeginDisabled(m_busy || Online::bolts() < it.price);
+        if (soldOut) label = "Sold out";
+        ImGui::BeginDisabled(m_busy || soldOut || Online::bolts() < it.price);
         if (bigButton(label.c_str(), kGreen, ImVec2(170, 34))) {
             m_busy = true;
             Online::request("buy", {{"id", it.id}}, [this, wearIt](const json& r) {
@@ -529,6 +494,14 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
     float fieldW = std::min(360.0f, ImGui::GetContentRegionAvail().x - 110);
 
     ImGui::SeparatorText(("Upload a new " + std::string(Online::kindTitle(kind))).c_str());
+    if (kind == "hat" && !verified) {
+        // Hats are for Verified creators; shirts and pants are open to everyone.
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(0.75f, 0.35f, 0.1f, 1), "Only Verified creators can make hats.");
+        ImGui::TextDisabled("You can still make shirts and pants! Get Verified to make hats too.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
     ImGui::BeginGroup();
     ImGui::SetNextItemWidth(fieldW);
     ImGui::InputTextWithHint("Name", "Give it a name", &m_createName);
@@ -542,6 +515,30 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
         }
         ImGui::SetNextItemWidth(fieldW);
         ImGui::ColorEdit3("Colour", &m_createColor.x);
+        if (kind != "hat") {
+            // Optional: a picture painted on the clothing template.
+            bool browse = FileDialog::available();
+            ImGui::SetNextItemWidth(browse ? fieldW - 90 : fieldW);
+            ImGui::InputTextWithHint("##cloth", "(optional) C:/pictures/my_shirt.png", &m_createPath);
+            if (browse) {
+                ImGui::SameLine();
+                if (ImGui::Button("Browse...", ImVec2(82, 0))) {
+                    std::string picked = FileDialog::openImage("Pick your clothing picture");
+                    if (!picked.empty()) m_createPath = picked;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Picture");
+            ImGui::TextDisabled("A 585 x 559 .png painted on the template. See-through bits show the colour above.");
+            if (ImGui::SmallButton(kind == "shirt" ? "Save the shirt template" : "Save the pants template")) {
+                std::filesystem::path out = Paths::downloadsFolder() / (kind + "_template.png");
+                std::ofstream f(out, std::ios::binary);
+                if (kind == "shirt") f.write(reinterpret_cast<const char*>(kShirtTemplate), (std::streamsize)kShirtTemplateSize);
+                else f.write(reinterpret_cast<const char*>(kPantsTemplate), (std::streamsize)kPantsTemplateSize);
+                m_createMsg = f ? "Saved the template to " + out.string() + ". Paint over the boxes, then pick it above."
+                                : std::string("Couldn't save the template.");
+            }
+        }
     } else {
         const char* hint = kind == "decal" ? "C:/pictures/logo.png" : kind == "audio" ? "C:/music/song.mp3" : "C:/plugins/myplugin.lua";
         bool browse = FileDialog::available();
@@ -565,7 +562,10 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
                           : kind == "audio" ? "An .mp3, .wav, .ogg or .flac file (up to 6 MB)."
                                             : "A Lua plugin for Studio (see the README for how plugins work).");
     }
-    if (verified) {
+    const bool canPrice = verified && !Online::alwaysFree(kind);
+    if (Online::alwaysFree(kind)) {
+        ImGui::TextDisabled("%s are always free: anyone can use them in their games.", kind == "decal" ? "Decals" : "Sounds");
+    } else if (canPrice) {
         ImGui::SetNextItemWidth(fieldW);
         if (ImGui::InputInt("Price (Bolts)", &m_createPrice, 5, 50)) m_createPrice = std::clamp(m_createPrice, 0, 1000000);
         ImGui::TextDisabled("0 = free. You get %d%% of every sale.", Online::kCreatorSharePercent);
@@ -604,13 +604,19 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
     std::string label = fee > 0 ? "Upload for " + std::to_string(fee) + " Bolts" : std::string("Upload (free)");
     ImGui::BeginDisabled(m_busy);
     if (Classic::button(m_busy ? "Uploading..." : label.c_str(), Classic::kPlay, ImVec2(200, 34))) {
-        json args = {{"kind", kind}, {"name", m_createName}, {"description", m_createDesc}, {"price", verified ? m_createPrice : 0}};
+        json args = {{"kind", kind}, {"name", m_createName}, {"description", m_createDesc}, {"price", canPrice ? m_createPrice : 0}};
         bool ok = true;
         if (clothing) {
             args["meta"] = {{"color", {(int)std::lround(m_createColor.r * 255), (int)std::lround(m_createColor.g * 255),
                                        (int)std::lround(m_createColor.b * 255)}}};
             if (kind == "hat") args["meta"]["style"] = m_createStyle;
             args["data"] = "";
+            std::string path = cleanPath(m_createPath);
+            if (kind != "hat" && !path.empty()) {   // the template picture
+                std::error_code ec;
+                if (!std::filesystem::is_regular_file(path, ec)) { m_createMsg = "Couldn't open that picture. Check the path."; ok = false; }
+                else args["data"] = Online::base64Encode(readWholeFile(path));
+            }
         } else {
             std::string path = cleanPath(m_createPath);
             std::error_code ec;
@@ -732,10 +738,7 @@ void PlayerApp::drawCreate() {
         ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("Uploading needs a Guts&Bolts server, so everyone can see what you make.");
         ImGui::PopTextWrapPos();
-        if (Classic::button("Pick a server", Classic::kBlue, ImVec2(160, 30))) {
-            m_serverInput = Online::serverAddress();
-            m_showServer = true;
-        }
+        if (Classic::button("Try again", Classic::kBlue, ImVec2(160, 30))) Online::connect();
         return;
     }
     const bool verified = Online::verified();
@@ -814,6 +817,7 @@ void PlayerApp::drawOnlineGameDialog() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(520), 0));
     if (!ImGui::BeginPopupModal("Game##online", nullptr, ImGuiWindowFlags_NoResize)) return;
+    if (tappedOutside()) m_openOnlineGame = -1;
     if (m_openOnlineGame < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
     const json g = m_onlineGames[m_openOnlineGame];
     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1010,8 +1014,34 @@ void PlayerApp::drawOnlineStaff() {
                     Online::request("admin.giveBolts", {{"to", id}, {"amount", m_giveServerBolts}}, updateRow);
                 ImGui::SameLine();
                 bool banned = u.value("banned", false);
-                if (ImGui::SmallButton(banned ? "Unban" : "Ban"))
-                    Online::request("admin.ban", {{"to", id}, {"on", !banned}}, updateRow);
+                if (ImGui::SmallButton(banned ? "Unban" : "Ban")) {
+                    if (banned) Online::request("admin.ban", {{"to", id}, {"on", false}}, updateRow);
+                    else {   // pick why first (they'll see the reason)
+                        m_banTarget = id;
+                        m_banTargetName = u.value("name", std::string());
+                        m_banReason = 0;
+                        m_banNote.clear();
+                        ImGui::OpenPopup("Ban account");
+                    }
+                }
+                if (ImGui::BeginPopupModal("Ban account", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    if (tappedOutside()) ImGui::CloseCurrentPopup();
+                    ImGui::Text("Ban %s?", m_banTargetName.c_str());
+                    ImGui::TextDisabled("Pick why. They'll see this reason.");
+                    for (int i = 0; i < (int)std::size(Online::kBanReasons); ++i)
+                        ImGui::RadioButton(Online::kBanReasons[i].title, &m_banReason, i);
+                    ImGui::SetNextItemWidth(320);
+                    ImGui::InputTextWithHint("##banNote", "Note for them (optional)", &m_banNote);
+                    if (Classic::button("Ban", ImVec4(0.75f, 0.25f, 0.25f, 1))) {
+                        Online::request("admin.ban", {{"to", m_banTarget}, {"on", true},
+                                                      {"reason", Online::kBanReasons[m_banReason].key},
+                                                      {"note", m_banNote}}, updateRow);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (Classic::button("Cancel", Classic::kBlue)) ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
             }
         }
         ImGui::PopID();

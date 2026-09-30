@@ -9,7 +9,7 @@
 // ones signed by the official staff account show up, so only staff can add them.
 namespace Catalog {
 
-enum class Type { Hat, Shirt, Pants, Count };
+enum class Type { Hat, Shirt, Pants, Hair, FaceAcc, Neck, Shoulder, Waist, Face, Count };
 const char* typeName(Type t);
 
 struct Item {
@@ -19,6 +19,9 @@ struct Item {
     Type        type  = Type::Hat;
     HatStyle    hat   = HatStyle::Cap;     // hats only
     glm::vec3   color = glm::vec3(1.0f);
+    std::string image;                     // shirts / pants / faces: "gb:<id>" when it has a picture
+    std::string model;                     // accessories made in Studio: "gb:<id>" (the placed model)
+    std::string kind;                      // the server's kind: "hat", "hair", "faceacc", "neck", ...
     long long   created = 0;               // unix time
     long long   price = 0;                 // in Bolts; 0 = free
     std::string signature;
