@@ -447,7 +447,7 @@ export class GbServerObject extends DurableObject {
     const c = this.users.get(a.creator);
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
-      creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), thumb: a.thumb || 0,
+      creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
       icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
       badges: a.kind === 'game' ? (a.badges || []) : undefined,
       genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,

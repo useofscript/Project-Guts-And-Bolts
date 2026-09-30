@@ -58,6 +58,15 @@
 - The website's Create page has a **Library** tab (all public models, decals,
   audio and plugins) and a **Models** tab to switch yours public or private.
 
+**A Toolbox like Roblox's**
+- Marketplace / Inventory / Recent tabs, a category menu with a search box, and
+  a grid of pictures with blue names.
+- Every model and asset has a picture. Studio photographs objects on their own
+  (on a plain background) when you publish them, and takes one itself for any
+  older model that has none. Parts and ready-made objects have pictures too.
+- A gold **official** badge marks things made by Guts&Bolts staff (in Studio
+  and on the website), so you know they're safe to use.
+
 **Accessories and faces**
 - New accessory types: **hair**, **face**, **neck**, **shoulder** and
   **waist**, next to hats. They have their own tabs in the catalog.

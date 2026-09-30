@@ -19,6 +19,8 @@ class OutlinerPanel;
 class PropertiesPanel;
 class EnvironmentPanel;
 class ToolboxPanel;
+struct ToolboxTile;
+class Thumbnailer;
 class PlayerPanel;
 class OutputPanel;
 class ScriptEditorPanel;
@@ -93,7 +95,10 @@ private:
     void       renderPublishDialog();
     void       renderMarketplace();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
-    void       drawToolboxLibrary();         // the Toolbox's Library section
+    // The Toolbox's Library tiles (everyone's public models, decals and audio, or your own).
+    std::vector<ToolboxTile> libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status);
+    unsigned   libraryPicture(const nlohmann::json& asset);
+    void       useLibraryAsset(const nlohmann::json& asset);
     void       renderAccessoryWindow();      // AVATAR > Accessories (Verified creators)
     void       renderPluginsTab();
     void       insertObject(const std::string& what, SceneNode* parent);
@@ -133,6 +138,7 @@ private:
     std::unique_ptr<PropertiesPanel>   m_properties;
     std::unique_ptr<EnvironmentPanel>  m_environment;
     std::unique_ptr<ToolboxPanel>      m_toolbox;
+    std::unique_ptr<Thumbnailer>       m_thumbnailer;   // pictures of objects on their own
     std::unique_ptr<PlayerPanel>       m_player;
     std::unique_ptr<AssistantPanel>    m_assistant;   // AI chat + MCP for outside AI apps
     std::unique_ptr<OutputPanel>       m_output;
@@ -154,6 +160,8 @@ private:
     std::string m_accessoryName, m_accessoryDesc, m_accessoryMsg;
     nlohmann::json m_library = nlohmann::json::array();
     std::map<std::string, std::string> m_libraryThumbs;   // asset id -> picture file ("" = still coming)
+    std::string m_libraryKey;                              // what m_library holds (mine/all, kind, search)
+    std::vector<nlohmann::json> m_thumbJobs;               // downloaded models waiting for a picture
     nlohmann::json m_marketPlugins = nlohmann::json::array(), m_marketAudio = nlohmann::json::array();
     bool        m_openTeam = false;
     std::string m_teamAddress;

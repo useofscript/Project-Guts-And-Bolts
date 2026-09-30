@@ -82,7 +82,14 @@ The panels:
   Roblox's search words: `c:Script` (kind of object), `is:Script`, `tag:Enemy`,
   `name:Door`, property checks like `Anchored=false` or `Transparency>0.5`, and
   `or` to match either side.
-- **Toolbox**: parts, scripts, lights and **ready-made** objects that already
+- **Toolbox** (laid out like Roblox's): **Marketplace** (everyone's public
+  models, decals and audio, plus Studio's own parts and ready-made objects),
+  **Inventory** (your own uploads, private ones too) and **Recent** (what you
+  inserted lately). Pick a category, search, and click a picture to insert it.
+  Every item has a picture: Studio photographs models on their own, and
+  things made by Guts&Bolts staff (and Studio's built-in objects) carry a gold
+  **official** badge, so you know they're safe to use. It has
+  parts, scripts, lights and **ready-made** objects that already
   contain scripts: kill brick, coin, jump pad, spinner, moving and fading
   platforms, speed pad, click button, lamp post, disco floor, landmine, saw
   blade, spike trap, exploding barrel and a day/night cycle. There are also
@@ -939,8 +946,9 @@ count). Studio takes a picture of the model for its thumbnail.
 
 Find things in two places:
 
-- **Studio's Toolbox > Library:** everyone's public models, decals and audio,
-  with pictures and a search box. Click a model to insert it, a decal to put
+- **Studio's Toolbox > Marketplace:** everyone's public models, decals and
+  audio, with pictures and a search box (your own are under **Inventory**).
+  Models uploaded without a picture get one taken when someone views them. Click a model to insert it, a decal to put
   it on the selected part, or a sound to add it.
 - **The website's Create > Library tab:** all public models, decals, audio and
   plugins. **Create > Models** lists yours with a Public / Private switch.

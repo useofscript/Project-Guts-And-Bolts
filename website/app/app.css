@@ -280,6 +280,8 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 
 /* Limiteds, resale and trades */
 .card.square { position: relative; }
+.card.square .pic, .pic-wrap { position: relative; }
+.official-badge { position: absolute; right: 6px; bottom: 6px; line-height: 0; filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
 .limited-tag { position: absolute; left: 6px; top: 6px; background: #1a7f37; color: #fff; font-weight: bold; font-size: 10px;
   padding: 2px 6px; border-radius: 3px; letter-spacing: 1px; }
 .limited-line { font-size: 13px; }

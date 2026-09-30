@@ -15,6 +15,7 @@
 #include "panels/PropertiesPanel.h"
 #include "panels/EnvironmentPanel.h"
 #include "panels/ToolboxPanel.h"
+#include "Thumbnailer.h"
 #include "panels/PlayerPanel.h"
 #include "panels/AssistantPanel.h"
 #include "panels/OutputPanel.h"
@@ -96,7 +97,13 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
         connectParts(m_state.connectTool, a, pa, b, pb);
     };
     actions.spawnPremade = [this](Premade p) { spawnPremade(p); };
-    actions.drawLibrary  = [this] { drawToolboxLibrary(); };
+    m_thumbnailer = std::make_unique<Thumbnailer>();
+    actions.thumbnail = [this](const std::string& key, const std::function<void(Scene&)>& build) {
+        return m_thumbnailer->texture(key, build);
+    };
+    actions.library = [this](bool mine, int kind, const std::string& query, bool reload, std::string& status) {
+        return libraryTiles(mine, kind, query, reload, status);
+    };
     m_toolbox = std::make_unique<ToolboxPanel>(actions);
 
     resetHistory();
@@ -143,7 +150,7 @@ void Editor::render(float dt) {
     if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
     if (m_showPanel[kPanelProperties]) m_properties->render();
     if (m_showPanel[kPanelLighting])   m_environment->render();
-    if (m_showPanel[kPanelToolbox])    m_toolbox->render();
+    if (m_showPanel[kPanelToolbox])    { m_thumbnailer->newFrame(); m_toolbox->render(); }
     if (m_showPanel[kPanelPlayer])     m_player->render();
     if (m_showPanel[kPanelOutput])     m_output->render();
     if (m_showPanel[kPanelScript])     m_scriptEditor->render();

@@ -246,10 +246,18 @@ function upgradeItemPictures() {
   });
 }
 
+// The gold badge on things made by Guts&Bolts staff: official, safe to use (like Roblox's).
+function officialBadge(a) {
+  if (!a.creatorStaff) return '';
+  return raw(`<span class="official-badge" title="Official: made by Guts&amp;Bolts staff, safe to use"><svg viewBox="0 0 24 26" width="24" height="26" aria-label="Official">
+    <path d="M1 1 H23 V14 L12 25 L1 14 Z" fill="#f5ac26" stroke="#fff" stroke-width="2"/>
+    <circle cx="8.5" cy="8" r="3" fill="#fff"/><path d="M16 4 L20 11 L12 11 Z" fill="#fff"/><rect x="10" y="12.5" width="5.5" height="5.5" fill="#fff"/></svg></span>`);
+}
+
 function itemCard(a) {
   items3d.set(a.id, a);
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic" data-item3d="${a.id}">${itemIcon(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
+    <div class="pic-wrap"><div class="pic" data-item3d="${a.id}">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
     <div class="name">${a.name}</div>
     <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
       : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
@@ -475,13 +483,13 @@ async function libraryPage(head) {
   const card = (a) => html`<div class="card square lib-card">
       <div class="pic">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
         : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
-        : html`<span class="lib-kind">${KINDS[a.kind] || a.kind}</span>`}</div>
+        : html`<span class="lib-kind">${KINDS[a.kind] || a.kind}</span>`}${officialBadge(a)}</div>
       <div class="name">${a.name}</div>
       <div class="by">by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
       <div class="by small"><button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button></div></div>`;
   show(html`${head}
-    <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> and look under
-      <b>Library</b>, or copy an ID into a Decal's Texture / a Sound's File.</p>
+    <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> (the
+      <b>Marketplace</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
     <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
     <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>

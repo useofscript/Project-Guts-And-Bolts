@@ -424,6 +424,7 @@ set(EDITOR_SOURCES
     src/editor/panels/ViewportModeling.cpp
     src/editor/EditorModes.cpp
     src/editor/EditorOnline.cpp
+    src/editor/Thumbnailer.cpp
     src/editor/Plugins.cpp
     src/editor/Premades.cpp
     src/editor/TeamCreate.cpp

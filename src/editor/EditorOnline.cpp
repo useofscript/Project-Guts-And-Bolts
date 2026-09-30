@@ -3,6 +3,8 @@
 #include "Editor.h"
 #include "panels/ViewportPanel.h"
 #include "Plugins.h"
+#include "Thumbnailer.h"
+#include "panels/ToolboxPanel.h"
 #include "../core/Account.h"
 #include "../core/Audio.h"
 #include "../core/Log.h"
@@ -365,18 +367,9 @@ void Editor::renderPublishModelDialog() {
         if (ImGui::Button("Publish", ImVec2(140, 30))) {
             // The objects, and a picture framed on them for the Library.
             json nodes = json::array();
-            glm::vec3 lo(1e9f), hi(-1e9f);
-            for (SceneNode* n : items) {
-                nodes.push_back(json::parse(Serializer::nodeToString(*n)));
-                std::vector<SceneNode*> stack{n};
-                while (!stack.empty()) {
-                    SceneNode* c = stack.back(); stack.pop_back();
-                    if (c->isPart()) { AABB b = Physics::worldBounds(c); lo = glm::min(lo, b.min); hi = glm::max(hi, b.max); }
-                    for (auto& k : c->children) stack.push_back(k.get());
-                }
-            }
-            if (lo.x > hi.x) { lo = glm::vec3(-1.0f); hi = glm::vec3(1.0f); }
-            std::string picture = m_viewport->snapshotAround(256, 256, (lo + hi) * 0.5f, glm::length(hi - lo) * 0.5f);
+            for (SceneNode* n : items) nodes.push_back(json::parse(Serializer::nodeToString(*n)));
+            // A picture of just these objects (not the map around them) for the Library.
+            std::string picture = m_thumbnailer->png(std::vector<const SceneNode*>(items.begin(), items.end()), 256);
             json model = {{"format", "gbmodel"}, {"version", 1}, {"nodes", nodes}};
             json args = {{"kind", "model"}, {"name", m_modelName}, {"description", m_modelDesc},
                          {"access", m_modelPublic ? "public" : "private"}, {"data", Online::base64Encode(model.dump())}};
@@ -404,99 +397,128 @@ void Editor::renderPublishModelDialog() {
 // The Toolbox's Library: everyone's public models, decals and audio, with pictures
 // ---------------------------------------------------------------------------
 
-void Editor::drawToolboxLibrary() {
-    if (!Online::online()) { ImGui::TextDisabled("Connecting to the Library..."); return; }
+std::vector<ToolboxTile> Editor::libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status) {
     static const char* kinds[] = {"model", "decal", "audio"};
-    static const char* labels[] = {"Models", "Decals", "Audio"};
-    auto load = [this]() {
+    std::vector<ToolboxTile> out;
+    kind = std::clamp(kind, 0, 2);
+    if (!Online::online()) { status = "Connecting to the Library..."; return out; }
+    const std::string myId = Online::me().value("id", std::string());
+    if (mine && myId.empty()) { status = "Log in to see your own models, decals and audio."; return out; }
+    std::string key = std::string(mine ? "mine:" : "all:") + kinds[kind] + ":" + query;
+    if (reload || key != m_libraryKey || !m_libraryLoaded) {
+        m_libraryKey = key;
         m_libraryLoaded = true;
-        Online::request("list", {{"kind", kinds[m_libraryKind]}, {"query", m_libraryQuery}, {"sort", "popular"}, {"limit", 60}},
-                        [this](const json& r) { if (r.value("ok", false)) m_library = r["assets"]; });
-    };
-    for (int i = 0; i < 3; ++i) {
-        if (i) ImGui::SameLine();
-        if (ImGui::RadioButton(labels[i], m_libraryKind == i)) { m_libraryKind = i; m_library = json::array(); load(); }
+        m_library = json::array();
+        m_libraryMsg = "Loading...";
+        json args = {{"kind", kinds[kind]}, {"query", query}, {"limit", 60}};
+        if (mine) args["creator"] = myId;
+        else args["sort"] = "popular";
+        Online::request("list", args, [this, key](const json& r) {
+            if (key != m_libraryKey) return;   // an older search
+            if (r.value("ok", false)) { m_library = r["assets"]; m_libraryMsg.clear(); }
+            else m_libraryMsg = r.value("error", std::string("The Library didn't load."));
+        });
     }
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::InputTextWithHint("##libq", "Search the Library", &m_libraryQuery, ImGuiInputTextFlags_EnterReturnsTrue)) load();
-    if (!m_libraryLoaded) load();
-    if (!m_libraryMsg.empty()) ImGui::TextWrapped("%s", m_libraryMsg.c_str());
-    if (m_library.empty()) { ImGui::TextDisabled("Nothing here yet."); return; }
+    status = m_libraryMsg;
 
-    // A picture for each: models have a snapshot, decals are pictures themselves.
-    auto thumbFor = [this](const json& a) -> unsigned {
-        std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
-        auto it = m_libraryThumbs.find(id);
-        if (it == m_libraryThumbs.end()) {
-            m_libraryThumbs[id] = "";
-            if (kind == "decal") {
-                Online::download(id, [this, id](bool ok, const std::filesystem::path& f, const json&) { if (ok) m_libraryThumbs[id] = f.string(); });
-            } else if (kind == "model" && a.value("thumb", 0LL) > 0) {
-                Online::request("thumb.get", {{"id", id}}, [this, id](const json& r) {
-                    std::string bytes;
-                    if (!r.value("ok", false) || !Online::base64Decode(r.value("data", std::string()), bytes) || bytes.empty()) return;
-                    std::filesystem::path f = Paths::downloadsFolder() / ("thumb-" + id + ".png");
-                    std::ofstream(f, std::ios::binary).write(bytes.data(), (std::streamsize)bytes.size());
-                    m_libraryThumbs[id] = f.string();
-                });
-            }
-            return 0;
+    // One downloaded model a frame gets its picture taken (older uploads have none).
+    if (!m_thumbJobs.empty()) {
+        json job = m_thumbJobs.front();
+        m_thumbJobs.erase(m_thumbJobs.begin());
+        std::ifstream in(job.value("file", std::string()), std::ios::binary);
+        std::stringstream ss; ss << in.rdbuf();
+        json model = json::parse(ss.str(), nullptr, false);
+        std::string id = job.value("id", std::string());
+        if (model.is_object() && model.contains("nodes")) {
+            std::string png = m_thumbnailer->png([&](Scene& scene) {
+                for (const json& nj : model["nodes"])
+                    if (auto n = Serializer::nodeFromString(nj.dump(), true)) scene.insert(std::move(n));
+            }, 256);
+            std::filesystem::path f = Paths::downloadsFolder() / ("thumb-" + id + ".png");
+            std::ofstream(f, std::ios::binary).write(png.data(), (std::streamsize)png.size());
+            m_libraryThumbs[id] = f.string();
+            // Your own (or, for staff, anyone's): the website and everyone else get the picture too.
+            if (job.value("creator", std::string()) == myId || Online::staff())
+                Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(png)}}, nullptr, 60);
         }
-        return it->second.empty() ? 0 : Textures::get(it->second);
-    };
-
-    const float cell = 76.0f;
-    const int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 6) / (cell + 6)));
-    for (size_t i = 0; i < m_library.size(); ++i) {
-        const json a = m_library[i];
-        std::string id = a.value("id", std::string()), name = a.value("name", std::string()), kind = a.value("kind", std::string());
-        ImGui::PushID((int)i);
-        if (i % perRow) ImGui::SameLine(0, 6);
-        ImGui::BeginGroup();
-        unsigned tex = thumbFor(a);
-        bool clicked;
-        if (tex) clicked = ImGui::ImageButton("##t", (ImTextureID)(intptr_t)tex, ImVec2(cell - 8, cell - 8), ImVec2(0, 1), ImVec2(1, 0));   // pictures load bottom row first
-        else clicked = ImGui::Button(kind == "audio" ? "Sound" : kind == "decal" ? "Decal" : "Model", ImVec2(cell, cell));
-        std::string shortName = name.size() > 11 ? name.substr(0, 10) + "..." : name;
-        ImGui::TextDisabled("%s", shortName.c_str());
-        ImGui::EndGroup();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\nby %s\n%s", name.c_str(), a.value("creatorName", std::string("?")).c_str(),
-                              kind == "model" ? "Click to insert" : kind == "decal" ? "Click to put on the selected part" : "Click to add a Sound");
-        if (clicked) {
-            if (kind == "model") {
-                m_libraryMsg = "Getting " + name + "...";
-                Online::download(id, [this, name](bool ok, const std::filesystem::path& f, const json& info) {
-                    if (!ok) { m_libraryMsg = info.value("error", std::string("Download failed.")); return; }
-                    std::ifstream in(f, std::ios::binary);
-                    std::stringstream ss; ss << in.rdbuf();
-                    json model = json::parse(ss.str(), nullptr, false);
-                    if (!model.is_object() || !model.contains("nodes")) { m_libraryMsg = "That model looks broken."; return; }
-                    m_scene->deselect();
-                    for (const json& nj : model["nodes"]) {
-                        auto n = Serializer::nodeFromString(nj.dump(), true);
-                        if (n) m_scene->addToSelection(m_scene->insert(std::move(n), m_scene->root()));
-                    }
-                    m_libraryMsg = "Inserted " + name + ".";
-                    Online::fetchSounds(*m_scene);   // its decals and sounds
-                });
-            } else {
-                Online::download(id);
-                SceneNode* parent = m_scene->selected();
-                if (parent && !parent->isPart()) parent = nullptr;
-                if (kind == "decal" && !parent) { m_libraryMsg = "Select a part first, then click the decal."; }
-                else {
-                    auto n = std::make_unique<SceneNode>(name.empty() ? (kind == "decal" ? "Decal" : "Sound") : name,
-                                                         kind == "decal" ? NodeKind::Decal : NodeKind::Sound);
-                    if (kind == "decal") n->texture = "gb:" + id;
-                    else n->soundId = "gb:" + id;
-                    m_scene->insert(std::move(n), parent);
-                    m_libraryMsg = "Added " + name + ".";
-                }
-            }
-        }
-        ImGui::PopID();
     }
+
+    for (const json& a : m_library) {
+        ToolboxTile t;
+        std::string k = a.value("kind", std::string());
+        t.key = "gb:" + a.value("id", std::string());
+        t.name = a.value("name", std::string("?"));
+        t.creator = a.value("creatorName", std::string("?"));
+        t.official = a.value("creatorStaff", false);
+        t.icon = k == "decal" ? Icons::Id::Decal : k == "audio" ? Icons::Id::Sound : Icons::Id::Model;
+        std::string access = a.value("access", std::string("public"));
+        t.tip = k == "model" ? "Click to insert it." : k == "decal" ? "Click to put it on the selected part."
+                                                              : "Click to add it as a Sound.";
+        if (mine && access == "private") t.tip += "\n(Private: only you can see it.)";
+        t.picture = [this, a]() { return libraryPicture(a); };
+        t.use = [this, a]() { useLibraryAsset(a); };
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
+// A picture for a Library item: models have a snapshot (or get one made here),
+// decals are pictures themselves, and sounds show a speaker.
+unsigned Editor::libraryPicture(const json& a) {
+    std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
+    auto it = m_libraryThumbs.find(id);
+    if (it != m_libraryThumbs.end()) return it->second.empty() ? 0 : Textures::get(it->second);
+    m_libraryThumbs[id] = "";
+    if (kind == "decal") {
+        Online::download(id, [this, id](bool ok, const std::filesystem::path& f, const json&) { if (ok) m_libraryThumbs[id] = f.string(); });
+    } else if (kind == "model" && a.value("thumb", 0LL) > 0) {
+        Online::request("thumb.get", {{"id", id}}, [this, id](const json& r) {
+            std::string bytes;
+            if (!r.value("ok", false) || !Online::base64Decode(r.value("data", std::string()), bytes) || bytes.empty()) return;
+            std::filesystem::path f = Paths::downloadsFolder() / ("thumb-" + id + ".png");
+            std::ofstream(f, std::ios::binary).write(bytes.data(), (std::streamsize)bytes.size());
+            m_libraryThumbs[id] = f.string();
+        });
+    } else if (kind == "model") {
+        // No picture yet: get the model and take one.
+        std::string creator = a.value("creator", std::string());
+        Online::download(id, [this, id, creator](bool ok, const std::filesystem::path& f, const json&) {
+            if (ok) m_thumbJobs.push_back({{"id", id}, {"file", f.string()}, {"creator", creator}});
+        });
+    }
+    return 0;
+}
+
+void Editor::useLibraryAsset(const json& a) {
+    std::string id = a.value("id", std::string()), name = a.value("name", std::string()), kind = a.value("kind", std::string());
+    if (kind == "model") {
+        m_libraryMsg = "Getting " + name + "...";
+        Online::download(id, [this, name](bool ok, const std::filesystem::path& f, const json& info) {
+            if (!ok) { m_libraryMsg = info.value("error", std::string("Download failed.")); return; }
+            std::ifstream in(f, std::ios::binary);
+            std::stringstream ss; ss << in.rdbuf();
+            json model = json::parse(ss.str(), nullptr, false);
+            if (!model.is_object() || !model.contains("nodes")) { m_libraryMsg = "That model looks broken."; return; }
+            m_scene->deselect();
+            for (const json& nj : model["nodes"]) {
+                auto n = Serializer::nodeFromString(nj.dump(), true);
+                if (n) m_scene->addToSelection(m_scene->insert(std::move(n), m_scene->root()));
+            }
+            m_libraryMsg = "Inserted " + name + ".";
+            Online::fetchSounds(*m_scene);   // its decals and sounds
+        });
+        return;
+    }
+    Online::download(id);
+    SceneNode* parent = m_scene->selected();
+    if (parent && !parent->isPart()) parent = nullptr;
+    if (kind == "decal" && !parent) { m_libraryMsg = "Select a part first, then click the decal."; return; }
+    auto n = std::make_unique<SceneNode>(name.empty() ? (kind == "decal" ? "Decal" : "Sound") : name,
+                                         kind == "decal" ? NodeKind::Decal : NodeKind::Sound);
+    if (kind == "decal") n->texture = "gb:" + id;
+    else n->soundId = "gb:" + id;
+    m_scene->insert(std::move(n), parent);
+    m_libraryMsg = "Added " + name + ".";
 }
 
 // ---------------------------------------------------------------------------
@@ -658,15 +680,8 @@ void Editor::renderAccessoryWindow() {
             node["rot"] = place["rotation"];
             node["size"] = place["scale"];
             json acc = {{"format", "gbaccessory"}, {"version", 1}, {"kind", place.value("kind", std::string("hat"))}, {"node", node}};
-            // A picture of it on the mannequin for the catalog.
-            glm::vec3 lo(1e9f), hi(-1e9f);
-            std::vector<SceneNode*> stack{model};
-            while (!stack.empty()) {
-                SceneNode* c = stack.back(); stack.pop_back();
-                if (c->isPart()) { AABB b = Physics::worldBounds(c); lo = glm::min(lo, b.min); hi = glm::max(hi, b.max); }
-                for (auto& k : c->children) stack.push_back(k.get());
-            }
-            std::string picture = lo.x <= hi.x ? m_viewport->snapshotAround(256, 256, (lo + hi) * 0.5f, std::max(0.8f, glm::length(hi - lo) * 0.6f)) : "";
+            // A picture of just the accessory for the catalog.
+            std::string picture = m_thumbnailer->png({model}, 256);
             std::string name = m_accessoryName.empty() ? model->name : m_accessoryName;
             json args = {{"kind", acc["kind"]}, {"name", name}, {"description", m_accessoryDesc}, {"price", m_accessoryPrice},
                          {"data", Online::base64Encode(acc.dump())}};

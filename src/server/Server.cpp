@@ -224,6 +224,7 @@ json GbServer::publicAsset(const Asset& a) const {
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
+    j["creatorStaff"] = it != m_users.end() && isStaff(it->second);
     return j;
 }
 
