@@ -16,6 +16,21 @@
 - Things the liquid runs over stay wet (slippery) for a while. Stray drops
   dry up after a few seconds.
 
+**Better-looking water ("Glass Lagoon")**
+- Drops are drawn as flat shapes that follow the surface, so calm water looks
+  calm, and you can see the pool floor clearly through it.
+- The water mirrors the scene around it (walls, towers, players), not just
+  the sky (Water Quality Medium and up).
+- Water sits in the shade of things that block the sun, and caustics (wobbly
+  lines of sunlight) play on the bottom of pools.
+- No more glittery sparkles on little ripples.
+
+**Updates page on the website**
+- A new **Updates** tab lists every update, newest first, each with its own
+  name. It checks for new updates by itself, and the tab says NEW when
+  there's one you haven't seen. The home page shows the latest one.
+- Staff can post updates straight from the page.
+
 **Liquid from scripts**
 - New `FluidSystem` (Color, Viscosity, SurfaceTension) and `FluidEmitter`
   (Rate, Velocity, Size, Position, FluidSystem, Enabled) objects, from
