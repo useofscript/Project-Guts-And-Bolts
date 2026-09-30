@@ -207,13 +207,16 @@ void SceneRenderer::ensureTargets(int w, int h) {
     }
 }
 
-void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) {
-    m_shadow.bindForWrite();
+void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target) {
+    target.bindForWrite();
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
-    // Cull front faces while filling the shadow map to reduce surface acne.
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_FRONT);
+    // Every face goes in (not just the back ones: then a box standing on the ground
+    // shadows it right up to its edge, with no light leaking under it). Acne is kept
+    // away by pushing the depths back a little, more on steep faces (slope-scaled).
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.25f, 2.0f);
 
     m_depth->bind();
     m_depth->setMat4("uLightSpace", lightSpace);
@@ -225,8 +228,8 @@ void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace) 
         node->mesh->draw();
     });
 
-    glDisable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(0.0f, 0.0f);
     glEnable(GL_BLEND);
 }
 
@@ -240,6 +243,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     ensureTargets(w, h);
     if (m_shadowRes != gs.shadowRes) {
         m_shadow.init(gs.shadowRes);
+        m_shadowNear.init(gs.shadowRes);
         m_shadowRes = gs.shadowRes;
     }
 
@@ -257,7 +261,20 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
                                       -lsCenter.z - sunDist, -lsCenter.z + sunDist);
     glm::mat4 lightSpace = lightProj * lightView0;
     bool shadows = env.shadows && env.sunElevation > -5.0f;
-    if (shadows) renderShadowPass(scene, lightSpace);
+    if (shadows) renderShadowPass(scene, lightSpace, m_shadow);
+    // The sharp one: the same, but only ~20 studs round the camera's focus.
+    const float extentNear = std::min(extent, 20.0f);
+    const float texelNear  = (2.0f * extentNear) / (float)m_shadowNear.size();
+    const bool  nearCascade = shadows && gs.shadowQuality > 0 && extentNear < extent * 0.8f;
+    glm::mat4 lightSpaceNear(1.0f);
+    if (nearCascade) {
+        glm::vec3 c = glm::vec3(lightView0 * glm::vec4(camera.pivot, 1.0f));
+        c.x = std::floor(c.x / texelNear) * texelNear;
+        c.y = std::floor(c.y / texelNear) * texelNear;
+        lightSpaceNear = glm::ortho(c.x - extentNear, c.x + extentNear, c.y - extentNear, c.y + extentNear,
+                                    -c.z - sunDist, -c.z + sunDist) * lightView0;
+        renderShadowPass(scene, lightSpaceNear, m_shadowNear);
+    }
 
     // --- Main HDR pass ---
     bindTarget(m_hdr);
@@ -344,6 +361,11 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     m_lit->setMat4("uLightSpace", lightSpace);
     m_shadow.bindForRead(0);
     m_lit->setInt("uShadowMap", 0);
+    m_lit->setBool("uNearCascade", nearCascade);
+    m_lit->setMat4("uLightSpaceNear", lightSpaceNear);
+    m_lit->setFloat("uShadowTexelNear", texelNear);
+    m_shadowNear.bindForRead(6);
+    m_lit->setInt("uShadowMapNear", 6);
 
     // Collect point / spot lights; keep the ones closest to the camera.
     struct LightItem { glm::vec4 pos, col, dir; float dist; };

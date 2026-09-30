@@ -29,7 +29,7 @@ public:
     };
 
 private:
-    void renderShadowPass(Scene& scene, const glm::mat4& lightSpace);
+    void renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target);
     void drawGeometry(Scene& scene, const Camera& camera, bool editing);
     static glm::mat4 decalMatrix(const SceneNode& decal);
     void drawConstraints(Scene& scene, bool editing);
@@ -49,7 +49,7 @@ private:
     std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidBlur, m_fluidShade, m_fluidSimple;
     Target m_fDepth, m_fTmp, m_fThick, m_sceneCopy;   // liquid: depth, blur scratch, thickness, the scene behind
     unsigned int m_fluidVao = 0, m_fluidVbo = 0;
-    ShadowMap               m_shadow;
+    ShadowMap               m_shadow, m_shadowNear;   // wide, and sharp close to the camera
     int                     m_shadowRes = 0;
 
     static constexpr int kBloomLevels = 6;

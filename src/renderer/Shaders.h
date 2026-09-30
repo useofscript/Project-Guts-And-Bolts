@@ -95,6 +95,11 @@ uniform float     uShadowTexelWorld;  // world size of one shadow-map texel
 uniform float     uShadowDepthRange;  // world distance covered by depth 0..1
 uniform mat4      uLightSpace;
 uniform sampler2D uShadowMap;
+// A second, sharper shadow map close to the camera (a "cascade").
+uniform bool      uNearCascade;
+uniform mat4      uLightSpaceNear;
+uniform sampler2D uShadowMapNear;
+uniform float     uShadowTexelNear;
 
 #define MAX_LIGHTS 32
 uniform int  uLightCount;
@@ -116,18 +121,24 @@ const vec2 POISSON[16] = vec2[](
     vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
     vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790));
 
-// 1 = lit, 0 = in shadow. Soft shadows get softer the further the shadow
-// is from whatever casts it (contact-hardening, like real sunlight).
-float sunVisibility(vec3 N, vec3 L) {
-    vec3 wp = vWorldPos + N * uShadowTexelWorld * 1.5;     // normal offset: no acne
-    vec4 lc = uLightSpace * vec4(wp, 1.0);
+// 1 = lit, 0 = in shadow, from one shadow map. Soft shadows get softer the
+// further the shadow is from whatever casts it (contact-hardening, like real
+// sunlight). `edge` says how close to the side of the map the point is (0 middle, 1 edge).
+float shadowFrom(sampler2D map, mat4 lightSpace, float texelWorld, vec3 N, vec3 L, out float edge) {
+    // Normal offset: move the lookup point off the surface a little (more on surfaces
+    // turned away from the sun), so a surface never shadows itself ("acne"). Small, so
+    // a box sitting on the ground still shadows the ground right up to its edge.
+    float NoL = clamp(dot(N, L), 0.0, 1.0);
+    vec3 wp = vWorldPos + N * texelWorld * (0.5 + 1.5 * (1.0 - NoL));
+    vec4 lc = lightSpace * vec4(wp, 1.0);
     vec3 p  = lc.xyz / lc.w * 0.5 + 0.5;
-    if (p.z > 1.0 || p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
+    edge = max(abs(p.x - 0.5), abs(p.y - 0.5)) * 2.0;
+    if (p.z > 1.0 || edge > 1.0) { edge = 2.0; return 1.0; }
 
-    float bias  = 0.0002 + 0.0006 * (1.0 - max(dot(N, L), 0.0));
-    vec2  texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    float bias  = 0.00004 + 0.0001 * (1.0 - NoL);
+    vec2  texel = 1.0 / vec2(textureSize(map, 0));
     if (uShadowQuality == 0)
-        return texture(uShadowMap, p.xy).r < p.z - bias ? 0.0 : 1.0;
+        return texture(map, p.xy).r < p.z - bias ? 0.0 : 1.0;
 
     float a = hash12(gl_FragCoord.xy) * 6.2831853;
     mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
@@ -137,25 +148,32 @@ float sunVisibility(vec3 N, vec3 L) {
         float search = 3.0 + 8.0 * uShadowSoftness;
         float sum = 0.0; int n = 0;
         for (int i = 0; i < 16; ++i) {
-            float d = texture(uShadowMap, p.xy + rot * POISSON[i] * search * texel).r;
+            float d = texture(map, p.xy + rot * POISSON[i] * search * texel).r;
             if (d < p.z - bias) { sum += d; ++n; }
         }
         if (n == 0) return 1.0;
         float dist = (p.z - sum / float(n)) * uShadowDepthRange;       // world units
-        float penumbra = dist * 0.05 * uShadowSoftness / uShadowTexelWorld;
+        float penumbra = dist * 0.05 * uShadowSoftness / texelWorld;
         radius = clamp(penumbra, 1.0, 24.0);
     }
 
     float lit = 0.0;
     for (int i = 0; i < 16; ++i) {
-        float d = texture(uShadowMap, p.xy + rot * POISSON[i] * radius * texel).r;
+        float d = texture(map, p.xy + rot * POISSON[i] * radius * texel).r;
         lit += (p.z - bias > d) ? 0.0 : 1.0;
     }
-    lit /= 16.0;
+    return lit / 16.0;
+}
 
+float sunVisibility(vec3 N, vec3 L) {
+    float edgeFar, edgeNear;
+    float far = shadowFrom(uShadowMap, uLightSpace, uShadowTexelWorld, N, L, edgeFar);
     // Fade out towards the edge of the shadow area instead of a hard cut.
-    float edge = max(abs(p.x - 0.5), abs(p.y - 0.5)) * 2.0;
-    return mix(lit, 1.0, smoothstep(0.85, 1.0, edge));
+    far = mix(far, 1.0, smoothstep(0.85, 1.0, edgeFar));
+    if (!uNearCascade) return far;
+    float near = shadowFrom(uShadowMapNear, uLightSpaceNear, uShadowTexelNear, N, L, edgeNear);
+    // Close up: the sharp map; blend into the wide one near its edge.
+    return mix(near, far, smoothstep(0.75, 0.95, edgeNear));
 }
 
 // Cook-Torrance GGX specular + Lambert diffuse.
