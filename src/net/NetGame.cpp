@@ -82,6 +82,34 @@ CharacterPose poseFrom(const json& j) {
     return pose;
 }
 
+// Seconds on a steady clock (only differences matter).
+double clockNow() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+float lerpAngle(float a, float b, float t) {
+    float d = std::fmod(b - a + 540.0f, 360.0f) - 180.0f;   // the short way round
+    return a + d * t;
+}
+Transform lerpTransform(const Transform& a, const Transform& b, float t) {
+    Transform o;
+    o.position = glm::mix(a.position, b.position, t);
+    o.rotation = {lerpAngle(a.rotation.x, b.rotation.x, t), lerpAngle(a.rotation.y, b.rotation.y, t),
+                  lerpAngle(a.rotation.z, b.rotation.z, t)};
+    o.scale = glm::mix(a.scale, b.scale, t);
+    return o;
+}
+CharacterPose lerpPose(const CharacterPose& a, const CharacterPose& b, float t) {
+    // Teleported (respawned, a script moved them): jump straight there.
+    if (glm::length(b.root.position - a.root.position) > 15.0f || a.parts.size() != b.parts.size()) return t < 0.5f ? a : b;
+    CharacterPose o = b;
+    o.root = lerpTransform(a.root, b.root, t);
+    for (size_t i = 0; i < o.parts.size(); ++i)
+        if (a.parts[i].first == b.parts[i].first) o.parts[i].second = lerpTransform(a.parts[i].second, b.parts[i].second, t);
+    return o;
+}
+
 json humanoidJson(const Humanoid& h) {
     return {{"health", h.health}, {"maxHealth", h.maxHealth}, {"walkSpeed", h.walkSpeed},
             {"jumpPower", h.jumpPower}};
@@ -185,6 +213,66 @@ std::string cleanText(std::string s, size_t max) {
 }
 
 } // namespace
+
+// ===========================================================================
+// Smooth movement of other players
+// ===========================================================================
+
+void PoseBuffer::push(double sentAt, double now, const CharacterPose& pose) {
+    if (!m_snaps.empty() && sentAt <= m_snaps.back().t) return;   // old or repeated
+    // How far our clock is ahead of theirs. The quickest message tells us best
+    // (slow ones were held up on the way); drift slowly in case clocks wander.
+    double off = now - sentAt;
+    if (!m_haveOffset || off < m_offset) { m_offset = off; m_haveOffset = true; }
+    else m_offset += (off - m_offset) * 0.01;
+    // How bumpy the connection is: how much later than the quickest this one came.
+    m_jitter = std::max(off - m_offset, m_jitter * 0.99);
+    m_snaps.push_back({sentAt, pose});
+    while (m_snaps.size() > 2 && m_snaps.front().t < sentAt - 1.0) m_snaps.erase(m_snaps.begin());
+}
+
+double PoseBuffer::delay() const { return std::clamp(m_jitter + 0.06, kDelay, kMaxDelay); }
+
+bool PoseBuffer::sample(double now, CharacterPose& out) const {
+    if (m_snaps.empty()) return false;
+    // Clock difference plus the delay, changed gently: their movement plays at most
+    // 8% faster or slower while it adjusts, which nobody notices (a jump they would).
+    const double want = m_offset + delay();
+    if (m_lastSample < 0.0 || std::abs(want - m_lag) > 1.0) m_lag = want;
+    else {
+        double step = std::clamp(now - m_lastSample, 0.0, 0.1) * 0.08;
+        m_lag = std::clamp(want, m_lag - step, m_lag + step);
+    }
+    m_lastSample = now;
+    const double target = now - m_lag;   // in the sender's time
+    if (target <= m_snaps.front().t || m_snaps.size() == 1) { out = m_snaps.front().t >= target ? m_snaps.front().pose : m_snaps.back().pose; return true; }
+    for (size_t i = 1; i < m_snaps.size(); ++i) {
+        const Snap& a = m_snaps[i - 1];
+        const Snap& b = m_snaps[i];
+        if (target <= b.t) {
+            out = lerpPose(a.pose, b.pose, (float)((target - a.t) / std::max(1e-6, b.t - a.t)));
+            return true;
+        }
+    }
+    // Past the newest pose (a late update): keep going the same way for a moment.
+    const Snap& a = m_snaps[m_snaps.size() - 2];
+    const Snap& b = m_snaps.back();
+    double ahead = std::min(target - b.t, 0.15);
+    out = lerpPose(a.pose, b.pose, (float)(1.0 + ahead / std::max(1e-6, b.t - a.t)));
+    return true;
+}
+
+// Put every other player where their buffer says they are right now.
+void showSmoothly(Scene& scene, std::unordered_map<uint64_t, PoseBuffer>& poses) {
+    const double now = clockNow();
+    for (auto it = poses.begin(); it != poses.end();) {
+        SceneNode* rig = scene.findById(it->first);
+        if (!rig) { it = poses.erase(it); continue; }   // they left
+        CharacterPose pose;
+        if (it->second.sample(now, pose)) Player::applyPose(rig, pose);
+        ++it;
+    }
+}
 
 // ===========================================================================
 // Chat
@@ -446,10 +534,11 @@ void NetServer::update(float dt) {
         if (!ok || !c.conn->alive()) { dropClient(i, "left the game"); continue; }
         ++i;
     }
+    showSmoothly(*m_scene, m_poses);
 
     m_tick += dt;
     if (m_tick >= kTickRate) {
-        m_tick = 0.0f;
+        m_tick = std::min(m_tick - kTickRate, kTickRate);   // keep an even beat (don't lose the leftover)
         sendTick();
     }
     m_chat.update(dt);
@@ -527,7 +616,8 @@ void NetServer::handle(Client& c, const std::string& text) {
     RemoteCharacter* rc = m_scene->findRemote(c.rootId);
 
     if (t == "state" && rc) {
-        if (SceneNode* rig = m_scene->findById(c.rootId)) Player::applyPose(rig, poseFrom(m.value("pose", json())));
+        if (m.contains("ts")) m_poses[c.rootId].push(m.value("ts", 0.0), clockNow(), poseFrom(m.value("pose", json())));
+        else if (SceneNode* rig = m_scene->findById(c.rootId)) Player::applyPose(rig, poseFrom(m.value("pose", json())));   // older players
         double now = m_session->scripts().time();
         // Their own damage (e.g. fall damage) counts, unless a script just changed it.
         if (now - rc->editedAt > 0.5 && m.contains("health"))
@@ -683,6 +773,7 @@ void NetServer::sendTick() {
             list.push_back(entry);
         }
         msg["chars"] = list;
+        msg["ts"] = clockNow();
         if (auto mine = m_session->scripts().leaderstats(c->name); !mine.empty()) msg["mys"] = statsJson(mine);
         c->conn->send(msg.dump());
 
@@ -767,13 +858,14 @@ void NetClient::update(float dt) {
     if (m_state == State::Joined) {
         m_tick += dt;
         if (m_tick >= kTickRate) {
-            m_tick = 0.0f;
+            m_tick = std::min(m_tick - kTickRate, kTickRate);
             if (Player* p = m_scene->player())
                 if (SceneNode* r = p->root())
-                    m_conn->send(json{{"t", "state"}, {"pose", poseJson(Player::capturePose(r))},
+                    m_conn->send(json{{"t", "state"}, {"ts", clockNow()}, {"pose", poseJson(Player::capturePose(r))},
                                       {"health", p->humanoid().health}, {"dead", p->isDead()}}.dump());
         }
     }
+    showSmoothly(*m_scene, m_poses);
     m_chat.update(dt);
 }
 
@@ -921,7 +1013,8 @@ void NetClient::handle(const std::string& text) {
                     rc.name = name;
                     m_scene->remotes().push_back(rc);
                 }
-                Player::applyPose(root, poseFrom(ch.value("pose", json())));
+                if (m.contains("ts")) m_poses[id].push(m.value("ts", 0.0), clockNow(), poseFrom(ch.value("pose", json())));
+                else Player::applyPose(root, poseFrom(ch.value("pose", json())));
             }
         }
         return;

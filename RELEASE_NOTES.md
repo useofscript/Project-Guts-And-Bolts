@@ -21,6 +21,11 @@
 - The camera follows your head. Scroll all the way in for first person: your
   character fades out as the camera gets close, and the mouse looks around.
 
+**Smooth multiplayer**
+- Other players move smoothly instead of jittering: their movement is shown a
+  tenth of a second behind, gliding between updates, and it adapts to bumpy
+  connections.
+
 **Names and whispers**
 - Players' (and NPCs') names float above their heads, with a health bar when hurt.
 - Private chat: `/w PlayerName message` or `/whisper PlayerName message`.
