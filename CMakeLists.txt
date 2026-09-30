@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.6.1 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.6.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -414,10 +414,32 @@ endif()
 # ---------------------------------------------------------------------------
 # GutsAndBolts — the editor (Studio)
 # ---------------------------------------------------------------------------
+# ufbx (.fbx and .obj) and cgltf (.gltf / .glb): importing 3D models in Studio.
+FetchContent_Declare(
+    ufbx
+    GIT_REPOSITORY https://github.com/ufbx/ufbx.git
+    GIT_TAG        v0.23.1
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(ufbx)
+FetchContent_Declare(
+    cgltf
+    GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
+    GIT_TAG        v1.15
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-build-disabled
+)
+FetchContent_MakeAvailable(cgltf)
+add_library(gb_models STATIC ${ufbx_SOURCE_DIR}/ufbx.c)
+target_include_directories(gb_models PUBLIC ${ufbx_SOURCE_DIR} ${cgltf_SOURCE_DIR})
+
 set(EDITOR_SOURCES
     src/main.cpp
     src/Application.cpp
     src/editor/Editor.cpp
+    src/editor/ModelImport.cpp
+    src/editor/EditorImport.cpp
     src/editor/AiTools.cpp
     src/editor/StudioMcp.cpp
     src/editor/panels/AssistantPanel.cpp
@@ -444,7 +466,7 @@ if(WIN32)
     list(APPEND EDITOR_SOURCES resources/app.rc)
 endif()
 add_executable(GutsAndBolts ${EDITOR_SOURCES})
-target_link_libraries(GutsAndBolts PRIVATE gb_engine)
+target_link_libraries(GutsAndBolts PRIVATE gb_engine gb_models)
 
 # ---------------------------------------------------------------------------
 # GutsAndBoltsPlayer — the platform app for finding and playing games

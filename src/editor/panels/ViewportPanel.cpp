@@ -263,6 +263,20 @@ void ViewportPanel::mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, co
     rd = glm::normalize(glm::vec3(pFar - pNear));
 }
 
+bool ViewportPanel::pointAt(ImVec2 mouse, glm::vec3& point, SceneNode*& part) {
+    part = nullptr;
+    const glm::vec2 lo(m_viewMin.x, m_viewMin.y), size(m_viewMax.x - m_viewMin.x, m_viewMax.y - m_viewMin.y);
+    if (size.x < 1.0f || size.y < 1.0f || mouse.x < lo.x || mouse.y < lo.y || mouse.x > lo.x + size.x || mouse.y > lo.y + size.y)
+        return false;
+    glm::vec3 ro, rd;
+    mouseRay({mouse.x, mouse.y}, lo, size, m_camera.view(), m_camera.projection(), ro, rd);
+    float dist = 0.0f;
+    if ((part = Physics::raycast(*m_scene, ro, rd, &dist))) { point = ro + rd * dist; return true; }
+    // Nothing there: the ground (y = 0), or in front of the camera if looking up.
+    point = rd.y < -1e-3f && ro.y > 0.0f ? ro + rd * std::min(-ro.y / rd.y, 500.0f) : m_camera.pivot;
+    return true;
+}
+
 void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                               const glm::vec2& imgMin, const glm::vec2& imgSize) {
     SceneNode* sel = m_scene->selected();

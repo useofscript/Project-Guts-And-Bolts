@@ -228,8 +228,9 @@ function gameCard(g) {
 const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
   leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
 const items3d = new Map();   // id -> item, for the pictures below
-// Shirts, pants and shape hats: the 3D mannequin can wear them.
-const drawable3d = (a) => ['shirt', 'pants'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
+// Shirts, pants, T-shirts and shape hats: the 3D mannequin can wear them (with
+// their pictures on, the way the game shows them).
+const drawable3d = (a) => ['shirt', 'pants', 'tshirt'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
 
 // Fills in <img data-thumb="id"> with the item's picture.
 function loadThumbs(root = view) {
@@ -502,7 +503,7 @@ pages.updates = async () => {
   const staffForm = me && me.staff ? html`<details class="box"><summary><b>Post an update</b> (staff)</summary>
       <form data-form="postUpdate" class="form">
         <label>Name <input type="text" name="name" maxlength="40" required placeholder="Give it a cool name, like Glass Lagoon"></label>
-        <label>Version <input type="text" name="version" maxlength="12" placeholder="0.6.1"></label>
+        <label>Version <input type="text" name="version" maxlength="12" placeholder="0.6.2"></label>
         <label>Kind <select name="tag">${['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'].map((t) => html`<option>${t}</option>`)}</select></label>
         <label>Summary <input type="text" name="summary" maxlength="200" placeholder="One line about it"></label>
         <label>What changed (one per line) <textarea name="items" rows="5"></textarea></label>

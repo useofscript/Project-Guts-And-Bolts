@@ -10,7 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'tee-time', name: 'Tee Time', version: '', time: 1790808000, tag: 'Website',
+    id: 'hotfixes-headaches-hand-grenades', name: 'Hotfixes, Headaches & Hand Grenades', version: '0.6.2', time: 1790810194, tag: 'Studio',
+    summary: 'Bring 3D models from Blender and friends into Studio, just drag files in, and catalog clothes show their real pictures.',
+    items: [
+      'Import 3D models: .fbx, .obj, .gltf, .glb, .stl and .ply, each object a mesh part in its own colour, all in one Model',
+      'Drag files from your computer straight onto Studio: models land where you drop them, pictures stick on the part under the mouse (or stand on a sign), sounds, scripts and Roblox files work too',
+      'Way too big or tiny models (like ones made in millimetres) are resized to about 10 studs',
+      'Fix: shirts, pants and T-shirts in the catalog show the real clothing on the mannequin, on the website and in the app',
+    ],
+  },
+  {
+    id: 'tee-time', name: 'Tee Time', version: '0.6.2', time: 1790808000, tag: 'Website',
     summary: 'T-shirts: put any picture on the front of your character.',
     items: [
       'New T-Shirts in the catalog: any .png or .jpg, worn flat on the front of the torso (over your shirt)',
@@ -20,7 +30,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'riptide', name: 'Riptide', version: '', time: 1790807100, tag: 'Engine',
+    id: 'riptide', name: 'Riptide', version: '0.6.2', time: 1790807100, tag: 'Engine',
     summary: 'Rivers flow around rocks, splashes leave things wet, and diving looks like diving.',
     items: [
       'Flow maps: a river\'s current splits around boulders and pillars and speeds up past them, with white water on the sides; the ripples follow it, and so do swimmers and floating things',
@@ -31,7 +41,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'steady-aim', name: 'Steady Aim', version: '', time: 1790806300, tag: 'Fix',
+    id: 'steady-aim', name: 'Steady Aim', version: '0.6.2', time: 1790806300, tag: 'Fix',
     summary: 'The camera no longer slowly tilts up by itself in Shift Lock, first person or fullscreen.',
     items: [
       'With the mouse locked, the middle of the screen was often half a pixel, and the pointer can only sit on whole pixels, so every frame looked like a tiny mouse move up',
@@ -39,7 +49,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'deep-end', name: 'The Deep End', version: '', time: 1790805900, tag: 'Engine',
+    id: 'deep-end', name: 'The Deep End', version: '0.6.2', time: 1790805900, tag: 'Engine',
     summary: 'Pools, lakes and rivers get real ocean waves, crystal-clear shallows and splashes that throw real water.',
     items: [
       'Gerstner waves: sharp crests and wide troughs, with whitecaps on big ones; floating things ride the exact waves you see',
@@ -51,7 +61,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'crisp-edges', name: 'Crisp Edges', version: '', time: 1790804476, tag: 'Fix',
+    id: 'crisp-edges', name: 'Crisp Edges', version: '0.6.2', time: 1790804476, tag: 'Fix',
     summary: 'No more flickering stripes where water touches walls.',
     items: [
       'Pools, rivers and any Water part sitting against a wall or floor no longer z-fight (the grey streaks on the walls)',

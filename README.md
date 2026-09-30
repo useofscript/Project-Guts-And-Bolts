@@ -124,6 +124,27 @@ description shown in the Player app) and **Play in Guts&BoltsPlayer**.
 **Edit** menu: Undo / Redo, Copy / Paste, Duplicate, Delete. **View >
 Settings** covers the frame rate and graphics.
 
+### 3D models, pictures and sounds (and dragging files in)
+
+**File > Import 3D Model, Picture, Sound...** (or the **Import** button on the
+HOME tab) brings in 3D models made in other programs: **.fbx**, **.obj** (with
+its .mtl colours), **.gltf / .glb**, **.stl** and **.ply**. Each object in the
+file becomes a mesh part (split by material, in that material's colour; a
+textured material gets its picture's main colour), all inside a Model named
+after the file. 1 metre is 1 stud; something far too big or too small (a model
+made in millimetres) is resized to about 10 studs, and Output says so.
+
+Or just **drag files from your computer onto Studio**. Where you let go
+matters:
+- a 3D model lands standing on the spot under the mouse;
+- a picture (.png / .jpg) becomes a Decal on the side of the part it's dropped
+  on, or a sign facing you if it lands on the ground;
+- a sound (.wav / .mp3 / .flac) becomes a Sound (inside the part it's dropped on);
+- a script (.lua / .luau) becomes a Script;
+- a Roblox model is inserted, and a game or Roblox place is opened.
+
+Drop several files at once and they're lined up side by side.
+
 ### Roblox files (.rbxl, .rbxlx, .rbxm, .rbxmx)
 
 Open a Roblox place (`.rbxl` / `.rbxlx`) and it becomes a Guts and Bolts

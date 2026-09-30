@@ -9,6 +9,7 @@
 #include "EditorState.h"
 #include "Premades.h"
 #include "../scene/SceneNode.h"
+#include <imgui.h>
 
 struct GLFWwindow;
 class Scene;
@@ -34,6 +35,11 @@ public:
     ~Editor();
     void render(float dt);
     void openFile(const std::string& path);
+    // Bring files in: 3D models, Roblox files, games, pictures, sounds and scripts
+    // (File > Import, the Import button, or dragged from the computer onto Studio).
+    // `mouse`: where they were dropped (the part under it gets pictures / sounds / scripts).
+    void importFiles(const std::vector<std::string>& paths, ImVec2 mouse, bool dropped);
+    void importDialog();                          // the computer's Open window, then importFiles
     void togglePlay();
     void runCommand(const std::string& code);   // Command Bar
     // AI helpers (Assistant tab and MCP): run one of Studio's tools (see AiTools.h).
@@ -49,6 +55,7 @@ public:
     void testMesh(const std::string& steps);    // --test-mesh "enter,face,top,extrude"
     void testAnimation(int frame);               // --test-anim
     void testCollisions();                       // --test-collide
+    void testDrop(const std::string& files);     // --test-drop "a.fbx;b.png": dropped in the middle of the 3D view
     void setMode(StudioMode mode);               // Build / Modeling / Simulate / Play
 
 private:
@@ -201,10 +208,12 @@ private:
     std::string m_shownTitle;
 
     // Dialogs
-    enum class Pending { None, New, Open };
+    enum class Pending { None, New, Open, OpenDropped };
     Pending     m_pending = Pending::None;      // waiting on "discard changes?"
     bool        m_openSaveAs = false, m_openOpen = false, m_openDiscard = false,
                 m_openInfo = false;
     std::string m_nameInput;
     std::string m_openPathInput;
+    std::string m_droppedGame;                  // a game file dropped on Studio, opened after "discard changes?"
+    SceneNode*  importModel(const std::string& path, glm::vec3 at, glm::vec3* size = nullptr);   // EditorImport.cpp
 };

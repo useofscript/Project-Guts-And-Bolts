@@ -1835,7 +1835,9 @@ export class GbServerObject extends DurableObject {
       const icon = url.pathname.startsWith('/icon/');
       const id = decodeURIComponent(url.pathname.slice(icon ? 6 : 7));
       const a = this.assets.get(id);
-      const data = a && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + id) : null;
+      let data = a && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + id) : null;
+      // Shirts and pants: their picture is the item itself (the template), for the 3D mannequins.
+      if (!data && !icon && a && (a.kind === 'shirt' || a.kind === 'pants') && a.meta && a.meta.image) data = this.readFile(a.id);
       if (!data) return new Response('No picture.', { status: 404 });
       const jpg = data[0] === 0xff && data[1] === 0xd8;
       return new Response(data, { headers: { 'content-type': jpg ? 'image/jpeg' : 'image/png', 'cache-control': 'public, max-age=86400' } });

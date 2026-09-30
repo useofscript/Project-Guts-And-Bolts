@@ -53,6 +53,10 @@ public:
     static float mouseLookY();
     static bool  mouseLocked();
 
+    // Files dragged from the computer and let go over the window, since the last
+    // call (full paths). The mouse is where they were dropped.
+    static std::vector<std::string> takeDroppedFiles();
+
 private:
 #ifdef GB_MOBILE
     SDL_Window* m_sdl = nullptr;

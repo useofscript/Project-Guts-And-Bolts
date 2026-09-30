@@ -1,6 +1,18 @@
-# Next version (not released yet): The Deep End
+# Guts&Bolts 0.6.2: Hotfixes, Headaches & Hand Grenades (September 30, 2026)
 
 ## New
+
+**Import 3D models, and drag files straight into Studio**
+- File > Import 3D Model, Picture, Sound... (and the Import button) reads
+  .fbx, .obj (+ .mtl), .gltf / .glb, .stl and .ply. Each object becomes a mesh
+  part in its material's colour, grouped in a Model; hard edges stay hard and
+  curved surfaces stay smooth. Huge or tiny models are resized to about 10
+  studs.
+- Drag files from your computer onto Studio: models land where you drop them,
+  pictures become Decals on the part under the mouse (or a sign on the
+  ground), sounds become Sounds, .lua / .luau files become Scripts, Roblox
+  models are inserted and games are opened. Several at once line up side by
+  side.
 
 **Water parts, like real water**
 - Gerstner waves (the `Waves` attribute, or `WaveScale` on a FluidVolume):
@@ -42,6 +54,8 @@
   `:ParentTo(parent)`.
 
 ## Fixed
+- Catalog pictures of shirts, pants and T-shirts show the real clothing on the
+  mannequin (on the website and in the app), not just a plain colour.
 - Water no longer flickers in stripes where it touches walls (z-fighting).
 - The camera no longer slowly looks up by itself in Shift Lock, first person
   or fullscreen.

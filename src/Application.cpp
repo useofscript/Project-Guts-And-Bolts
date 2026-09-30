@@ -141,6 +141,7 @@ void Application::run() {
         if (!m_opts.testInsert.empty() && frame == 8) m_editor->testInsert(m_opts.testInsert);
         if (!m_opts.exportRoblox.empty() && frame == 2) m_editor->testExportRoblox(m_opts.exportRoblox);
         if (!m_opts.testSnapshot.empty() && frame == 3) m_editor->testSnapshot(m_opts.testSnapshot);
+        if (!m_opts.testDrop.empty() && frame == 10) m_editor->testDrop(m_opts.testDrop);
 
         m_editor->render(dt);
 

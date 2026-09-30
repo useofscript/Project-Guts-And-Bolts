@@ -247,9 +247,10 @@ void Editor::renderToolbar() {
             if (bigButton("Part", Icons::Id::Part, false, !m_playing, "Insert a block (Ctrl+Shift+P for more shapes in the MODEL tab)"))
                 spawnPrimitive(PrimitiveType::Cube);
             if (bigButton("Object", Icons::Id::Insert, false, !m_playing, "Insert Object... (Ctrl+I)")) m_openInsert = true;
-            if (bigButton("Import", Icons::Id::Import, false, !m_playing, "Open or insert a Roblox file (.rbxl / .rbxm)")) {
-                m_pending = Pending::Open; m_openOpen = true;
-            }
+            if (bigButton("Import", Icons::Id::Import, false, !m_playing,
+                          "Import a 3D model (.fbx .obj .gltf .glb .stl .ply), picture, sound or script.\n"
+                          "Or just drag files from your computer onto Studio.\n(Roblox files: File > Import Roblox File)"))
+                importDialog();
         }
         {
             Group g("Edit");

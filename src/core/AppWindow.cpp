@@ -27,6 +27,14 @@
 #include <GLFW/glfw3native.h>
 #endif
 
+namespace { std::vector<std::string> g_dropped; }   // files dropped on the window
+
+std::vector<std::string> AppWindow::takeDroppedFiles() {
+    std::vector<std::string> out;
+    out.swap(g_dropped);
+    return out;
+}
+
 AppWindow::AppWindow(const char* title, int width, int height, const char* layoutFile) {
     GraphicsSettings::get().load();
 
@@ -91,6 +99,9 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     EditorTheme::apply();
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
+    glfwSetDropCallback(m_window, [](GLFWwindow*, int count, const char** paths) {
+        for (int i = 0; i < count; ++i) if (paths[i]) g_dropped.push_back(paths[i]);
+    });
     ImGui_ImplOpenGL3_Init("#version 410");
 
     m_lastTime = m_nextFrame = glfwGetTime();

@@ -33,6 +33,7 @@
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
 #include "../core/Paths.h"
+#include "../core/AppWindow.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtx/euler_angles.hpp>
@@ -147,6 +148,8 @@ void Editor::render(float dt) {
     buildDockspace();
     if (!m_playing) m_animEditor->update(dt, m_viewport->gizmoInUse());   // show the rig posed
     m_viewport->render(dt);
+    // Files dragged from the computer onto Studio.
+    if (auto dropped = AppWindow::takeDroppedFiles(); !dropped.empty()) importFiles(dropped, ImGui::GetMousePos(), true);
     if (m_showPanel[kPanelExplorer]) m_outliner->render();
     if (m_deferred) { auto f = std::move(m_deferred); m_deferred = nullptr; f(); }
     if (m_showPanel[kPanelProperties]) m_properties->render();
@@ -1347,6 +1350,10 @@ void Editor::renderMenuBar() {
             m_openSaveAs = true;
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Import 3D Model, Picture, Sound...")) importDialog();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("3D models (.fbx .obj .gltf .glb .stl .ply), pictures, sounds and scripts.\n"
+                              "You can also just drag files from your computer onto Studio.");
         if (ImGui::MenuItem("Import Roblox File (.rbxl / .rbxm)...")) { m_pending = Pending::Open; m_openOpen = true; }
         if (ImGui::MenuItem("Export to Roblox Place (.rbxlx)")) exportRoblox(false);
         if (ImGui::MenuItem("Export Selection to Roblox Model (.rbxmx)", nullptr, false, m_scene->selected() != nullptr))
@@ -1505,6 +1512,7 @@ void Editor::renderDialogs() {
             ImGui::CloseCurrentPopup();
             if (m_pending == Pending::New) { newScene(); m_pending = Pending::None; }
             else if (m_pending == Pending::Open) m_openOpen = true;
+            else if (m_pending == Pending::OpenDropped) { m_pending = Pending::None; openFile(m_droppedGame); }
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(100, 0))) {
