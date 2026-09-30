@@ -380,8 +380,12 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
         me.applyTo(*p);
         if (SceneNode* r = p->root()) r->name = Online::playerName();   // like Roblox: the character is named after you
         if (testMode() && !m_opts.testClothes.empty()) {
-            size_t comma = m_opts.testClothes.find(',');
-            p->setClothing(m_opts.testClothes.substr(0, comma), comma == std::string::npos ? "" : m_opts.testClothes.substr(comma + 1));
+            // "shirt,pants" or "shirt,pants,tshirt" (picture files).
+            std::vector<std::string> part;
+            std::stringstream ss(m_opts.testClothes);
+            for (std::string x; std::getline(ss, x, ',');) part.push_back(x);
+            part.resize(3);
+            p->setClothing(part[0], part[1], part[2]);
         }
         if (testMode() && !m_opts.testAccessory.empty()) p->setAccessories({{"hat", m_opts.testAccessory}});
         if (testMode() && !m_opts.testFace.empty()) p->setFace(m_opts.testFace);
@@ -538,6 +542,7 @@ void PlayerApp::fetchAvatarParts() {
     std::vector<std::string> want;
     for (const auto& [kind, src] : me.accessories) want.push_back(src);
     want.push_back(me.faceImage);
+    want.push_back(me.tshirtImage);
     for (const std::string& src : want) {
         if (src.rfind("gb:", 0) != 0) continue;
         std::string id = src.substr(3);

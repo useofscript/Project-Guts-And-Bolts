@@ -871,8 +871,16 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
                 m_lit->setInt("uDecal", 5);
                 m_lit->setBool(face ? "uFace" : "uClothing", true);
             }
+            // A T-shirt: a picture on the front of the torso.
+            unsigned tee = !node->tshirt.empty() ? Textures::get(node->tshirt) : 0;
+            if (tee) {
+                bindTex(7, tee);
+                m_lit->setInt("uTShirt", 7);
+                m_lit->setBool("uHasTShirt", true);
+            }
             node->mesh->draw();
             if (cloth) m_lit->setBool(face ? "uFace" : "uClothing", false);
+            if (tee) m_lit->setBool("uHasTShirt", false);
         }
         if (water) {
             glEnable(GL_CULL_FACE);

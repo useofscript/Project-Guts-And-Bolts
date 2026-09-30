@@ -1137,6 +1137,15 @@ leave see-through shows the clothing's colour.
 `tools/make_clothing_template.py` redraws the templates; the layout lives in
 `src/scene/PlayerModel.cpp`.
 
+### T-shirts
+
+A **T-shirt** is just a picture (a .png or .jpg, up to 1024 x 1024) worn flat
+on the front of the torso, like classic Roblox T-shirts, over the shirt if
+you have one. No template needed: upload it from the website's or the app's
+Create page (**T-Shirts**), then wear it from the Avatar page. Anyone with an
+account can make them (10 Bolts, free for Verified creators). Square pictures
+fit best; see-through bits show the shirt underneath.
+
 ### Finding games: genres, votes and sorting
 
 On the website, a game's **Configure** page lets its creator pick up to 3

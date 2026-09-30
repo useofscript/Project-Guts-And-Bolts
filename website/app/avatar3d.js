@@ -20,6 +20,8 @@ function loadModel() {
     }).then(parseObj).then((parts) => {
       const hd = parts.Head;
       if (hd) headBox = { c: hd.min.map((m, i) => (m + hd.max[i]) / 2), s: hd.min.map((m, i) => hd.max[i] - m) };
+      const to = parts.Torso;
+      if (to) torsoBox = { c: to.min.map((m, i) => (m + to.max[i]) / 2), s: to.min.map((m, i) => to.max[i] - m) };
       return parts;
     });
   }
@@ -112,7 +114,7 @@ function pieces(model, av, items) {
   const out = [];
   for (const [name, part] of Object.entries(model)) {
     const key = PART_OF[name];
-    if (key) out.push({ mesh: part, color: col[key], face: name === 'Head' });
+    if (key) out.push({ mesh: part, color: col[key], face: name === 'Head', torso: name === 'Torso' });
   }
   // The face is a flat picture painted onto the front of the head (see FS / faceTexture).
   const head = model.Head;
@@ -160,7 +162,7 @@ function build(list) {
       if (!p.mesh) { nx /= size[0]; ny /= size[1]; nz /= size[2]; }
       if (p.roll) [nx, ny] = [nx * rc - ny * rs, nx * rs + ny * rc];
       const l = Math.hypot(nx, ny, nz) || 1;
-      data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.face ? 3 : p.glow ? 2 : p.shine ? 1 : 0);
+      data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.face ? 3 : p.torso ? 4 : p.glow ? 2 : p.shine ? 1 : 0);
     }
   }
   return new Float32Array(data);
@@ -185,11 +187,21 @@ varying vec3 vPos; varying vec3 vModelNrm;
 uniform float uShadow;
 uniform sampler2D uFace;       // the face picture
 uniform vec3 uHeadC, uHeadS;   // the head's middle and size
+uniform sampler2D uTShirt;     // a T-shirt picture (on the front of the torso)
+uniform float uHasTShirt;
+uniform vec3 uTorsoC, uTorsoS; // the torso's middle and size
 void main() {
   if (uShadow > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, 0.22 * vCol.r); return; }
   vec3 n = normalize(vNrm);
   vec3 base = vCol;
-  if (vShine > 2.5) {
+  if (vShine > 3.5) {
+    // The torso: a T-shirt picture flat on its front (like the game does).
+    vec3 mn = normalize(vModelNrm);
+    if (uHasTShirt > 0.5 && mn.z > 0.0) {
+      vec4 px = texture2D(uTShirt, (vPos.xy - uTorsoC.xy) / uTorsoS.xy + 0.5);
+      base = mix(base, px.rgb, px.a * smoothstep(0.35, 0.6, mn.z));
+    }
+  } else if (vShine > 2.5) {
     // The head: its face picture, flat and seen straight on, painted onto the front
     // of the round head (like the game does).
     vec3 mn = normalize(vModelNrm);
@@ -203,7 +215,8 @@ void main() {
   float fill = max(dot(n, normalize(vec3(0.6, 0.2, 0.4))), 0.0) * 0.25;
   float sky = 0.5 + 0.5 * n.y;
   vec3 h = normalize(key + vec3(0.0, 0.0, 1.0));
-  float spec = pow(max(dot(n, h), 0.0), vShine > 0.5 ? 40.0 : 24.0) * (vShine > 0.5 ? 0.8 : 0.18);
+  bool shiny = vShine > 0.5 && vShine < 1.5;
+  float spec = pow(max(dot(n, h), 0.0), shiny ? 40.0 : 24.0) * (shiny ? 0.8 : 0.18);
   vec3 c = base * (0.32 + 0.18 * sky + 0.62 * diff + fill) + vec3(spec);
   if (vShine > 1.5 && vShine < 2.5) c = vCol * 1.6;
   gl_FragColor = vec4(pow(c, vec3(0.95)), 1.0);
@@ -230,6 +243,8 @@ function initGl() {
     shadow: gl.getUniformLocation(prog, 'uShadow'),
     face: gl.getUniformLocation(prog, 'uFace'),
     headC: gl.getUniformLocation(prog, 'uHeadC'), headS: gl.getUniformLocation(prog, 'uHeadS'),
+    tshirt: gl.getUniformLocation(prog, 'uTShirt'), hasTShirt: gl.getUniformLocation(prog, 'uHasTShirt'),
+    torsoC: gl.getUniformLocation(prog, 'uTorsoC'), torsoS: gl.getUniformLocation(prog, 'uTorsoS'),
   };
   vbo = gl.createBuffer();
   // A soft round shadow under the feet (rings fading out).
@@ -313,10 +328,38 @@ function faceTexture(id) {
 }
 // Which face an avatar wears: a face item from the catalog, or the classic smiley.
 const faceOf = (items) => { const f = (items || []).find((i) => i && i.kind === 'face'); return f ? f.id : ''; };
+// Which T-shirt (a picture on the front of the torso), if any.
+const teeOf = (items) => { const f = (items || []).find((i) => i && i.kind === 'tshirt'); return f ? f.id : ''; };
+const teeTextures = new Map();
+function teeTexture(id) {
+  if (teeTextures.has(id)) return teeTextures.get(id);
+  const tex = gl.createTexture();
+  const entry = { tex, loaded: false, ready: null };
+  entry.ready = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      entry.loaded = true;
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = '/thumb/' + encodeURIComponent(id);
+  });
+  teeTextures.set(id, entry);
+  return entry;
+}
 
 let headBox = null;   // the head's middle and size (from the model)
+let torsoBox = null;  // ... and the torso's
 
-function draw(buffer, count, w, h, yaw, pitch, face = '') {
+function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '') {
   if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
@@ -357,6 +400,13 @@ function draw(buffer, count, w, h, yaw, pitch, face = '') {
   gl.bindTexture(gl.TEXTURE_2D, faceTexture(face).tex);
   gl.uniform1i(loc.face, 0);
   if (headBox) { gl.uniform3fv(loc.headC, headBox.c); gl.uniform3fv(loc.headS, headBox.s); }
+  const t = tee ? teeTexture(tee) : null;
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, t && t.loaded ? t.tex : faceTexture('').tex);
+  gl.uniform1i(loc.tshirt, 1);
+  gl.uniform1f(loc.hasTShirt, t && t.loaded ? 1 : 0);
+  if (torsoBox) { gl.uniform3fv(loc.torsoC, torsoBox.c); gl.uniform3fv(loc.torsoS, torsoBox.s); }
+  gl.activeTexture(gl.TEXTURE0);
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
   gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
   attrs();
@@ -388,10 +438,10 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   canvas.setAttribute('aria-label', 'Avatar in 3D');
   const ctx = canvas.getContext('2d');
   let buffer = build(pieces(model, avatar, items)), count = buffer.length / 10;
-  let face = faceOf(items);
+  let face = faceOf(items), tee = teeOf(items);
   let yaw = opts.yaw ?? -0.35, spin = 0, dragging = false, lastX = 0, frame = 0;
   const paint = () => {
-    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face);
+    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face, tee);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(glCanvas, 0, 0);
   };
@@ -420,12 +470,15 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   el.replaceChildren(canvas);
   paint();
   faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });   // a face picture arrived
+  if (tee) teeTexture(tee).ready.then(() => { if (canvas.isConnected) paint(); });   // ... a T-shirt
   return {
     set(av, its = []) {
       buffer = build(pieces(model, av, its)); count = buffer.length / 10;
       face = faceOf(its);
+      tee = teeOf(its);
       paint();
       faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });
+      if (tee) teeTexture(tee).ready.then(() => { if (canvas.isConnected) paint(); });
     },
   };
 }
@@ -440,9 +493,10 @@ export async function avatarPicture(avatar, items = [], size = 96) {
   if (pictureCache.has(key)) return pictureCache.get(key);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const buffer = build(pieces(model, avatar, items));
-  const face = faceOf(items);
+  const face = faceOf(items), tee = teeOf(items);
   await faceTexture(face).ready;   // (a still picture: wait for the face)
-  draw(buffer, buffer.length / 10, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face);
+  if (tee) await teeTexture(tee).ready;
+  draw(buffer, buffer.length / 10, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face, tee);
   const url = glCanvas.toDataURL('image/png');
   pictureCache.set(key, url);
   return url;

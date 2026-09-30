@@ -71,6 +71,8 @@ in vec3 vLocalNormal;
 uniform bool      uUseDecal;   // drawing a Decal: its picture colours the surface
 uniform bool      uFace;       // a head: its face picture (uDecal) is painted onto the front of it
 uniform bool      uClothing;   // a shirt / pants picture (uDecal) painted over the part's colour
+uniform bool      uHasTShirt;  // a torso with a T-shirt: its picture flat on the front
+uniform sampler2D uTShirt;
 uniform sampler2D uDecal;
 
 uniform vec3  uColor;
@@ -227,6 +229,14 @@ void main() {
     if (uClothing) {   // see-through bits of the clothing show the body colour
         vec4 px = texture(uDecal, vUV);
         albedo = mix(albedo, lin(px.rgb), px.a);
+    }
+    if (uHasTShirt && vLocalNormal.z > 0.0) {
+        // A T-shirt: the picture flat on the front of the torso (over the shirt), seen
+        // straight on, fading out where the torso curves round to the sides.
+        vec2 tuv = vec2(vLocalPos.x + 0.5, vLocalPos.y + 0.5);
+        vec4 px = texture(uTShirt, tuv);
+        float front = smoothstep(0.35, 0.6, normalize(vLocalNormal).z);
+        albedo = mix(albedo, lin(px.rgb), px.a * front);
     }
     if (uFace && vLocalNormal.z > 0.0) {
         // Like Roblox: the face picture is flat, seen straight on from the front, and

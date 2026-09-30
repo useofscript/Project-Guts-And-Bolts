@@ -115,8 +115,10 @@ public:
     void       rememberHat(HatStyle style) { m_hat = style; }   // no rebuild (loading)
     // Clothing pictures (the 585 x 559 template): "gb:<id>" or a file; "" = none.
     // The shirt goes on the torso and arms, pants on the legs (and the torso if no shirt).
-    void       setClothing(const std::string& shirt, const std::string& pants);
-    static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants);
+    void       setClothing(const std::string& shirt, const std::string& pants, const std::string& tshirt = "");
+    // tshirt: a picture flat on the front of the torso (over the shirt, if there is one).
+    static void applyClothing(SceneNode* root, const std::string& shirt, const std::string& pants,
+                              const std::string& tshirt = "");
     // Accessories made in Studio's Accessory window: kind ("hat", "hair", "faceacc",
     // "neck", "shoulder", "waist") -> "gb:<id>" or a file holding the accessory.
     // Ones not downloaded yet are skipped (set them again once they arrive).
@@ -189,7 +191,7 @@ private:
     Humanoid m_humanoid;
     HatStyle m_hat = HatStyle::None;
     glm::vec3 m_hatTint = glm::vec3(-1.0f);
-    std::string m_shirt, m_pants, m_face;
+    std::string m_shirt, m_pants, m_tshirt, m_face;
     Accessories m_accessories;
 
     glm::vec3 m_spawn{0.0f};

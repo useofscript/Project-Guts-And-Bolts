@@ -48,6 +48,7 @@ void Profile::load() {
     };
     shirtImage = safeImage(j.value("shirtImage", std::string()));
     pantsImage = safeImage(j.value("pantsImage", std::string()));
+    tshirtImage = safeImage(j.value("tshirtImage", std::string()));
     faceImage = safeImage(j.value("faceImage", std::string()));
     if (j.contains("accessories") && j["accessories"].is_object())
         for (auto& [k, v] : j["accessories"].items())
@@ -70,7 +71,7 @@ void Profile::save() const {
         {"leftArm", vec(colors.leftArm)}, {"rightArm", vec(colors.rightArm)},
         {"leftLeg", vec(colors.leftLeg)}, {"rightLeg", vec(colors.rightLeg)},
         {"recent", recent}, {"grants", grants}, {"inventory", inventory}, {"wearing", wearing}, {"server", server}, {"serverChecked", true},
-        {"avatarUpdated", avatarUpdated}, {"shirtImage", shirtImage}, {"pantsImage", pantsImage},
+        {"avatarUpdated", avatarUpdated}, {"shirtImage", shirtImage}, {"pantsImage", pantsImage}, {"tshirtImage", tshirtImage},
         {"faceImage", faceImage}, {"accessories", accessories},
     };
     std::ofstream f(Paths::file("profile.json"));

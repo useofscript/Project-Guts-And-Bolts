@@ -17,7 +17,7 @@ std::string extensionFor(const nlohmann::json& asset) {
     std::string kind = asset.value("kind", std::string());
     if (kind == "game") return ".gbscene";
     if (kind == "plugin") return ".lua";
-    if (kind == "shirt" || kind == "pants" || kind == "face") return ".png";   // clothing / face pictures
+    if (kind == "shirt" || kind == "pants" || kind == "face" || kind == "tshirt") return ".png";   // clothing / face pictures
     if (Online::isAccessory(kind)) return ".json";   // an accessory made in Studio
     if (kind == "audio" || kind == "decal") {
         std::string ext = asset.contains("meta") ? asset["meta"].value("ext", std::string(kind == "decal" ? "png" : "mp3"))

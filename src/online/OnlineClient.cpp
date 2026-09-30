@@ -2,6 +2,7 @@
 #include "Protocol.h"
 #include "../core/Account.h"
 #include "../game/Profile.h"
+#include "../game/Catalog.h"
 #include "../net/Socket.h"
 
 #include <algorithm>
@@ -182,13 +183,27 @@ void takeMe(const json& reply) {
             }
             p.avatarUpdated = updated;
             p.save();
+            // Dress up in what was put on there: the clothing pictures, face, T-shirt and
+            // accessories come with the items (which our profile page gets).
+            const long long myId = S().me.value("userId", 0LL);
+            if (myId > 0)
+                request("profile", {{"id", std::to_string(myId)}}, [](const json& r) {
+                    if (!r.value("ok", false) || !r.contains("wearing") || !r["wearing"].is_array()) return;
+                    Profile& me = Profile::get();
+                    me.shirtImage.clear(); me.pantsImage.clear(); me.tshirtImage.clear(); me.faceImage.clear();
+                    me.accessories.clear();
+                    const std::vector<std::string> wearing = me.wearing;
+                    for (const json& a : r["wearing"]) if (a.is_object()) Catalog::applyLook(Catalog::fromServer(a));
+                    me.wearing = wearing;   // (applyLook tidies the list; the server's is right)
+                    me.save();
+                });
         }
     }
 }
 
 // "hat-1a2b3c4d5e": clothes from the server's catalog (the built-in catalog's ids look different).
 static bool isServerItem(const std::string& id) {
-    for (const char* k : {"hat-", "shirt-", "pants-"}) {
+    for (const char* k : {"hat-", "shirt-", "pants-", "tshirt-", "hair-", "faceacc-", "neck-", "shoulder-", "waist-", "face-"}) {
         size_t n = std::strlen(k);
         if (id.size() == n + 10 && id.compare(0, n, k) == 0 &&
             std::all_of(id.begin() + (long)n, id.end(), [](char c) { return std::isxdigit((unsigned char)c); }))

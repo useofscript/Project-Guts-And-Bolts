@@ -18,9 +18,9 @@ import { BUILT_IN_UPDATES } from './updates.js';
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
-const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face'];
+const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
-  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0 };
+  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
 // Accessories: things worn on the body, made (and placed on a mannequin) in Studio's
 // Accessory window. Verified creators only. Faces are pictures, and only Guts makes them.
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
@@ -32,13 +32,22 @@ const canBeLimited = (k) => isAccessory(k) || k === 'face';
 const kPublicModelsPerWeek = 5;
 const weekOf = (t) => Math.floor(t / (7 * 86400));
 const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20,
-  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20 };
+  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20 };
 // Shirts and pants can have a picture: a PNG laid out like the clothing template.
 const kTemplateW = 585, kTemplateH = 559;
 const pngSize = (d) => (d.length > 24 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => d[i] === v)
   ? [(d[16] << 24 | d[17] << 16 | d[18] << 8 | d[19]) >>> 0, (d[20] << 24 | d[21] << 16 | d[22] << 8 | d[23]) >>> 0] : null);
 const maxSize = (k) => MAX_SIZE[k] || 64 * 1024;
-const isClothing = (k) => k === 'shirt' || k === 'pants' || k === 'face' || isAccessory(k);   // anything you wear
+const isClothing = (k) => k === 'shirt' || k === 'pants' || k === 'tshirt' || k === 'face' || isAccessory(k);   // anything you wear
+// T-shirts: any picture, worn flat on the front of the torso (over a shirt, if there is one).
+const kTShirtMaxSide = 1024;
+const jpgFile = (d) => d.length > 3 && d[0] === 0xff && d[1] === 0xd8 && d[2] === 0xff;
+function tshirtProblem(data) {
+  const size = pngSize(data);
+  if (!size && !jpgFile(data)) return 'T-shirts must be .png or .jpg pictures.';
+  if (size && (size[0] > kTShirtMaxSide || size[1] > kTShirtMaxSide)) return 'T-shirt pictures can be at most ' + kTShirtMaxSide + ' x ' + kTShirtMaxSide + '.';
+  return '';
+}
 // Decals and audio are free-use assets: anyone can put them in their games.
 const alwaysFree = (k) => k === 'decal' || k === 'audio';
 // Why an account was banned (staff pick one). Shown to the banned player.
@@ -629,7 +638,7 @@ export class GbServerObject extends DurableObject {
       }
       const hat = Number.isInteger(a.hat) ? clamp(a.hat, 0, 4) : 0;
       const hatColor = rgb(a.hatColor, true) || [-1, -1, -1];
-      const wearing = Array.isArray(a.wearing) ? a.wearing.filter((w) => typeof w === 'string' && me.owned.includes(w)).slice(0, 8) : [];
+      const wearing = Array.isArray(a.wearing) ? a.wearing.filter((w) => typeof w === 'string' && me.owned.includes(w)).slice(0, 12) : [];
       me.avatar = Object.assign(colors, { hat, hatColor, wearing, updated: t });
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
@@ -865,6 +874,12 @@ export class GbServerObject extends DurableObject {
         meta.image = true;
         meta.ext = 'png';
       }
+      if (kind === 'tshirt') {
+        const problem = tshirtProblem(data);
+        if (problem) return fail(problem);
+        meta.image = true;
+        meta.ext = pngSize(data) ? 'png' : 'jpg';
+      }
       if ((kind === 'shirt' || kind === 'pants') && data.length) {
         const size = pngSize(data);
         if (!size) return fail('Clothing pictures must be .png files made from the template.');
@@ -880,7 +895,7 @@ export class GbServerObject extends DurableObject {
         sales: 0, plays: 0, size: data.length, meta };
       if (access) { a.access = access; if (access === 'public') this.countPublicModel(me); }
       this.writeFile(a.id, data);
-      if (kind === 'face' && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }   // the face is its own picture
+      if ((kind === 'face' || kind === 'tshirt') && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }   // its own picture
       this.assets.set(a.id, a);
       this.saveAsset(a);
       if (!me.owned.includes(a.id)) me.owned.push(a.id);
@@ -1051,18 +1066,21 @@ export class GbServerObject extends DurableObject {
       a.meta = a.meta || {};
       if (Array.isArray(args.color) && args.color.length === 3) a.meta.color = args.color.map((v) => clamp(Number(v) | 0, 0, 255));
       if (a.kind === 'hat' && 'style' in args) a.meta.style = clamp(num(args, 'style'), 1, 3);   // the hat's shape
-      const picture = a.kind === 'shirt' || a.kind === 'pants' || a.kind === 'face';
+      const picture = a.kind === 'shirt' || a.kind === 'pants' || a.kind === 'face' || a.kind === 'tshirt';
       if (picture && typeof args.data === 'string' && args.data) {   // a new clothing / face picture
         let data;
         try { data = b64ToBytes(args.data); } catch { return fail('The upload got scrambled. Try again.'); }
         const size = pngSize(data);
         if (a.kind === 'face') {
           if (!size) return fail('Faces must be .png pictures.');
+        } else if (a.kind === 'tshirt') {
+          const problem = tshirtProblem(data);
+          if (problem) return fail(problem);
         } else if (!size || size[0] !== kTemplateW || size[1] !== kTemplateH) return fail('Clothing pictures must be ' + kTemplateW + ' x ' + kTemplateH + ' .png files.');
         if (data.length > maxSize(a.kind)) return fail('That\'s too big.');
         this.writeFile(a.id, data);
-        if (a.kind === 'face' && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }
-        a.meta.image = true; a.meta.ext = 'png'; a.size = data.length;
+        if ((a.kind === 'face' || a.kind === 'tshirt') && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }
+        a.meta.image = true; a.meta.ext = a.kind === 'tshirt' && !size ? 'jpg' : 'png'; a.size = data.length;
       }
       a.updated = t;
       this.saveAsset(a);

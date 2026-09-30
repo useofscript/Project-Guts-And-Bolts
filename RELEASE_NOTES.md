@@ -28,6 +28,14 @@
 - Underwater: distance blur and a slight colour split; after coming up for
   air, water runs down the screen for a few seconds.
 
+**T-shirts ("Tee Time")**
+- A new catalog item: any .png or .jpg worn flat on the front of the torso,
+  over your shirt. Make one on the Create page (website or app), wear it from
+  the Avatar page; the game and the website's 3D avatars show it.
+- What you put on on the website now shows up properly in the game (clothes,
+  faces, accessories and T-shirts), and the Avatar page swaps items of the
+  same kind instead of stacking them.
+
 **FluidVolume**
 - `Instance.new("FluidVolume")` (or Insert Object): a block of water with
   `FlowVelocity`, `Clarity` and `WaveScale`. Any instance also has

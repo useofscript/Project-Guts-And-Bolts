@@ -65,7 +65,7 @@ void Player::build() {
     SceneNode* r = buildRig(*m_scene, "Player", m_spawn);
     m_rootId = r->id;
     setHat(m_hat, m_hatTint);
-    applyClothing(r, m_shirt, m_pants);
+    applyClothing(r, m_shirt, m_pants, m_tshirt);
     applyAccessories(*m_scene, r, m_accessories);
     applyFace(*m_scene, r, m_face);
     m_scene->markDirty();
@@ -148,15 +148,17 @@ void Player::removeOldFace(Scene& scene, SceneNode* head) {
     for (SceneNode* o : old) scene.removeNode(o);
 }
 
-void Player::setClothing(const std::string& shirt, const std::string& pants) {
+void Player::setClothing(const std::string& shirt, const std::string& pants, const std::string& tshirt) {
     m_shirt = shirt;
     m_pants = pants;
-    if (SceneNode* r = root()) applyClothing(r, shirt, pants);
+    m_tshirt = tshirt;
+    if (SceneNode* r = root()) applyClothing(r, shirt, pants, tshirt);
 }
 
-void Player::applyClothing(SceneNode* r, const std::string& shirt, const std::string& pants) {
+void Player::applyClothing(SceneNode* r, const std::string& shirt, const std::string& pants, const std::string& tshirt) {
     auto set = [&](const char* n, const std::string& t) { if (SceneNode* p = r->findChild(n)) p->texture = t; };
     set("Torso", shirt.empty() ? pants : shirt);
+    if (SceneNode* torso = r->findChild("Torso")) torso->tshirt = tshirt;
     set("Left Arm", shirt); set("Right Arm", shirt);
     set("Left Leg", pants); set("Right Leg", pants);
 }

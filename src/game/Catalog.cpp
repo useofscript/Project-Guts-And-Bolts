@@ -74,6 +74,7 @@ const char* typeName(Type t) {
         case Type::Shoulder: return "Shoulder";
         case Type::Waist:    return "Waist";
         case Type::Face:     return "Face";
+        case Type::TShirt:   return "TShirt";
         default:          return "?";
     }
 }
@@ -142,7 +143,7 @@ Item fromServer(const json& a) {
     it.kind = kind;
     it.type = kind == "hat" ? Type::Hat : kind == "shirt" ? Type::Shirt : kind == "pants" ? Type::Pants
             : kind == "hair" ? Type::Hair : kind == "faceacc" ? Type::FaceAcc : kind == "neck" ? Type::Neck
-            : kind == "shoulder" ? Type::Shoulder : kind == "waist" ? Type::Waist : Type::Face;
+            : kind == "shoulder" ? Type::Shoulder : kind == "waist" ? Type::Waist : kind == "tshirt" ? Type::TShirt : Type::Face;
     it.price = a.value("price", 0LL);
     it.created = a.value("created", 0LL);
     if (a.contains("meta") && a["meta"].is_object()) {
@@ -191,6 +192,9 @@ void applyLook(const Item& it) {
             break;
         case Type::Face:
             me.faceImage = it.image;
+            break;
+        case Type::TShirt:
+            me.tshirtImage = it.image;
             break;
         case Type::Shirt:
             if (it.image.empty()) me.colors.torso = me.colors.leftArm = me.colors.rightArm = it.color;

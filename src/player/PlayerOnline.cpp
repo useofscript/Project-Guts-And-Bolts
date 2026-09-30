@@ -140,9 +140,9 @@ void PlayerApp::drawOnlineCatalog() {
     ImGui::TextDisabled("Hats, hair, faces, accessories and clothes made by the Guts&Bolts community.");
     ImGui::Spacing();
     // "Accessories" covers face, neck, shoulder and waist accessories.
-    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "Pants"};
-    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "pants"};
-    const int nTabs = 7;
+    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "T-Shirts", "Pants"};
+    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "tshirt", "pants"};
+    const int nTabs = 8;
     float tabW = std::min(100.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
     float rowRight = ImGui::GetContentRegionMax().x;
     for (int i = 0; i < nTabs; ++i) {
@@ -292,9 +292,9 @@ void PlayerApp::drawOnlineItemDialog() {
 namespace {
 
 // The Create page's tabs. The first is your games; the rest are upload kinds.
-const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "Pants", "Plugins"};
-const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "pants", "plugin"};
-constexpr int     kCreateTabCount = 7;
+const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "T-Shirts", "Pants", "Plugins"};
+const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "tshirt", "pants", "plugin"};
+constexpr int     kCreateTabCount = 8;
 
 std::string readWholeFile(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
@@ -532,7 +532,8 @@ void PlayerApp::drawMyGames() {
 
 void PlayerApp::drawUploadForm(const std::string& kind) {
     const bool verified = Online::verified();
-    const bool clothing = Online::isClothing(kind);
+    const bool picture = kind == "decal" || kind == "tshirt";   // just a picture file
+    const bool clothing = Online::isClothing(kind) && !picture;
     const bool tall = portraitScreen();
     float fieldW = std::min(360.0f, ImGui::GetContentRegionAvail().x - 110);
 
@@ -583,14 +584,14 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
             }
         }
     } else {
-        const char* hint = kind == "decal" ? "C:/pictures/logo.png" : kind == "audio" ? "C:/music/song.mp3" : "C:/plugins/myplugin.lua";
+        const char* hint = picture ? "C:/pictures/logo.png" : kind == "audio" ? "C:/music/song.mp3" : "C:/plugins/myplugin.lua";
         bool browse = FileDialog::available();
         ImGui::SetNextItemWidth(browse ? fieldW - 90 : fieldW);
         ImGui::InputTextWithHint("##file", hint, &m_createPath);
         if (browse) {
             ImGui::SameLine();
             if (ImGui::Button("Browse...", ImVec2(82, 0))) {
-                std::string picked = kind == "decal" ? FileDialog::openImage("Pick a picture to upload")
+                std::string picked = picture ? FileDialog::openImage("Pick a picture to upload")
                                    : kind == "audio" ? FileDialog::openAudio("Pick a sound to upload")
                                    : FileDialog::openAny("Pick a Studio plugin", "Lua plugins", "*.lua");
                 if (!picked.empty()) {
@@ -601,7 +602,8 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
         }
         ImGui::SameLine();
         ImGui::TextUnformatted("File");
-        ImGui::TextDisabled(kind == "decal" ? "A .png or .jpg picture (up to 4 MB)."
+        ImGui::TextDisabled(kind == "tshirt" ? "A .png or .jpg (up to 1024 x 1024), worn flat on the front of the torso."
+                          : kind == "decal" ? "A .png or .jpg picture (up to 4 MB)."
                           : kind == "audio" ? "An .mp3, .wav, .ogg or .flac file (up to 6 MB)."
                                             : "A Lua plugin for Studio (see the README for how plugins work).");
     }
@@ -616,7 +618,7 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
     ImGui::EndGroup();
 
     // A preview next to the form (under it on phones held upright).
-    if (clothing || kind == "decal") {
+    if (clothing || picture) {
         if (!tall) ImGui::SameLine(0, 24);
         ImVec2 q = ImGui::GetCursorScreenPos();
         ImGui::Dummy(ImVec2(150, 150));

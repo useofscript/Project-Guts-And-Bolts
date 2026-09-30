@@ -10,12 +10,12 @@ namespace Online {
 
 bool validKind(const std::string& k) {
     return k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal" ||
-           k == "model" || k == "face" || isAccessory(k);
+           k == "model" || k == "face" || k == "tshirt" || isAccessory(k);
 }
 bool isAccessory(const std::string& k) {
     return k == "hat" || k == "hair" || k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
 }
-bool isClothing(const std::string& k) { return k == "shirt" || k == "pants" || k == "face" || isAccessory(k); }
+bool isClothing(const std::string& k) { return k == "shirt" || k == "pants" || k == "tshirt" || k == "face" || isAccessory(k); }
 bool alwaysFree(const std::string& k) { return k == "decal" || k == "audio"; }
 
 const char* banReasonTitle(const std::string& key) {
@@ -45,7 +45,7 @@ size_t maxSize(const std::string& k) {
     if (k == "plugin") return kMaxPlugin;
     if (k == "decal") return kMaxDecal;
     if (k == "model") return 4u * 1024u * 1024u;   // objects from Studio for the Library
-    if (k == "shirt" || k == "pants") return 1024u * 1024u;   // an optional template picture
+    if (k == "shirt" || k == "pants" || k == "tshirt") return 1024u * 1024u;   // a template picture / a T-shirt picture
     if (k == "face" || isAccessory(k)) return 1024u * 1024u;  // a face picture / an accessory from Studio
     return 64u * 1024u;   // clothing is just a little description of the look
 }
@@ -65,6 +65,7 @@ const char* kindTitle(const std::string& k) {
     if (k == "shoulder") return "Shoulder Accessory";
     if (k == "waist") return "Waist Accessory";
     if (k == "face") return "Face";
+    if (k == "tshirt") return "T-Shirt";
     return "?";
 }
 

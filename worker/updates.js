@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'tee-time', name: 'Tee Time', version: '', time: 1790808000, tag: 'Website',
+    summary: 'T-shirts: put any picture on the front of your character.',
+    items: [
+      'New T-Shirts in the catalog: any .png or .jpg, worn flat on the front of the torso (over your shirt)',
+      'Make them on the Create page (website or app) and wear them from the Avatar page; the 3D avatars show them too',
+      'Avatars put on on the website now show up properly in the game (clothes, faces, accessories and T-shirts)',
+      'The Avatar page swaps items of the same kind instead of stacking them',
+    ],
+  },
+  {
     id: 'riptide', name: 'Riptide', version: '', time: 1790807100, tag: 'Engine',
     summary: 'Rivers flow around rocks, splashes leave things wet, and diving looks like diving.',
     items: [

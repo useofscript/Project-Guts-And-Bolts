@@ -1,4 +1,5 @@
 #pragma once
+#include "../renderer/Textures.h"
 // The Guts&Bolts site's look (2011-style): colours, buttons and drawings shared
 // by the site's pages (PlayerApp.cpp, PlayerOnline.cpp).
 #include <imgui.h>
@@ -159,6 +160,22 @@ inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item&
         dl->AddRect(w0, w1, line, 0, 0, t);
         dl->AddRect(l0, l1, line, 0, 0, t);
         dl->AddRect(r0, r1, line, 0, 0, t);
+        break;
+    }
+    case Catalog::Type::TShirt: {   // a white tee with its picture on the front
+        ImVec2 pts[] = {{c.x - s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.4f, c.y - s * 0.12f},
+                        {c.x + s * 0.3f, c.y + s * 0.0f}, {c.x + s * 0.22f, c.y - s * 0.06f}, {c.x + s * 0.22f, c.y + s * 0.34f},
+                        {c.x - s * 0.22f, c.y + s * 0.34f}, {c.x - s * 0.22f, c.y - s * 0.06f}, {c.x - s * 0.3f, c.y + s * 0.0f},
+                        {c.x - s * 0.4f, c.y - s * 0.12f}};
+        const ImU32 white = IM_COL32(250, 250, 250, 255);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.22f, c.y - s * 0.32f), ImVec2(c.x + s * 0.22f, c.y + s * 0.34f), white);
+        dl->AddTriangleFilled(pts[1], pts[2], pts[3], white); dl->AddTriangleFilled(pts[1], pts[3], pts[4], white);
+        dl->AddTriangleFilled(pts[0], pts[9], pts[8], white); dl->AddTriangleFilled(pts[0], pts[8], pts[7], white);
+        dl->AddPolyline(pts, 10, line, ImDrawFlags_Closed, t);
+        const ImVec2 a(c.x - s * 0.16f, c.y - s * 0.16f), b(c.x + s * 0.16f, c.y + s * 0.16f);
+        if (unsigned tex = it.image.empty() ? 0 : Textures::get(it.image))
+            dl->AddImage((ImTextureID)(intptr_t)tex, a, b, ImVec2(0, 1), ImVec2(1, 0));
+        else dl->AddRectFilled(a, b, IM_COL32(210, 214, 222, 255), 3);
         break;
     }
     case Catalog::Type::Face: {   // a smiley on a yellow head

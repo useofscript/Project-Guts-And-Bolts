@@ -182,6 +182,7 @@ public:
     // Decal (kind == Decal): which picture, on which side. `color` tints it
     // (white = as it is), `transparency` fades it.
     std::string texture;                   // "gb:<id>", a file in the games folder, or a path
+    std::string tshirt;                    // a character's torso: a T-shirt picture flat on its front ("gb:<id>")
     Face        face = Face::Front;
 
     // Game UI (kind == Gui). `visible` is Visible; `enabled` is a ScreenGui's Enabled.
