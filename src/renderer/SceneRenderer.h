@@ -52,12 +52,17 @@ private:
     std::unique_ptr<Shader> m_water;   // water parts (see Shaders::waterFrag)
     std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidColor, m_fluidBlur, m_fluidShade, m_fluidSimple;
     Target m_waterCopy;   // water parts: the solid scene behind them (colour and depth)
+    struct FlowTex { unsigned tex = 0; int version = -1; };
+    std::unordered_map<uint64_t, FlowTex> m_flowTex;   // each water body's flow map, on the graphics card
     Target m_fDepth, m_fTmp, m_fThick, m_fColor, m_sceneCopy;   // liquid: depth, blur scratch, thickness, the scene behind
     unsigned int m_fluidVao = 0, m_fluidVbo = 0;
     ShadowMap               m_shadow, m_shadowNear;   // wide, and sharp close to the camera
     int                     m_shadowRes = 0;
     glm::mat4               m_lightSpace{1.0f};       // (the wide shadow map's, for the water)
     bool                    m_shadowsOn = false;
+    bool                    m_wasUnder = false;       // the camera was underwater last frame
+    float                   m_drip = 0.0f;            // water running down the screen after surfacing
+    double                  m_lastPost = 0.0;
     // Render distance (GraphicsSettings::renderDistance) for this frame: things further
     // than m_viewDist from m_viewPos aren't drawn. 0 = no limit.
     glm::vec3               m_viewPos{0.0f};

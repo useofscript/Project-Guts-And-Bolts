@@ -8,6 +8,7 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../scene/Player.h"
+#include "../scene/Physics.h"
 #include "../scene/Water.h"
 #include "../scene/Liquid.h"
 #include "../scene/Gerstner.h"
@@ -360,6 +361,26 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     m_lit->setMat4("uProj", proj);
     m_lit->setVec3("uViewPos", camera.position());
     m_lit->setFloat("uRenderDist", m_viewDist);
+    {   // Wet patches near the camera (the wettest, closest ones).
+        glm::vec4 spots[16];
+        float amt[16];
+        int n = 0;
+        const WaterSystem& ws = scene.water();
+        std::vector<std::pair<float, int>> order;
+        for (size_t i = 0; i < ws.wetSpots().size(); ++i)
+            order.push_back({glm::length(ws.wetSpots()[i].pos - m_viewPos), (int)i});
+        std::sort(order.begin(), order.end());
+        for (auto& [d, i] : order) {
+            if (n >= 16) break;
+            const WaterSystem::WetSpot& s = ws.wetSpots()[(size_t)i];
+            spots[n] = glm::vec4(s.pos, s.radius);
+            amt[n] = ws.wetness(s);
+            ++n;
+        }
+        m_lit->setInt("uWetCount", n);
+        if (n) { m_lit->setVec4Array("uWetSpots", spots, n); m_lit->setFloatArray("uWetAmt", amt, n); }
+        m_lit->setFloat("uWetPart", 0.0f);
+    }
     m_lit->setFloat("uTime", time);
     m_lit->setVec3("uSunDir", sunDir);
     m_lit->setVec3("uSunColor", env.sunColor);
@@ -555,7 +576,7 @@ void buildWaterMesh(const WaterSystem& ws, const WaterSystem::Body& b, std::vect
     for (int k = 0; k < nz; ++k)
         for (int i = 0; i < nx; ++i) {
             glm::vec3 n(-(T(i + 1, k) - T(i - 1, k)) / (2.0f * cell), 1.0f, -(T(i, k + 1) - T(i, k - 1)) / (2.0f * cell));
-            const float foam = std::clamp((ws.churn(b, X(i), Z(k)) - 0.15f) * 1.5f, 0.0f, 1.0f);
+            const float foam = std::clamp((ws.churn(b, X(i), Z(k)) - 0.4f) * 1.2f, 0.0f, 1.0f);
             verts.push_back({{X(i), T(i, k), Z(k)}, glm::normalize(n), {foam, 1.0f}});
         }
     for (int k = 0; k + 1 < nz; ++k)
@@ -669,6 +690,25 @@ void SceneRenderer::drawWater(Scene& scene, const Camera& camera, const std::vec
             w.setFloat("uSteep", Gerstner::steepness(wb->swell));
             w.setVec3("uBodyMin", wb->min);
             w.setVec3("uBodyMax", wb->max);
+            // The current: a flow map (bent around rocks) if there is one.
+            w.setVec2("uFlowBase", glm::vec2(wb->flow.x, wb->flow.z));
+            w.setBool("uHasFlowMap", !wb->flowMap.empty());
+            if (!wb->flowMap.empty()) {
+                FlowTex& ft = m_flowTex[node->id];
+                if (!ft.tex) glGenTextures(1, &ft.tex);
+                bindTex(6, ft.tex);   // (its own unit: don't disturb the scene pictures on the others)
+                if (ft.version != wb->flowVersion) {
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, wb->nx, wb->nz, 0, GL_RG, GL_FLOAT, wb->flowMap.data());
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    ft.version = wb->flowVersion;
+                }
+                bindTex(6, ft.tex);
+                w.setInt("uFlowMap", 6);
+                w.setVec3("uFlowGrid", glm::vec3(wb->cell, (float)wb->nx, (float)wb->nz));
+            }
             auto& mesh = m_waterMeshes[node->id];
             if (!mesh) mesh = std::make_unique<Mesh>();
             buildWaterMesh(waves, *wb, verts, idx);
@@ -680,6 +720,13 @@ void SceneRenderer::drawWater(Scene& scene, const Camera& camera, const std::vec
             w.setBool("uWaveMesh", false);
             w.setFloat("uWaveAmp", 0.0f);
             w.setFloat("uSteep", 0.0f);
+            w.setBool("uHasFlowMap", false);
+            glm::vec2 fl(0.0f);
+            if (const Attribute* a = node->findAttribute("Flow"); a && a->type == Attribute::Vector3) fl = glm::vec2(a->v.x, a->v.z);
+            w.setVec2("uFlowBase", fl);
+            const AABB box = Physics::worldBounds(node);
+            w.setVec3("uBodyMin", box.min);
+            w.setVec3("uBodyMax", box.max);
             node->mesh->draw();
         }
     }
@@ -739,7 +786,11 @@ bool buildFloodMesh(const WaterSystem::Flood& f, std::vector<Vertex>& verts, std
 
 void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editing) {
     const WaterSystem& waves = scene.water();
-    if (!waves.active()) m_waterMeshes.clear();
+    if (!waves.active()) {
+        m_waterMeshes.clear();
+        for (auto& [id, ft] : m_flowTex) if (ft.tex) glDeleteTextures(1, &ft.tex);
+        m_flowTex.clear();
+    }
     struct Item { SceneNode* node; glm::mat4 model; float dist; };
     std::vector<Item> opaque, transparent, shielded, decals;
     std::vector<WaterItem> waters;
@@ -774,6 +825,14 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
 
     std::vector<Vertex> waterVerts;
     std::vector<uint32_t> waterIdx;
+    // A part the liquid just ran over, or your character dripping after a swim.
+    const Player* me = scene.player();
+    const SceneNode* myRoot = me ? scene.findById(me->rootId()) : nullptr;
+    auto wetPart = [&](const SceneNode* node) {
+        float w = waves.liquid().isWet(node->id) ? 0.85f : 0.0f;
+        if (me && me->dripping() > 0.0f && myRoot && myRoot->isAncestorOf(node)) w = std::max(w, me->dripping() * 0.9f);
+        return w;
+    };
     auto draw = [&](const Item& it) {
         SceneNode* node = it.node;
         // Water gets the water look; while playing, its surface is the moving waves.
@@ -787,6 +846,7 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         m_lit->setBool("uSelected", node->selected);
         m_lit->setInt("uMaterial", water ? 7 : (int)node->material);
         m_lit->setFloat("uAlpha", 1.0f - node->shownTransparency());
+        m_lit->setFloat("uWetPart", wetPart(node));
         if (water) {
             glDisable(GL_CULL_FACE);   // seen from underwater too
             // A pool's water box usually fills it exactly, so its sides lie right on
@@ -1236,6 +1296,15 @@ void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer&
             if (under) color = kinds.empty() ? glm::vec3(0.12f, 0.42f, 0.62f) : kinds[0].color;
         }
         m_composite->setBool("uUnderwater", under);
+        // Just came up for air: water runs down the screen for a few seconds.
+        const double tNow = now();
+        const float pdt = m_lastPost > 0.0 ? (float)std::min(0.1, tNow - m_lastPost) : 0.0f;
+        m_lastPost = tNow;
+        if (m_wasUnder && !under) m_drip = 1.0f;
+        else m_drip = std::max(0.0f, m_drip - pdt / 5.0f);
+        m_wasUnder = under;
+        m_composite->setFloat("uDrip", m_drip);
+        m_composite->setFloat("uTime", (float)(tNow - m_startTime));
         if (under) {
             const glm::mat4 proj = camera.projection();
             bindTex(3, m_hdr.depth);
@@ -1248,7 +1317,9 @@ void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer&
             const glm::vec3 light = env.ambientColor * env.ambientIntensity * 1.2f +
                                     env.sunColor * std::max(0.0f, env.sunIntensity) * 0.25f;
             m_composite->setVec3("uWaterFog", glm::pow(tint, glm::vec3(2.2f)) * light * deep);
-            m_composite->setFloat("uTime", (float)(now() - m_startTime));
+            m_composite->setMat4("uInvViewProj", glm::inverse(proj * camera.view()));
+            m_composite->setFloat("uWaterTop", top);
+            m_composite->setFloat("uCaustics", std::max(0.0f, env.sunIntensity) * std::max(env.sunDirection().y, 0.0f) * 0.9f);
         }
     }
     glDrawArrays(GL_TRIANGLES, 0, 3);

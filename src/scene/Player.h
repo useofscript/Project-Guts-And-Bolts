@@ -169,6 +169,7 @@ public:
     bool grounded() const { return m_grounded; }
     bool swimming() const { return m_swimming; }
     bool underwater() const { return m_underwater; }   // swimming with the head under
+    float dripping() const { return m_drip; }          // just out of the water: 1 soaked .. 0 dry
     // Swimming controls for the next update: look = the camera's up/down (-1 looking
     // straight down .. 1 straight up), down = the dive key (C / Ctrl).
     void setSwimInput(float look, bool down) { m_swimLook = look; m_swimDown = down; }
@@ -211,6 +212,7 @@ private:
     // Climbing trusses / ladders, and swimming in water.
     bool  m_climbing = false, m_swimming = false, m_underwater = false;
     float m_swimLook = 0.0f, m_bobPhase = 0.0f;
+    float m_drip = 0.0f, m_dripTimer = 0.0f;   // dripping wet after swimming (leaves wet footprints)
     bool  m_swimDown = false;
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
     float m_climbPhase = 0.0f;

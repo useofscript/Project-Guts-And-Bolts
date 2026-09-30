@@ -10,7 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'steady-aim', name: 'Steady Aim', version: '', time: 1790809300, tag: 'Fix',
+    id: 'riptide', name: 'Riptide', version: '', time: 1790807100, tag: 'Engine',
+    summary: 'Rivers flow around rocks, splashes leave things wet, and diving looks like diving.',
+    items: [
+      'Flow maps: a river\'s current splits around boulders and pillars and speeds up past them, with white water on the sides; the ripples follow it, and so do swimmers and floating things',
+      'Caustics bend with the waves above them, and now light up everything underwater when you dive',
+      'Cook-Torrance sun glints: blinding sparkles on wave crests facing the sun',
+      'Wet things: splashes and dripping swimmers leave walls, decks and floors darker and shinier, drying over half a minute',
+      'Underwater: far things go blurry, colours split a little at the edges, and water runs down the screen when you come up for air',
+    ],
+  },
+  {
+    id: 'steady-aim', name: 'Steady Aim', version: '', time: 1790806300, tag: 'Fix',
     summary: 'The camera no longer slowly tilts up by itself in Shift Lock, first person or fullscreen.',
     items: [
       'With the mouse locked, the middle of the screen was often half a pixel, and the pointer can only sit on whole pixels, so every frame looked like a tiny mouse move up',

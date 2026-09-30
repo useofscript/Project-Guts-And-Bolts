@@ -16,6 +16,18 @@
 - Big splashes and waves slapping walls throw real liquid drops that fall back
   and soak in, and leave a ring of foam.
 
+**Rivers, wetness and diving ("Riptide")**
+- Flow maps: a water part's `Flow` is bent around rocks and pillars that poke
+  through it (it splits around them and speeds up past them, with white water
+  on the sides). The ripples are carried along it, and swimmers and floating
+  things follow it too.
+- Caustics bend with the waves above them; underwater, everything gets them.
+- Sun glints use a Cook-Torrance (GGX) highlight: brilliant sparkles on crests.
+- Splashes and dripping swimmers leave things wet: darker and shinier, drying
+  over about half a minute. Parts the liquid ran over look wet too.
+- Underwater: distance blur and a slight colour split; after coming up for
+  air, water runs down the screen for a few seconds.
+
 **FluidVolume**
 - `Instance.new("FluidVolume")` (or Insert Object): a block of water with
   `FlowVelocity`, `Clarity` and `WaveScale`. Any instance also has
@@ -23,6 +35,8 @@
 
 ## Fixed
 - Water no longer flickers in stripes where it touches walls (z-fighting).
+- The camera no longer slowly looks up by itself in Shift Lock, first person
+  or fullscreen.
 
 # Guts&Bolts 0.6.1: The Hydromania Update (September 30, 2026)
 
