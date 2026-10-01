@@ -90,6 +90,7 @@ void WaterSystem::scan(Scene& scene) {
 
 void WaterSystem::end() {
     m_bodies.clear();
+    m_surges.clear();
     m_liquid.end();
     m_flood = Flood{};
     m_wetSpots.clear();
@@ -109,7 +110,7 @@ const WaterSystem::Body* WaterSystem::find(uint64_t id) const {
 const WaterSystem::Body* WaterSystem::bodyAt(const glm::vec3& p, float pad) const {
     for (const Body& b : m_bodies)
         if (p.x >= b.min.x - pad && p.x <= b.max.x + pad && p.z >= b.min.z - pad && p.z <= b.max.z + pad &&
-            p.y >= b.min.y - 0.01f && p.y <= b.max.y + b.swell + 2.5f)
+            p.y >= b.min.y - 0.01f && p.y <= b.max.y + b.swell + 2.5f + surgeHeight())
             return &b;
     return nullptr;
 }
@@ -124,7 +125,8 @@ float WaterSystem::heightAt(const Body& b, float x, float z) const {
     int x0 = std::min((int)fx, b.nx - 2), z0 = std::min((int)fz, b.nz - 2);
     float tx = fx - x0, tz = fz - z0;
     auto H = [&](int i, int k) { return b.h[(size_t)k * b.nx + i]; };
-    return (H(x0, z0) * (1 - tx) + H(x0 + 1, z0) * tx) * (1 - tz) + (H(x0, z0 + 1) * (1 - tx) + H(x0 + 1, z0 + 1) * tx) * tz;
+    const float grid = (H(x0, z0) * (1 - tx) + H(x0 + 1, z0) * tx) * (1 - tz) + (H(x0, z0 + 1) * (1 - tx) + H(x0 + 1, z0 + 1) * tx) * tz;
+    return m_surges.empty() ? grid : grid + surgeAt(b, x, z);
 }
 
 // The flow map: start with the Flow everywhere, then make it go around solid things
@@ -264,6 +266,110 @@ bool WaterSystem::at(const glm::vec3& p, float* surface, glm::vec3* flow) const 
     return true;
 }
 
+// --- Tsunamis ---------------------------------------------------------------------
+
+void WaterSystem::addSurge(const glm::vec3& at, float height, float speed, float width) {
+    const Body* b = bodyAt(at, width);
+    if (!b) return;
+    Surge s;
+    s.body = b->id;
+    s.center = at;
+    s.height = std::clamp(height, 0.2f, 40.0f);
+    s.speed = std::clamp(speed, 4.0f, 200.0f);
+    s.width = std::clamp(width, 1.0f, 60.0f);
+    s.start = s.width * 1.5f;
+    s.radius = s.start;
+    // It runs until it's past the far side of the water (and a bit up the shore).
+    const glm::vec2 c(at.x, at.z);
+    float far = 0.0f;
+    for (glm::vec2 corner : {glm::vec2(b->min.x, b->min.z), glm::vec2(b->max.x, b->min.z), glm::vec2(b->min.x, b->max.z), glm::vec2(b->max.x, b->max.z)})
+        far = std::max(far, glm::length(corner - c));
+    s.maxRadius = far + s.width * 4.0f + s.height * 8.0f;
+    m_surges.push_back(std::move(s));
+}
+
+float WaterSystem::surgeHeight() const {
+    float h = 0.0f;
+    for (const Surge& s : m_surges) h = std::max(h, s.height);
+    return h;
+}
+
+// The wave's shape: a tall crest with a trough just behind it, getting lower as it
+// spreads out (its energy is shared around a bigger and bigger ring).
+float WaterSystem::surgeAt(const Body& b, float x, float z) const {
+    float h = 0.0f;
+    for (const Surge& s : m_surges) {
+        if (s.body != b.id) continue;
+        const float d = glm::length(glm::vec2(x - s.center.x, z - s.center.z));
+        const float u = (d - s.radius) / s.width;
+        if (u > 3.0f || u < -5.0f) continue;
+        const float amp = s.height * std::sqrt(s.start / std::max(s.radius, s.start));
+        h += amp * (std::exp(-u * u) - 0.4f * std::exp(-(u + 1.8f) * (u + 1.8f)));
+    }
+    return h * edgeFade(b, x, z);
+}
+
+void WaterSystem::stepSurges(float dt, Scene& scene) {
+    for (size_t i = 0; i < m_surges.size();) {
+        Surge& s = m_surges[i];
+        s.radius += s.speed * dt;
+        const Body* b = find(s.body);
+        if (!b || s.radius > s.maxRadius) { m_surges.erase(m_surges.begin() + (long)i); continue; }
+        const float amp = s.height * std::sqrt(s.start / std::max(s.radius, s.start));
+        // Is `p` in the wave's path: in the water, or on the shore it washes up onto?
+        const float runUp = amp * 6.0f + s.width;   // how far past the water's edge it reaches
+        auto inPath = [&](const glm::vec3& p, glm::vec3& out, float& k) {
+            if (p.x < b->min.x - runUp || p.x > b->max.x + runUp || p.z < b->min.z - runUp || p.z > b->max.z + runUp) return false;
+            if (p.y > b->max.y + amp * 1.6f + 1.0f || p.y < b->min.y - 1.0f) return false;
+            const glm::vec2 d(p.x - s.center.x, p.z - s.center.z);
+            const float dist = glm::length(d);
+            const float u = (dist - s.radius) / s.width;
+            if (u > 1.2f || u < -1.5f) return false;
+            out = dist > 1e-3f ? glm::vec3(d.x / dist, 0.0f, d.y / dist) : glm::vec3(1, 0, 0);
+            k = std::exp(-u * u);
+            return true;
+        };
+        // People get picked up and carried along (once each).
+        if (Player* pl = scene.player(); pl && pl->root() && !pl->isDead()) {
+            glm::vec3 dir; float k;
+            if (inPath(pl->position(), dir, k) && std::find(s.swept.begin(), s.swept.end(), pl->rootId()) == s.swept.end() && amp > 0.4f) {
+                s.swept.push_back(pl->rootId());
+                pl->launch(dir * s.speed * 0.55f * k + glm::vec3(0.0f, std::min(30.0f, amp * 5.0f) * k, 0.0f));
+            }
+        }
+        // Loose parts (boats, crates, debris) ride the front.
+        s.pushTimer -= dt;
+        if (s.pushTimer <= 0.0f) {
+            s.pushTimer = 0.05f;
+            std::vector<SceneNode*> stack{scene.root()};
+            while (!stack.empty()) {
+                SceneNode* n = stack.back();
+                stack.pop_back();
+                for (auto& c : n->children) stack.push_back(c.get());
+                if (!n->isPart() || n->anchored || scene.isCharacterPart(n)) continue;
+                glm::vec3 dir; float k;
+                if (!inPath(glm::vec3(n->worldMatrix()[3]), dir, k)) continue;
+                const float want = s.speed * 0.6f * k;
+                const float along = glm::dot(n->velocity, dir);
+                if (along < want) n->velocity += dir * std::min(want - along, want * 0.5f) + glm::vec3(0.0f, amp * 1.5f * k * 0.05f, 0.0f);
+                Physics::wake(n);
+            }
+        }
+        // White water thrown off the crest.
+        if (amp > 0.8f) {
+            const int n = (int)std::clamp(amp * 2.0f, 1.0f, 8.0f);
+            for (int j = 0; j < n; ++j) {
+                const float a = rnd01() * 6.2831853f;
+                const glm::vec3 p(s.center.x + std::cos(a) * s.radius, 0.0f, s.center.z + std::sin(a) * s.radius);
+                if (p.x < b->min.x || p.x > b->max.x || p.z < b->min.z || p.z > b->max.z) continue;
+                const glm::vec3 top(p.x, b->max.y + heightAt(*b, p.x, p.z) + 0.2f, p.z);
+                m_liquid.spray(top, glm::vec3(std::cos(a), 0.0f, std::sin(a)) * s.speed * 0.25f + glm::vec3(0.0f, amp * 1.5f, 0.0f));
+            }
+        }
+        ++i;
+    }
+}
+
 void WaterSystem::disturb(const glm::vec3& p, float amount, float radius) {
     Body* b = bodyAt(p, radius);
     if (!b) return;
@@ -329,6 +435,7 @@ void WaterSystem::update(float dt, Scene& scene) {
                                     [&](const WetSpot& s) { return wetness(s) <= 0.0f; }), m_wetSpots.end());
     if ((m_scanTime -= dt) <= 0.0f) { m_scanTime = 0.25f; scan(scene); scanSources(scene); }
     stepFlood(dt, scene);
+    stepSurges(dt, scene);
     m_liquid.update(dt, scene);
 
     // People (the player and NPCs) splash when they jump in, and leave a wake.

@@ -16,6 +16,7 @@ GameSession::GameSession(Scene* scene) : m_scene(scene), m_scripts(scene) { m_sc
 void GameSession::start() {
     m_physics.reset();
     m_scene->particles().clear();
+    m_scene->blasts().clear();
     if (Player* p = m_scene->player()) p->beginPlay();
     m_running = true;
     // Sounds marked "Autoplay" (e.g. background music) start with the game.
@@ -150,6 +151,7 @@ void GameSession::stop() {
     if (Player* p = m_scene->player()) p->endPlay();
     m_physics.reset();
     m_scene->particles().clear();
+    m_scene->blasts().clear();
     m_running = false;
 }
 
@@ -245,6 +247,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
     const WorldSettings& ws = m_scene->world();
     m_scene->particles().setBlood(ws.bloodColor, ws.bloodAmount, ws.bloodStay);
     m_scene->particles().update(dt, m_scene->world().gravity, m_physics);
+    m_scene->blasts().update(dt, *m_scene, m_physics);   // explosions (the host pushes things; everyone sees them)
 
     // 4. Touched events (after everything has moved).
     std::vector<TouchEvent> touches;

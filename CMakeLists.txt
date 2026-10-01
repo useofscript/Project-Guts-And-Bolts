@@ -314,6 +314,7 @@ add_library(gb_engine STATIC
     src/scene/Animation.cpp
     src/scene/Ragdoll.cpp
     src/scene/Effects.cpp
+    src/scene/Blast.cpp
     src/scene/Serializer.cpp
     src/scene/RobloxFile.cpp
     src/scene/RobloxMesh.cpp

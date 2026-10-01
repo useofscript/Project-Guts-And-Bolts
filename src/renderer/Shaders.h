@@ -492,6 +492,61 @@ out vec4 FragColor;
 void main() { FragColor = vec4(pow(vColor.rgb, vec3(2.2)), vColor.a); }
 )";
 
+// Explosion puffs (smoke, fire, dust, spray: see Blast.h): camera-facing soft balls
+// with wispy edges, lit by the sun like a little sphere; fire glows (and blooms).
+inline const char* puffVert = R"(#version 410 core
+layout(location=0) in vec3 aCenter;
+layout(location=1) in vec2 aCorner;   // -1..1
+layout(location=2) in vec4 aColor;    // rgb, alpha
+layout(location=3) in vec3 aInfo;     // radius, glow, seed
+uniform mat4 uView;
+uniform mat4 uProj;
+out vec2 vCorner;
+out vec4 vColor;
+out vec2 vInfo;    // glow, seed
+void main() {
+    vCorner = aCorner;
+    vColor = aColor;
+    vInfo = aInfo.yz;
+    vec4 c = uView * vec4(aCenter, 1.0);
+    c.xy += aCorner * aInfo.x;
+    gl_Position = uProj * c;
+}
+)";
+
+inline const char* puffFrag = R"(#version 410 core
+in vec2 vCorner;
+in vec4 vColor;
+in vec2 vInfo;
+uniform vec3 uSunView;    // the sun's direction, in view space
+uniform vec3 uSunColor;
+uniform vec3 uAmbient;
+out vec4 FragColor;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+void main() {
+    float d2 = dot(vCorner, vCorner);
+    if (d2 > 1.0) discard;
+    vec2 q = vCorner * 2.3 + vec2(vInfo.y * 3.1, vInfo.y * 1.7);
+    float n = noise(q) * 0.55 + noise(q * 2.1) * 0.3 + noise(q * 4.3) * 0.15;
+    // Thick in the middle, wispy at the edge.
+    float density = pow(1.0 - d2, 1.4) * (0.55 + 0.9 * n);
+    float a = clamp(vColor.a * density, 0.0, 1.0);
+    if (a < 0.01) discard;
+    // Lit like a lumpy sphere.
+    vec3 nrm = normalize(vec3(vCorner + (n - 0.5) * 0.6, sqrt(max(0.0, 1.0 - d2))));
+    float lit = max(dot(nrm, normalize(uSunView)), 0.0);
+    vec3 col = vColor.rgb * (uAmbient + uSunColor * lit * 0.9);
+    // Fire: its own light, brightest in the middle.
+    col += vColor.rgb * vInfo.x * (0.35 + 0.65 * (1.0 - d2)) * (0.7 + 0.6 * n);
+    FragColor = vec4(col, a);
+}
+)";
+
 inline const char* depthVert = R"(#version 410 core
 layout(location=0) in vec3 aPos;
 uniform mat4 uLightSpace;

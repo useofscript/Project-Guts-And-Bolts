@@ -197,7 +197,15 @@ void replayFx(Scene& scene, const json& list) {
         glm::vec3 p = vec3(f.value("p", json()));
         float amount = f.value("n", 10.0f);
         switch ((FxEvent::Type)type) {
-            case FxEvent::Explosion: ps.explosion(p, amount); Audio::play("explosion", 1.0f, 1.0f, false, &p); break;
+            case FxEvent::Explosion: {
+                // A blast (Blast.h): shown here; the host already moved things and hurt people.
+                const std::string opts = f.value("s", std::string());
+                if (opts.empty()) { ps.explosion(p, amount); Audio::play("explosion", 1.0f, 1.0f, false, &p); break; }
+                BlastOptions o = BlastOptions::decode(opts, amount);
+                if (o.visible) ps.sparks(p, (int)std::clamp(o.radius * 4.0f, 10.0f, 80.0f));
+                scene.blasts().start(scene, p, o, false);
+                break;
+            }
             case FxEvent::Sparks:    ps.sparks(p, (int)amount); break;
             case FxEvent::Blood:     if (scene.goreEnabled()) ps.spray(GoreKind::Blood, p, {0, 1, 0}, (int)amount, 3.0f); break;
             case FxEvent::Oil:       if (scene.goreEnabled()) ps.spray(GoreKind::Oil, p, {0, 1, 0}, (int)amount, 3.0f); break;

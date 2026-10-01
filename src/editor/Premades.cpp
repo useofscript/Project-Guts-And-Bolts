@@ -222,6 +222,82 @@ while true do
 end
 )";
 
+const char* kTimeBomb = R"(-- Time Bomb: click it to start the timer. 5 seconds later, BOOM (and fires).
+local bomb = script.Parent
+local armed = false
+
+bomb.Clicked:Connect(function()
+    if armed then return end
+    armed = true
+    for i = 5, 1, -1 do
+        bomb.Color = Color3.new(1, 0.2, 0.1)
+        Sounds.Play("click", bomb.Position)
+        task.wait(0.15)
+        bomb.Color = Color3.new(0.15, 0.15, 0.15)
+        task.wait(0.85)
+    end
+    local e = Instance.new("Explosion")
+    e.Position = bomb.Position
+    e.BlastRadius = 16
+    e.BlastPressure = 800000
+    e.Fire = 10            -- fires keep burning for 10 seconds
+    e.Parent = workspace
+    bomb:Destroy()
+end)
+)";
+
+const char* kNuke = R"(-- Nuke: click it, run. 10 seconds later: a shockwave, a fireball and a mushroom cloud.
+-- Near water it makes a tsunami. Change BlastRadius to make it bigger or smaller.
+local nuke = script.Parent
+local armed = false
+
+nuke.Clicked:Connect(function()
+    if armed then return end
+    armed = true
+    Gui.Message("NUKE ARMED: 10 seconds. RUN!", 3)
+    for i = 10, 1, -1 do
+        Gui.Label("Nuke", "Detonation in " .. i)
+        Sounds.Play("click", nuke.Position)
+        task.wait(1)
+    end
+    Gui.Label("Nuke", "")
+    local e = Instance.new("Explosion")
+    e.Position = nuke.Position
+    e.BlastRadius = 120
+    e.BlastPressure = 4000000
+    e.Destroy = true         -- rips anchored parts loose near the middle (a crater)
+    e.Fire = 25
+    e.MushroomCloud = true
+    e.Parent = workspace
+    nuke:Destroy()
+end)
+)";
+
+const char* kDepthCharge = R"(-- Depth Charge: drop it in water (or click it on a boat). Under the surface
+-- it blows: a huge column of spray, and in big water, a tsunami.
+local charge = script.Parent
+local gone = false
+
+local function boom()
+    if gone then return end
+    gone = true
+    Explode(charge.Position, 45, 2)
+    charge:Destroy()
+end
+
+charge.Clicked:Connect(function()
+    charge.Anchored = false
+    task.wait(4)   -- time to sink
+    boom()
+end)
+charge.Touched:Connect(function(hit)
+    if hit.Name == "Water" and not gone then
+        task.wait(2)
+        boom()
+    end
+end)
+)";
+
 const char* kBarrel = R"(-- Exploding Barrel: click it, or knock it over, and BOOM.
 local barrel = script.Parent
 local done = false
@@ -415,6 +491,9 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::SawBlade,             "Saw Blade",       "A spinning blade. Touch it and lose limbs"},
         {Premade::SpikeTrap,            "Spike Trap",      "Spikes shoot up every few seconds"},
         {Premade::ExplodingBarrel,      "Exploding Barrel","Click it (or bump it) to blow it up"},
+        {Premade::TimeBomb,             "Time Bomb",       "Click it: 5 seconds, then a blast that leaves fires burning"},
+        {Premade::Nuke,                 "Nuke",            "Click it and run: shockwave, fireball, mushroom cloud (a tsunami near water)"},
+        {Premade::DepthCharge,          "Depth Charge",    "Drop it in water: a column of spray and, in big water, a tsunami"},
         {Premade::LampPost,             "Lamp Post",       "A street lamp with a real light (try it at night)"},
         {Premade::DiscoFloor,           "Disco Floor",     "Tiles and a light that change colour"},
     };
@@ -593,6 +672,21 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
             addScript(scene, n, kSpikeTrap);
             break;
         }
+        case Premade::TimeBomb:
+            n = addPart(scene, "TimeBomb", PrimitiveType::Sphere, at + glm::vec3(0, 0.75f, 0), {1.5f, 1.5f, 1.5f}, {0.15f, 0.15f, 0.15f}, Material::Metal);
+            n->anchored = false;
+            addScript(scene, n, kTimeBomb);
+            break;
+        case Premade::Nuke:
+            n = addPart(scene, "Nuke", PrimitiveType::Cylinder, at + glm::vec3(0, 1.5f, 0), {1.6f, 3.0f, 1.6f}, {0.75f, 0.7f, 0.2f}, Material::Metal);
+            addScript(scene, n, kNuke);
+            break;
+        case Premade::DepthCharge:
+            n = addPart(scene, "DepthCharge", PrimitiveType::Cylinder, at + glm::vec3(0, 0.6f, 0), {1.0f, 1.2f, 1.0f}, {0.2f, 0.25f, 0.3f}, Material::Metal);
+            n->anchored = false;
+            n->density = 3.0f;   // sinks
+            addScript(scene, n, kDepthCharge);
+            break;
         case Premade::ExplodingBarrel:
             n = addPart(scene, "ExplodingBarrel", PrimitiveType::Cylinder, at + glm::vec3(0, 0.75f, 0), {1.0f, 1.5f, 1.0f}, {0.8f, 0.12f, 0.08f}, Material::Metal);
             n->anchored = false;
