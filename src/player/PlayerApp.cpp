@@ -306,6 +306,8 @@ void PlayerApp::run() {
             }
         }
         frame(dt);
+        if (std::getenv("GB_TRACE_POS") && m_scene)   // test: the character's height every frame
+            if (Player* p = m_scene->player()) std::printf("TRACE %d %.3f %.3f\n", m_frame, p->position().z, p->position().y);
         if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
         if (shoot && m_scene) {   // test output: where everyone's character ended up

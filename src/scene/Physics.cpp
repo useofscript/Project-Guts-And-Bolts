@@ -403,6 +403,7 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
                 if (stepUp && wasGrounded && !c.rotated) {
                     float rise = c.box.max.y - pos.y;
                     if (rise > 0.0f && rise <= kStepHeight && fits({pos.x, c.box.max.y + 0.001f, pos.z})) {
+                        r.stepped += c.box.max.y + 0.001f - pos.y;
                         pos.y = c.box.max.y + 0.001f;
                         continue;
                     }
@@ -460,6 +461,7 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
             if (y <= pos.y + 0.01f && y > bestY) { bestY = y; bestId = c.node->id; }
         }
         if (bestId) {
+            r.dropped += pos.y - bestY;
             pos.y = bestY;
             r.grounded = true;
             r.groundId = bestId;
