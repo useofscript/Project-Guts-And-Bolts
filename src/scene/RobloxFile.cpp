@@ -890,6 +890,13 @@ struct Converter {
             node->enabled = in.flag("Enabled", true);
             node->canBeDropped = in.flag("CanBeDropped", true);
             node->toolTip = in.str("ToolTip");
+            // Tool.Grip: how it sits in the hand (same maths as Roblox, see Player::updateGrip).
+            if (const Value* g = in.get("Grip"); g && g->kind == Value::CFrame) {
+                node->gripRot = g->r;
+                node->gripPos = g->v * kImportScale;
+            } else {
+                node->gripRot = glm::mat3(1.0f);   // a Roblox tool with no Grip: Roblox's default
+            }
             ++report.models;
         } else if (c == "Model" || c == "Folder" || c == "Configuration" || c == "Accessory") {
             node = std::make_unique<SceneNode>(name, NodeKind::Model);
@@ -969,6 +976,23 @@ struct Converter {
             }
             ++report.other;
             return nullptr;
+        } else if ((c == "SpecialMesh" || c == "FileMesh" || c == "BlockMesh" || c == "CylinderMesh") && parent) {
+            // The part already took its shape from it (see meshLook); scripts still look
+            // for it (Handle.Mesh), so keep a stand-in with its properties as attributes.
+            node = std::make_unique<SceneNode>(name, NodeKind::Model);
+            auto attrS = [&](const char* k, const std::string& v) {
+                Attribute a; a.name = k; a.type = Attribute::String; a.s = v; node->attributes.push_back(a);
+            };
+            auto attrV = [&](const char* k, glm::vec3 v, Attribute::Type t) {
+                Attribute a; a.name = k; a.type = t; a.v = v; node->attributes.push_back(a);
+            };
+            attrS("RobloxClass", c);
+            attrS("MeshId", in.str("MeshId"));
+            attrS("TextureId", in.str("TextureId"));
+            attrV("Scale", in.get("Scale") ? in.get("Scale")->v : glm::vec3(1.0f), Attribute::Vector3);
+            attrV("Offset", in.get("Offset") ? in.get("Offset")->v : glm::vec3(0.0f), Attribute::Vector3);
+            attrV("VertexColor", in.get("VertexColor") ? in.get("VertexColor")->v : glm::vec3(1.0f), Attribute::Vector3);
+            { Attribute a; a.name = "MeshType"; a.type = Attribute::Number; a.n = in.num("MeshType", 5); node->attributes.push_back(a); }
         } else if (c == "Humanoid" || c == "Decal" || c == "Texture" || c == "SpecialMesh" || c == "TouchTransmitter" ||
                    c.find("Value") != std::string::npos || c == "Camera" || c == "Terrain") {
             if (c == "Decal" || c == "Texture") note("Decals and textures aren't supported yet.");
@@ -1164,6 +1188,12 @@ struct XmlWriter {
         o << "<Item class=\"" << cls << "\" referent=\"" << ref(n.id) << "\">\n<Properties>\n";
         common(n);
         switch (n.kind) {
+        case NodeKind::Tool:
+            cframe("Grip", n.gripPos * kExportScale, n.gripRot);
+            boolean("CanBeDropped", n.canBeDropped);
+            boolean("Enabled", n.enabled);
+            str("ToolTip", n.toolTip);
+            break;
         case NodeKind::Gui: {
             const GuiProps& g = n.gui;
             if (g.type == GuiType::ScreenGui) { boolean("Enabled", n.enabled); o << "<int name=\"DisplayOrder\">" << g.displayOrder << "</int>\n"; boolean("ResetOnSpawn", false); break; }

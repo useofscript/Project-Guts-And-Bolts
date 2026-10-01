@@ -508,6 +508,16 @@ ChatLog& PlayerApp::chat() {
 
 void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
+    // "/e dance" and friends: emotes, like old Roblox (they don't go into the chat).
+    if (text.rfind("/e ", 0) == 0 || text.rfind("/emote ", 0) == 0) {
+        std::string name = text.substr(text.find(' ') + 1);
+        while (!name.empty() && name.back() == ' ') name.pop_back();
+        Player* p = m_scene->player();
+        if (!p || !p->playEmote(name))
+            chat().add("", "Emotes: /e dance, /e dance2, /e dance3, /e laugh, /e cheer, /e wave, /e point "
+                           "(stand still on the ground first).", true);
+        return;
+    }
     if (Online::isGuest() && Online::online()) { chat().add("", Online::kGuestChatText, true); return; }
     std::string to, msg;
     if (!m_server && !m_client && ChatLog::parseWhisper(text, to, msg)) {   // playing alone

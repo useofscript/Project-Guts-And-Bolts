@@ -30,6 +30,9 @@ struct Humanoid {
     float health     = 100.0f;
     float maxHealth  = 100.0f;
     bool  autoRotate = true;    // face the direction of travel
+    // PlatformStand: the character stops holding itself up (no walking, no
+    // jumping) and topples over stiffly, like a 2011 Roblox character.
+    bool  platformStand = false;
 };
 
 // The six body colours of an R6 character.
@@ -87,6 +90,22 @@ public:
     void       setCheckpoint(uint64_t partId) { m_checkpoint = partId; }   // respawn on this part (0 = the spawn)
     uint64_t   checkpoint() const { return m_checkpoint; }
     void       swingTool() { if (equippedTool()) m_toolSwing = kToolSwingTime; }   // the "use" animation
+    // Emotes, like old Roblox's "/e dance": dance (dance1), dance2, dance3, laugh,
+    // cheer, wave, point. Dances go on until you move; the rest play once.
+    // False if there's no such emote (or you can't right now).
+    bool       playEmote(const std::string& name);
+    const std::string& emote() const { return m_emote; }
+    // Knocked off your feet for `seconds` (tripped, flung): no control, the body
+    // falls over and gets back up afterwards. 0 = get up now.
+    void       trip(float seconds, const glm::vec3& spin = glm::vec3(0.0f));
+    bool       tripped() const { return m_tripTime > 0.0f || m_humanoid.platformStand; }
+    // Roblox's HumanoidStateType names: Running, Jumping, Freefall, Climbing,
+    // Swimming, Seated, FallingDown, GettingUp, PlatformStanding, Dead.
+    const char* stateName() const;
+    // The character's Animate script (made if it's missing): values named after
+    // each animation (walk, idle, dance...), each holding an Animation. Give one
+    // keyframes and it plays instead of the built-in classic one.
+    static void addAnimateScript(Scene& scene, SceneNode* rig);
     // Tool events for scripts (Equipped / Unequipped), and when the world changed.
     std::function<void(uint64_t tool, bool equipped)> onToolEquip;
     static constexpr int kMaxTools = 9;
@@ -242,6 +261,18 @@ private:
     uint64_t m_seatId = 0;          // the seat we're sitting on (0 = standing)
     float m_seatCooldown = 0.0f;    // just got up: don't sit straight back down
     float m_sitBlend = 0.0f;        // 0 standing .. 1 sitting (the pose)
+    std::string m_emote;            // playing now ("" = none)
+    uint64_t m_gripMade = 0;         // the tool we made a RightGrip for
+    float m_emoteTime = 0.0f, m_emoteBlend = 0.0f, m_idleTime = 0.0f;
+    float m_airTime = 0.0f;          // how long we've been off the ground
+    // Tripped / PlatformStand: the whole body tips over (pitch about the feet) and
+    // spins when flung; then it gets back up.
+    float m_tripTime = 0.0f, m_tilt = 0.0f, m_tiltVel = 0.0f, m_getUp = 0.0f;
+    bool  m_wasTripped = false;
+    // Custom animations from the Animate script (parsed once per change).
+    struct CustomClip { size_t hash = 0; bool has = false; float time = 0.0f; };
+    std::unordered_map<uint64_t, CustomClip> m_customClips;
+    bool applyCustomAnimation(const char* state, float dt);
     void  sitStep(float dt, bool jump);   // while sitting: stay on the seat
     float m_wet = 0.0f;              // seconds you stay slippery after leaving a stream of liquid (a wet slide)
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)

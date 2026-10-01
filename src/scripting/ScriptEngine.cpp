@@ -326,7 +326,16 @@ function BadgeService:UserHasBadgeAsync(player, badgeId)
 end
 BadgeService.UserHasBadge = BadgeService.UserHasBadgeAsync
 
-local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Players = Players, Lighting = Lighting,
+-- Debris: throw something away later, like Roblox's. Debris:AddItem(part, 5)
+Debris = { ClassName = "Debris", Name = "Debris", MaxItems = 1000 }
+function Debris:AddItem(obj, lifetime)
+    task.delay(tonumber(lifetime) or 10, function()
+        if obj and obj.Parent then pcall(function() obj:Destroy() end) end
+    end)
+end
+Debris.addItem = Debris.AddItem
+
+local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService }
 game = setmetatable({}, { __index = function(_, name)

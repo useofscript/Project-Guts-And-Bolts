@@ -240,6 +240,9 @@ json toJson(const SceneNode& n) {
         j["canBeDropped"] = n.canBeDropped;
         j["starterTool"] = n.starterTool;
         j["gripPos"] = vec(n.gripPos);
+        if (n.gripRot != kDefaultGripRot)
+            j["gripRot"] = {n.gripRot[0][0], n.gripRot[0][1], n.gripRot[0][2], n.gripRot[1][0], n.gripRot[1][1],
+                            n.gripRot[1][2], n.gripRot[2][0], n.gripRot[2][1], n.gripRot[2][2]};
     }
     if (n.kind == NodeKind::FluidSystem) {
         j["color"] = vec(n.color); j["viscosity"] = n.viscosity; j["surfaceTension"] = n.surfaceTension;
@@ -389,6 +392,9 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->canBeDropped = get<bool>(j, "canBeDropped", true);
         n->starterTool  = get<bool>(j, "starterTool", false);
         n->gripPos      = vec(j, "gripPos", {0, 0, 0});
+        if (auto g = j.find("gripRot"); g != j.end() && g->is_array() && g->size() == 9)
+            for (int c = 0; c < 3; ++c)
+                for (int r = 0; r < 3; ++r) n->gripRot[c][r] = (*g)[(size_t)(c * 3 + r)].get<float>();
     }
     if (n->kind == NodeKind::FluidSystem) {
         n->color          = vec(j, "color", {0.12f, 0.56f, 1.0f});
@@ -647,7 +653,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.toolTip = src->toolTip;     dst.canBeDropped = src->canBeDropped;
     dst.value = src->value;         dst.intValue = src->intValue;
     dst.texture = src->texture;     dst.face = src->face;
-    dst.starterTool = src->starterTool; dst.gripPos = src->gripPos;
+    dst.starterTool = src->starterTool; dst.gripPos = src->gripPos; dst.gripRot = src->gripRot;
     dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
     dst.length = src->length;       dst.stiffness = src->stiffness; dst.damping = src->damping;
