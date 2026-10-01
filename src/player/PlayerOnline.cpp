@@ -244,6 +244,16 @@ void PlayerApp::drawOnlineItemDialog() {
         else ImGui::Text("%d of %d left", lim.value("left", 0), lim.value("stock", 0));
         ImGui::PopTextWrapPos();
     }
+    // Timed items (like Gutstober's): off sale from a set time on.
+    const long long offsaleAt = a.value("offsaleAt", 0LL);
+    const bool offsale = a.value("offsale", false);
+    if (offsaleAt > 0) {
+        const long long left = offsaleAt - Online::unixNow();
+        if (offsale || left <= 0) ImGui::TextColored(ImVec4(0.85f, 0.4f, 0.05f, 1), "Off sale");
+        else if (left < 86400) ImGui::TextColored(ImVec4(0.85f, 0.4f, 0.05f, 1), "Off sale in less than a day");
+        else ImGui::TextColored(ImVec4(0.85f, 0.4f, 0.05f, 1), "Off sale in %lld days", (left + 86399) / 86400);
+    }
+    const bool offNow = offsaleAt > 0 && (offsale || Online::unixNow() >= offsaleAt);
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(it.description.c_str());
     ImGui::PopTextWrapPos();
@@ -259,7 +269,8 @@ void PlayerApp::drawOnlineItemDialog() {
     if (!owned) {
         std::string label = it.price > 0 ? "Buy for " + Bolts::format(it.price) : std::string("Get it");
         if (soldOut) label = "Sold out";
-        ImGui::BeginDisabled(m_busy || soldOut || Online::bolts() < it.price);
+        if (offNow) label = "Off sale";
+        ImGui::BeginDisabled(m_busy || soldOut || offNow || Online::bolts() < it.price);
         if (bigButton(label.c_str(), kGreen, ImVec2(170, 34))) {
             m_busy = true;
             Online::request("buy", {{"id", it.id}}, [this, wearIt](const json& r) {

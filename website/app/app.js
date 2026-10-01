@@ -247,7 +247,7 @@ function officialBadge(a) {
 function itemCard(a) {
   items3d.set(a.id, a);
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic-wrap"><div class="pic">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
+    <div class="pic-wrap"><div class="pic">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : a.offsaleAt ? html`<span class="timed-tag">${a.offsale ? 'OFF SALE' : 'TIMED'}</span>` : ''}
     <div class="name">${a.name}</div>
     <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
       : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
@@ -509,6 +509,37 @@ pages.home = async () => {
 // --- Updates: the update log, newest first. It checks for new ones by itself while
 // you're looking, and the Updates link lights up when there's one you haven't seen.
 const UPDATE_TAG_COLORS = { Engine: '#2a7de1', Studio: '#8a4fd1', Website: '#1f9d55', Player: '#e08a00', Server: '#4a5a70', Fix: '#d33c3c' };
+// Gutstober: Guts&Bolts' Halloween month (October). The site dresses up for it (orange
+// and purple, pumpkins and bats) unless you turn it off in Settings. Your choice is
+// kept in this browser only.
+function isGutstober(d = new Date()) { return d.getMonth() === 9; }
+function gutstoberWanted() { try { return localStorage.getItem('gb.gutstober') !== 'off'; } catch { return true; } }
+function applyTheme() {
+  const on = isGutstober() && gutstoberWanted();
+  document.documentElement.classList.toggle('gutstober', on);
+  let banner = document.getElementById('gutstober');
+  if (on && !banner) {
+    banner = document.createElement('div');
+    banner.id = 'gutstober';
+    banner.className = 'gutstober-banner';
+    banner.innerHTML = '<div class="wrap"><span class="gt-pumpkin" aria-hidden="true"></span>' +
+      '<b>Happy Gutstober!</b> <span>Spooky games and Halloween items in the <a href="#/catalog">catalog</a> for a limited time only.</span>' +
+      '<span class="gt-bats" aria-hidden="true"><i></i><i></i><i></i></span></div>';
+    document.getElementById('nav').after(banner);
+  } else if (!on && banner) banner.remove();
+}
+applyTheme();
+function localInput(t) {   // seconds -> the value a datetime-local box wants (local time)
+  const d = new Date(t * 1000);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+function offsaleText(a) {   // timed items: "Off sale" or when they go off sale
+  if (!a.offsaleAt) return '';
+  if (a.offsale) return 'Off sale';
+  const days = Math.ceil((a.offsaleAt - Date.now() / 1000) / 86400);
+  return days <= 1 ? 'Off sale in less than a day' : 'Off sale in ' + days + ' days';
+}
+
 function seenUpdate() { try { return localStorage.getItem('gb.seenUpdate') || ''; } catch { return ''; } }
 function markUpdateSeen(id) { try { localStorage.setItem('gb.seenUpdate', id); } catch { /* private window */ } }
 function updateCard(u, fresh) {
@@ -741,6 +772,7 @@ pages.item = async (id) => {
   const forSale = copies.filter((c) => c.price > 0 && !c.mine).sort((x, y) => x.price - y.price);
   const mineCopies = copies.filter((c) => c.mine);
   const soldOut = L && L.left <= 0;
+  const offsale = !!a.offsale;
   const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
     <div class="hero"><div class="card square"><div class="pic" id="item3d">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}
@@ -749,11 +781,13 @@ pages.item = async (id) => {
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
         ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
           ${L.resellers ? html` · ${L.resellers} for resale from ${bolts(L.lowest)}` : ''}</p>` : ''}
+        ${a.offsaleAt ? html`<p class="timed-line"><b>${offsaleText(a)}</b>${offsale ? '' : html` <span class="muted small">(on ${new Date(a.offsaleAt * 1000).toLocaleString()})</span>`}</p>` : ''}
         ${owned && a.kind === 'gear' ? html`<p class="ok"><b>You own this.</b></p>
             <button class="btn ${gearOn ? '' : 'green'} big" data-act="gearEquip" data-id="${a.id}" data-on="${gearOn ? '' : '1'}">${gearOn ? 'Unequip' : 'Equip'}</button>
             <p class="small muted">Equipped gear goes in your backpack in games that allow gear (up to 4 at once).</p>`
           : owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
           : soldOut ? html`<button class="btn big" disabled>Sold out</button>`
+          : offsale ? html`<button class="btn big" disabled>Off sale</button>`
           : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
         ${canEdit ? html` <button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button>` : ''}
         <p style="white-space:pre-wrap">${a.description}</p></div></div>
@@ -769,6 +803,8 @@ pages.item = async (id) => {
           : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
           : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
           : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
+        ${canEdit ? html`<label>Goes off sale <span class="muted small">(a timed item; leave empty to sell it for good)</span></label>
+          <input type="datetime-local" name="offsaleAt" value="${a.offsaleAt ? localInput(a.offsaleAt) : ''}" style="max-width:220px">` : ''}
         <p><button class="btn green">Save</button> <span id="itemEditMsg"></span></p></form>
       ${me.official && a.creator === me.id && canBeLimited(a) ? html`<form class="form" data-form="itemLimited"><input type="hidden" name="id" value="${a.id}">
         <label>${L ? 'Change the stock' : 'Make it Limited'} <span class="muted small">(only Guts can do this)</span></label>
@@ -1289,11 +1325,19 @@ pages.forgot = async () => {
 };
 
 // Account Settings: email, two-step verification, password.
+function themeBox() {
+  const on = gutstoberWanted();
+  return html`<div class="box"><h2 class="boxhead">Site theme</h2>
+    <p><b>Gutstober</b>: the Halloween theme (orange and purple, pumpkins and bats) for all of October.
+      ${isGutstober() ? html`It's <b class="${on ? 'ok' : 'muted'}">${on ? 'on' : 'off'}</b> right now.` : html`<span class="muted">It comes back next October.</span>`}</p>
+    <p><button class="btn ${on ? '' : 'blue'}" data-act="gutstober" data-on="${on ? '' : '1'}">${on ? 'Turn Gutstober off' : 'Turn Gutstober on'}</button>
+      <span class="small muted">(only for this browser)</span></p></div>`;
+}
 pages.settings = async () => {
-  if (!signedIn()) { show(html`<h1>Account Settings</h1>${needSignIn('change your account settings')}`); return; }
+  if (!signedIn()) { show(html`<h1>Account Settings</h1>${themeBox()}${needSignIn('change your account settings')}`); return; }
   const noPw = !me.hasPassword;
   show(html`<h1>Account Settings</h1>
-    <div class="settings">
+    <div class="settings">${themeBox()}
       <div class="box"><h2 class="boxhead">Account</h2>
         <table class="stats"><tr><td>Username</td><td><b>${me.username}</b></td></tr><tr><td>User number</td><td>#${me.userId}</td></tr>
           <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr>
@@ -1478,6 +1522,11 @@ function loginPage(signup) {
 // --- clicks and forms ----------------------------------------------------------
 
 const actions = {
+  gutstober(d) {
+    try { localStorage.setItem('gb.gutstober', d.on ? 'on' : 'off'); } catch { /* private window */ }
+    applyTheme();
+    render();
+  },
   async deleteUpdate(d) {
     if (!confirm('Delete this update?')) return;
     const r = await call('updates.delete', { id: d.id });
@@ -1882,6 +1931,7 @@ const forms = {
     const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0 };
     if (f.color) { const hex = f.color.value.replace('#', ''); args.color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)); }
     if (f.style) args.style = Number(f.style.value);
+    if (f.offsaleAt) args.offsaleAt = f.offsaleAt.value ? Math.floor(new Date(f.offsaleAt.value).getTime() / 1000) : 0;
     if (f.picture && f.picture.files[0]) args.data = await gb.fileBase64(f.picture.files[0]);
     const r = await call('item.edit', args);
     if (!r.ok) { const m = $('#itemEditMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }

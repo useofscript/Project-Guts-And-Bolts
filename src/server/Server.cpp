@@ -258,6 +258,10 @@ json GbServer::publicAsset(const Asset& a) const {
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
     j["creatorStaff"] = it != m_users.end() && isStaff(it->second);
+    // Timed items (worker/server.js): off sale from offsaleAt on (0 = for sale for good).
+    const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL;
+    j["offsaleAt"] = off;
+    j["offsale"] = off > 0 && Online::unixNow() >= off;
     return j;
 }
 
@@ -864,6 +868,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
         if (a.meta.is_object() && a.meta.value("award", std::string()) == "email")
             return fail("This hat can't be bought: confirm an email in Settings and it's yours.");
+        if (const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL; off > 0 && now >= off)
+            return fail("This item is off sale: it was only for sale for a limited time.");
         if (a.price > 0) {
             if (balance(me) < a.price)
                 return fail("You need " + std::to_string(a.price - balance(me)) + " more Bolts for that.");
@@ -985,6 +991,20 @@ void GbServer::addExampleGames() {
         a.description = "Given to everyone who confirms their email address. Can't be bought.";
         const std::string text = kHat;
         if (a.size != text.size()) { a.size = text.size(); writeFile(blobPath(a.id), text); }
+        changed = true;
+    }
+    // Gutstober (worker/server.js timeGutstoberItems): pumpkin items are timed items that
+    // go off sale when Gutstober (October) ends, midnight UTC on November 1st. Once per item.
+    for (auto& [id, a] : m_assets) {
+        if (!Online::isCatalogItem(a.kind) || !a.meta.is_object() || a.meta.contains("timedFor")) continue;
+        std::string lower = a.name;
+        for (char& c : lower) c = (char)std::tolower((unsigned char)c);
+        if (lower.find("pumpkin") == std::string::npos) continue;
+        std::time_t made = (std::time_t)(a.created ? a.created : Online::unixNow());
+        std::tm tm = *std::gmtime(&made);
+        tm.tm_mon = 10; tm.tm_mday = 1; tm.tm_hour = tm.tm_min = tm.tm_sec = 0;   // November 1st
+        a.meta["timedFor"] = "gutstober";
+        a.meta["offsaleAt"] = (long long)timegm(&tm);
         changed = true;
     }
     if (changed) saveAssets();

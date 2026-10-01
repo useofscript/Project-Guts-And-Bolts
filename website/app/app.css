@@ -342,3 +342,63 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 .item-render { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .item-render.no-picture { color: var(--muted, #888); font-size: 12px; background: linear-gradient(135deg, #f2f3f6, #e3e6ec); border-radius: 6px; }
 .item-render img.item3d, .item-render img.item-thumb { max-width: 100%; max-height: 100%; }
+
+/* Timed items (they go off sale at a set time, like Gutstober items) */
+.timed-tag { position: absolute; left: 6px; top: 6px; background: #d9620b; color: #fff; font-weight: bold; font-size: 10px;
+  padding: 2px 6px; border-radius: 3px; letter-spacing: 1px; }
+.timed-line { font-size: 13px; color: #b4500a; }
+
+/* Gutstober: the Halloween theme for October (Settings > Site theme turns it off).
+   Pumpkins and bats are drawn with plain CSS shapes. */
+html.gutstober {
+  --bg: #1c1226; --panel: #fffaf3; --panel2: #fbefe0; --stripe: #fdf3e6; --line: #d8b998;
+  --head1: #ffb347; --head2: #f07f13; --headText: #2a0f3a; --link: #6b2fb3; --blue: #7b3fc4; --blue-dark: #4b1d86;
+}
+@media (prefers-color-scheme: dark) {
+  html.gutstober:not([data-theme="light"]) {
+    --bg: #120a19; --panel: #21162b; --panel2: #2b1d37; --stripe: #281b33; --line: #4a3358; --text: #f1e8f6;
+    --head1: #e0751a; --head2: #a84a07; --headText: #fff3e6; --link: #ffb054;
+  }
+}
+html.gutstober body {
+  background: var(--bg) radial-gradient(ellipse at 50% -10%, rgba(255,140,30,.18), transparent 60%) fixed;
+}
+html.gutstober .topbar { background: linear-gradient(#3a1752, #1a0828); border-bottom-color: #0b0312; }
+html.gutstober .logo { color: #ff8a1c; }
+html.gutstober .nav { background: linear-gradient(#ffad4d 0%, #f58a1f 50%, #e8740c 51%, #c95e05 100%);
+  border-top-color: #ffd29a; border-bottom-color: #7a3500; }
+html.gutstober .subnav { background: linear-gradient(#4b2a63, #2f1842); border-bottom-color: #160a20; }
+html.gutstober .subnav a { color: #f6d9ff; }
+html.gutstober .subnav a + a { border-left-color: #6a4785; }
+html.gutstober .subnav a.on { color: #ffb054; }
+html.gutstober .btn.blue { background: linear-gradient(#9a5ee0, #6a2fb0); border-color: #4b1d86; }
+html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
+
+.gutstober-banner { background: linear-gradient(90deg, #2a0f3a, #4a1c5e 50%, #2a0f3a); color: #ffe2bd; font-size: 12px;
+  border-bottom: 2px solid #f07f13; overflow: hidden; }
+.gutstober-banner .wrap { min-height: 34px; position: relative; }
+.gutstober-banner b { color: #ff9a2e; font-size: 14px; font-family: Impact, "Arial Black", sans-serif; letter-spacing: 1px; }
+.gutstober-banner a { color: #ffb054; text-decoration: underline; }
+/* a pumpkin: an orange squashed ball with ridges, a stem and a glowing face */
+.gt-pumpkin { position: relative; flex: none; width: 26px; height: 21px; border-radius: 48% 48% 44% 44%;
+  background: radial-gradient(ellipse at 50% 40%, #ffa53a, #e36a05 70%, #b04d00);
+  box-shadow: inset 6px 0 0 -4px rgba(120,45,0,.45), inset -6px 0 0 -4px rgba(120,45,0,.45); }
+.gt-pumpkin::before { content: ""; position: absolute; left: 11px; top: -6px; width: 4px; height: 7px; border-radius: 2px;
+  background: #4f7a1e; transform: rotate(12deg); }
+.gt-pumpkin::after { content: ""; position: absolute; left: 6px; top: 6px; width: 14px; height: 9px;
+  background:
+    linear-gradient(135deg, transparent 45%, #ffe066 46%) 0 0 / 5px 4px no-repeat,
+    linear-gradient(-135deg, transparent 45%, #ffe066 46%) 9px 0 / 5px 4px no-repeat,
+    radial-gradient(ellipse at 50% 0, transparent 55%, #ffe066 56%, #ffe066 75%, transparent 76%) 0 4px / 14px 6px no-repeat; }
+/* bats flapping along */
+.gt-bats { margin-left: auto; display: flex; gap: 14px; }
+.gt-bats i { display: block; width: 18px; height: 8px; position: relative; animation: gt-flap .5s ease-in-out infinite alternate; }
+.gt-bats i:nth-child(2) { animation-delay: .15s; margin-top: -6px; }
+.gt-bats i:nth-child(3) { animation-delay: .3s; }
+.gt-bats i::before, .gt-bats i::after { content: ""; position: absolute; top: 0; width: 9px; height: 7px; background: #0d0614;
+  border-radius: 0 100% 0 60%; }
+.gt-bats i::before { left: 0; transform: scaleX(-1); }
+.gt-bats i::after { right: 0; }
+@keyframes gt-flap { from { transform: scaleY(1) translateY(0); } to { transform: scaleY(.4) translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .gt-bats i { animation: none; } }
+@media (max-width: 600px) { .gutstober-banner span:not(.gt-pumpkin):not(.gt-bats) { display: none; } }

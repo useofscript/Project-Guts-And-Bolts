@@ -274,6 +274,13 @@ function totpCheck(secret, code, t, lastStep = -1) {
 // The Verified Hat: everyone who confirms their email gets one (an original
 // Guts&Bolts cap with our blue check, not a copy of anything). Server.cpp makes the same one.
 const VERIFIED_HAT_ID = 'item-verified-hat';
+// Gutstober: Guts&Bolts' Halloween month (all of October). Things made for it, like
+// the Pumpkin hat, are timed items: they go off sale when it ends (midnight UTC,
+// November 1st).
+function gutstoberEnd(t) {
+  const d = new Date(t * 1000);
+  return Date.UTC(d.getUTCFullYear(), 10, 1) / 1000;
+}
 const VERIFIED_HAT = {
   format: 'gbaccessory', version: 1, kind: 'hat',
   node: { id: 1, name: 'VerifiedHat', kind: 'Model', pos: [0, 2.66, 0], rot: [0, 0, 0], size: [1, 1, 1], children: [
@@ -357,6 +364,7 @@ export class GbServerObject extends DurableObject {
     for (const u of this.users.values()) this.gutsFollows(u);
     this.addExampleGames();
     this.addVerifiedHat();
+    this.timeGutstoberItems();
     for (const u of this.users.values()) if (u.emailVerified && !u.owned.includes(VERIFIED_HAT_ID)) { this.giveVerifiedHat(u); this.saveUser(u); }
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
@@ -640,6 +648,19 @@ export class GbServerObject extends DurableObject {
     this.saveAsset(a);
   }
 
+  // Pumpkin items in the catalog are Gutstober items: they go off sale when it ends.
+  // Done once per item (staff can change the date afterwards on the item's page).
+  timeGutstoberItems() {
+    const t = now();
+    for (const a of this.assets.values()) {
+      if (!isCatalogItem(a.kind) || a.timedFor || !/pumpkin/i.test(a.name || '')) continue;
+      a.timedFor = 'gutstober';
+      a.offsaleAt = gutstoberEnd(a.created || t);
+      this.saveAsset(a);
+    }
+  }
+  isOffsale(a, t = now()) { return !!a.offsaleAt && t >= a.offsaleAt; }
+
   giveVerifiedHat(u) {
     const a = this.assets.get(VERIFIED_HAT_ID);
     if (!a || !u.emailVerified || u.owned.includes(a.id)) return;
@@ -683,7 +704,8 @@ export class GbServerObject extends DurableObject {
       genres: a.kind === 'game' ? (a.genres || []) : undefined, allowGear: a.kind === 'game' ? !!a.allowGear : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
-      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a) };
+      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
+      offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a) };
   }
   publicModelsLeft(u) {   // -1 = no limit
     if (this.isVerified(u)) return -1;
@@ -1288,6 +1310,7 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
       if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
+      if (this.isOffsale(a)) return fail('This item is off sale: it was only for sale for a limited time.' + (a.limited ? ' Buy one from a reseller on the item\'s page.' : ''));
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
       if (a.price > 0) {
         if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
@@ -1333,6 +1356,10 @@ export class GbServerObject extends DurableObject {
         const price = clamp(num(args, 'price'), 0, 1000000);
         if (price > 0 && !this.isVerified(this.users.get(a.creator) || me) && !this.isStaff(me)) return fail('Only Verified creators can sell things.');
         a.price = price;
+      }
+      if ('offsaleAt' in args) {   // a timed item: off sale from then on (0 = for sale for good)
+        a.offsaleAt = Math.max(0, num(args, 'offsaleAt'));
+        a.timedFor = a.timedFor || 'set';
       }
       a.meta = a.meta || {};
       if (Array.isArray(args.color) && args.color.length === 3) a.meta.color = args.color.map((v) => clamp(Number(v) | 0, 0, 255));
