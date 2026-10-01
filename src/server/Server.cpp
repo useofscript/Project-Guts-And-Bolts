@@ -12,7 +12,6 @@
 #include <set>
 #include <chrono>
 #include <cstdio>
-#include <ctime>
 #include <fstream>
 #include <sstream>
 #include <thread>
@@ -1000,11 +999,19 @@ void GbServer::addExampleGames() {
         std::string lower = a.name;
         for (char& c : lower) c = (char)std::tolower((unsigned char)c);
         if (lower.find("pumpkin") == std::string::npos) continue;
-        std::time_t made = (std::time_t)(a.created ? a.created : Online::unixNow());
-        std::tm tm = *std::gmtime(&made);
-        tm.tm_mon = 10; tm.tm_mday = 1; tm.tm_hour = tm.tm_min = tm.tm_sec = 0;   // November 1st
+        // The year it was made in, then midnight UTC on November 1st of that year
+        // (days from 1970 worked out by hand: timegm isn't on every system).
+        const long long made = a.created ? a.created : Online::unixNow();
+        long long year = 1970;
+        auto daysTo = [](long long y) {   // days from 1970-01-01 to January 1st of year y
+            const long long p = y - 1;
+            return 365 * (y - 1970) + (p / 4 - 1969 / 4) - (p / 100 - 1969 / 100) + (p / 400 - 1969 / 400);
+        };
+        while (daysTo(year + 1) * 86400 <= made) ++year;
+        const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        const long long nov1 = daysTo(year) + 304 + (leap ? 1 : 0);   // Jan..Oct = 304 days (+1 in leap years)
         a.meta["timedFor"] = "gutstober";
-        a.meta["offsaleAt"] = (long long)timegm(&tm);
+        a.meta["offsaleAt"] = nov1 * 86400;
         changed = true;
     }
     if (changed) saveAssets();
