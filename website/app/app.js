@@ -1008,7 +1008,28 @@ pages.people = async () => {
       <span class="muted small">#${u.userId}${u.official ? ' · Guts&Bolts staff' : ''}</span></div>`) : html`<p class="error">${r.error}</p>`}</div>`);
 };
 
-pages.user = async (id) => {
+// Someone's friends, who they follow, or their followers: #/user/5/friends (or /following, /followers).
+const PEOPLE_TABS = [['friends', 'Friends'], ['following', 'Following'], ['followers', 'Followers']];
+async function peoplePage(id, which, page) {
+  const per = 60, at = Math.max(0, (Number(page) || 1) - 1);
+  const r = await pageCall('people.list', { user: String(id), which, offset: at * per, limit: per });
+  if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
+  const u = r.user, pages = Math.max(1, Math.ceil(r.total / per));
+  const title = { friends: 'Friends', following: 'Following', followers: 'Followers' }[r.which];
+  const pager = pages > 1 ? html`<p class="row">${at > 0 ? html`<a class="btn small" href="#/user/${u.userId}/${r.which}/${at}">&lt; Back</a>` : ''}
+      <span class="muted small">Page ${at + 1} of ${pages}</span>
+      ${at + 1 < pages ? html`<a class="btn small" href="#/user/${u.userId}/${r.which}/${at + 2}">Next &gt;</a>` : ''}</p>` : '';
+  show(html`<p><a href="#/user/${u.userId}">&lt; ${u.username}'s profile</a></p>
+    <h1><a href="#/user/${u.userId}">${u.username}</a>${verified(u.verified)}: ${title} (${r.total})</h1>
+    <div class="tabs">${PEOPLE_TABS.map(([k, label]) => html`<a class="btn ${k === r.which ? 'blue' : ''}" href="#/user/${u.userId}/${k}">${label}</a>`)}</div>
+    ${r.people.length ? html`<div class="box"><div class="friends-grid people-grid">${r.people.map((p) => html`<a class="friend" href="#/user/${p.userId}">
+        <div class="friend-pic">${avatarSvg(p.avatar, 60)}</div>
+        <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span><span class="link">${p.username || p.name}</span>${verified(p.verified)}</div></a>`)}</div></div>${pager}`
+      : html`<p class="muted">${{ friends: 'No friends yet.', following: 'Not following anyone yet.', followers: 'No followers yet.' }[r.which]}</p>`}`);
+}
+
+pages.user = async (id, tab, page) => {
+  if (tab === 'friends' || tab === 'following' || tab === 'followers') { await peoplePage(id, tab, page); return; }
   const r = await pageCall('profile', { id });
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
@@ -1054,9 +1075,9 @@ pages.user = async (id) => {
         <div class="box"><h2 class="boxhead">Statistics</h2>
           <table class="stats"><tr><td>Joined</td><td>${new Date(u.created * 1000).toLocaleDateString()} (${ago(u.created)})</td></tr>
             <tr><td>User number</td><td>#${u.userId}</td></tr>
-            <tr><td>Friends</td><td>${r.friendCount}</td></tr>
-            ${r.followerCount === undefined ? '' : html`<tr><td>Followers</td><td>${r.followerCount}</td></tr>
-            <tr><td>Following</td><td>${r.followingCount}</td></tr>`}
+            <tr><td>Friends</td><td><a href="#/user/${u.userId}/friends">${r.friendCount}</a></td></tr>
+            ${r.followerCount === undefined ? '' : html`<tr><td>Followers</td><td><a href="#/user/${u.userId}/followers">${r.followerCount}</a></td></tr>
+            <tr><td>Following</td><td><a href="#/user/${u.userId}/following">${r.followingCount}</a></td></tr>`}
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
           ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
@@ -1069,10 +1090,10 @@ pages.user = async (id) => {
             : html`<p class="muted small">No badges from games yet.</p>`}</div>
       </div>
       <div class="profile-right">
-        <div class="box"><h2 class="boxhead">Friends (${r.friendCount})${f === 'self' ? html` <a class="small" href="#/friends" style="float:right">See all</a>` : ''}</h2>
+        <div class="box"><h2 class="boxhead">Friends (${r.friendCount}) <a class="small" href="#/user/${u.userId}/friends" style="float:right">See all</a></h2>
           ${friends.length ? html`<div class="friends-grid">${friends.map((p) => html`<a class="friend" href="#/user/${p.userId}">
               <div class="friend-pic" data-friend-avatar="${p.id}">${avatarSvg(p.avatar, 60)}</div>
-              <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span>${p.username || p.name}</div></a>`)}</div>`
+              <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span><span class="link">${p.username || p.name}</span></div></a>`)}</div>`
             : html`<p class="muted small">${f === 'self' ? 'No friends yet. Find people on the People page!' : 'No friends yet.'}</p>`}</div>
         <div class="box"><h2 class="boxhead">Games</h2>
           ${games.length ? html`<div class="grid">${games.map(gameCard)}</div>` : html`<p class="muted small">None yet.</p>`}</div>

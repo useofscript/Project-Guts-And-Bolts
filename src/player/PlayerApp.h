@@ -146,6 +146,14 @@ private:
     // People and groups — PlayerSocial.cpp
     void drawPeople();
     void drawProfile();
+    // Someone's friends / following / followers (a popup over their profile).
+    void openPeople(const std::string& user, const std::string& which, int page = 0);
+    void drawPeopleDialog();
+    std::string    m_peopleUser, m_peopleWhich;
+    int            m_peoplePage = 0;
+    long long      m_peopleTotal = 0;
+    nlohmann::json m_people = nlohmann::json::array();
+    std::string    m_peopleMsg;
     void drawGroups();
     void drawGroup();
     void openProfile(const std::string& accountId);

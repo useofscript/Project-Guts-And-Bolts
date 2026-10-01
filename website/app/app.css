@@ -336,3 +336,6 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 .secret-key code { font-size: 16px; letter-spacing: 1px; background: #f2f4f7; padding: 4px 8px; border-radius: 3px; }
 @media (prefers-color-scheme: dark) { .secret-key code { background: #20242c; } }
 .playing-now { margin-left: 8px; }
+.friend .link { color: var(--link, #0055cc); text-decoration: underline; }
+.friend:hover .link { color: var(--link-hover, #0033aa); }
+.people-grid { gap: 10px; }

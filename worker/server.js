@@ -103,7 +103,7 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -819,6 +819,20 @@ export class GbServerObject extends DurableObject {
         followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
         isFollowing: (me.following || []).includes(u.id),
         online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges });
+    }
+    if (name === 'people.list') {
+      // Someone's friends, who they follow, or their followers (anyone can look, like a
+      // Roblox profile). A page at a time: Guts follows everybody. (Server.cpp has the same.)
+      const u = this.findPerson(str(args, 'user'));
+      if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
+      const which = ['friends', 'following', 'followers'].includes(str(args, 'which')) ? str(args, 'which') : 'friends';
+      const ids = (u[which] || []).filter((id) => this.users.has(id));
+      const all = ids.map((id) => this.users.get(id)).filter((p) => p.userId > 0).sort((a, b) => a.userId - b.userId);
+      const offset = Math.max(0, num(args, 'offset'));
+      const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
+      const people = all.slice(offset, offset + limit).map((p) => Object.assign(this.publicUser(p),
+        { avatar: p.avatar || null, online: this.presence(me, p).online }));
+      return okay({ user: this.publicUser(u), which, total: all.length, people });
     }
     if (name === 'users.search') {
       let q = lower(cleanText(str(args, 'query'), 64));

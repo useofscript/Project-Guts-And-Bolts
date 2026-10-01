@@ -133,7 +133,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"list", "profile", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"list", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list",
                                                     "get", "servers.play", "relay.host", "relay.join"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -289,6 +289,32 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay();
         r["me"] = meJson(me);
         r["server"] = {{"name", m_opts.name}, {"protocol", Online::kProtocol}, {"official", Account::officialId()}};
+        return r;
+    }
+    if (name == "people.list") {   // someone's friends / following / followers (worker/server.js)
+        User* u = findPerson(str("user"));
+        if (!u || u->userId == 0) return fail("There's no account with that ID on this server.");
+        std::string which = str("which");
+        if (which != "following" && which != "followers") which = "friends";
+        const std::set<std::string>& ids = which == "following" ? u->following : which == "followers" ? u->followers : u->friends;
+        std::vector<const User*> all;
+        for (const std::string& id : ids)
+            if (auto it = m_users.find(id); it != m_users.end() && it->second.userId > 0) all.push_back(&it->second);
+        std::sort(all.begin(), all.end(), [](const User* a, const User* b) { return a->userId < b->userId; });
+        const long long offset = std::max(0LL, num("offset"));
+        const long long limit = args.contains("limit") ? std::clamp(num("limit"), 1LL, 100LL) : 60;
+        json people = json::array();
+        for (size_t i = (size_t)offset; i < all.size() && (long long)people.size() < limit; ++i) {
+            json p = publicUser(*all[i]);
+            p["avatar"] = all[i]->avatar;
+            p["online"] = presence(me, *all[i])["online"];
+            people.push_back(p);
+        }
+        json r = okay();
+        r["user"] = publicUser(*u);
+        r["which"] = which;
+        r["total"] = all.size();
+        r["people"] = people;
         return r;
     }
     if (name == "profile") {
