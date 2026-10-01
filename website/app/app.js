@@ -24,7 +24,7 @@ function html(strings, ...vals) {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
-function show(content) { view.innerHTML = content.s; }
+function show(content) { view.innerHTML = content.s; setTimeout(() => upgradeItemPictures(), 0); }   // (item renders on every page)
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
   hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
@@ -75,38 +75,17 @@ function gameColors(id) {
 }
 
 // Hats, shirts and pants, drawn in their colour.
+// An item's picture: never a drawing. Things you wear are a real 3D render of a grey
+// mannequin wearing them (upgradeItemPictures fills these in); gear, decals and the rest
+// show the picture Studio rendered when they were published.
 function itemIcon(a) {
-  if (hasPicture(a)) return html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">`;
-  const m = a.meta || {};
-  const c = Array.isArray(m.color) ? `rgb(${m.color.map((x) => Number(x) | 0).join(',')})` : '#c33';
-  const k = a.kind;
-  let shape;
-  if (k === 'hat') {
-    const style = Number(m.style) || 2;
-    shape = style === 1
-      ? `<rect x="30" y="18" width="40" height="46" rx="3" fill="${c}"/><rect x="18" y="62" width="64" height="9" rx="3" fill="${c}"/><rect x="30" y="52" width="40" height="7" fill="rgba(0,0,0,.25)"/>`
-      : style === 3
-        ? `<path d="M22 70 L26 32 L40 50 L50 26 L60 50 L74 32 L78 70 Z" fill="${c}"/><rect x="22" y="64" width="56" height="9" fill="rgba(0,0,0,.2)"/>`
-        : `<path d="M22 64 Q24 30 50 30 Q76 30 78 64 Z" fill="${c}"/><path d="M50 64 L92 64 Q92 72 80 72 L50 72 Z" fill="${c}"/><circle cx="50" cy="31" r="4" fill="rgba(0,0,0,.25)"/>`;
-  } else if (k === 'shirt') {
-    shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="${c}"/>`;
-  } else if (k === 'pants') {
-    shape = `<path d="M30 18 L70 18 L74 84 L56 84 L50 42 L44 84 L26 84 Z" fill="${c}"/><rect x="30" y="18" width="40" height="7" fill="rgba(0,0,0,.2)"/>`;
-  } else if (k === 'tshirt') {   // (no picture yet)
-    shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="#fff" stroke="#999" stroke-width="2"/>
-      <rect x="38" y="40" width="24" height="24" rx="3" fill="#ddd"/>`;
-  } else if (k === 'gear') {   // a little sword (until Studio's picture of it loads)
-    shape = `<path d="M78 16 L84 22 L44 62 L38 56 Z" fill="#ccd0d8" stroke="#555" stroke-width="2"/><path d="M30 50 L50 70" stroke="#e6b428" stroke-width="7" stroke-linecap="round"/>
-      <path d="M38 62 L20 80" stroke="#7a5028" stroke-width="7" stroke-linecap="round"/><circle cx="18" cy="82" r="5" fill="#e6b428"/>`;
-  } else if (k === 'face') {
-    shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
-      <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
-  } else if (ACCESSORIES.includes(k)) {
-    shape = `<circle cx="50" cy="50" r="30" fill="${c}"/><circle cx="50" cy="50" r="14" fill="rgba(255,255,255,.35)"/>`;
-  } else {
-    return html`<span>${KINDS[k] || '?'}</span>`;
+  if (drawable3d(a)) {
+    items3d.set(a.id, a);
+    return html`<span class="item-render" data-item3d="${a.id}" aria-label="${a.name}">${hasPicture(a)
+      ? html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">` : ''}</span>`;
   }
-  return raw(`<svg viewBox="0 0 100 100" width="80%" height="80%" aria-hidden="true">${shape}</svg>`);
+  if (a.thumb) return html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">`;
+  return html`<span class="item-render no-picture">${KINDS[a.kind] || ''}</span>`;
 }
 
 // A game's picture (set when it's published from Studio), or a colourful card.
@@ -231,14 +210,15 @@ function gameCard(g) {
 const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
   leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
 const items3d = new Map();   // id -> item, for the pictures below
-// Shirts, pants, T-shirts and shape hats: the 3D mannequin can wear them (with
-// their pictures on, the way the game shows them).
-const drawable3d = (a) => ['shirt', 'pants', 'tshirt'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
+// Everything you wear: the 3D mannequin wears it (with its pictures and Studio-made
+// shapes on, the way the game shows them).
+const drawable3d = (a) => !!a && WEARABLE.includes(a.kind);   // all of it: clothes, faces, hats, hair and accessories
 
 // Fills in <img data-thumb="id"> with the item's picture.
 function loadThumbs(root = view) {
   root.querySelectorAll('img[data-thumb]').forEach(async (img) => {
-    if (img.src) return;
+    if (img.src || img.dataset.loading) return;
+    img.dataset.loading = '1';
     const t = await call('thumb.get', { id: img.dataset.thumb });
     if (t.ok && t.data) img.src = 'data:image/png;base64,' + t.data;
   });
@@ -247,6 +227,8 @@ function loadThumbs(root = view) {
 function upgradeItemPictures() {
   loadThumbs();
   view.querySelectorAll('[data-item3d]').forEach(async (el) => {
+    if (el.dataset.rendering) return;
+    el.dataset.rendering = '1';
     const it = items3d.get(el.dataset.item3d);
     if (!it || !drawable3d(it)) return;
     const url = await avatarPicture(MANNEQUIN, [it], 150);
@@ -265,7 +247,7 @@ function officialBadge(a) {
 function itemCard(a) {
   items3d.set(a.id, a);
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic-wrap"><div class="pic" data-item3d="${a.id}">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
+    <div class="pic-wrap"><div class="pic">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
     <div class="name">${a.name}</div>
     <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
       : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;

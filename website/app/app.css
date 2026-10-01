@@ -339,3 +339,6 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 .friend .link { color: var(--link, #0055cc); text-decoration: underline; }
 .friend:hover .link { color: var(--link-hover, #0033aa); }
 .people-grid { gap: 10px; }
+.item-render { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.item-render.no-picture { color: var(--muted, #888); font-size: 12px; background: linear-gradient(135deg, #f2f3f6, #e3e6ec); border-radius: 6px; }
+.item-render img.item3d, .item-render img.item-thumb { max-width: 100%; max-height: 100%; }

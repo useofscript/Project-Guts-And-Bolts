@@ -631,9 +631,10 @@ export class GbServerObject extends DurableObject {
     let a = this.assets.get(VERIFIED_HAT_ID);
     if (!a) {
       a = { id: VERIFIED_HAT_ID, kind: 'hat', name: 'Verified Hat', creator: this.official, price: 0, created: now(), sales: 0,
-        plays: 0, size: 0, meta: { award: 'email' }, builtin: true, likes: 0, dislikes: 0 };
+        plays: 0, size: 0, meta: { award: 'email', model: true }, builtin: true, likes: 0, dislikes: 0 };
       this.assets.set(a.id, a);
     }
+    a.meta = Object.assign(a.meta || {}, { award: 'email', model: true });   // a 3D hat (older copies lacked "model")
     a.description = 'Given to everyone who confirms their email address. Can\'t be bought: add and confirm an email in Settings to get it.';
     if (a.size !== data.length) { a.size = data.length; a.updated = now(); this.writeFile(a.id, data); }
     this.saveAsset(a);
@@ -2175,6 +2176,14 @@ export class GbServerObject extends DurableObject {
       ws.addEventListener('error', gone);
       this.scheduleSweep();
       return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+    // GET /wear/<asset id>: a Studio-made accessory's 3D shape (public: anyone can see it worn),
+    // so the website's 3D avatars draw hats, hair and the rest like the game does.
+    if (url.pathname.startsWith('/wear/')) {
+      const a = this.assets.get(decodeURIComponent(url.pathname.slice(6)));
+      const data = a && isAccessory(a.kind) && a.meta && a.meta.model ? this.readFile(a.id) : null;
+      if (!data) return new Response('No accessory.', { status: 404 });
+      return new Response(data, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
     }
     // GET /thumb/<asset id> and /icon/<asset id>: a game's picture and icon (public, so pages can show them directly).
     if (url.pathname.startsWith('/thumb/') || url.pathname.startsWith('/icon/')) {
