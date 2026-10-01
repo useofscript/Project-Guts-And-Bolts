@@ -454,3 +454,28 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
   .item-pic { width: 100%; max-width: 330px; margin: 0 auto; }
 }
 .item-creator td { white-space: nowrap; }
+
+/* Messages (the inbox) */
+.subnav a .unread, .tabs .unread { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 8px; background: #d6261c; color: #fff;
+  font-size: 10px; line-height: 16px; text-align: center; margin-left: 3px; }
+.messages { border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+.message { border-bottom: 1px solid var(--line); }
+.message:last-child { border-bottom: 0; }
+.message summary { display: flex; gap: 12px; align-items: baseline; padding: 8px 10px; cursor: pointer; list-style: none; }
+.message summary::-webkit-details-marker { display: none; }
+.message summary:hover { background: var(--stripe); }
+.message.unread summary { font-weight: bold; background: rgba(29,111,216,.07); }
+.message.unread summary::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); flex: none; align-self: center; }
+.message-who { width: 160px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-when { flex: none; }
+.message-body { white-space: pre-wrap; padding: 4px 12px 0 12px; font-size: 13px; overflow-wrap: anywhere; }
+.message-tools { padding: 0 12px 6px; }
+@media (max-width: 600px) { .message summary { flex-wrap: wrap; } .message-who { width: auto; } .message-subject { flex-basis: 100%; } }
+
+/* Favourite star on a game's page */
+.btn.fav.on { color: #b07800; border-color: #e3c25a; background: linear-gradient(#fff6d6, #f5e3a3); }
+
+/* Saved outfits */
+.outfit .pic { display: flex; align-items: center; justify-content: center; }
+.outfit-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; padding: 4px 0; }

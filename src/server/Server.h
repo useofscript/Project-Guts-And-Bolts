@@ -63,6 +63,13 @@ private:
         long long   totpLast = -1;              // the newest 30-second step used (no reusing a code)     // pwHash = hash of the login token (we never see the password)
         nlohmann::json avatar;                   // colours (0-255), hat, hatColor, wearing, updated; null = never set
         nlohmann::json gameBadges = nlohmann::json::array();   // [badge id, game id, when] earned in games
+        // ServerSocial.cpp: saved outfits, favourite and recently played games, private messages.
+        nlohmann::json outfits = nlohmann::json::array();   // {id, name, avatar, created}, newest first
+        std::vector<std::string> favorites, recent;          // game ids, newest first
+        nlohmann::json inbox = nlohmann::json::array();     // {id, from, subject, body, at, read}, newest first
+        nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
+        std::string messageDay; int messagesToday = 0;
+        std::string privacyMessages = "everyone";            // who can send you messages
     };
     struct Asset {
         std::string id, kind, name, description, creator;
@@ -121,6 +128,9 @@ private:
     void  saveIds();
     void  loadIds();
     nlohmann::json friendOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerFriends.cpp
+    nlohmann::json socialOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerSocial.cpp
+    void rememberPlayed(User& me, const std::string& gameId);                                 // ServerSocial.cpp
+    static constexpr size_t kMaxRecentGames = 30;
     nlohmann::json serverOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerRelay.cpp
     nlohmann::json checkRequest(const nlohmann::json& req, User*& me);   // null = fine, else the failure reply
     void relayRequest(Client& c, const nlohmann::json& req);            // relay.host / relay.join

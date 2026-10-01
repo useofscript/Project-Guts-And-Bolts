@@ -328,6 +328,7 @@ const NEEDS_ACCOUNT = {
   buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
   friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
+  favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages',
 };
 
 function needSignIn(what) {
@@ -354,6 +355,11 @@ async function pageCall(op, args) {
 
 function setMe(m) {
   me = m;
+  const msgLink = $('#nav a[data-page=messages]');
+  if (msgLink) {
+    const n = signedIn() ? me.unreadMessages || 0 : 0;
+    msgLink.innerHTML = html`Messages${n ? html` <span class="unread">${n}</span>` : ''}`.s;
+  }
   const staffLink = $('#nav a[data-page=staff]');
   if (staffLink) staffLink.hidden = !(signedIn() && me.staff);
   const box = $('#me');
@@ -450,12 +456,19 @@ async function hello() {
 const pages = {};
 
 pages.home = async () => {
-  const [games, items, fr] = await Promise.all([
+  const [games, items, fr, recent, favs] = await Promise.all([
     pageCall('list', { kind: 'game', sort: 'popular', limit: 8 }),
     pageCall('list', { kind: 'clothing', limit: 6 }),
     signedIn() ? pageCall('friends.list', {}) : Promise.resolve({ ok: false }),
+    signedIn() ? pageCall('games.mine', { which: 'recent', limit: 8 }) : Promise.resolve({ ok: false }),
+    signedIn() ? pageCall('games.mine', { which: 'favorites', limit: 8 }) : Promise.resolve({ ok: false }),
     loadPlaying(),
   ]);
+  // "Continue playing" and your favourites (only when there's something in them).
+  const mineBox = (title, r, more) => r.ok && r.assets.length ? html`<div class="box"><h2 class="boxhead">${title}
+      <a href="${more}" style="float:right">See all &raquo;</a></h2><div class="grid">${r.assets.map(gameCard)}</div></div>` : '';
+  const continueBox = mineBox('Continue Playing', recent, '#/games/mine/recent');
+  const favBox = mineBox('Favorites', favs, '#/games/mine/favorites');
   const gameBox = (title, r, more) => html`<div class="box"><h2 class="boxhead">${title}
       <a href="${more}" style="float:right">See more &raquo;</a></h2>
     ${r.ok && r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
@@ -500,7 +513,7 @@ pages.home = async () => {
               <span class="dot on"></span><a class="grow" href="#/user/${p.userId}">${p.username || p.name}</a></div>`)}</div>`
             : html`<p class="small muted">${friends.length ? 'None of your friends are on right now.' : html`No friends yet. <a href="#/people">Find some!</a>`}</p>`}</div>
       </div>
-      <div class="home-right">${updateBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
+      <div class="home-right">${updateBox}${continueBox}${favBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
     </div>`);
   // Dressed in what you're wearing (the server says which items those are).
   const mine = await pageCall('profile', { id: me.id });
@@ -616,7 +629,19 @@ pages.updates = async () => {
   }, 20000);
 };
 
-pages.games = async () => {
+pages.games = async (mine, which) => {
+  if (mine === 'mine') {
+    const fav = which === 'favorites';
+    if (!signedIn()) { show(html`<h1>${fav ? 'Favorites' : 'Continue Playing'}</h1>${needSignIn('see your games')}`); return; }
+    const r = await pageCall('games.mine', { which: fav ? 'favorites' : 'recent', limit: 200 });
+    show(html`<p><a href="#/games">&lt; Games</a></p><h1>${fav ? 'My Favorites' : 'Continue Playing'}</h1>
+      <div class="tabs"><a class="btn ${fav ? '' : 'blue'}" href="#/games/mine/recent">Recently played</a>
+        <a class="btn ${fav ? 'blue' : ''}" href="#/games/mine/favorites">Favorites</a></div>
+      ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
+        : html`<p class="muted">${fav ? 'No favourites yet. Press the star on a game\'s page to add it here.' : 'Games you play show up here.'}</p>`)
+        : html`<p class="error">${r.error}</p>`}`);
+    return;
+  }
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
   const sort = q.get('sort') || 'popular', query = q.get('q') || '', genre = q.get('genre') || '';
   show(html`<h1>Games</h1><p class="muted">Loading...</p>`);
@@ -729,7 +754,9 @@ pages.game = async (id) => {
         <div class="votes">
           <button class="btn small ${g.myVote === 1 ? 'green' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === 1 ? 0 : 1}" title="I like it">&#128077; ${g.likes || 0}</button>
           <div class="vote-bar"><div style="width:${(g.likes || 0) + (g.dislikes || 0) ? Math.round(100 * g.likes / (g.likes + g.dislikes)) : 50}%"></div></div>
-          <button class="btn small ${g.myVote === -1 ? 'red' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === -1 ? 0 : -1}" title="Not for me">&#128078; ${g.dislikes || 0}</button></div>
+          <button class="btn small ${g.myVote === -1 ? 'red' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === -1 ? 0 : -1}" title="Not for me">&#128078; ${g.dislikes || 0}</button>
+          <button class="btn small fav ${g.myFavorite ? 'on' : ''}" data-act="favorite" data-id="${g.id}" data-on="${g.myFavorite ? '' : '1'}"
+            title="${g.myFavorite ? 'Take it out of your favourites' : 'Add to your favourites'}">${g.myFavorite ? raw('&#9733;') : raw('&#9734;')} ${g.favorites || 0}</button></div>
         <table class="stats game-stats">
           <tr><td>Playing</td><td>${g.playing || 0}</td><td>Visits</td><td>${g.plays || 0}</td></tr>
           <tr><td>Created</td><td>${new Date(g.created * 1000).toLocaleDateString()}</td><td>Updated</td><td>${ago(g.updated || g.created)}</td></tr>
@@ -1127,6 +1154,7 @@ pages.user = async (id, tab, page) => {
   const followBtn = f === 'self' || r.followerCount === undefined ? ''
     : r.isFollowing ? html` <button class="btn small" data-act="follow" data-op="follow.remove" data-user="${u.id}">Unfollow</button>`
       : html` <button class="btn blue small" data-act="follow" data-op="follow.add" data-user="${u.id}">Follow</button>`;
+  const messageBtn = f === 'self' ? '' : html` <a class="btn small" href="#/messages/new?to=${u.userId || u.id}">Send Message</a>`;
   const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => WEARABLE.includes(a.kind));
   // What they wear (older servers don't say: look it up in the catalog).
   let worn = r.wearing;
@@ -1143,7 +1171,7 @@ pages.user = async (id, tab, page) => {
       ${r.playing ? html`<span class="small playing-now">Playing <a href="#/game/${r.playing.game}">${r.playing.title}</a></span>
         ${r.playing.session && f !== 'self' ? html` <button class="btn green small" data-act="joinServer" data-id="${r.playing.game}"
             data-name="${r.playing.title}" data-server="${r.playing.session}"${r.playing.full ? raw(' disabled title="That server is full"') : ''}>Join</button>` : ''}` : ''}
-      <span class="grow"></span>${friendBtn}${followBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
+      <span class="grow"></span>${friendBtn}${followBtn}${messageBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
         : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
     ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
@@ -1283,12 +1311,74 @@ pages.group = async (id) => {
 
 let avatarDraft = null;   // the avatar being edited (saved with the Save button)
 
+// Private messages, like the old Roblox inbox: Inbox, Sent, and writing a new one.
+pages.messages = async (box = 'inbox') => {
+  if (!signedIn()) { show(html`<h1>Messages</h1>${needSignIn('read and send messages')}`); return; }
+  const tabs = html`<div class="tabs"><a class="btn ${box === 'inbox' ? 'blue' : ''}" href="#/messages">Inbox${me.unreadMessages ? html` (${me.unreadMessages})` : ''}</a>
+    <a class="btn ${box === 'sent' ? 'blue' : ''}" href="#/messages/sent">Sent</a>
+    <a class="btn ${box === 'new' ? 'blue' : ''}" href="#/messages/new">New message</a></div>`;
+  if (box === 'new') {
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    const to = q.get('to') || '', re = q.get('re') || '';
+    let toName = '';
+    if (to) { const p = await pageCall('profile', { id: to }); if (p.ok) toName = p.user.name; }
+    show(html`<h1>Messages</h1>${tabs}
+      <div class="box"><h2 class="boxhead">New message</h2>
+        <form class="form" data-form="sendMessage">
+          <label>To <span class="muted small">(their user number, like #5, or their username)</span></label>
+          <input type="text" name="to" required maxlength="40" value="${to ? (/^[0-9]+$/.test(to) ? '#' + to : to) : ''}" style="max-width:220px">
+          ${toName ? html`<p class="small">Sending to <b>${toName}</b></p>` : ''}
+          <label>Subject</label><input type="text" name="subject" maxlength="80" value="${re ? (re.startsWith('Re: ') ? re : 'Re: ' + re) : ''}">
+          <label>Message</label><textarea name="body" maxlength="2000" rows="8" required></textarea>
+          <p class="small muted">Be nice. Messages follow the same <a href="#/terms">rules</a> as chat, and staff can see reported ones.</p>
+          <p><button class="btn green">Send</button> <span id="sendMsg"></span></p></form></div>`);
+    return;
+  }
+  const sent = box === 'sent';
+  const r = await pageCall('message.list', { box: sent ? 'sent' : 'inbox' });
+  if (r.ok && r.me) setMe(r.me);
+  const list = r.ok ? r.messages : [];
+  const row = (m) => {
+    const other = sent ? m.to : m.from;
+    return html`<details class="message ${m.read ? '' : 'unread'}" data-message="${m.id}" data-box="${sent ? 'sent' : 'inbox'}" ${m.read ? '' : raw('data-unread="1"')}>
+      <summary><span class="message-who">${sent ? 'To ' : ''}<a href="#/user/${other.userId || other.id}" class="link">${other.name}</a>${verified(other.verified)}</span>
+        <span class="message-subject">${m.subject}</span><span class="message-when small muted">${ago(m.at)}</span></summary>
+      <div class="message-body">${m.body}</div>
+      <p class="message-tools">${sent ? '' : html`<a class="btn small blue" href="#/messages/new?to=${other.userId || other.id}&re=${encodeURIComponent(m.subject)}">Reply</a> `}
+        <button class="btn small red" data-act="deleteMessage" data-id="${m.id}" data-box="${sent ? 'sent' : 'inbox'}">Delete</button></p></details>`;
+  };
+  show(html`<h1>Messages</h1>${tabs}
+    ${!r.ok ? html`<p class="error">${r.error}</p>` : list.length ? html`<div class="messages">${list.map(row)}</div>`
+      : html`<p class="muted">${sent ? 'You haven\'t sent any messages yet.' : 'No messages yet. When someone sends you one, it shows up here.'}</p>`}
+    <p class="small muted">Change who can send you messages in <a href="#/settings">Settings</a>.</p>`);
+  // Opening an unread message marks it read.
+  view.querySelectorAll('details[data-unread]').forEach((d) => d.addEventListener('toggle', async () => {
+    if (!d.open || !d.dataset.unread) return;
+    delete d.dataset.unread;
+    d.classList.remove('unread');
+    const res = await call('message.read', { id: d.dataset.message, box: d.dataset.box });
+    if (res.ok) setMe(res.me);
+  }));
+};
+
 pages.avatar = async () => {
   const r = signedIn() ? await pageCall('list', { kind: 'clothing', owned: true, limit: 100 }) : { ok: true, assets: [] };
   const owned = (r.ok ? r.assets : []).filter((a) => (me.owned || []).includes(a.id));
   if (!avatarDraft) avatarDraft = Object.assign(defaultAvatar(), JSON.parse(JSON.stringify(me.avatar || {})));
   const a = avatarDraft;
   const wornItems = owned.filter((it) => a.wearing.includes(it.id));
+  const outfitsR = signedIn() ? await pageCall('outfit.list', {}) : { ok: true, outfits: [] };
+  const outfits = outfitsR.ok ? outfitsR.outfits : [];
+  const outfitBox = html`<h2>My outfits</h2>
+    ${signedIn() ? html`<form class="row" data-form="outfitSave"><input type="text" name="name" maxlength="40" placeholder="Name this outfit" style="max-width:200px">
+      <button class="btn green small">Save what I'm wearing as an outfit</button></form>` : html`<p class="muted small">Log in to save outfits.</p>`}
+    ${outfits.length ? html`<div class="grid outfits">${outfits.map((o) => html`<div class="card square outfit">
+        <div class="pic" data-outfit="${o.id}"><span class="item-render loading"></span></div>
+        <div class="name">${o.name}</div>
+        <div class="outfit-buttons"><button class="btn small green" data-act="outfit" data-op="outfit.wear" data-id="${o.id}">Wear</button>
+          <button class="btn small" data-act="outfit" data-op="outfit.rename" data-id="${o.id}" data-name="${o.name}">Rename</button>
+          <button class="btn small red" data-act="outfit" data-op="outfit.delete" data-id="${o.id}" data-name="${o.name}">Delete</button></div></div>`)}</div>`
+      : signedIn() ? html`<p class="muted small">No outfits yet. Dress up, then save the look here so you can wear it again in one click.</p>` : ''}`;
   show(html`<h1>Avatar</h1>
     <div class="row top">
       <div class="box" style="text-align:center;margin-right:16px"><div id="avatarPreview">${avatarSvg(a, 180, wornItems)}</div>
@@ -1314,7 +1404,15 @@ pages.avatar = async () => {
             <button class="btn small ${a.wearing.includes(it.id) ? 'green' : ''}" data-act="avatarWear" data-id="${it.id}" data-kind="${it.kind}">
               ${a.wearing.includes(it.id) ? 'Wearing' : 'Wear'}</button></div>`)}</div>`
           : html`<p class="muted">You don't have any clothes yet. Get some in the <a href="#/catalog">Catalog</a>!</p>`}
+        ${outfitBox}
       </div></div>`);
+  // Each outfit's picture: the character wearing it.
+  for (const o of outfits) {
+    avatarPicture(o.avatar, o.wearing || [], 110).then((url) => {
+      const el = view.querySelector(`[data-outfit="${o.id}"]`);
+      if (el && url) el.innerHTML = html`<img class="item3d" src="${url}" alt="${o.name}">`.s;
+    }).catch(() => {});
+  }
   // Colours change the preview straight away (without redrawing the page, so the colour picker stays open).
   let avatar3d = null;
   const preview = () => {
@@ -1444,6 +1542,8 @@ pages.settings = async () => {
           <select name="status">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).status === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one (appear offline)' }[v]}</option>`)}</select>
           <label>Who can join me in games</label>
           <select name="join">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).join === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
+          <label>Who can send me messages</label>
+          <select name="messages">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${((me.privacy || {}).messages || 'everyone') === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
           <p><button class="btn green">Save</button></p></form></div>
       <div class="box"><h2 class="boxhead">Authenticator app</h2>
         ${me.authApp ? html`<p><b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> the 6-digit code
@@ -1586,6 +1686,32 @@ function loginPage(signup) {
 // --- clicks and forms ----------------------------------------------------------
 
 const actions = {
+  async favorite(d) {
+    const r = await call('game.favorite', { id: d.id, on: !!d.on });
+    if (!r.ok) { toast(r.error); return; }
+    toast(d.on ? 'Added to your favourites.' : 'Taken out of your favourites.');
+    render();
+  },
+  async outfit(d) {
+    const args = { id: d.id };
+    if (d.op === 'outfit.rename') {
+      const name = prompt('New name for this outfit:', d.name);
+      if (!name) return;
+      args.name = name;
+    }
+    if (d.op === 'outfit.delete' && !confirm('Delete the outfit "' + d.name + '"?')) return;
+    const r = await call(d.op, args);
+    if (!r.ok) { toast(r.error); return; }
+    if (d.op === 'outfit.wear') { setMe(r.me); avatarDraft = null; toast('You\'re wearing it now.'); }
+    render();
+  },
+  async deleteMessage(d) {
+    if (!confirm('Delete this message?')) return;
+    const r = await call('message.delete', { id: d.id, box: d.box });
+    if (!r.ok) { toast(r.error); return; }
+    setMe(r.me);
+    render();
+  },
   gutstober(d) {
     try { localStorage.setItem('gb.gutstober', d.on ? 'on' : 'off'); } catch { /* private window */ }
     applyTheme();
@@ -1860,8 +1986,29 @@ const forms = {
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Email removed.'); render();
   },
+  async outfitSave(f) {
+    // Save the look on screen first (it may have unsaved changes), then keep it as an outfit.
+    if (avatarDraft) {
+      const a = avatarDraft, avatar = { hat: a.hat, hatColor: a.hatColor.map((x) => x | 0), wearing: a.wearing };
+      PARTS.forEach((p) => { avatar[p] = a[p].map((x) => x | 0); });
+      const s = await call('avatar.set', { avatar });
+      if (!s.ok) { toast(s.error); return; }
+    }
+    const r = await call('outfit.save', { name: f.name.value });
+    if (!r.ok) { toast(r.error); return; }
+    setMe(r.me); avatarDraft = null;
+    toast('Outfit saved!');
+    render();
+  },
+  async sendMessage(f) {
+    const r = await call('message.send', { to: f.to.value.trim(), subject: f.subject.value, body: f.body.value });
+    if (!r.ok) { const m = $('#sendMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    setMe(r.me);
+    toast('Message sent!');
+    location.hash = '#/messages/sent';
+  },
   async privacy(f) {
-    const r = await call('account.privacy', { status: f.status.value, join: f.join.value });
+    const r = await call('account.privacy', { status: f.status.value, join: f.join.value, messages: f.messages.value });
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Privacy saved.');
   },

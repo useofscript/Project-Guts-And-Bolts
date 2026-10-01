@@ -19,6 +19,7 @@ set(GB_SERVER_SOURCES
     src/server/Server.cpp
     src/server/ServerGroups.cpp
     src/server/ServerFriends.cpp
+    src/server/ServerSocial.cpp
     src/server/ServerAccounts.cpp
     src/server/ServerRelay.cpp
     src/online/Protocol.cpp

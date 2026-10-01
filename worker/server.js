@@ -97,6 +97,10 @@ const kMaxWarnings = 30;   // kept per account (oldest dropped)
 const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
 const kMaxFollowing = 2000;
+// Saved outfits, favourite games, "continue playing" and private messages (ServerSocial in
+// src/server/Server.cpp has the same limits).
+const kMaxOutfits = 30, kMaxFavorites = 200, kMaxRecent = 30;
+const kMaxInbox = 100, kMaxSent = 50, kMessagesPerDay = 40;
 const PRIVACY = ['everyone', 'friends', 'nobody'];                   // ServerFriends.cpp
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
@@ -522,7 +526,8 @@ export class GbServerObject extends DurableObject {
   // join you there: 'everyone', 'friends' or 'nobody'. (Server.cpp has the same rules.)
   privacyOf(u) {
     const p = u.privacy || {};
-    return { status: PRIVACY.includes(p.status) ? p.status : 'everyone', join: PRIVACY.includes(p.join) ? p.join : 'everyone' };
+    return { status: PRIVACY.includes(p.status) ? p.status : 'everyone', join: PRIVACY.includes(p.join) ? p.join : 'everyone',
+      messages: PRIVACY.includes(p.messages) ? p.messages : 'everyone' };
   }
   allows(setting, viewer, u) {
     if (viewer && viewer.id === u.id) return true;
@@ -572,6 +577,7 @@ export class GbServerObject extends DurableObject {
       warnings: (u.warnings || []).filter((w) => !w.seen)
         .map((w) => ({ id: w.id, reason: w.reason, title: BAN_REASONS[w.reason] || 'Breaking the rules', note: w.note, at: w.at })),
       warningCount: (u.warnings || []).length,
+      unreadMessages: (u.inbox || []).filter((m) => !m.read).length,
     });
   }
 
@@ -705,6 +711,8 @@ export class GbServerObject extends DurableObject {
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
+      favorites: a.kind === 'game' ? (a.favorites || 0) : undefined,
+      myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
       offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a) };
   }
   publicModelsLeft(u) {   // -1 = no limit
@@ -978,6 +986,111 @@ export class GbServerObject extends DurableObject {
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
+    }
+    // --- Saved outfits: your whole look (colours, hat, what you wear), kept to put back on later ---
+    if (name.startsWith('outfit.')) {
+      if (me.userId === 0) return fail('Sign up first.');
+      const outfits = me.outfits || (me.outfits = []);
+      const find = () => outfits.find((o) => o.id === str(args, 'id'));
+      const list = () => okay({ outfits: me.outfits.map((o) => ({ id: o.id, name: o.name, avatar: o.avatar, created: o.created,
+        wearing: (o.avatar.wearing || []).map((id) => this.assets.get(id)).filter(Boolean).map((a) => this.publicAsset(a)) })), me: this.meJson(me) });
+      if (name === 'outfit.list') return list();
+      if (name === 'outfit.save') {
+        if (!me.avatar) return fail('Change your look first, then save it as an outfit.');
+        const title = cleanText(str(args, 'name'), 40) || 'Outfit ' + (outfits.length + 1);
+        const old = find();
+        if (old) { old.avatar = JSON.parse(JSON.stringify(me.avatar)); old.name = title; }
+        else {
+          if (outfits.length >= kMaxOutfits) return fail('You have ' + kMaxOutfits + ' outfits. Delete one first.');
+          outfits.unshift({ id: randomHex(6), name: title, avatar: JSON.parse(JSON.stringify(me.avatar)), created: t });
+        }
+        this.saveUser(me);
+        return list();
+      }
+      const o = find();
+      if (!o) return fail('That outfit isn\'t there any more.');
+      if (name === 'outfit.wear') {
+        // Things you've sold or traded away since are left off.
+        me.avatar = Object.assign(JSON.parse(JSON.stringify(o.avatar)), { updated: t });
+        me.avatar.wearing = (me.avatar.wearing || []).filter((id) => me.owned.includes(id));
+        this.saveUser(me);
+        return list();
+      }
+      if (name === 'outfit.rename') {
+        const title = cleanText(str(args, 'name'), 40);
+        if (!title) return fail('Give it a name.');
+        o.name = title;
+        this.saveUser(me);
+        return list();
+      }
+      if (name === 'outfit.delete') {
+        me.outfits = outfits.filter((x) => x !== o);
+        this.saveUser(me);
+        return list();
+      }
+      return fail('Unknown request.');
+    }
+    // --- Favourite games, and the ones you played last ("Continue playing") ---
+    if (name === 'game.favorite') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      const favs = me.favorites || (me.favorites = []);
+      const had = favs.includes(a.id), want = args.on !== false;
+      if (want && !had) {
+        if (favs.length >= kMaxFavorites) return fail('You have ' + kMaxFavorites + ' favourites. Take one off first.');
+        favs.unshift(a.id); a.favorites = (a.favorites || 0) + 1;
+      } else if (!want && had) {
+        me.favorites = favs.filter((x) => x !== a.id); a.favorites = Math.max(0, (a.favorites || 0) - 1);
+      }
+      this.saveUser(me); this.saveAsset(a);
+      return okay({ asset: this.publicAsset(a, me) });
+    }
+    if (name === 'games.mine') {   // which: "recent" (Continue playing) or "favorites"
+      const ids = str(args, 'which') === 'favorites' ? (me.favorites || []) : (me.recent || []);
+      const games = ids.map((id) => this.assets.get(id)).filter((a) => a && a.kind === 'game' && this.canPlay(a, me));
+      return okay({ assets: games.slice(0, clamp(num(args, 'limit') || 30, 1, 200)).map((a) => this.publicAsset(a, me)) });
+    }
+    // --- Private messages (an inbox, like old Roblox). Guests can't send or get them. ---
+    if (name === 'message.send') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const want = str(args, 'to');
+      const them = /^#?[0-9]+$/.test(want) ? this.findUserId(Number(want.replace('#', ''))) : this.findPerson(want);
+      if (!them || them.userId === 0) return fail('There\'s no account with that ID on this server.');
+      if (them.id === me.id) return fail('You can\'t send a message to yourself.');
+      if (them.banned) return fail('You can\'t send messages to that account.');
+      if (!this.allows(this.privacyOf(them).messages, me, them)) {
+        return fail(this.privacyOf(them).messages === 'friends' ? them.name + ' only gets messages from friends.' : them.name + ' doesn\'t get messages.');
+      }
+      const subject = cleanText(str(args, 'subject'), 80) || '(no subject)';
+      const body = cleanText(str(args, 'body'), 2000, true);
+      if (!body) return fail('Write something first.');
+      if (me.messageDay !== today) { me.messageDay = today; me.messagesToday = 0; }
+      if (me.messagesToday >= kMessagesPerDay) return fail('That\'s ' + kMessagesPerDay + ' messages today. Try again tomorrow.');
+      me.messagesToday++;
+      const id = randomHex(8);
+      them.inbox = [{ id, from: me.id, subject, body, at: t, read: false }, ...(them.inbox || [])].slice(0, kMaxInbox);
+      me.sent = [{ id, to: them.id, subject, body, at: t }, ...(me.sent || [])].slice(0, kMaxSent);
+      this.saveUser(me, them);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'message.list') {   // box: "inbox" or "sent"
+      if (me.userId === 0) return okay({ messages: [], me: this.meJson(me) });
+      const sent = str(args, 'box') === 'sent';
+      const who = (id) => { const u = this.users.get(id); return u ? { id: u.id, userId: u.userId, name: u.name, verified: this.isVerified(u) } : { id, userId: 0, name: '?' }; };
+      const messages = (sent ? (me.sent || []) : (me.inbox || [])).map((m) => ({ id: m.id, subject: m.subject, body: m.body, at: m.at,
+        read: sent ? true : !!m.read, from: sent ? who(me.id) : who(m.from), to: sent ? who(m.to) : who(me.id) }));
+      return okay({ messages, me: this.meJson(me) });
+    }
+    if (name === 'message.read' || name === 'message.delete') {
+      const box = str(args, 'box') === 'sent' ? 'sent' : 'inbox';
+      const list = me[box] || [];
+      const m = list.find((x) => x.id === str(args, 'id'));
+      if (!m) return fail('That message isn\'t there any more.');
+      if (name === 'message.read') m.read = true;
+      else me[box] = list.filter((x) => x !== m);
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
     }
     if (name === 'game.vote') {
       // Thumbs up or down, like Roblox; you have to have played it first.
@@ -1300,6 +1413,10 @@ export class GbServerObject extends DurableObject {
       if (!this.canPlay(a, me)) return fail(this.noPlay(a));
       const data = this.readFile(a.id);
       if (!data) return fail('The server lost that file.');
+      if (a.kind === 'game' && me.userId > 0) {   // "Continue playing" (newest first)
+        me.recent = [a.id, ...(me.recent || []).filter((x) => x !== a.id)].slice(0, kMaxRecent);
+        this.saveUser(me);
+      }
       if (a.kind === 'game' && a.creator !== me.id) {
         a.plays++;
         this.saveAsset(a);
@@ -1591,6 +1708,7 @@ export class GbServerObject extends DurableObject {
       const p = this.privacyOf(me);
       if (PRIVACY.includes(args.status)) p.status = args.status;
       if (PRIVACY.includes(args.join)) p.join = args.join;
+      if (PRIVACY.includes(args.messages)) p.messages = args.messages;   // who can send you messages
       me.privacy = p;
       this.saveUser(me);
       return okay({ me: this.meJson(me) });

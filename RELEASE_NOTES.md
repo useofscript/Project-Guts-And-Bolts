@@ -1,3 +1,15 @@
+# Next version (not released yet)
+
+## New
+- **Messages**: a private inbox on the website (Messages in the top bar, with a
+  red count of unread ones). Send a message from anyone's profile, reply, and
+  delete. *Settings > Privacy* says who can message you (everyone, friends, no
+  one). Guests can't send or get messages; 40 messages a day each.
+- **Saved outfits** on the Avatar page: save your whole look (colours, hat and
+  everything you wear) and wear it again in one click. Up to 30.
+- **Favourite games**: the star on a game's page. **Continue Playing**: the
+  games you played last. Both are on the home page and at *Games > mine*.
+
 # Guts&Bolts 0.6.4: Liquid Assets & Explosive Results (October 1, 2026)
 
 ## New
