@@ -193,7 +193,7 @@ void PlayerApp::drawOnlineCatalog() {
         dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
         dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(160, 165, 175, 255),
                     0, 0, hover ? 2.0f : 1.0f);
-        drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+        itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
         if (itemOn(it)) dl->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(20, 140, 60, 255), it.type == Catalog::Type::Gear ? "Equipped" : "Wearing");
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
         ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
@@ -221,7 +221,7 @@ void PlayerApp::drawOnlineItemDialog() {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(170, 170));
     ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 170, p.y + 170), IM_COL32(245, 246, 250, 255), 6);
-    drawItemIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + 85, p.y + 85), 140, it);
+    itemPicture(ImGui::GetWindowDrawList(), ImVec2(p.x + 85, p.y + 85), 140, it);
     ImGui::SameLine(0, 18);
     ImGui::BeginGroup();
     ImGui::SetWindowFontScale(1.4f);
@@ -244,6 +244,16 @@ void PlayerApp::drawOnlineItemDialog() {
         else ImGui::Text("%d of %d left", lim.value("left", 0), lim.value("stock", 0));
         ImGui::PopTextWrapPos();
     }
+    // Timed items (like Gutstober's): off sale from a set time on.
+    const long long offsaleAt = a.value("offsaleAt", 0LL);
+    const bool offsale = a.value("offsale", false);
+    if (offsaleAt > 0) {
+        const long long left = offsaleAt - Online::unixNow();
+        if (offsale || left <= 0) ImGui::TextColored(ImVec4(0.85f, 0.4f, 0.05f, 1), "Off sale");
+        else if (left < 86400) ImGui::TextColored(ImVec4(0.85f, 0.4f, 0.05f, 1), "Off sale in less than a day");
+        else ImGui::TextColored(ImVec4(0.85f, 0.4f, 0.05f, 1), "Off sale in %lld days", (left + 86399) / 86400);
+    }
+    const bool offNow = offsaleAt > 0 && (offsale || Online::unixNow() >= offsaleAt);
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(it.description.c_str());
     ImGui::PopTextWrapPos();
@@ -259,7 +269,8 @@ void PlayerApp::drawOnlineItemDialog() {
     if (!owned) {
         std::string label = it.price > 0 ? "Buy for " + Bolts::format(it.price) : std::string("Get it");
         if (soldOut) label = "Sold out";
-        ImGui::BeginDisabled(m_busy || soldOut || Online::bolts() < it.price);
+        if (offNow) label = "Off sale";
+        ImGui::BeginDisabled(m_busy || soldOut || offNow || Online::bolts() < it.price);
         if (bigButton(label.c_str(), kGreen, ImVec2(170, 34))) {
             m_busy = true;
             Online::request("buy", {{"id", it.id}}, [this, wearIt](const json& r) {
@@ -644,7 +655,7 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
             preview.hat = (HatStyle)m_createStyle;
             preview.color = m_createColor;
             dl->AddRectFilled(q, ImVec2(q.x + 150, q.y + 150), IM_COL32(255, 255, 255, 255), 6);
-            drawItemIcon(dl, ImVec2(q.x + 75, q.y + 75), 120, preview);
+            itemPicture(dl, ImVec2(q.x + 75, q.y + 75), 120, preview);
         } else {
             std::string path = cleanPath(m_createPath);
             unsigned tex = path.empty() ? 0 : Textures::get(path);
@@ -1196,7 +1207,7 @@ void PlayerApp::drawWardrobe() {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(p, ImVec2(p.x + small, p.y + small), IM_COL32(255, 255, 255, 255), 4);
         dl->AddRect(p, ImVec2(p.x + small, p.y + small), IM_COL32(30, 150, 70, 255), 4, 0, 2.0f);
-        drawItemIcon(dl, ImVec2(p.x + small * 0.5f, p.y + small * 0.5f), small * 0.8f, it);
+        itemPicture(dl, ImVec2(p.x + small * 0.5f, p.y + small * 0.5f), small * 0.8f, it);
         if (hover) {   // a little x in the corner: click to take it off
             ImVec2 c(p.x + small - 9, p.y + 9);
             dl->AddCircleFilled(c, 8, IM_COL32(200, 50, 50, 255));
@@ -1260,7 +1271,7 @@ void PlayerApp::drawWardrobe() {
             dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255), 4);
             ImU32 edge = on ? IM_COL32(30, 150, 70, 255) : hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(170, 175, 185, 255);
             dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), edge, 4, 0, on || hover ? 2.5f : 1.0f);
-            drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+            itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
             if (on) {
                 ImVec2 t(p.x + 5, p.y + tile - 20);
                 dl->AddRectFilled(t, ImVec2(t.x + 60, t.y + 16), IM_COL32(30, 150, 70, 255), 3);

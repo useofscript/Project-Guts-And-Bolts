@@ -5,6 +5,7 @@
 #include "Npc.h"
 #include "Water.h"
 #include "Particles.h"
+#include "Blast.h"
 #include "Animation.h"
 #include <functional>
 #include <memory>
@@ -78,6 +79,7 @@ public:
     GameInfo&      info()        { return m_info; }
     Player*        player()      { return m_player.get(); }
     ParticleSystem& particles()  { return m_particles; }
+    BlastSystem&    blasts()     { return m_blasts; }      // explosions: shockwaves, smoke, fire, mushroom clouds
     Anim::Animator& animator()   { return m_animator; }   // animations scripts are playing
     // Gore is shown only if the game allows it AND the player hasn't turned it off.
     bool           goreEnabled() const;
@@ -153,6 +155,7 @@ private:
     NpcSystem                  m_npcs;
     WaterSystem                m_water;
     ParticleSystem             m_particles;
+    BlastSystem                m_blasts;
     Anim::Animator             m_animator;
     std::unique_ptr<Player>    m_player;
 

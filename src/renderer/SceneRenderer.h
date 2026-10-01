@@ -81,6 +81,10 @@ private:
     unsigned int m_gridVao = 0, m_gridVbo = 0;
     std::unique_ptr<Shader> m_overlay;
     unsigned int m_overlayVao = 0, m_overlayVbo = 0;
+    // Explosions' smoke and fire (Blast.h), and their shockwaves.
+    std::unique_ptr<Shader> m_puff;
+    unsigned int m_puffVao = 0, m_puffVbo = 0;
+    void drawBlasts(Scene& scene, const Camera& camera);
     int          m_overlayTris = 0, m_overlayLines = 0;   // vertex counts
     void drawOverlay(const glm::mat4& view, const glm::mat4& proj);
     unsigned int m_axisVao = 0, m_axisVbo = 0;

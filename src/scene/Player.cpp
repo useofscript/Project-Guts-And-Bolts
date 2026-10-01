@@ -859,6 +859,13 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
     if (m_seatId) { sitStep(dt, jump); if (m_seatId) return; }
 
     glm::vec3 pos = r->transform.position;
+    // Where the physics really has us: take away the step smoothing we showed last
+    // frame (unless something else moved us since: a teleport, a seat, respawning).
+    if (m_stepShown != 0.0f) {
+        if (glm::length(pos - m_shownAt) < 1e-4f) pos.y -= m_stepShown;
+        else m_stepOffset = 0.0f;
+        m_stepShown = 0.0f;
+    }
 
     // Ride moving platforms: whatever we stood on last frame carries us, sliding
     // and spinning (a turntable turns you with it), and we keep its speed.
@@ -1092,7 +1099,15 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
         }
     }
 
-    r->transform.position = res.position;
+    // Smooth steps: going up (or down) a step, the body glides there in about a
+    // tenth of a second instead of jumping, like Roblox. Only what you see: the
+    // physics (and everyone's collisions) still use the real feet.
+    m_stepOffset = std::clamp(m_stepOffset - res.stepped + res.dropped, -1.0f, 1.0f);
+    m_stepOffset *= std::exp(-dt * 14.0f);
+    if (std::abs(m_stepOffset) < 0.002f) m_stepOffset = 0.0f;
+    m_stepShown = m_stepOffset;
+    r->transform.position = res.position + glm::vec3(0.0f, m_stepShown, 0.0f);
+    m_shownAt = r->transform.position;
 
     // Fell off the world.
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;

@@ -117,6 +117,7 @@ SceneRenderer::SceneRenderer() {
     m_lit       = std::make_unique<Shader>(litVert, litFrag);
     m_grid      = std::make_unique<Shader>(gridVert, gridFrag);
     m_overlay   = std::make_unique<Shader>(overlayVert, overlayFrag);
+    m_puff      = std::make_unique<Shader>(puffVert, puffFrag);
     m_sky       = std::make_unique<Shader>(skyVert, skyFrag);
     m_depth     = std::make_unique<Shader>(depthVert, depthFrag);
     m_ssao      = std::make_unique<Shader>(fullscreenVert, ssaoFrag);
@@ -178,6 +179,81 @@ void SceneRenderer::setOverlay(const std::vector<OverlayVertex>& tris, const std
     all.insert(all.end(), lines.begin(), lines.end());
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(all.size() * sizeof(OverlayVertex)), all.data(), GL_DYNAMIC_DRAW);
     glBindVertexArray(0);
+}
+
+void SceneRenderer::drawBlasts(Scene& scene, const Camera& camera) {
+    const BlastSystem& bs = scene.blasts();
+    const glm::mat4 view = camera.view(), proj = camera.projection();
+    // The shockwave: a thin, see-through bubble growing out from the blast.
+    if (!bs.shocks().empty()) {
+        auto sphere = MeshLibrary::get(PrimitiveType::Sphere);
+        m_lit->bind();
+        m_lit->setBool("uSelected", false);
+        glDisable(GL_CULL_FACE);
+        for (const BlastSystem::Shock& s : bs.shocks()) {
+            const float t = s.radius / std::max(s.maxRadius, 1e-3f);
+            const float a = 0.22f * (1.0f - t) * (1.0f - t);
+            if (a < 0.005f) continue;
+            glm::mat4 m = glm::scale(glm::translate(glm::mat4(1.0f), s.center), glm::vec3(s.radius * 2.0f));
+            m_lit->setMat4("uModel", m);
+            m_lit->setMat3("uNormalMat", glm::transpose(glm::inverse(glm::mat3(m))));
+            m_lit->setVec3("uColor", glm::vec3(1.0f, 0.97f, 0.92f));
+            m_lit->setInt("uMaterial", (int)Material::Glass);
+            m_lit->setFloat("uAlpha", a);
+            sphere->draw();
+        }
+        glEnable(GL_CULL_FACE);
+    }
+    const auto& puffs = bs.puffs();
+    if (puffs.empty()) return;
+    // Back to front, so the see-through ones layer properly.
+    std::vector<std::pair<float, const BlastSystem::Puff*>> order;
+    order.reserve(puffs.size());
+    for (const auto& p : puffs) {
+        const float z = (view * glm::vec4(p.pos, 1.0f)).z;
+        if (z > p.radius) continue;   // behind the camera
+        order.push_back({z, &p});
+    }
+    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    struct V { glm::vec3 c; glm::vec2 k; glm::vec4 col; glm::vec3 info; };
+    std::vector<V> verts;
+    verts.reserve(order.size() * 6);
+    const glm::vec2 corners[6] = {{-1, -1}, {1, -1}, {1, 1}, {-1, -1}, {1, 1}, {-1, 1}};
+    for (const auto& [z, p] : order) {
+        const float fade = std::min(1.0f, p->life / std::max(p->maxLife * 0.35f, 1e-3f));   // fades out at the end
+        const glm::vec4 col(p->color, p->alpha * fade);
+        const glm::vec3 info(p->radius, p->glow, p->seed);
+        for (const glm::vec2& k : corners) verts.push_back({p->pos, k, col, info});
+    }
+    if (verts.empty()) return;
+    if (!m_puffVao) {
+        glGenVertexArrays(1, &m_puffVao);
+        glGenBuffers(1, &m_puffVbo);
+        glBindVertexArray(m_puffVao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_puffVbo);
+        glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V, c));
+        glEnableVertexAttribArray(1); glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V, k));
+        glEnableVertexAttribArray(2); glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V, col));
+        glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(V), (void*)offsetof(V, info));
+    }
+    glBindVertexArray(m_puffVao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_puffVbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(verts.size() * sizeof(V)), verts.data(), GL_DYNAMIC_DRAW);
+    const Environment& env = scene.environment();
+    m_puff->bind();
+    m_puff->setMat4("uView", view);
+    m_puff->setMat4("uProj", proj);
+    m_puff->setVec3("uSunView", glm::vec3(view * glm::vec4(env.sunDirection(), 0.0f)));
+    const float day = std::clamp(env.sunDirection().y * 2.0f + 0.3f, 0.15f, 1.0f);
+    m_puff->setVec3("uSunColor", glm::vec3(1.0f, 0.95f, 0.85f) * day);
+    m_puff->setVec3("uAmbient", glm::vec3(0.42f, 0.45f, 0.5f) * (0.4f + 0.6f * day));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts.size());
+    glBindVertexArray(0);
+    glEnable(GL_CULL_FACE);
 }
 
 void SceneRenderer::drawOverlay(const glm::mat4& view, const glm::mat4& proj) {
@@ -996,6 +1072,15 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
+
+    // --- Explosions: smoke, fire, dust and spray puffs; shockwave bubbles ---
+    if (!scene.blasts().puffs().empty() || !scene.blasts().shocks().empty()) {
+        drawBlasts(scene, camera);
+        m_lit->bind();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+    }
 
     // --- Decals: pictures stuck flat on a side of their part ---
     if (!decals.empty()) {

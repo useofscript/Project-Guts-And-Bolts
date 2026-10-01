@@ -151,8 +151,10 @@ function pieces(model, av, items) {
     if (!c) continue;
     if (it.kind === 'shirt') { col.torso = c; col.leftArm = c; col.rightArm = c; }
     if (it.kind === 'pants') { col.leftLeg = c; col.rightLeg = c; }
-    if (it.kind === 'hat') { hat = Number(it.meta.style) || 2; hatTint = c; }
+    if (it.kind === 'hat' && !isModelAccessory(it)) { hat = Number(it.meta.style) || 2; hatTint = c; }
   }
+  // A Studio-made hat or hair takes the place of the built-in hat (Player::hideBuiltInHat).
+  if ((items || []).some((it) => isModelAccessory(it) && (it.kind === 'hat' || it.kind === 'hair'))) hat = 0;
   const out = [];
   // Clothing pictures (Player::applyClothing): the shirt on the torso and arms, the
   // pants on the legs (and on the torso when there's no shirt).
@@ -188,7 +190,88 @@ function pieces(model, av, items) {
     H('sphere', [0, top + 0.12, -0.3], [0.36, 0.34, 0.36], hair);
     H('sphere', [0, top - 0.14, -0.5], [0.26, 0.56, 0.26], hair);
   }
+  for (const it of items || []) {
+    const a = isModelAccessory(it) && accessories.get(it.id);
+    if (a && a.pieces) out.push(...a.pieces);
+  }
   return out;
+}
+
+// --- accessories made in Studio (hats, hair, face / neck / shoulder / waist things) ---
+// Their shape comes from /wear/<id> (the same "gbaccessory" file the game wears), placed
+// from the feet the way the game does (Transform::matrix: position, then Z, Y, X turns,
+// then size), so a hat sits on the website's avatar exactly where it sits in a game.
+const ACCESSORY_KINDS = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
+const isModelAccessory = (it) => it && ACCESSORY_KINDS.includes(it.kind) && it.meta && it.meta.model;
+const accessories = new Map();   // item id -> { ready, pieces }
+function trs(pos, rot, size) {
+  const r = (d) => (Number(d) || 0) * Math.PI / 180;
+  const [x, y, z] = (pos || [0, 0, 0]).map(Number), [sx, sy, sz] = (size || [1, 1, 1]).map(Number);
+  const T = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+  const cz = Math.cos(r(rot && rot[2])), snz = Math.sin(r(rot && rot[2]));
+  const cy = Math.cos(r(rot && rot[1])), sny = Math.sin(r(rot && rot[1]));
+  const cx = Math.cos(r(rot && rot[0])), snx = Math.sin(r(rot && rot[0]));
+  const Rz = [cz, snz, 0, 0, -snz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const Ry = [cy, 0, -sny, 0, 0, 1, 0, 0, sny, 0, cy, 0, 0, 0, 0, 1];
+  const Rx = [1, 0, 0, 0, 0, cx, snx, 0, 0, -snx, cx, 0, 0, 0, 0, 1];
+  const S = [sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, sz, 0, 0, 0, 0, 1];
+  return mul(T, mul(Rz, mul(Ry, mul(Rx, S))));
+}
+// A custom mesh ("v" = x,y,z,..., "f" = corner lists) -> flat-shaded triangles.
+function meshShape(m) {
+  const v = m.v || [], pos = [], nrm = [];
+  for (const f of m.f || []) {
+    for (let i = 1; i + 1 < f.length; ++i) {
+      const a = f[0] * 3, b = f[i] * 3, c = f[i + 1] * 3;
+      const e1 = [v[b] - v[a], v[b + 1] - v[a + 1], v[b + 2] - v[a + 2]], e2 = [v[c] - v[a], v[c + 1] - v[a + 1], v[c + 2] - v[a + 2]];
+      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      for (const k of [a, b, c]) { pos.push(v[k], v[k + 1], v[k + 2]); nrm.push(...n); }
+    }
+  }
+  return { pos, nrm };
+}
+// One accessory file -> pieces already placed (positions from the feet).
+function accessoryPieces(acc) {
+  const out = [];
+  const walk = (node, parent) => {
+    const m = mul(parent, trs(node.pos, node.rot, node.size));
+    const shape = node.kind === 'Part' && (node.transparency || 0) < 0.99
+      ? (node.shape === 'Mesh' && node.mesh ? meshShape(node.mesh) : SHAPES[{ Cube: 'cube', Sphere: 'sphere', Cylinder: 'cylinder' }[node.shape]])
+      : null;
+    if (shape) {
+      // Normals turn with the inverse-transpose; for these small parts the turn is enough
+      // once they're normalised (sizes are positive), so scale them by 1/size per axis.
+      const pos = [], nrm = [];
+      for (let i = 0; i < shape.pos.length; i += 3) {
+        const x = shape.pos[i], y = shape.pos[i + 1], z = shape.pos[i + 2];
+        pos.push(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
+        // normal: columns scaled by 1 / |column|^2 (the inverse-transpose of rotation x scale)
+        const l0 = m[0] * m[0] + m[1] * m[1] + m[2] * m[2] || 1, l1 = m[4] * m[4] + m[5] * m[5] + m[6] * m[6] || 1, l2 = m[8] * m[8] + m[9] * m[9] + m[10] * m[10] || 1;
+        const nx = shape.nrm[i] / l0, ny = shape.nrm[i + 1] / l1, nz = shape.nrm[i + 2] / l2;
+        nrm.push(m[0] * nx + m[4] * ny + m[8] * nz, m[1] * nx + m[5] * ny + m[9] * nz, m[2] * nx + m[6] * ny + m[10] * nz);
+      }
+      out.push({ mesh: { pos, nrm }, color: colorOf((node.color || [0.6, 0.6, 0.6]).map((c) => c * 255), [150, 150, 150]),
+        shine: node.material === 'Neon' ? 0 : 0, glow: node.material === 'Neon' ? 1 : 0 });
+    }
+    for (const c of node.children || []) walk(c, m);
+  };
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  if (acc && acc.format === 'gbaccessory' && acc.node) walk(acc.node, I);
+  else if (acc && Array.isArray(acc.nodes)) for (const n of acc.nodes) walk(n, I);   // gear: the tool's parts
+  return out;
+}
+function loadAccessory(id) {
+  if (!accessories.has(id)) {
+    const entry = { pieces: null, ready: null };
+    entry.ready = fetch('/wear/' + encodeURIComponent(id)).then((r) => (r.ok ? r.json() : null))
+      .then((acc) => { entry.pieces = accessoryPieces(acc); }).catch(() => { entry.pieces = []; });
+    accessories.set(id, entry);
+  }
+  return accessories.get(id);
+}
+// Start (and wait for) the accessories some items need.
+async function loadAccessories(items) {
+  await Promise.all((items || []).filter(isModelAccessory).map((it) => loadAccessory(it.id).ready));
 }
 
 // Everything in one list of triangles: position, normal, colour, shine, and the
@@ -432,7 +515,7 @@ function blankTexture() {
 let headBox = null;   // the head's middle and size (from the model)
 let torsoBox = null;  // ... and the torso's
 
-function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', pants = '') {
+function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', pants = '', cam = null) {
   if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
@@ -442,9 +525,10 @@ function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', 
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
   // model: turn about Y; view: tilt about X, then back off.
   const rotY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
-  const center = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1.45, 0, 1];
+  const at = cam && cam.at ? cam.at : [0, 1.45, 0];   // what's in the middle of the picture
+  const center = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -at[0], -at[1], -at[2], 1];
   const tilt = [1, 0, 0, 0, 0, cp, -sp, 0, 0, sp, cp, 0, 0, 0, 0, 1];
-  const back = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -7.2, 1];
+  const back = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -(cam && cam.dist ? cam.dist : 7.2), 1];
   const proj = perspective(0.42, w / h, 0.5, 50);
   const view = mul(back, mul(tilt, center));
   const mvp = mul(proj, mul(view, rotY));
@@ -467,7 +551,7 @@ function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', 
   gl.bindBuffer(gl.ARRAY_BUFFER, shadowVbo);
   attrs();
   gl.uniform1f(loc.shadow, 1);
-  gl.drawArrays(gl.TRIANGLES, 0, 32 * 12);
+  if (!(cam && cam.noShadow)) gl.drawArrays(gl.TRIANGLES, 0, 32 * 12);
   gl.disable(gl.BLEND);
   gl.enable(gl.DEPTH_TEST);
   gl.uniform1f(loc.shadow, 0);
@@ -522,13 +606,20 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   const ctx = canvas.getContext('2d');
   let buffer = build(pieces(model, avatar, items)), count = buffer.length / STRIDE;
   let face = faceOf(items), tee = teeOf(items), shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
-  const whenLoaded = () => {   // repaint as the pictures arrive
+  let curAv = avatar, curIts = items;
+  const whenLoaded = () => {   // repaint as the pictures (and Studio accessories) arrive
+    const want = curIts;
+    loadAccessories(want).then(() => {
+      if (!canvas.isConnected || want !== curIts) return;
+      buffer = build(pieces(model, curAv, curIts)); count = buffer.length / STRIDE;
+      paint();
+    });
     faceTexture(face).ready.then(() => { if (canvas.isConnected) paint(); });
     for (const id of [tee, shirt, pants]) if (id) teeTexture(id).ready.then(() => { if (canvas.isConnected) paint(); });
   };
   let yaw = opts.yaw ?? -0.35, spin = 0, dragging = false, lastX = 0, frame = 0;
   const paint = () => {
-    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face, tee, shirt, pants);
+    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face, tee, shirt, pants, opts.cam || null);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(glCanvas, 0, 0);
   };
@@ -559,6 +650,7 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   whenLoaded();
   return {
     set(av, its = []) {
+      curAv = av; curIts = its;
       buffer = build(pieces(model, av, its)); count = buffer.length / STRIDE;
       face = faceOf(its);
       tee = teeOf(its);
@@ -578,6 +670,7 @@ export async function avatarPicture(avatar, items = [], size = 96) {
   try { model = await loadModel(); } catch { return null; }
   const key = JSON.stringify([avatar, (items || []).map((i) => i.id), size]);
   if (pictureCache.has(key)) return pictureCache.get(key);
+  await loadAccessories(items);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const buffer = build(pieces(model, avatar, items));
   const face = faceOf(items), tee = teeOf(items), shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
@@ -585,6 +678,61 @@ export async function avatarPicture(avatar, items = [], size = 96) {
   for (const id of [tee, shirt, pants]) if (id) await teeTexture(id).ready;
   draw(buffer, buffer.length / STRIDE, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face, tee, shirt, pants);
   const url = glCanvas.toDataURL('image/png');
+  pictureCache.set(key, url);
+  return url;
+}
+
+// A catalog item's picture, drawn here from the item itself (never an uploaded picture):
+// worn by a plain grey mannequin and framed on where it's worn (the head for hats, hair
+// and faces), or, for gear, the tool on its own. A data: URL, or null.
+const MANNEQUIN_GREY = { head: [204, 207, 212], torso: [204, 207, 212], leftArm: [204, 207, 212], rightArm: [204, 207, 212],
+  leftLeg: [189, 191, 199], rightLeg: [189, 191, 199], hat: 0 };
+const HEAD_KINDS = ['hat', 'hair', 'face', 'faceacc'], UPPER_KINDS = ['neck', 'shoulder'];
+// Where to look for a turnable view of an item being worn (a little wider than its picture).
+export function itemCamera(kind) {
+  return HEAD_KINDS.includes(kind) ? { at: [0, 2.25, 0], dist: 4.4 } : UPPER_KINDS.includes(kind) ? { at: [0, 1.9, 0], dist: 5.2 } : { at: [0, 1.45, 0], dist: 7.2 };
+}
+export async function itemPicture(item, size = 150) {
+  if (!item || !initGl()) return null;
+  const key = 'item:' + JSON.stringify([item.id, item.meta || {}, size]);
+  if (pictureCache.has(key)) return pictureCache.get(key);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(size * dpr), h = Math.round(size * dpr);
+  let url = null;
+  if (item.kind === 'gear') {
+    const entry = loadAccessory(item.id);
+    await entry.ready;
+    const list = entry.pieces || [];
+    if (!list.length) return null;
+    // Frame it: the middle of its parts, far enough back to fit them.
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const p of list) for (let i = 0; i < p.mesh.pos.length; i += 3)
+      for (let k = 0; k < 3; ++k) { lo[k] = Math.min(lo[k], p.mesh.pos[i + k]); hi[k] = Math.max(hi[k], p.mesh.pos[i + k]); }
+    const mid = lo.map((v, k) => (v + hi[k]) / 2);
+    const moved = list.map((p) => {   // turn about its own middle
+      const pos = p.mesh.pos.slice();
+      for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; ++k) pos[i + k] -= mid[k];
+      return Object.assign({}, p, { mesh: { pos, nrm: p.mesh.nrm } });
+    });
+    const span = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+    const buffer = build(moved);
+    await faceTexture('').ready;
+    draw(buffer, buffer.length / STRIDE, w, h, -0.6, 0.35, '', '', '', '', { at: [0, 0, 0], dist: span * 2.6, noShadow: true });
+    url = glCanvas.toDataURL('image/png');
+  } else {
+    let model;
+    try { model = await loadModel(); } catch { return null; }
+    const items = [item];
+    await loadAccessories(items);
+    const buffer = build(pieces(model, MANNEQUIN_GREY, items));
+    const face = faceOf(items), tee = teeOf(items), shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
+    await faceTexture(face).ready;
+    for (const id of [tee, shirt, pants]) if (id) await teeTexture(id).ready;
+    const cam = HEAD_KINDS.includes(item.kind) ? { at: [0, 2.4, 0], dist: 3.3 }
+      : UPPER_KINDS.includes(item.kind) ? { at: [0, 2.0, 0], dist: 4.4 } : { at: [0, 1.45, 0], dist: 7.0 };
+    draw(buffer, buffer.length / STRIDE, w, h, item.kind === 'face' ? 0 : -0.35, 0.1, face, tee, shirt, pants, cam);
+    url = glCanvas.toDataURL('image/png');
+  }
   pictureCache.set(key, url);
   return url;
 }

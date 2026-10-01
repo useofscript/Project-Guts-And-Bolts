@@ -73,6 +73,12 @@ public:
     float surfaceOf(const SceneNode* water, float x, float z) const;
     // Push the surface down (amount > 0) or up around `p`: makes ripples.
     void disturb(const glm::vec3& p, float amount, float radius);
+    // A tsunami: one huge wave racing out in a ring from `at` (a big explosion in
+    // the water). It rises and falls with the real surface (so it's drawn, things
+    // float on it and swimmers ride it), shrinks as it spreads, and sweeps up people
+    // and loose parts, washing them out past the shore. height / width in units.
+    void addSurge(const glm::vec3& at, float height, float speed, float width);
+    float surgeHeight() const;   // the tallest one going (0 = none)
     // Something hit the water: ripples, spray and a sound. `size` ~ how big it is.
     void splash(Scene& scene, const glm::vec3& p, float speed, float size);
     // A physics body is in the water this frame (for splashes when it first goes in).
@@ -128,6 +134,16 @@ public:
     }
 private:
     float swellAt(const Body& b, float x, float z) const;
+    float surgeAt(const Body& b, float x, float z) const;
+    void  stepSurges(float dt, Scene& scene);
+    struct Surge {
+        uint64_t  body = 0;
+        glm::vec3 center{0.0f};
+        float radius = 0.0f, speed = 20.0f, height = 1.0f, width = 3.0f, start = 3.0f, maxRadius = 100.0f;
+        float pushTimer = 0.0f;
+        std::vector<uint64_t> swept;   // people already picked up by it
+    };
+    std::vector<Surge> m_surges;
     // Flowing water (Flood.cpp).
     struct Source { uint64_t id; glm::vec3 pos; float radius, rate; };
     void scanSources(Scene& scene);

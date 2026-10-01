@@ -52,6 +52,8 @@ public:
         bool      grounded   = false;
         bool      hitCeiling = false;
         uint64_t  groundId   = 0;    // the part we are standing on
+        float     stepped    = 0.0f; // how far we were lifted onto a step this move (to smooth it out on screen)
+        float     dropped    = 0.0f; // ...and how far we were pulled down onto a lower step
         std::vector<std::pair<SceneNode*, glm::vec3>> pushed;   // loose parts we walked into
     };
 

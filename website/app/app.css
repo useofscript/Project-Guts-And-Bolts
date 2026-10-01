@@ -327,8 +327,8 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 
 /* Sign-up: the 18+ notice, and the Terms page */
 .mature-note { background: #fff3cd; border: 1px solid #e0b84c; color: #4a3800; padding: 8px 10px; margin: 10px 0 6px; font-size: 12px; border-radius: 3px; }
-.check { display: flex; gap: 6px; align-items: flex-start; font-weight: normal; font-size: 12px; margin: 6px 0; }
-.check input { width: auto; margin-top: 2px; }
+label.check { display: flex; gap: 6px; align-items: flex-start; font-weight: normal; font-size: 12px; margin: 6px 0; }
+label.check input { width: auto; margin-top: 2px; }
 .terms { max-width: 760px; line-height: 1.5; }
 .terms h2 { font-size: 16px; margin-top: 18px; }
 .user-number { margin-left: 8px; }
@@ -336,3 +336,121 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 .secret-key code { font-size: 16px; letter-spacing: 1px; background: #f2f4f7; padding: 4px 8px; border-radius: 3px; }
 @media (prefers-color-scheme: dark) { .secret-key code { background: #20242c; } }
 .playing-now { margin-left: 8px; }
+.friend .link { color: var(--link, #0055cc); text-decoration: underline; }
+.friend:hover .link { color: var(--link-hover, #0033aa); }
+.people-grid { gap: 10px; }
+.item-render { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.item-render.no-picture { color: var(--muted, #888); font-size: 12px; background: linear-gradient(135deg, #f2f3f6, #e3e6ec); border-radius: 6px; }
+.item-render img.item3d, .item-render img.item-thumb { max-width: 100%; max-height: 100%; }
+
+/* Timed items (they go off sale at a set time, like Gutstober items) */
+.timed-tag { position: absolute; left: 6px; top: 6px; background: #d9620b; color: #fff; font-weight: bold; font-size: 10px;
+  padding: 2px 6px; border-radius: 3px; letter-spacing: 1px; }
+.timed-line { font-size: 13px; color: #b4500a; }
+
+/* Gutstober: the Halloween theme for October (Settings > Site theme turns it off).
+   Pumpkins and bats are drawn with plain CSS shapes. */
+html.gutstober {
+  --bg: #1c1226; --panel: #fffaf3; --panel2: #fbefe0; --stripe: #fdf3e6; --line: #d8b998;
+  --head1: #ffb347; --head2: #f07f13; --headText: #2a0f3a; --link: #6b2fb3; --blue: #7b3fc4; --blue-dark: #4b1d86;
+}
+@media (prefers-color-scheme: dark) {
+  html.gutstober:not([data-theme="light"]) {
+    --bg: #120a19; --panel: #21162b; --panel2: #2b1d37; --stripe: #281b33; --line: #4a3358; --text: #f1e8f6;
+    --head1: #e0751a; --head2: #a84a07; --headText: #fff3e6; --link: #ffb054;
+  }
+}
+html.gutstober body {
+  background: var(--bg) radial-gradient(ellipse at 50% -10%, rgba(255,140,30,.18), transparent 60%) fixed;
+}
+html.gutstober .topbar { background: linear-gradient(#3a1752, #1a0828); border-bottom-color: #0b0312; }
+html.gutstober .logo { color: #ff8a1c; }
+html.gutstober .nav { background: linear-gradient(#ffad4d 0%, #f58a1f 50%, #e8740c 51%, #c95e05 100%);
+  border-top-color: #ffd29a; border-bottom-color: #7a3500; }
+html.gutstober .subnav { background: linear-gradient(#4b2a63, #2f1842); border-bottom-color: #160a20; }
+html.gutstober .subnav a { color: #f6d9ff; }
+html.gutstober .subnav a + a { border-left-color: #6a4785; }
+html.gutstober .subnav a.on { color: #ffb054; }
+html.gutstober .btn.blue { background: linear-gradient(#9a5ee0, #6a2fb0); border-color: #4b1d86; }
+html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
+
+.gutstober-banner { background: linear-gradient(90deg, #2a0f3a, #4a1c5e 50%, #2a0f3a); color: #ffe2bd; font-size: 12px;
+  border-bottom: 2px solid #f07f13; overflow: hidden; }
+.gutstober-banner .wrap { min-height: 34px; position: relative; }
+.gutstober-banner b { color: #ff9a2e; font-size: 14px; font-family: Impact, "Arial Black", sans-serif; letter-spacing: 1px; }
+.gutstober-banner a { color: #ffb054; text-decoration: underline; }
+/* a pumpkin: an orange squashed ball with ridges, a stem and a glowing face */
+.gt-pumpkin { position: relative; flex: none; width: 26px; height: 21px; border-radius: 48% 48% 44% 44%;
+  background: radial-gradient(ellipse at 50% 40%, #ffa53a, #e36a05 70%, #b04d00);
+  box-shadow: inset 6px 0 0 -4px rgba(120,45,0,.45), inset -6px 0 0 -4px rgba(120,45,0,.45); }
+.gt-pumpkin::before { content: ""; position: absolute; left: 11px; top: -6px; width: 4px; height: 7px; border-radius: 2px;
+  background: #4f7a1e; transform: rotate(12deg); }
+.gt-pumpkin::after { content: ""; position: absolute; left: 6px; top: 6px; width: 14px; height: 9px;
+  background:
+    linear-gradient(135deg, transparent 45%, #ffe066 46%) 0 0 / 5px 4px no-repeat,
+    linear-gradient(-135deg, transparent 45%, #ffe066 46%) 9px 0 / 5px 4px no-repeat,
+    radial-gradient(ellipse at 50% 0, transparent 55%, #ffe066 56%, #ffe066 75%, transparent 76%) 0 4px / 14px 6px no-repeat; }
+/* bats flapping along */
+.gt-bats { margin-left: auto; display: flex; gap: 14px; }
+.gt-bats i { display: block; width: 18px; height: 8px; position: relative; animation: gt-flap .5s ease-in-out infinite alternate; }
+.gt-bats i:nth-child(2) { animation-delay: .15s; margin-top: -6px; }
+.gt-bats i:nth-child(3) { animation-delay: .3s; }
+.gt-bats i::before, .gt-bats i::after { content: ""; position: absolute; top: 0; width: 9px; height: 7px; background: #0d0614;
+  border-radius: 0 100% 0 60%; }
+.gt-bats i::before { left: 0; transform: scaleX(-1); }
+.gt-bats i::after { right: 0; }
+@keyframes gt-flap { from { transform: scaleY(1) translateY(0); } to { transform: scaleY(.4) translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .gt-bats i { animation: none; } }
+@media (max-width: 600px) { .gutstober-banner span:not(.gt-pumpkin):not(.gt-bats) { display: none; } }
+
+/* Item pictures while they're being drawn */
+.item-render.loading::after { content: ""; width: 22px; height: 22px; border-radius: 50%;
+  border: 3px solid rgba(120,130,145,.25); border-top-color: rgba(120,130,145,.8); animation: gb-spin .8s linear infinite; }
+@keyframes gb-spin { to { transform: rotate(360deg); } }
+
+/* The item page, laid out like the 2016 catalog: picture, details, and a buy box */
+.item-page { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px 18px; }
+.item-title { font-size: 30px; font-weight: bold; margin: 0; letter-spacing: -.5px; }
+.item-sub { font-weight: bold; color: var(--text); font-size: 13px; margin: 2px 0 12px; }
+.item-cols { display: grid; grid-template-columns: 330px 1fr 190px; gap: 18px; align-items: start; }
+.item-pic { position: relative; width: 330px; height: 330px; overflow: hidden; background: #fff; border: 1px solid var(--line); }
+.item-pic .pic { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.item-pic .pic canvas { display: block; }
+/* the red "NEW" ribbon across the top right corner */
+.item-ribbon { position: absolute; top: 26px; right: -44px; width: 170px; transform: rotate(45deg); text-align: center;
+  background: linear-gradient(#d6261c, #a3150d); color: #fff; font: bold 17px Arial, sans-serif; letter-spacing: 2px;
+  padding: 5px 0; box-shadow: 0 2px 3px rgba(0,0,0,.35); pointer-events: none; }
+/* a little alarm clock (timed item), drawn with CSS */
+.item-clock { position: absolute; top: 8px; left: 8px; width: 32px; height: 32px; border-radius: 6px; background: #d6261c;
+  display: flex; align-items: center; justify-content: center; }
+.item-clock i { width: 16px; height: 16px; border: 2px solid #fff; border-radius: 50%; position: relative; }
+.item-clock i::before { content: ""; position: absolute; left: 6px; top: 2px; width: 2px; height: 6px; background: #fff; }
+.item-clock i::after { content: ""; position: absolute; left: 6px; top: 6px; width: 5px; height: 2px; background: #fff; }
+/* the green LIMITED tag with its yellow U, bottom left */
+.item-limited { position: absolute; left: 0; bottom: 8px; display: flex; align-items: stretch; font: bold 17px Arial, sans-serif;
+  color: #fff; letter-spacing: 1px; pointer-events: none; }
+.item-limited { background: linear-gradient(#26a540, #137a28); padding: 3px 4px 3px 10px; border: 1px solid #0d5a1c; }
+.item-limited b { background: #f5d000; color: #222; margin: -3px -4px -3px 8px; padding: 3px 14px 3px 10px;
+  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
+.item-3d { position: absolute; right: 8px; bottom: 8px; font-size: 10px; border: 1px solid #999; background: #f4f4f4; color: #333;
+  padding: 1px 5px; border-radius: 2px; pointer-events: none; }
+.item-creator { display: flex; gap: 10px; align-items: center; }
+.item-creator-pic { width: 48px; height: 60px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--panel2); border-radius: 3px; }
+.item-creator-pic img { max-width: 100%; max-height: 100%; }
+.item-creator td { padding: 1px 6px 1px 0; font-size: 12px; }
+.item-creator td:first-child { color: var(--muted); }
+.item-desc { white-space: pre-wrap; font-size: 14px; margin: 14px 0; }
+.item-info hr { border: 0; border-top: 1px solid var(--line); }
+.item-buybox { border: 1px solid #999; background: linear-gradient(#f2f2f2, #e2e2e2); padding: 10px; text-align: center; color: #222; }
+.item-left { color: #c8100c; font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+.item-offsale { font-size: 13px; margin-bottom: 4px; color: #444; }
+.item-offsale b { color: #c8100c; font-size: 15px; }
+.item-price { font-size: 13px; margin: 2px 0 6px; color: #333; }
+.item-price .price { color: #0a7d2c; font-weight: bold; }
+.item-buybox .btn.buy { width: 100%; font-size: 18px; padding: 8px 6px; }
+.item-sold { color: #555; font-size: 12px; margin-top: 6px; }
+@media (max-width: 820px) {
+  .item-cols { grid-template-columns: 1fr; }
+  .item-pic { width: 100%; max-width: 330px; margin: 0 auto; }
+}
+.item-creator td { white-space: nowrap; }

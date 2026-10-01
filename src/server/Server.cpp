@@ -12,7 +12,6 @@
 #include <set>
 #include <chrono>
 #include <cstdio>
-#include <ctime>
 #include <fstream>
 #include <sstream>
 #include <thread>
@@ -133,7 +132,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"list", "profile", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"list", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list",
                                                     "get", "servers.play", "relay.host", "relay.join"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -258,6 +257,10 @@ json GbServer::publicAsset(const Asset& a) const {
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
     j["creatorStaff"] = it != m_users.end() && isStaff(it->second);
+    // Timed items (worker/server.js): off sale from offsaleAt on (0 = for sale for good).
+    const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL;
+    j["offsaleAt"] = off;
+    j["offsale"] = off > 0 && Online::unixNow() >= off;
     return j;
 }
 
@@ -289,6 +292,32 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay();
         r["me"] = meJson(me);
         r["server"] = {{"name", m_opts.name}, {"protocol", Online::kProtocol}, {"official", Account::officialId()}};
+        return r;
+    }
+    if (name == "people.list") {   // someone's friends / following / followers (worker/server.js)
+        User* u = findPerson(str("user"));
+        if (!u || u->userId == 0) return fail("There's no account with that ID on this server.");
+        std::string which = str("which");
+        if (which != "following" && which != "followers") which = "friends";
+        const std::set<std::string>& ids = which == "following" ? u->following : which == "followers" ? u->followers : u->friends;
+        std::vector<const User*> all;
+        for (const std::string& id : ids)
+            if (auto it = m_users.find(id); it != m_users.end() && it->second.userId > 0) all.push_back(&it->second);
+        std::sort(all.begin(), all.end(), [](const User* a, const User* b) { return a->userId < b->userId; });
+        const long long offset = std::max(0LL, num("offset"));
+        const long long limit = args.contains("limit") ? std::clamp(num("limit"), 1LL, 100LL) : 60;
+        json people = json::array();
+        for (size_t i = (size_t)offset; i < all.size() && (long long)people.size() < limit; ++i) {
+            json p = publicUser(*all[i]);
+            p["avatar"] = all[i]->avatar;
+            p["online"] = presence(me, *all[i])["online"];
+            people.push_back(p);
+        }
+        json r = okay();
+        r["user"] = publicUser(*u);
+        r["which"] = which;
+        r["total"] = all.size();
+        r["people"] = people;
         return r;
     }
     if (name == "profile") {
@@ -438,6 +467,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change pictures of your own things.");
+        // Catalog items aren't given pictures (worker/server.js): they're drawn from the item itself.
+        if (Online::isCatalogItem(a.kind)) return fail("Catalog items don't take pictures: they're shown as the item itself.");
         std::string data;
         if (!Online::base64Decode(str("data"), data)) return fail("The picture got scrambled. Try again.");
         bool png = data.size() > 8 && data.compare(0, 4, "\x89PNG") == 0;
@@ -838,6 +869,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
         if (a.meta.is_object() && a.meta.value("award", std::string()) == "email")
             return fail("This hat can't be bought: confirm an email in Settings and it's yours.");
+        if (const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL; off > 0 && now >= off)
+            return fail("This item is off sale: it was only for sale for a limited time.");
         if (a.price > 0) {
             if (balance(me) < a.price)
                 return fail("You need " + std::to_string(a.price - balance(me)) + " more Bolts for that.");
@@ -959,6 +992,28 @@ void GbServer::addExampleGames() {
         a.description = "Given to everyone who confirms their email address. Can't be bought.";
         const std::string text = kHat;
         if (a.size != text.size()) { a.size = text.size(); writeFile(blobPath(a.id), text); }
+        changed = true;
+    }
+    // Gutstober (worker/server.js timeGutstoberItems): pumpkin items are timed items that
+    // go off sale when Gutstober (October) ends, midnight UTC on November 1st. Once per item.
+    for (auto& [id, a] : m_assets) {
+        if (!Online::isCatalogItem(a.kind) || !a.meta.is_object() || a.meta.contains("timedFor")) continue;
+        std::string lower = a.name;
+        for (char& c : lower) c = (char)std::tolower((unsigned char)c);
+        if (lower.find("pumpkin") == std::string::npos) continue;
+        // The year it was made in, then midnight UTC on November 1st of that year
+        // (days from 1970 worked out by hand: timegm isn't on every system).
+        const long long made = a.created ? a.created : Online::unixNow();
+        long long year = 1970;
+        auto daysTo = [](long long y) {   // days from 1970-01-01 to January 1st of year y
+            const long long p = y - 1;
+            return 365 * (y - 1970) + (p / 4 - 1969 / 4) - (p / 100 - 1969 / 100) + (p / 400 - 1969 / 400);
+        };
+        while (daysTo(year + 1) * 86400 <= made) ++year;
+        const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        const long long nov1 = daysTo(year) + 304 + (leap ? 1 : 0);   // Jan..Oct = 304 days (+1 in leap years)
+        a.meta["timedFor"] = "gutstober";
+        a.meta["offsaleAt"] = nov1 * 86400;
         changed = true;
     }
     if (changed) saveAssets();

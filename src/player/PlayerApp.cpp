@@ -179,6 +179,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "settings") m_showSettings = true;
     if (m_opts.page == "character") m_charPickOpen = true;   // test: the guest "Choose Your Character" box
     if (m_opts.page == "catalog") m_page = Page::Catalog;
+    if (m_opts.page.rfind("profile:", 0) == 0) openProfile(m_opts.page.substr(8));   // test: someone's profile ("profile:2")
     if (m_opts.page == "bolts") m_page = Page::Bolts;
     if (m_opts.page == "create") { m_page = Page::Create; m_createKind = m_opts.createTab; }
     if (m_opts.page == "people") m_page = Page::People;
@@ -305,6 +306,8 @@ void PlayerApp::run() {
             }
         }
         frame(dt);
+        if (std::getenv("GB_TRACE_POS") && m_scene)   // test: the character's height every frame
+            if (Player* p = m_scene->player()) std::printf("TRACE %d %.3f %.3f\n", m_frame, p->position().z, p->position().y);
         if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
         if (shoot && m_scene) {   // test output: where everyone's character ended up
@@ -591,6 +594,7 @@ void PlayerApp::frame(float dt) {
     }
 #endif
     followLink();
+    updateItemRenders();   // item pictures (a couple per frame)
     if (!m_autoStarted && Online::online()) {   // test options that need the server first
         if (m_opts.onlinePlay && !m_opts.game.empty()) {
             m_autoStarted = true;
@@ -2453,7 +2457,7 @@ void PlayerApp::drawCatalog() {
         dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
         dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(160, 165, 175, 255),
                     0, 0, hover ? 2.0f : 1.0f);
-        drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+        itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
         if (Catalog::isWearing(it))
             dl->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(20, 140, 60, 255), "Wearing");
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
@@ -2480,7 +2484,7 @@ void PlayerApp::drawItemDialog() {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(180, 180));
     ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 180, p.y + 180), IM_COL32(245, 246, 250, 255), 6);
-    drawItemIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + 90, p.y + 90), 150, it);
+    itemPicture(ImGui::GetWindowDrawList(), ImVec2(p.x + 90, p.y + 90), 150, it);
     ImGui::SameLine(0, 18);
     ImGui::BeginGroup();
     ImGui::SetWindowFontScale(1.4f);
@@ -2581,7 +2585,7 @@ void PlayerApp::drawCreateItemDialog() {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(170, 170));
     ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + 170, p.y + 170), IM_COL32(245, 246, 250, 255), 6);
-    drawItemIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + 85, p.y + 85), 140, it);
+    itemPicture(ImGui::GetWindowDrawList(), ImVec2(p.x + 85, p.y + 85), 140, it);
 
     ImGui::Spacing();
     ImGui::TextDisabled("The item is signed with your staff key, so nobody else can make or change catalog items.");

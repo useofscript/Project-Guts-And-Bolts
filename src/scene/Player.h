@@ -236,6 +236,10 @@ private:
     glm::vec3 m_spawn{0.0f};
     glm::vec3 m_velocity{0.0f};
     bool      m_grounded = false;
+    // Steps and curbs: the physics lifts the feet straight up; on screen the body
+    // catches up over a moment instead of snapping (m_stepShown is in the root's height now).
+    float     m_stepOffset = 0.0f, m_stepShown = 0.0f;
+    glm::vec3 m_shownAt{0.0f};
 
     // Moving platforms carry the character.
     uint64_t  m_groundId = 0;

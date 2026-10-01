@@ -103,7 +103,7 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -274,6 +274,13 @@ function totpCheck(secret, code, t, lastStep = -1) {
 // The Verified Hat: everyone who confirms their email gets one (an original
 // Guts&Bolts cap with our blue check, not a copy of anything). Server.cpp makes the same one.
 const VERIFIED_HAT_ID = 'item-verified-hat';
+// Gutstober: Guts&Bolts' Halloween month (all of October). Things made for it, like
+// the Pumpkin hat, are timed items: they go off sale when it ends (midnight UTC,
+// November 1st).
+function gutstoberEnd(t) {
+  const d = new Date(t * 1000);
+  return Date.UTC(d.getUTCFullYear(), 10, 1) / 1000;
+}
 const VERIFIED_HAT = {
   format: 'gbaccessory', version: 1, kind: 'hat',
   node: { id: 1, name: 'VerifiedHat', kind: 'Model', pos: [0, 2.66, 0], rot: [0, 0, 0], size: [1, 1, 1], children: [
@@ -357,6 +364,7 @@ export class GbServerObject extends DurableObject {
     for (const u of this.users.values()) this.gutsFollows(u);
     this.addExampleGames();
     this.addVerifiedHat();
+    this.timeGutstoberItems();
     for (const u of this.users.values()) if (u.emailVerified && !u.owned.includes(VERIFIED_HAT_ID)) { this.giveVerifiedHat(u); this.saveUser(u); }
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
@@ -631,13 +639,27 @@ export class GbServerObject extends DurableObject {
     let a = this.assets.get(VERIFIED_HAT_ID);
     if (!a) {
       a = { id: VERIFIED_HAT_ID, kind: 'hat', name: 'Verified Hat', creator: this.official, price: 0, created: now(), sales: 0,
-        plays: 0, size: 0, meta: { award: 'email' }, builtin: true, likes: 0, dislikes: 0 };
+        plays: 0, size: 0, meta: { award: 'email', model: true }, builtin: true, likes: 0, dislikes: 0 };
       this.assets.set(a.id, a);
     }
+    a.meta = Object.assign(a.meta || {}, { award: 'email', model: true });   // a 3D hat (older copies lacked "model")
     a.description = 'Given to everyone who confirms their email address. Can\'t be bought: add and confirm an email in Settings to get it.';
     if (a.size !== data.length) { a.size = data.length; a.updated = now(); this.writeFile(a.id, data); }
     this.saveAsset(a);
   }
+
+  // Pumpkin items in the catalog are Gutstober items: they go off sale when it ends.
+  // Done once per item (staff can change the date afterwards on the item's page).
+  timeGutstoberItems() {
+    const t = now();
+    for (const a of this.assets.values()) {
+      if (!isCatalogItem(a.kind) || a.timedFor || !/pumpkin/i.test(a.name || '')) continue;
+      a.timedFor = 'gutstober';
+      a.offsaleAt = gutstoberEnd(a.created || t);
+      this.saveAsset(a);
+    }
+  }
+  isOffsale(a, t = now()) { return !!a.offsaleAt && t >= a.offsaleAt; }
 
   giveVerifiedHat(u) {
     const a = this.assets.get(VERIFIED_HAT_ID);
@@ -682,7 +704,8 @@ export class GbServerObject extends DurableObject {
       genres: a.kind === 'game' ? (a.genres || []) : undefined, allowGear: a.kind === 'game' ? !!a.allowGear : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
-      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a) };
+      myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
+      offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a) };
   }
   publicModelsLeft(u) {   // -1 = no limit
     if (this.isVerified(u)) return -1;
@@ -820,6 +843,20 @@ export class GbServerObject extends DurableObject {
         isFollowing: (me.following || []).includes(u.id),
         online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges });
     }
+    if (name === 'people.list') {
+      // Someone's friends, who they follow, or their followers (anyone can look, like a
+      // Roblox profile). A page at a time: Guts follows everybody. (Server.cpp has the same.)
+      const u = this.findPerson(str(args, 'user'));
+      if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
+      const which = ['friends', 'following', 'followers'].includes(str(args, 'which')) ? str(args, 'which') : 'friends';
+      const ids = (u[which] || []).filter((id) => this.users.has(id));
+      const all = ids.map((id) => this.users.get(id)).filter((p) => p.userId > 0).sort((a, b) => a.userId - b.userId);
+      const offset = Math.max(0, num(args, 'offset'));
+      const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
+      const people = all.slice(offset, offset + limit).map((p) => Object.assign(this.publicUser(p),
+        { avatar: p.avatar || null, online: this.presence(me, p).online }));
+      return okay({ user: this.publicUser(u), which, total: all.length, people });
+    }
     if (name === 'users.search') {
       let q = lower(cleanText(str(args, 'query'), 64));
       if (q[0] === '#') q = q.slice(1);
@@ -884,6 +921,9 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change pictures of your own things.');
+      // Catalog items aren't given pictures: everyone sees the item itself, drawn from its
+      // real shape (so a picture can never be swapped for something it isn't).
+      if (isCatalogItem(a.kind)) return fail('Catalog items don\'t take pictures: they\'re shown as the item itself.');
       let data;
       try { data = b64ToBytes(str(args, 'data')); } catch { return fail('The picture got scrambled. Try again.'); }
       const png = data.length > 8 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => data[i] === v);
@@ -1273,6 +1313,7 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
       if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
+      if (this.isOffsale(a)) return fail('This item is off sale: it was only for sale for a limited time.' + (a.limited ? ' Buy one from a reseller on the item\'s page.' : ''));
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
       if (a.price > 0) {
         if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
@@ -1318,6 +1359,10 @@ export class GbServerObject extends DurableObject {
         const price = clamp(num(args, 'price'), 0, 1000000);
         if (price > 0 && !this.isVerified(this.users.get(a.creator) || me) && !this.isStaff(me)) return fail('Only Verified creators can sell things.');
         a.price = price;
+      }
+      if ('offsaleAt' in args) {   // a timed item: off sale from then on (0 = for sale for good)
+        a.offsaleAt = Math.max(0, num(args, 'offsaleAt'));
+        a.timedFor = a.timedFor || 'set';
       }
       a.meta = a.meta || {};
       if (Array.isArray(args.color) && args.color.length === 3) a.meta.color = args.color.map((v) => clamp(Number(v) | 0, 0, 255));
@@ -2161,6 +2206,27 @@ export class GbServerObject extends DurableObject {
       ws.addEventListener('error', gone);
       this.scheduleSweep();
       return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+    // GET /wear/<asset id>: a Studio-made accessory's 3D shape (public: anyone can see it worn),
+    // so the website's 3D avatars draw hats, hair and the rest like the game does.
+    // Gear too, but only its shape (no scripts), so item pictures are drawn from the item itself.
+    if (url.pathname.startsWith('/wear/')) {
+      const a = this.assets.get(decodeURIComponent(url.pathname.slice(6)));
+      if (a && a.kind === 'gear') {
+        const raw = this.readFile(a.id);
+        let m = null;
+        try { m = raw ? JSON.parse(new TextDecoder().decode(raw)) : null; } catch { m = null; }
+        if (!m || !Array.isArray(m.nodes)) return new Response('No gear.', { status: 404 });
+        const shape = (n) => (n && typeof n === 'object' && n.kind !== 'Script' && n.kind !== 'LocalScript' && n.kind !== 'ModuleScript' ? {
+          kind: n.kind, shape: n.shape, mesh: n.mesh, pos: n.pos, rot: n.rot, size: n.size, color: n.color, material: n.material,
+          transparency: n.transparency, children: (Array.isArray(n.children) ? n.children : []).map(shape).filter(Boolean),
+        } : null);
+        return new Response(JSON.stringify({ nodes: m.nodes.map(shape).filter(Boolean) }),
+          { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
+      }
+      const data = a && isAccessory(a.kind) && a.meta && a.meta.model ? this.readFile(a.id) : null;
+      if (!data) return new Response('No accessory.', { status: 404 });
+      return new Response(data, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
     }
     // GET /thumb/<asset id> and /icon/<asset id>: a game's picture and icon (public, so pages can show them directly).
     if (url.pathname.startsWith('/thumb/') || url.pathname.startsWith('/icon/')) {

@@ -332,7 +332,7 @@ What you can use:
   `JumpPower` / `:TakeDamage(n)`, `character:BreakJoints()`
 - **Lighting:** `Lighting.ClockTime`, `Brightness`, `FogEnabled`, `FogColor`, `Ambient`, ...
 - **Screen text:** `Gui.Label("Score", "Score: 5")`, `Gui.Message("You win!", 3)`
-- **Mayhem:** `Explode(position, radius)`, `Effects.Blood(pos, amount)`, `Effects.Oil(...)`, `Effects.Gibs(...)`,
+- **Mayhem:** `Explode(position, radius, power, options)` (see *Explosions* below), `Effects.Blood(pos, amount)`, `Effects.Oil(...)`, `Effects.Gibs(...)`,
   `Effects.Sparks(...)`
 - **Physics:** `part:ApplyImpulse(v)`, `AssemblyLinearVelocity`, `AssemblyAngularVelocity`, `Density`,
   `Friction`, `Elasticity`, and constraint properties such as `rope.Length` or `hinge.AngularVelocity`
@@ -638,6 +638,65 @@ Further things fade into the sky and aren't drawn, and water waves, liquid
 taps, lights and effects out there rest until you come closer. Lower numbers
 are faster; the quality presets set it (Low 4, Medium 6, High 8, Ultra 10 =
 everything).
+
+### Gutstober and timed items
+
+October is **Gutstober**, Guts&Bolts' Halloween month. The website wears a
+Halloween theme (orange and purple, a pumpkin and some bats) all month; anyone
+can turn it off or back on in *Settings > Site theme* (it's remembered in that
+browser).
+
+**Timed items** go off sale at a set time. The item's creator or staff set
+*Goes off sale* on the item's page (leave it empty to sell it for good). Before
+then the item says *Off sale in N days*; after, it says *Off sale* and can't be
+bought any more (people who have it keep it, and limiteds can still be resold).
+Catalog items with "Pumpkin" in their name are Gutstober items: when the server
+starts it gives each one an off-sale time of midnight UTC on November 1st (once;
+staff can change it afterwards).
+
+### Explosions
+
+Explosions are more than a puff of fire:
+
+- **The shockwave** races outwards (things far away get hit a moment later). It
+  breaks joints, flings loose parts (light ones further than heavy ones), knocks
+  people over, hurts them less the further away they are, and shakes the camera.
+- **Fire and smoke:** a fireball that rolls up into billowing smoke, and fires
+  that keep burning on the ground for a while (they hurt if you stand in them).
+- **Mushroom clouds:** big blasts send up a column of smoke into a cap that
+  rolls over on itself, with a ring of dust rushing out along the ground.
+- **Water:** a blast in or near water blows a crater in the surface, throws up a
+  column of spray and sends out rings of waves. A big enough bomb in big enough
+  water makes a **tsunami**: a wall of water that rolls outwards, lifts boats,
+  sweeps players and loose parts along and runs up onto the shore.
+
+From a script:
+
+```lua
+-- position, radius, power (1 = normal), and options (all optional)
+local hits = Explode(Vector3.new(0, 2, 0), 30, 2, {
+    Fire = 10,             -- seconds fires keep burning (0 = none)
+    Smoke = true,          -- smoke left hanging in the air
+    MushroomCloud = true,  -- true / false (left out: only for really big blasts)
+    Destroy = true,        -- rips anchored parts loose near the middle
+    JointBreak = 0.5,      -- breaks joints out to half the radius
+    Visible = true,        -- false: no fire or smoke, just the push
+    Hurts = true,          -- harms characters
+})
+for _, h in ipairs(hits) do print(h[1].Name, h[2]) end   -- {part, distance}
+```
+
+Or the Roblox way: `Instance.new("Explosion")`, set `Position`, `BlastRadius`,
+`BlastPressure` (500000 is normal), `DestroyJointRadiusPercent`, `Visible` (and
+our extras `Smoke`, `Fire`, `Destroy`, `MushroomCloud`), connect `Hit`, then set
+its `Parent` to make it go off.
+
+Studio's premades have a **Time Bomb** (counts down, then blows), a **Nuke**
+(with a mushroom cloud) and a **Depth Charge** (sinks in water and goes off
+underwater).
+
+In multiplayer the host works out what got hit, and everyone sees the same fire,
+smoke, waves and shaking.
 
 ### Real water
 
@@ -1232,8 +1291,13 @@ accessories. Verified creators make them in **Studio**:
    try it on, pick the **type**, select your model and press **Move to the
    spot** (it jumps to where that type sits, like the top of the head).
 3. Move, turn and stretch it until it looks right, then **Save position**.
-4. Give it a name, description and price and press **Upload**. Studio takes a
-   picture of it for the catalog.
+4. Give it a name, description and price and press **Upload**. Its catalog
+   picture is drawn from the accessory itself, worn by a mannequin.
+
+Catalog pictures are never uploaded pictures: the website, the Player and Studio
+all draw each item from its real shape (clothes, faces, hats, hair and
+accessories on a plain mannequin, zoomed in on where they're worn; gear on its
+own). The servers refuse pictures for catalog items, so nobody can swap one in.
 
 A worn hat or hair takes the place of the built-in hat.
 
@@ -1430,8 +1494,10 @@ The **Friends** page has three tabs:
 - **Requests:** friend requests to accept or decline, and the ones you sent;
 - **Add Friends:** search by name.
 
-Profiles also have an **Add Friend** button. Your friends list is only shown to
-you, and nothing on the site shows anyone's address or when they were last on.
+Profiles also have an **Add Friend** button. Anyone can look at someone's
+**Friends**, **Following** and **Followers** lists from their profile (click the
+counts, or *See all*); every name in them is a blue link to that person's profile.
+Nothing on the site shows anyone's address or when they were last on.
 
 **Join.** If someone's playing and lets you join, their profile (on the site
 and in the app) shows *Playing ...* with a **Join** button that puts you in the

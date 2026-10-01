@@ -8,6 +8,7 @@
 #include "../scene/SceneNode.h"
 #include "../core/Log.h"
 #include "../scene/Effects.h"
+#include "../scene/Blast.h"
 #include "../scene/Physics.h"
 #include "../core/Audio.h"
 
@@ -723,6 +724,52 @@ do
     end
 end
 
+-- Explosion, like Roblox's: make one, set it up, parent it (to workspace) and BOOM.
+--   local e = Instance.new("Explosion")
+--   e.Position = bomb.Position
+--   e.BlastRadius = 20          -- how far it reaches
+--   e.BlastPressure = 500000    -- how hard it hits (500000 = normal)
+--   e.Hit:Connect(function(part, distance) ... end)
+--   e.Parent = workspace
+-- Extras (Guts&Bolts): e.Smoke (true), e.Fire (seconds of fires left burning),
+-- e.MushroomCloud (true / false; big blasts get one anyway), e.Destroy (rips anchored
+-- parts loose near the middle: craters), e.Visible = false (just the push).
+-- Big blasts near water throw up spray, make waves, and big enough ones a tsunami.
+do
+    local explode = Explode
+    local function explosion(parent)
+        local hit = luaSignal()
+        local o = { ClassName = "Explosion", Name = "Explosion", Position = Vector3.new(0, 0, 0), BlastRadius = 4,
+                    BlastPressure = 500000, DestroyJointRadiusPercent = 1, ExplosionType = "Craters", Visible = true,
+                    Smoke = true, Fire = 0, Destroy = false, Hit = hit }
+        local fired = false
+        local function go(self)
+            if fired then return end
+            fired = true
+            local mush = rawget(self, "MushroomCloud")
+            local hits = explode(self.Position, self.BlastRadius, (self.BlastPressure or 500000) / 500000, {
+                Smoke = self.Smoke, Fire = self.Fire, Destroy = self.Destroy, Visible = self.Visible,
+                MushroomCloud = mush, JointBreak = self.DestroyJointRadiusPercent })
+            for _, h in ipairs(hits or {}) do hit:Fire(h[1], h[2]) end
+        end
+        function o:IsA(c) return c == "Explosion" or c == "Instance" end
+        function o:Destroy() fired = true end
+        function o:GetFullName() return "Explosion" end
+        local proxy = setmetatable({}, {
+            __index = function(_, k)
+                if k == "Parent" then return rawget(o, "_parent") end
+                return o[k]
+            end,
+            __newindex = function(t, k, v)
+                if k == "Parent" then rawset(o, "_parent", v); if v ~= nil then go(o) end
+                else o[k] = v end
+            end })
+        if parent ~= nil then proxy.Parent = parent end
+        return proxy
+    end
+    __gb_newExplosion = explosion
+end
+
 -- BindableEvent / BindableFunction: scripts talking to each other.
 --   local ev = Instance.new("BindableEvent")      ev.Event:Connect(print)    ev:Fire("hi")
 --   local fn = Instance.new("BindableFunction")   fn.OnInvoke = function(x) return x * 2 end   fn:Invoke(21)
@@ -747,6 +794,7 @@ do
     end
     Instance.new = function(cls, parent)
         if cls == "BindableEvent" or cls == "BindableFunction" then return bindable(cls, parent) end
+        if cls == "Explosion" then return __gb_newExplosion(parent) end
         return rawNew(cls, parent)
     end
 end
@@ -1210,11 +1258,35 @@ int l_navQuery(lua_State* L) {
     return luaL_error(L, "unknown navmesh question '%s'", what.c_str());
 }
 
+// Explode(position, radius, power, options) -> { {part, distance}, ... }
+// options (all optional): Smoke = true, Fire = seconds, MushroomCloud = true / false,
+// Destroy = true (rips anchored parts loose: craters), Visible = false, Hurts = false,
+// JointBreak = 0..1 (how much of the radius breaks joints).
 int l_explode(lua_State* L) {
     glm::vec3 pos = LuaApi::checkVector3(L, 1);
-    Effects::explode(*LuaApi::engine(L)->scene(), pos, (float)luaL_optnumber(L, 2, 6.0),
-                     (float)luaL_optnumber(L, 3, 1.0));
-    return 0;
+    BlastOptions o;
+    o.radius = (float)luaL_optnumber(L, 2, 6.0);
+    o.power = (float)luaL_optnumber(L, 3, 1.0);
+    if (lua_istable(L, 4)) {
+        auto flag = [&](const char* k, bool& out) { lua_getfield(L, 4, k); if (!lua_isnil(L, -1)) out = lua_toboolean(L, -1); lua_pop(L, 1); };
+        auto num = [&](const char* k, float& out) { lua_getfield(L, 4, k); if (lua_isnumber(L, -1)) out = (float)lua_tonumber(L, -1); lua_pop(L, 1); };
+        flag("Smoke", o.smoke); flag("Destroy", o.destroy); flag("Visible", o.visible); flag("Hurts", o.hurts);
+        num("Fire", o.fire); num("JointBreak", o.jointBreak);
+        lua_getfield(L, 4, "MushroomCloud");
+        if (lua_isboolean(L, -1)) o.mushroom = lua_toboolean(L, -1) ? 1 : 0;
+        lua_pop(L, 1);
+        o.jointBreak = std::clamp(o.jointBreak, 0.0f, 1.0f);
+    }
+    auto hits = Effects::blast(*LuaApi::engine(L)->scene(), pos, o);
+    lua_createtable(L, (int)hits.size(), 0);
+    int i = 0;
+    for (const auto& [part, dist] : hits) {
+        lua_createtable(L, 2, 0);
+        LuaApi::pushInstance(L, part->id); lua_rawseti(L, -2, 1);
+        lua_pushnumber(L, dist);           lua_rawseti(L, -2, 2);
+        lua_rawseti(L, -2, ++i);
+    }
+    return 1;
 }
 
 // Effects.Blood(position, amount), Effects.Oil(...), Effects.Sparks(...), Effects.Gibs(...)

@@ -174,15 +174,13 @@ void PlayerApp::buildProfileStage(const json& av, const json& wearing) {
     HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, kHatStyleCount - 1) : HatStyle::None;
     glm::vec3 hatTint(-1.0f);
     color("hatColor", hatTint);
+    // Everything they wear, the way a game shows it: shirt / pants / T-shirt pictures,
+    // their face, and Studio-made hats, hair and accessories (downloaded if needed).
+    std::vector<Catalog::Item> items;
     if (wearing.is_array())
-        for (const auto& a : wearing) {
-            Catalog::Item it = Catalog::fromServer(a);
-            if (it.type == Catalog::Type::Shirt) bc.torso = bc.leftArm = bc.rightArm = it.color;
-            else if (it.type == Catalog::Type::Pants) bc.leftLeg = bc.rightLeg = it.color;
-            else if (it.type == Catalog::Type::Hat) { hat = it.hat; hatTint = it.color; }
-        }
-    p->setBodyColors(bc);
-    p->setHat(hat, hatTint);
+        for (const auto& a : wearing) items.push_back(Catalog::fromServer(a));
+    m_profileRetryAt = dressPlayer(*p, bc, hat, hatTint, items) ? 0.0 : ImGui::GetTime() + 1.0;   // try again once they've downloaded
+    Online::fetchSounds(*m_profileScene);
     Environment& e = m_profileScene->environment();
     e.fogEnabled = false;
     e.sunAzimuth = 70.0f;
@@ -257,7 +255,10 @@ void PlayerApp::drawProfile() {
 
     // The avatar in 3D (drag to turn).
     std::string key = id + avatar.dump() + wearing.dump();
-    if (m_profileSceneFor != key || !m_profileScene) { buildProfileStage(avatar, wearing); m_profileSceneFor = key; }
+    if (m_profileSceneFor != key || !m_profileScene || (m_profileRetryAt > 0 && ImGui::GetTime() > m_profileRetryAt)) {
+        buildProfileStage(avatar, wearing);
+        m_profileSceneFor = key;
+    }
     {
         ImVec2 size(ImGui::GetContentRegionAvail().x, tall ? 240.0f : 330.0f);
         const float fb = ImGui::GetIO().DisplayFramebufferScale.x;
@@ -283,7 +284,7 @@ void PlayerApp::drawProfile() {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
             dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(170, 175, 185, 255));
-            drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+            itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
             ImGui::Dummy(ImVec2(tile, tile));
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
             ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
@@ -307,7 +308,20 @@ void PlayerApp::drawProfile() {
         row("Joined", since);
         row("Username", "@" + u.value("username", std::string()));
         row("User number", "#" + std::to_string(u.value("userId", 0LL)));
-        row("Friends", std::to_string(m_profile.value("friendCount", 0LL)));
+        // The counts are links: click to see the people.
+        auto linkRow = [&](const char* k, long long n, const char* which) {
+            ImGui::TextDisabled("%s", k);
+            ImGui::SameLine(120);
+            ImGui::PushID(which);
+            if (nameLink({{"name", std::to_string(n)}}, which)) openPeople(id, which);
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::PopID();
+        };
+        linkRow("Friends", m_profile.value("friendCount", 0LL), "friends");
+        if (m_profile.contains("followerCount")) {
+            linkRow("Followers", m_profile.value("followerCount", 0LL), "followers");
+            linkRow("Following", m_profile.value("followingCount", 0LL), "following");
+        }
         if (m_profile.contains("placeVisits")) row("Place visits", std::to_string(visits));
         row("Games made", std::to_string(gamesMade));
     }
@@ -369,6 +383,10 @@ void PlayerApp::drawProfile() {
     {
         std::string t = "Friends (" + std::to_string(m_profile.value("friendCount", 0LL)) + ")";
         boxTitle(t.c_str());
+        if (m_profile.value("friendCount", 0LL) > 0) {
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 50);
+            if (nameLink({{"name", "See all"}}, "seeall")) openPeople(id, "friends");
+        }
         const json& friends = m_profile.contains("friends") && m_profile["friends"].is_array() ? m_profile["friends"] : json::array();
         if (friends.empty()) ImGui::TextDisabled("No friends yet.");
         const float cw = 96.0f, ch = 110.0f;
@@ -428,6 +446,81 @@ void PlayerApp::drawProfile() {
     for (size_t i = 0; i < groups.size(); ++i)
         if (groupRow(groups[i], (int)i)) openGroup(groups[i].value("id", std::string()));
     ImGui::EndChild();
+    drawPeopleDialog();
+}
+
+void PlayerApp::openPeople(const std::string& user, const std::string& which, int page) {
+    m_peopleUser = user;
+    m_peopleWhich = which;
+    m_peoplePage = std::max(0, page);
+    m_people = json::array();
+    m_peopleTotal = 0;
+    m_peopleMsg = "Loading...";
+    const int per = 50;
+    Online::request("people.list", {{"user", user}, {"which", which}, {"offset", m_peoplePage * per}, {"limit", per}},
+                    [this, user, which](const json& r) {
+        if (user != m_peopleUser || which != m_peopleWhich) return;
+        if (!r.value("ok", false)) { m_peopleMsg = r.value("error", std::string("Couldn't load that list.")); return; }
+        m_people = r.value("people", json::array());
+        m_peopleTotal = r.value("total", 0LL);
+        m_peopleMsg.clear();
+    });
+}
+
+void PlayerApp::drawPeopleDialog() {
+    if (m_peopleWhich.empty()) return;
+    if (!ImGui::IsPopupOpen("##people")) ImGui::OpenPopup("##people");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(460), 0));
+    if (!ImGui::BeginPopupModal("##people", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) return;
+    if (tappedOutside()) m_peopleWhich.clear();
+    if (m_peopleWhich.empty()) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+    const json& u = m_profile.contains("user") ? m_profile["user"] : json::object();
+    ImGui::SetWindowFontScale(1.3f);
+    ImGui::Text("%s", u.value("name", std::string()).c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    static const char* kTabs[][2] = {{"friends", "Friends"}, {"following", "Following"}, {"followers", "Followers"}};
+    for (int i = 0; i < 3; ++i) {
+        if (i) ImGui::SameLine();
+        const bool on = m_peopleWhich == kTabs[i][0];
+        if (on ? Classic::button(kTabs[i][1], Classic::kBlue, ImVec2(110, 26)) : ImGui::Button(kTabs[i][1], ImVec2(110, 26)))
+            if (!on) openPeople(m_peopleUser, kTabs[i][0]);
+    }
+    ImGui::Separator();
+    if (!m_peopleMsg.empty()) ImGui::TextDisabled("%s", m_peopleMsg.c_str());
+    else if (m_people.empty()) ImGui::TextDisabled(m_peopleWhich == "friends" ? "No friends yet." : m_peopleWhich == "following" ? "Not following anyone yet." : "No followers yet.");
+    ImGui::BeginChild("##plist", ImVec2(0, std::min(360.0f, 8.0f + 30.0f * (float)std::max<size_t>(1, m_people.size()))));
+    std::string go;
+    for (size_t i = 0; i < m_people.size(); ++i) {
+        const json& p = m_people[i];
+        ImGui::PushID((int)i);
+        ImVec2 at = ImGui::GetCursorScreenPos();
+        const float h = ImGui::GetTextLineHeight();
+        avatarCircle(ImGui::GetWindowDrawList(), ImVec2(at.x + 11, at.y + h * 0.5f + 2), 11, p.value("id", std::string()), p.value("name", std::string()));
+        ImGui::Dummy(ImVec2(24, h + 4));
+        ImGui::SameLine();
+        if (nameLink(p, "n")) go = p.value("id", std::string());   // blue: click to see their profile
+        ImGui::SameLine();
+        ImGui::TextDisabled("#%lld%s", p.value("userId", 0LL), p.value("online", false) ? "  (online)" : "");
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    const int per = 50, pages = (int)std::max(1LL, (m_peopleTotal + per - 1) / per);
+    if (pages > 1) {
+        ImGui::BeginDisabled(m_peoplePage <= 0);
+        if (ImGui::Button("< Back")) openPeople(m_peopleUser, m_peopleWhich, m_peoplePage - 1);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("Page %d of %d", m_peoplePage + 1, pages);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_peoplePage + 1 >= pages);
+        if (ImGui::Button("Next >")) openPeople(m_peopleUser, m_peopleWhich, m_peoplePage + 1);
+        ImGui::EndDisabled();
+    }
+    if (ImGui::Button("Close", ImVec2(100, 30))) m_peopleWhich.clear();
+    if (m_peopleWhich.empty() || !go.empty()) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (!go.empty()) { m_peopleWhich.clear(); openProfile(go); }
 }
 
 // ---------------------------------------------------------------------------

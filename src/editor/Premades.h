@@ -13,6 +13,7 @@ enum class Premade {
     Landmine, SawBlade, SpikeTrap, ExplodingBarrel, Ramp,
     SwingingRope, WreckingBall, Windmill, Seesaw, MotorCart, DominoRun, CratePyramid, Trampoline,
     Checkpoint, Zombie,
+    TimeBomb, Nuke, DepthCharge,   // explosions (Liquid Assets & Explosive Results)
 };
 
 struct PremadeInfo {

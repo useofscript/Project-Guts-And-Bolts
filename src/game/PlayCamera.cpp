@@ -86,6 +86,19 @@ void follow(Camera& cam, Player& player, float dt, bool shiftLock) {
         cam.pivot += (target - cam.pivot) * std::min(1.0f, dt * 12.0f);
     }
     keepOutOfWalls(cam, player, dt);
+    // Explosions shake the camera as their shockwave rolls past (Blast.h).
+    if (Scene* scene = player.scene()) {
+        const float shake = scene->blasts().shake(cam.pivot);
+        if (shake > 0.001f) {
+            static float t = 0.0f;
+            t += dt * 37.0f;
+            const glm::vec3 j(std::sin(t * 1.3f) + std::sin(t * 2.9f) * 0.5f, std::sin(t * 1.7f + 1.0f) + std::sin(t * 3.3f) * 0.5f,
+                              std::sin(t * 1.1f + 2.0f));
+            cam.pivot += j * shake * 0.12f;
+            cam.pitch += std::sin(t * 2.3f) * shake * 0.8f;
+            cam.yaw += std::sin(t * 1.9f + 0.5f) * shake * 0.8f;
+        }
+    }
 }
 
 void fade(Scene& scene, Player& player, const Camera& cam) {

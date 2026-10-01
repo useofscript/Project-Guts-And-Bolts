@@ -2,7 +2,7 @@
 // create, friends, people, groups, Bolts, sign up / log in) in a browser.
 // Pages are picked by the address after '#', like #/games or #/user/12.
 import * as gb from './gb.js';
-import { mountAvatar, avatarPicture } from './avatar3d.js';
+import { mountAvatar, avatarPicture, itemPicture, itemCamera } from './avatar3d.js';
 
 // --- small helpers ------------------------------------------------------------
 
@@ -24,7 +24,7 @@ function html(strings, ...vals) {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
-function show(content) { view.innerHTML = content.s; }
+function show(content) { view.innerHTML = content.s; setTimeout(() => upgradeItemPictures(), 0); }   // (item renders on every page)
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
   hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
@@ -35,7 +35,6 @@ const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
 // Only Guts' own accessories and faces can be Limited.
 const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
 // Items with a real picture (Studio accessories, faces) show that instead of a drawing.
-const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || a.kind === 'tshirt' || a.kind === 'gear' || (a.meta && a.meta.model));
 const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
 
 let me = null;          // our account on the server (from "hello")
@@ -75,38 +74,17 @@ function gameColors(id) {
 }
 
 // Hats, shirts and pants, drawn in their colour.
+// An item's picture: never a drawing. Things you wear are a real 3D render of a grey
+// mannequin wearing them (upgradeItemPictures fills these in); gear, decals and the rest
+// show the picture Studio rendered when they were published.
 function itemIcon(a) {
-  if (hasPicture(a)) return html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">`;
-  const m = a.meta || {};
-  const c = Array.isArray(m.color) ? `rgb(${m.color.map((x) => Number(x) | 0).join(',')})` : '#c33';
-  const k = a.kind;
-  let shape;
-  if (k === 'hat') {
-    const style = Number(m.style) || 2;
-    shape = style === 1
-      ? `<rect x="30" y="18" width="40" height="46" rx="3" fill="${c}"/><rect x="18" y="62" width="64" height="9" rx="3" fill="${c}"/><rect x="30" y="52" width="40" height="7" fill="rgba(0,0,0,.25)"/>`
-      : style === 3
-        ? `<path d="M22 70 L26 32 L40 50 L50 26 L60 50 L74 32 L78 70 Z" fill="${c}"/><rect x="22" y="64" width="56" height="9" fill="rgba(0,0,0,.2)"/>`
-        : `<path d="M22 64 Q24 30 50 30 Q76 30 78 64 Z" fill="${c}"/><path d="M50 64 L92 64 Q92 72 80 72 L50 72 Z" fill="${c}"/><circle cx="50" cy="31" r="4" fill="rgba(0,0,0,.25)"/>`;
-  } else if (k === 'shirt') {
-    shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="${c}"/>`;
-  } else if (k === 'pants') {
-    shape = `<path d="M30 18 L70 18 L74 84 L56 84 L50 42 L44 84 L26 84 Z" fill="${c}"/><rect x="30" y="18" width="40" height="7" fill="rgba(0,0,0,.2)"/>`;
-  } else if (k === 'tshirt') {   // (no picture yet)
-    shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="#fff" stroke="#999" stroke-width="2"/>
-      <rect x="38" y="40" width="24" height="24" rx="3" fill="#ddd"/>`;
-  } else if (k === 'gear') {   // a little sword (until Studio's picture of it loads)
-    shape = `<path d="M78 16 L84 22 L44 62 L38 56 Z" fill="#ccd0d8" stroke="#555" stroke-width="2"/><path d="M30 50 L50 70" stroke="#e6b428" stroke-width="7" stroke-linecap="round"/>
-      <path d="M38 62 L20 80" stroke="#7a5028" stroke-width="7" stroke-linecap="round"/><circle cx="18" cy="82" r="5" fill="#e6b428"/>`;
-  } else if (k === 'face') {
-    shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
-      <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
-  } else if (ACCESSORIES.includes(k)) {
-    shape = `<circle cx="50" cy="50" r="30" fill="${c}"/><circle cx="50" cy="50" r="14" fill="rgba(255,255,255,.35)"/>`;
-  } else {
-    return html`<span>${KINDS[k] || '?'}</span>`;
+  // Catalog items are always drawn from the item itself, never from an uploaded picture.
+  if (drawable3d(a) || a.kind === 'gear') {
+    items3d.set(a.id, a);
+    return html`<span class="item-render loading" data-item3d="${a.id}" aria-label="${a.name}"></span>`;
   }
-  return raw(`<svg viewBox="0 0 100 100" width="80%" height="80%" aria-hidden="true">${shape}</svg>`);
+  if (a.thumb) return html`<img class="item-thumb" data-thumb="${a.id}" alt="${a.name}">`;
+  return html`<span class="item-render no-picture">${KINDS[a.kind] || ''}</span>`;
 }
 
 // A game's picture (set when it's published from Studio), or a colourful card.
@@ -231,14 +209,15 @@ function gameCard(g) {
 const MANNEQUIN = { head: [205, 207, 212], torso: [205, 207, 212], leftArm: [205, 207, 212], rightArm: [205, 207, 212],
   leftLeg: [190, 192, 198], rightLeg: [190, 192, 198], hat: 0, hatColor: [-1, -1, -1], wearing: [] };
 const items3d = new Map();   // id -> item, for the pictures below
-// Shirts, pants, T-shirts and shape hats: the 3D mannequin can wear them (with
-// their pictures on, the way the game shows them).
-const drawable3d = (a) => ['shirt', 'pants', 'tshirt'].includes(a.kind) || (a.kind === 'hat' && !(a.meta && a.meta.model));
+// Everything you wear: the 3D mannequin wears it (with its pictures and Studio-made
+// shapes on, the way the game shows them).
+const drawable3d = (a) => !!a && WEARABLE.includes(a.kind);   // all of it: clothes, faces, hats, hair and accessories
 
 // Fills in <img data-thumb="id"> with the item's picture.
 function loadThumbs(root = view) {
   root.querySelectorAll('img[data-thumb]').forEach(async (img) => {
-    if (img.src) return;
+    if (img.src || img.dataset.loading) return;
+    img.dataset.loading = '1';
     const t = await call('thumb.get', { id: img.dataset.thumb });
     if (t.ok && t.data) img.src = 'data:image/png;base64,' + t.data;
   });
@@ -247,10 +226,15 @@ function loadThumbs(root = view) {
 function upgradeItemPictures() {
   loadThumbs();
   view.querySelectorAll('[data-item3d]').forEach(async (el) => {
+    if (el.dataset.rendering) return;
+    el.dataset.rendering = '1';
     const it = items3d.get(el.dataset.item3d);
-    if (!it || !drawable3d(it)) return;
-    const url = await avatarPicture(MANNEQUIN, [it], 150);
-    if (url && el.isConnected) el.innerHTML = html`<img class="item3d" src="${url}" alt="${it.name}">`.s;
+    if (!it || !(drawable3d(it) || it.kind === 'gear')) return;
+    const url = await itemPicture(it, 150).catch(() => null);
+    if (!el.isConnected) return;
+    el.classList.remove('loading');
+    if (url) el.innerHTML = html`<img class="item3d" src="${url}" alt="${it.name}">`.s;
+    else { el.classList.add('no-picture'); el.textContent = KINDS[it.kind] || ''; }
   });
 }
 
@@ -265,7 +249,7 @@ function officialBadge(a) {
 function itemCard(a) {
   items3d.set(a.id, a);
   return html`<a class="card square" href="#/item/${a.id}">
-    <div class="pic-wrap"><div class="pic" data-item3d="${a.id}">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : ''}
+    <div class="pic-wrap"><div class="pic">${itemIcon(a)}</div>${officialBadge(a)}</div>${a.limited ? html`<span class="limited-tag">LIMITED</span>` : a.offsaleAt ? html`<span class="timed-tag">${a.offsale ? 'OFF SALE' : 'TIMED'}</span>` : ''}
     <div class="name">${a.name}</div>
     <div class="by">${a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
       : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
@@ -527,6 +511,37 @@ pages.home = async () => {
 // --- Updates: the update log, newest first. It checks for new ones by itself while
 // you're looking, and the Updates link lights up when there's one you haven't seen.
 const UPDATE_TAG_COLORS = { Engine: '#2a7de1', Studio: '#8a4fd1', Website: '#1f9d55', Player: '#e08a00', Server: '#4a5a70', Fix: '#d33c3c' };
+// Gutstober: Guts&Bolts' Halloween month (October). The site dresses up for it (orange
+// and purple, pumpkins and bats) unless you turn it off in Settings. Your choice is
+// kept in this browser only.
+function isGutstober(d = new Date()) { return d.getMonth() === 9; }
+function gutstoberWanted() { try { return localStorage.getItem('gb.gutstober') !== 'off'; } catch { return true; } }
+function applyTheme() {
+  const on = isGutstober() && gutstoberWanted();
+  document.documentElement.classList.toggle('gutstober', on);
+  let banner = document.getElementById('gutstober');
+  if (on && !banner) {
+    banner = document.createElement('div');
+    banner.id = 'gutstober';
+    banner.className = 'gutstober-banner';
+    banner.innerHTML = '<div class="wrap"><span class="gt-pumpkin" aria-hidden="true"></span>' +
+      '<b>Happy Gutstober!</b> <span>Spooky games and Halloween items in the <a href="#/catalog">catalog</a> for a limited time only.</span>' +
+      '<span class="gt-bats" aria-hidden="true"><i></i><i></i><i></i></span></div>';
+    document.getElementById('nav').after(banner);
+  } else if (!on && banner) banner.remove();
+}
+applyTheme();
+function localInput(t) {   // seconds -> the value a datetime-local box wants (local time)
+  const d = new Date(t * 1000);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+function offsaleText(a) {   // timed items: "Off sale" or when they go off sale
+  if (!a.offsaleAt) return '';
+  if (a.offsale) return 'Off sale';
+  const days = Math.ceil((a.offsaleAt - Date.now() / 1000) / 86400);
+  return days <= 1 ? 'Off sale in less than a day' : 'Off sale in ' + days + ' days';
+}
+
 function seenUpdate() { try { return localStorage.getItem('gb.seenUpdate') || ''; } catch { return ''; } }
 function markUpdateSeen(id) { try { localStorage.setItem('gb.seenUpdate', id); } catch { /* private window */ } }
 function updateCard(u, fresh) {
@@ -759,22 +774,59 @@ pages.item = async (id) => {
   const forSale = copies.filter((c) => c.price > 0 && !c.mine).sort((x, y) => x.price - y.price);
   const mineCopies = copies.filter((c) => c.mine);
   const soldOut = L && L.left <= 0;
+  const offsale = !!a.offsale;
   const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
+  const isNew = Date.now() / 1000 - (a.created || 0) < 7 * 86400;
+  const timed = a.offsaleAt && !offsale;
+  // The buy box (like the 2016 catalog): what's left, the price, the button, how many sold.
+  const buyButton = owned && a.kind === 'gear'
+    ? html`<p class="ok"><b>You own this.</b></p>
+      <button class="btn ${gearOn ? '' : 'green'} big buy" data-act="gearEquip" data-id="${a.id}" data-on="${gearOn ? '' : '1'}">${gearOn ? 'Unequip' : 'Equip'}</button>`
+    : owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p>`
+    : soldOut ? html`<button class="btn big buy" disabled>Sold out</button>`
+    : offsale ? html`<button class="btn big buy" disabled>Off sale</button>`
+    : html`<button class="btn green big buy" data-act="buy" data-id="${a.id}">${a.price > 0 ? html`Buy with ${boltIcon}` : 'Get it free'}</button>`;
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
-    <div class="hero"><div class="card square"><div class="pic" id="item3d">${itemIcon(a)}</div>${L ? html`<span class="limited-tag">LIMITED</span>` : ''}
-      ${drawable3d(a) ? html`<div class="small muted" style="text-align:center">Drag to turn</div>` : ''}</div>
-      <div><h1>${a.name}</h1><p>${KINDS[a.kind]} by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</p>
-        <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
-        ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
-          ${L.resellers ? html` · ${L.resellers} for resale from ${bolts(L.lowest)}` : ''}</p>` : ''}
-        ${owned && a.kind === 'gear' ? html`<p class="ok"><b>You own this.</b></p>
-            <button class="btn ${gearOn ? '' : 'green'} big" data-act="gearEquip" data-id="${a.id}" data-on="${gearOn ? '' : '1'}">${gearOn ? 'Unequip' : 'Equip'}</button>
-            <p class="small muted">Equipped gear goes in your backpack in games that allow gear (up to 4 at once).</p>`
-          : owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
-          : soldOut ? html`<button class="btn big" disabled>Sold out</button>`
-          : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
-        ${canEdit ? html` <button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button>` : ''}
-        <p style="white-space:pre-wrap">${a.description}</p></div></div>
+    <div class="item-page">
+      <h1 class="item-title">${a.name}</h1>
+      <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind]}${L ? ' / Collectible Item / Limited Edition' : timed ? ' / Timed Item' : ''}</div>
+      <div class="item-cols">
+        <div class="item-pic">
+          <div class="pic" id="item3d">${itemIcon(a)}</div>
+          ${isNew ? html`<span class="item-ribbon">NEW</span>` : ''}
+          ${timed ? html`<span class="item-clock" title="${offsaleText(a)}"><i></i></span>` : ''}
+          ${L ? html`<span class="item-limited">LIMITED<b>U</b></span>` : ''}
+          ${drawable3d(a) ? html`<span class="item-3d" title="Drag the picture to turn it">3D</span>` : ''}
+        </div>
+        <div class="item-info">
+          <div class="item-creator">
+            <a href="#/user/${a.creator}" class="item-creator-pic" id="creatorPic"></a>
+            <table>
+              <tr><td>Creator:</td><td><a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</td></tr>
+              <tr><td>Created:</td><td>${a.created ? new Date(a.created * 1000).toLocaleDateString() : '?'}</td></tr>
+              <tr><td>Updated:</td><td>${ago(a.updated || a.created)}</td></tr>
+            </table>
+          </div>
+          <p class="item-desc">${a.description || html`<span class="muted">No description.</span>`}</p>
+          <hr>
+          <p class="small muted">Type: ${KINDS[a.kind]}</p>
+          ${a.kind === 'gear' ? html`<p class="small muted">Equipped gear goes in your backpack in games that allow gear (up to 4 at once).</p>`
+            : owned ? html`<p class="small muted">Wear it from the Avatar page.</p>` : ''}
+        </div>
+        <div class="item-side">
+          <div class="item-buybox">
+            ${L ? (soldOut ? html`<div class="item-left">Sold out</div>` : html`<div class="item-left">${L.left} Remaining</div>`) : ''}
+            ${timed ? html`<div class="item-offsale">Offsale in <span data-countdown="${a.offsaleAt}">${countdown(a.offsaleAt)}</span></div>`
+              : offsale ? html`<div class="item-left">Off sale</div>` : ''}
+            <div class="item-price">Price: ${a.price > 0 ? bolts(a.price) : html`<b class="ok">Free</b>`}</div>
+            ${buyButton}
+            <div class="item-sold">( ${a.sales || 0} Sold )</div>
+            ${L && L.resellers ? html`<div class="small">${L.resellers} for resale from ${bolts(L.lowest)}</div>` : ''}
+          </div>
+          ${canEdit ? html`<p><button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button></p>` : ''}
+        </div>
+      </div>
+    </div>
     ${canEdit ? html`<div class="box" id="itemEdit" hidden><h2 class="boxhead">Edit item</h2>
       <form class="form" data-form="itemEdit"><input type="hidden" name="id" value="${a.id}">
         <label>Name</label><input type="text" name="name" maxlength="50" value="${a.name}" required>
@@ -787,6 +839,8 @@ pages.item = async (id) => {
           : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
           : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
           : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
+        ${canEdit ? html`<label>Goes off sale <span class="muted small">(a timed item; leave empty to sell it for good)</span></label>
+          <input type="datetime-local" name="offsaleAt" value="${a.offsaleAt ? localInput(a.offsaleAt) : ''}" style="max-width:220px">` : ''}
         <p><button class="btn green">Save</button> <span id="itemEditMsg"></span></p></form>
       ${me.official && a.creator === me.id && canBeLimited(a) ? html`<form class="form" data-form="itemLimited"><input type="hidden" name="id" value="${a.id}">
         <label>${L ? 'Change the stock' : 'Make it Limited'} <span class="muted small">(only Guts can do this)</span></label>
@@ -802,9 +856,37 @@ pages.item = async (id) => {
           <input type="number" name="price" min="0" value="${c.price || ''}" placeholder="Price in Bolts" style="max-width:150px">
           <button class="btn small ${c.price ? '' : 'blue'}">${c.price ? 'Change price' : 'Sell'}</button>
           ${c.price ? html`<span class="muted small">On sale for ${c.price}. Set 0 to take it off sale.</span>` : html`<span class="muted small">You get ${70}% when it sells.</span>`}</form>`)}` : ''}` : ''}`);
-  if (drawable3d(a)) mountAvatar($('#item3d'), MANNEQUIN, [a], { width: 300, height: 340 }).catch(() => {});   // a turnable 3D view
-  else loadThumbs();
+  if (drawable3d(a)) mountAvatar($('#item3d'), MANNEQUIN, [a], { width: 328, height: 328, cam: itemCamera(a.kind) }).catch(() => {});   // a turnable 3D view
+  tickCountdowns();
+  // The creator's character, small, next to their name.
+  call('profile', { id: a.creator }).then((p) => {
+    const el = $('#creatorPic');
+    if (!p.ok || !el) return;
+    avatarPicture(p.user.avatar, p.wearing || [], 48).then((url) => { if (url && el.isConnected) el.innerHTML = html`<img src="${url}" alt="">`.s; });
+  }).catch(() => {});
 };
+
+// "23 h 53 m 35 s" until a timed item goes off sale (days too, when it's further off).
+function countdown(at) {
+  let left = Math.max(0, Math.floor(at - Date.now() / 1000));
+  const d = Math.floor(left / 86400); left %= 86400;
+  const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), sec = left % 60;
+  const n = (v, u) => html`<b>${v}</b> ${u} `;
+  return html`${d ? n(d, 'd') : ''}${n(h, 'h')}${n(m, 'm')}${d ? '' : n(sec, 's')}`;
+}
+let countdownTimer = 0;
+function tickCountdowns() {
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const els = document.querySelectorAll('[data-countdown]');
+    if (!els.length) { clearInterval(countdownTimer); return; }
+    for (const el of els) {
+      const at = Number(el.dataset.countdown);
+      if (Date.now() / 1000 >= at) { clearInterval(countdownTimer); render(); return; }   // it just went off sale
+      el.innerHTML = countdown(at).s;
+    }
+  }, 1000);
+}
 
 // Decal pictures: fetched once, shown from memory.
 const pictures = new Map();
@@ -1008,7 +1090,28 @@ pages.people = async () => {
       <span class="muted small">#${u.userId}${u.official ? ' · Guts&Bolts staff' : ''}</span></div>`) : html`<p class="error">${r.error}</p>`}</div>`);
 };
 
-pages.user = async (id) => {
+// Someone's friends, who they follow, or their followers: #/user/5/friends (or /following, /followers).
+const PEOPLE_TABS = [['friends', 'Friends'], ['following', 'Following'], ['followers', 'Followers']];
+async function peoplePage(id, which, page) {
+  const per = 60, at = Math.max(0, (Number(page) || 1) - 1);
+  const r = await pageCall('people.list', { user: String(id), which, offset: at * per, limit: per });
+  if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
+  const u = r.user, pages = Math.max(1, Math.ceil(r.total / per));
+  const title = { friends: 'Friends', following: 'Following', followers: 'Followers' }[r.which];
+  const pager = pages > 1 ? html`<p class="row">${at > 0 ? html`<a class="btn small" href="#/user/${u.userId}/${r.which}/${at}">&lt; Back</a>` : ''}
+      <span class="muted small">Page ${at + 1} of ${pages}</span>
+      ${at + 1 < pages ? html`<a class="btn small" href="#/user/${u.userId}/${r.which}/${at + 2}">Next &gt;</a>` : ''}</p>` : '';
+  show(html`<p><a href="#/user/${u.userId}">&lt; ${u.username}'s profile</a></p>
+    <h1><a href="#/user/${u.userId}">${u.username}</a>${verified(u.verified)}: ${title} (${r.total})</h1>
+    <div class="tabs">${PEOPLE_TABS.map(([k, label]) => html`<a class="btn ${k === r.which ? 'blue' : ''}" href="#/user/${u.userId}/${k}">${label}</a>`)}</div>
+    ${r.people.length ? html`<div class="box"><div class="friends-grid people-grid">${r.people.map((p) => html`<a class="friend" href="#/user/${p.userId}">
+        <div class="friend-pic">${avatarSvg(p.avatar, 60)}</div>
+        <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span><span class="link">${p.username || p.name}</span>${verified(p.verified)}</div></a>`)}</div></div>${pager}`
+      : html`<p class="muted">${{ friends: 'No friends yet.', following: 'Not following anyone yet.', followers: 'No followers yet.' }[r.which]}</p>`}`);
+}
+
+pages.user = async (id, tab, page) => {
+  if (tab === 'friends' || tab === 'following' || tab === 'followers') { await peoplePage(id, tab, page); return; }
   const r = await pageCall('profile', { id });
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
@@ -1054,9 +1157,9 @@ pages.user = async (id) => {
         <div class="box"><h2 class="boxhead">Statistics</h2>
           <table class="stats"><tr><td>Joined</td><td>${new Date(u.created * 1000).toLocaleDateString()} (${ago(u.created)})</td></tr>
             <tr><td>User number</td><td>#${u.userId}</td></tr>
-            <tr><td>Friends</td><td>${r.friendCount}</td></tr>
-            ${r.followerCount === undefined ? '' : html`<tr><td>Followers</td><td>${r.followerCount}</td></tr>
-            <tr><td>Following</td><td>${r.followingCount}</td></tr>`}
+            <tr><td>Friends</td><td><a href="#/user/${u.userId}/friends">${r.friendCount}</a></td></tr>
+            ${r.followerCount === undefined ? '' : html`<tr><td>Followers</td><td><a href="#/user/${u.userId}/followers">${r.followerCount}</a></td></tr>
+            <tr><td>Following</td><td><a href="#/user/${u.userId}/following">${r.followingCount}</a></td></tr>`}
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
           ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
@@ -1069,10 +1172,10 @@ pages.user = async (id) => {
             : html`<p class="muted small">No badges from games yet.</p>`}</div>
       </div>
       <div class="profile-right">
-        <div class="box"><h2 class="boxhead">Friends (${r.friendCount})${f === 'self' ? html` <a class="small" href="#/friends" style="float:right">See all</a>` : ''}</h2>
+        <div class="box"><h2 class="boxhead">Friends (${r.friendCount}) <a class="small" href="#/user/${u.userId}/friends" style="float:right">See all</a></h2>
           ${friends.length ? html`<div class="friends-grid">${friends.map((p) => html`<a class="friend" href="#/user/${p.userId}">
               <div class="friend-pic" data-friend-avatar="${p.id}">${avatarSvg(p.avatar, 60)}</div>
-              <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span>${p.username || p.name}</div></a>`)}</div>`
+              <div class="small"><span class="dot ${p.online ? 'on' : ''}"></span><span class="link">${p.username || p.name}</span></div></a>`)}</div>`
             : html`<p class="muted small">${f === 'self' ? 'No friends yet. Find people on the People page!' : 'No friends yet.'}</p>`}</div>
         <div class="box"><h2 class="boxhead">Games</h2>
           ${games.length ? html`<div class="grid">${games.map(gameCard)}</div>` : html`<p class="muted small">None yet.</p>`}</div>
@@ -1286,11 +1389,19 @@ pages.forgot = async () => {
 };
 
 // Account Settings: email, two-step verification, password.
+function themeBox() {
+  const on = gutstoberWanted();
+  return html`<div class="box"><h2 class="boxhead">Site theme</h2>
+    <p><b>Gutstober</b>: the Halloween theme (orange and purple, pumpkins and bats) for all of October.
+      ${isGutstober() ? html`It's <b class="${on ? 'ok' : 'muted'}">${on ? 'on' : 'off'}</b> right now.` : html`<span class="muted">It comes back next October.</span>`}</p>
+    <p><button class="btn ${on ? '' : 'blue'}" data-act="gutstober" data-on="${on ? '' : '1'}">${on ? 'Turn Gutstober off' : 'Turn Gutstober on'}</button>
+      <span class="small muted">(only for this browser)</span></p></div>`;
+}
 pages.settings = async () => {
-  if (!signedIn()) { show(html`<h1>Account Settings</h1>${needSignIn('change your account settings')}`); return; }
+  if (!signedIn()) { show(html`<h1>Account Settings</h1>${themeBox()}${needSignIn('change your account settings')}`); return; }
   const noPw = !me.hasPassword;
   show(html`<h1>Account Settings</h1>
-    <div class="settings">
+    <div class="settings">${themeBox()}
       <div class="box"><h2 class="boxhead">Account</h2>
         <table class="stats"><tr><td>Username</td><td><b>${me.username}</b></td></tr><tr><td>User number</td><td>#${me.userId}</td></tr>
           <tr><td>Password</td><td>${noPw ? html`<span class="error">Not set yet</span> (set one in the app: Avatar &gt; Your account)` : 'Set'}</td></tr>
@@ -1475,6 +1586,11 @@ function loginPage(signup) {
 // --- clicks and forms ----------------------------------------------------------
 
 const actions = {
+  gutstober(d) {
+    try { localStorage.setItem('gb.gutstober', d.on ? 'on' : 'off'); } catch { /* private window */ }
+    applyTheme();
+    render();
+  },
   async deleteUpdate(d) {
     if (!confirm('Delete this update?')) return;
     const r = await call('updates.delete', { id: d.id });
@@ -1879,6 +1995,7 @@ const forms = {
     const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0 };
     if (f.color) { const hex = f.color.value.replace('#', ''); args.color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)); }
     if (f.style) args.style = Number(f.style.value);
+    if (f.offsaleAt) args.offsaleAt = f.offsaleAt.value ? Math.floor(new Date(f.offsaleAt.value).getTime() / 1000) : 0;
     if (f.picture && f.picture.files[0]) args.data = await gb.fileBase64(f.picture.files[0]);
     const r = await call('item.edit', args);
     if (!r.ok) { const m = $('#itemEditMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
