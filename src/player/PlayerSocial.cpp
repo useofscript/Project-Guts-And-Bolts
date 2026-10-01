@@ -398,26 +398,6 @@ void PlayerApp::drawProfile() {
     }
     ImGui::Spacing();
 
-    if (m_profile.contains("allPlayerBadges")) {   // earned on their own by playing and building
-        std::vector<std::string> have;
-        for (const auto& b : m_profile.value("playerBadges", json::array())) have.push_back(b.value("key", std::string()));
-        const json& all = m_profile["allPlayerBadges"];
-        boxTitle(("Player Badges (" + std::to_string(have.size()) + ")").c_str());
-        int n = 0;
-        for (const auto& b : all) {
-            const std::string key = b.value("key", std::string());
-            const bool got = std::find(have.begin(), have.end(), key) != have.end();
-            if (n % 6 != 0) ImGui::SameLine(0, 8);
-            ImGui::PushID(n++);
-            playerBadgeIcon(key, got, 40.0f);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s%s\n%s", b.value("name", std::string()).c_str(), got ? " - earned!" : " (locked)",
-                                  b.value("need", std::string()).c_str());
-            ImGui::PopID();
-        }
-        ImGui::Spacing();
-    }
-
     boxTitle("Guts&Bolts Badges");   // given by staff
     int shown = 0;
     if (u.contains("badges"))
@@ -508,6 +488,26 @@ void PlayerApp::drawProfile() {
                 }
                 ImGui::TreePop();
             }
+        }
+        ImGui::Spacing();
+    }
+    if (m_profile.contains("allPlayerBadges")) {   // earned on their own by playing and building
+        std::vector<std::string> have;
+        for (const auto& b : m_profile.value("playerBadges", json::array())) have.push_back(b.value("key", std::string()));
+        const json& all = m_profile["allPlayerBadges"];
+        boxTitle(("Player Badges (" + std::to_string(have.size()) + ")").c_str());
+        int n = 0;
+        for (const auto& b : all) {
+            const std::string key = b.value("key", std::string());
+            const bool got = std::find(have.begin(), have.end(), key) != have.end();
+            if (n > 0 && ImGui::GetItemRectMax().x + 50.0f < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+                ImGui::SameLine(0, 10);   // wraps on narrow phone screens
+            ImGui::PushID(n++);
+            playerBadgeIcon(key, got, 40.0f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s%s\n%s", b.value("name", std::string()).c_str(), got ? " - earned!" : " (locked)",
+                                  b.value("need", std::string()).c_str());
+            ImGui::PopID();
         }
         ImGui::Spacing();
     }

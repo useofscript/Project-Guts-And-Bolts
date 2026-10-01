@@ -331,7 +331,7 @@ void PlayerApp::drawFeed() {
     if (m_feed.empty()) ImGui::TextDisabled("Nothing yet. Share what you're up to, and add friends to see theirs here.");
     int shown = 0;
     for (const auto& p : m_feed) {
-        if (++shown > 8) break;
+        if (++shown > 5) break;
         const json& u = p.value("user", json::object());
         ImGui::PushID(shown);
         ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
