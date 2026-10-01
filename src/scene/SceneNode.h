@@ -88,6 +88,9 @@ inline const char* const kMaterialNames[kMaterialCount] =
 
 // A custom value on an object, like Roblox Attributes (Properties panel >
 // Attributes, or part:SetAttribute("Coins", 5) in a script).
+// Tool.Grip's default turn (see SceneNode::gripRot).
+inline const glm::mat3 kDefaultGripRot{-1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f};
+
 struct Attribute {
     enum Type { Bool, Number, String, Vector3, Color3 };
     std::string name;
@@ -197,6 +200,10 @@ public:
     bool        canBeDropped = true;       // Backspace drops it
     bool        starterTool  = false;      // everyone gets one when they spawn (like Roblox's StarterPack)
     glm::vec3   gripPos{0.0f};             // the point on the Handle (Handle's own space) that sits in the hand
+    // Tool.Grip's turn, exactly like Roblox's (columns = GripRight, GripUp, GripForward):
+    // the Handle sits at RightArm * RightGrip.C0 * Grip:Inverse(). The default
+    // holds a Handle with its long side (+Y) pointing out of the fist.
+    glm::mat3   gripRot = kDefaultGripRot;
 
     // Real liquid (see Liquid.h). A FluidSystem is a kind of liquid: `color`, how thick
     // it is and how much it sticks together. A FluidEmitter pours it out: its

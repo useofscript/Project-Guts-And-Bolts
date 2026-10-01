@@ -92,7 +92,16 @@ void setAttr(SceneNode* n, const char* name, Attribute::Type t, double num, glm:
 const char* className(lua_State* L, const SceneNode* n) {
     if (n == E(L)->scene()->root()) return "Workspace";
     switch (n->kind) {
-        case NodeKind::Model:  return "Model";
+        case NodeKind::Model:
+            // A stand-in for a Roblox object we don't have (an imported SpecialMesh): it
+            // says what it was, and keeps its properties as attributes.
+            for (const Attribute& a : n->attributes)
+                if (a.name == "RobloxClass" && a.type == Attribute::String) {
+                    static std::string cls;
+                    cls = a.s;
+                    return cls.c_str();
+                }
+            return "Model";
         case NodeKind::Script: return "Script";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
@@ -417,6 +426,17 @@ int m_GetAttributeChangedSignal(lua_State* L) {
     return 1;
 }
 
+// obj:GetPropertyChangedSignal("TextureId"): a property kept as an attribute has its own
+// signal; anything else gets the object's Changed.
+int m_GetPropertyChangedSignal(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    const std::string name = luaL_checkstring(L, 2);
+    for (const Attribute& a : n->attributes)
+        if (a.name == name) return m_GetAttributeChangedSignal(L);
+    LuaApi::pushSignal(L, SignalKind::Changed, n->id);
+    return 1;
+}
+
 // --- Tags: obj:AddTag("Enemy"), obj:HasTag("Enemy") ---
 
 int m_HasTag(lua_State* L) {
@@ -617,6 +637,17 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
     return false;
 }
 
+// seat:Sit(humanoid): put that character on the seat (our own character only;
+// other players sit by touching it themselves).
+int seat_sit(lua_State* L) {
+    SceneNode* seat = LuaApi::checkNode(L, 1);
+    uint64_t who = 0;
+    if (auto* h = static_cast<uint64_t*>(luaL_testudata(L, 2, kHum))) who = *h;
+    Player* p = E(L)->scene()->player();
+    if (p && who && p->rootId() == who) p->sit(seat);
+    return 0;
+}
+
 int inst_index(lua_State* L) {
     auto* ref = static_cast<InstRef*>(luaL_checkudata(L, 1, kInst));
     const char* k = luaL_checkstring(L, 2);
@@ -671,6 +702,15 @@ int inst_index(lua_State* L) {
         return 1;
     }
 
+    if (part && Player::isSeat(n)) {   // Seat / VehicleSeat
+        if (is(k, "Occupant")) {   // the Humanoid sitting on it, or nil
+            Player* p = E(L)->scene()->player();
+            if (p && p->seatId() == n->id) LuaApi::pushHumanoid(L, p->rootId()); else lua_pushnil(L);
+            return 1;
+        }
+        if (is(k, "Disabled")) { lua_pushboolean(L, Player::seatDisabled(n)); return 1; }
+        if (is(k, "Sit")) { lua_pushcfunction(L, seat_sit); return 1; }
+    }
     if (part) {
         if (is(k, "Color"))        { LuaApi::pushColor3(L, n->color); return 1; }
         if (is(k, "Transparency")) { lua_pushnumber(L, n->transparency); return 1; }
@@ -715,6 +755,16 @@ int inst_index(lua_State* L) {
         if (is(k, "CanBeDropped"))   { lua_pushboolean(L, n->canBeDropped); return 1; }
         if (is(k, "RequiresHandle")) { lua_pushboolean(L, true); return 1; }
         if (is(k, "GripPos"))        { LuaApi::pushVector3(L, n->gripPos); return 1; }
+        // Tool.Grip (a CFrame) and its axes, exactly like Roblox's.
+        if (is(k, "Grip")) {
+            glm::mat4 m(n->gripRot);
+            m[3] = glm::vec4(n->gripPos, 1.0f);
+            LuaApi::pushCFrame(L, m);
+            return 1;
+        }
+        if (is(k, "GripRight"))      { LuaApi::pushVector3(L, n->gripRot[0]); return 1; }
+        if (is(k, "GripUp"))         { LuaApi::pushVector3(L, n->gripRot[1]); return 1; }
+        if (is(k, "GripForward"))    { LuaApi::pushVector3(L, n->gripRot[2]); return 1; }
         if (is(k, "Activated"))      { LuaApi::pushSignal(L, SignalKind::Activated, n->id); return 1; }
         if (is(k, "Deactivated"))    { LuaApi::pushSignal(L, SignalKind::Deactivated, n->id); return 1; }
         if (is(k, "Equipped"))       { LuaApi::pushSignal(L, SignalKind::Equipped, n->id); return 1; }
@@ -766,6 +816,14 @@ int inst_index(lua_State* L) {
         if (is(k, "MaxFluidParticles")) { lua_pushinteger(L, w.maxFluidParticles); return 1; }
     }
     if (is(k, "Humanoid") && hasHumanoid(L, n)) { LuaApi::pushHumanoid(L, n->id); return 1; }
+    // Properties we keep as attributes (an imported Roblox SpecialMesh's MeshId, TextureId,
+    // Scale...): read them like real properties.
+    for (const Attribute& a : n->attributes)
+        if (a.name == k) { pushAttribute(L, a); return 1; }
+    // Every object has Changed / GetPropertyChangedSignal, like Roblox (values fire Changed;
+    // properties kept as attributes fire their own signal).
+    if (is(k, "Changed")) { LuaApi::pushSignal(L, SignalKind::Changed, n->id); return 1; }
+    if (is(k, "GetPropertyChangedSignal")) { lua_pushcfunction(L, m_GetPropertyChangedSignal); return 1; }
 
     // Like Roblox, `workspace.Door` finds a child called "Door".
     if (SceneNode* c = n->findChild(k)) { LuaApi::pushInstance(L, c->id); return 1; }
@@ -860,6 +918,14 @@ int inst_newindex(lua_State* L) {
                 return 0;
             }
         }
+        if (is(k, "Disabled") && Player::isSeat(n)) {   // switch a seat off (whoever's on it gets up)
+            Attribute* a = nullptr;
+            for (auto& x : n->attributes) if (x.name == "Disabled") a = &x;
+            if (!a) { n->attributes.push_back(Attribute{}); a = &n->attributes.back(); a->name = "Disabled"; }
+            a->type = Attribute::Bool;
+            a->b = lua_toboolean(L, 3);
+            return 0;
+        }
         if (is(k, "Anchored"))     { n->anchored = lua_toboolean(L, 3); if (n->anchored) n->velocity = glm::vec3(0.0f); return 0; }
         if (is(k, "CanCollide"))   { n->canCollide = lua_toboolean(L, 3); return 0; }
         if (is(k, "CastShadow"))   { n->castShadow = lua_toboolean(L, 3); return 0; }
@@ -946,6 +1012,18 @@ int inst_newindex(lua_State* L) {
         if (is(k, "ToolTip"))      { n->toolTip = luaL_checkstring(L, 3); return 0; }
         if (is(k, "CanBeDropped")) { n->canBeDropped = lua_toboolean(L, 3); return 0; }
         if (is(k, "GripPos"))      { n->gripPos = LuaApi::checkVector3(L, 3); return 0; }
+        if (is(k, "Grip")) {
+            glm::mat4 m = LuaApi::checkCFrame(L, 3);
+            n->gripRot = glm::mat3(m);
+            n->gripPos = glm::vec3(m[3]);
+            return 0;
+        }
+        if (is(k, "GripRight") || is(k, "GripUp") || is(k, "GripForward")) {
+            const int c = is(k, "GripRight") ? 0 : is(k, "GripUp") ? 1 : 2;
+            glm::vec3 v = LuaApi::checkVector3(L, 3);
+            if (glm::length(v) > 1e-6f) n->gripRot[c] = glm::normalize(v);
+            return 0;
+        }
     }
     if (n->isLight()) {
         if (is(k, "Enabled"))    { n->enabled = lua_toboolean(L, 3); return 0; }
@@ -971,6 +1049,16 @@ int inst_newindex(lua_State* L) {
         if (is(k, "BloodAmount")) { w.bloodAmount = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 5.0f); return 0; }
         if (is(k, "MaxFluidParticles")) { w.maxFluidParticles = std::clamp((int)luaL_checkinteger(L, 3), 0, 1 << 20); return 0; }
     }
+    // A property kept as an attribute (see inst_index): set it the same way.
+    for (const Attribute& a : n->attributes)
+        if (a.name == k) {
+            lua_pushcfunction(L, m_SetAttribute);
+            lua_pushvalue(L, 1);
+            lua_pushvalue(L, 2);
+            lua_pushvalue(L, 3);
+            lua_call(L, 3, 0);
+            return 0;
+        }
     return luaL_error(L, "'%s' can't be set on %s \"%s\"", k, className(L, n), n->name.c_str());
 }
 
@@ -1365,11 +1453,33 @@ int hum_getState(lua_State* L) {
     const bool mine = p && p->rootId() == humRoot(L);
     const char* st = "Running";
     if (hum(L).health <= 0.0f) st = "Dead";
+    else if (mine) st = p->stateName();
     else if (mine && p->climbing()) st = "Climbing";
     else if (mine && p->swimming()) st = "Swimming";
     else if (mine && !p->grounded()) st = "Freefall";
     else if (Npc* n = E(L)->scene()->npcs().find(humRoot(L)); n && !n->grounded) st = "Freefall";
     lua_pushstring(L, st);
+    return 1;
+}
+
+// humanoid:ChangeState(Enum.HumanoidStateType.FallingDown): "FallingDown" / "Ragdoll" knock
+// the character over for a couple of seconds, "GettingUp" stands it back up, "Dead" kills it.
+int hum_changeState(lua_State* L) {
+    const char* st = luaL_checkstring(L, 2);
+    Player* p = E(L)->scene()->player();
+    const bool mine = p && p->rootId() == humRoot(L);
+    if (is(st, "Dead")) { hum(L).health = 0.0f; return 0; }
+    if (!mine) return 0;
+    if (is(st, "FallingDown") || is(st, "Ragdoll") || is(st, "Physics")) p->trip(2.0f);
+    else if (is(st, "GettingUp") || is(st, "Running")) { p->trip(0.0f); hum(L).platformStand = false; }
+    else if (is(st, "PlatformStanding")) hum(L).platformStand = true;
+    return 0;
+}
+// humanoid:PlayEmote("dance") -> true if it plays (dance, dance2, dance3, laugh, cheer, wave, point)
+int hum_playEmote(lua_State* L) {
+    Player* p = E(L)->scene()->player();
+    const bool mine = p && p->rootId() == humRoot(L);
+    lua_pushboolean(L, mine && p->playEmote(luaL_checkstring(L, 2)));
     return 1;
 }
 
@@ -1379,12 +1489,31 @@ Npc* npcOf(lua_State* L) { return E(L)->scene()->npcs().find(*E(L)->scene(), hum
 int hum_moveTo(lua_State* L) {
     glm::vec3 p = LuaApi::checkVector3(L, 2);
     if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) p = worldPosition(LuaApi::checkNode(L, 3));   // follow a part
-    if (Npc* n = npcOf(L)) { n->target = p; n->hasTarget = true; n->targetTime = 0.0f; n->moveDir = glm::vec3(0.0f); }
+    if (Npc* n = npcOf(L)) {
+        n->target = p; n->hasTarget = true; n->targetTime = 0.0f; n->moveDir = glm::vec3(0.0f);
+        n->route.state = Npc::Route::Idle;   // a plain MoveTo takes over from PathfindTo
+    }
+    return 0;
+}
+// humanoid:PathfindStart(target [, params]): start walking a navmesh route (PathfindTo waits for it).
+int hum_pathfindStart(lua_State* L) {
+    Npc* n = npcOf(L);
+    if (!n) { lua_pushboolean(L, false); return 1; }
+    glm::vec3 goal(0.0f);
+    uint64_t follow = 0;
+    if (glm::vec3* v = LuaApi::toVector3(L, 2)) goal = *v;
+    else follow = LuaApi::checkNode(L, 2)->id;
+    NpcSystem::startRoute(*n, goal, follow, LuaApi::checkAgent(L, 3));
+    lua_pushboolean(L, true);
+    return 1;
+}
+int hum_stopPathfinding(lua_State* L) {
+    if (Npc* n = npcOf(L)) { n->route.state = Npc::Route::Idle; n->route.waypoints.clear(); }
     return 0;
 }
 int hum_move(lua_State* L) {
     glm::vec3 d = LuaApi::checkVector3(L, 2);
-    if (Npc* n = npcOf(L)) { n->moveDir = d; n->hasTarget = false; }
+    if (Npc* n = npcOf(L)) { n->moveDir = d; n->hasTarget = false; n->route.state = Npc::Route::Idle; }
     return 0;
 }
 
@@ -1395,7 +1524,20 @@ int hum_index(lua_State* L) {
     if (is(k, "MaxHealth"))  { lua_pushnumber(L, h.maxHealth);  return 1; }
     if (is(k, "WalkSpeed"))  { lua_pushnumber(L, h.walkSpeed);  return 1; }
     if (is(k, "JumpPower"))  { lua_pushnumber(L, h.jumpPower);  return 1; }
+    if (is(k, "JumpHeight")) { lua_pushnumber(L, h.jumpHeight); return 1; }
+    if (is(k, "Sit") || is(k, "SeatPart")) {   // sitting on a Seat (our own character)
+        Player* p = E(L)->scene()->player();
+        const bool mine = p && p->rootId() == humRoot(L);
+        if (is(k, "Sit")) lua_pushboolean(L, mine && p->sitting());
+        else if (mine && p->sitting()) LuaApi::pushInstance(L, p->seatId());
+        else lua_pushnil(L);
+        return 1;
+    }
+    if (is(k, "UseJumpPower")) { lua_pushboolean(L, h.useJumpPower); return 1; }
     if (is(k, "AutoRotate")) { lua_pushboolean(L, h.autoRotate); return 1; }
+    if (is(k, "PlatformStand")) { lua_pushboolean(L, h.platformStand); return 1; }
+    if (is(k, "ChangeState")) { lua_pushcfunction(L, hum_changeState); return 1; }
+    if (is(k, "PlayEmote"))  { lua_pushcfunction(L, hum_playEmote); return 1; }
     if (is(k, "Name") || is(k, "ClassName")) { lua_pushstring(L, "Humanoid"); return 1; }
     if (is(k, "Parent"))     { LuaApi::pushInstance(L, humRoot(L)); return 1; }
     if (is(k, "Died"))       { LuaApi::pushSignal(L, SignalKind::Died, humRoot(L)); return 1; }
@@ -1407,6 +1549,15 @@ int hum_index(lua_State* L) {
     if (is(k, "LoadAnimation")) { lua_pushcfunction(L, hum_loadAnimation); return 1; }
     if (is(k, "GetState"))   { lua_pushcfunction(L, hum_getState); return 1; }
     if (is(k, "MoveTo"))     { lua_pushcfunction(L, hum_moveTo); return 1; }
+    if (is(k, "PathfindTo")) { lua_getglobal(L, "__gb_pathfindTo"); return 1; }
+    if (is(k, "PathfindStart")) { lua_pushcfunction(L, hum_pathfindStart); return 1; }
+    if (is(k, "StopPathfinding")) { lua_pushcfunction(L, hum_stopPathfinding); return 1; }
+    if (is(k, "PathfindStatus")) {   // "Idle", "Walking", "Arrived" or "Failed"
+        Npc* n = npcOf(L);
+        static const char* names[] = {"Idle", "Walking", "Arrived", "Failed"};
+        lua_pushstring(L, n ? names[n->route.state] : "Idle");
+        return 1;
+    }
     if (is(k, "Move"))       { lua_pushcfunction(L, hum_move); return 1; }
     if (is(k, "MoveToFinished")) { LuaApi::pushSignal(L, SignalKind::MoveToFinished, humRoot(L)); return 1; }
     if (is(k, "Jump"))       { Npc* n = npcOf(L); lua_pushboolean(L, n && n->jump); return 1; }
@@ -1432,8 +1583,15 @@ int hum_newindex(lua_State* L) {
     else if (is(k, "MaxHealth")) { h.maxHealth = std::max(1.0f, (float)luaL_checknumber(L, 3));
                                    h.health = std::min(h.health, h.maxHealth); }
     else if (is(k, "WalkSpeed"))  h.walkSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3));
-    else if (is(k, "JumpPower"))  h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3));
+    else if (is(k, "JumpPower"))  { h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3)); h.useJumpPower = true; }
+    else if (is(k, "JumpHeight")) { h.jumpHeight = std::max(0.0f, (float)luaL_checknumber(L, 3)); h.useJumpPower = false; }
+    else if (is(k, "UseJumpPower")) h.useJumpPower = lua_toboolean(L, 3);
+    else if (is(k, "Sit")) {   // humanoid.Sit = false gets up off the seat
+        Player* p = E(L)->scene()->player();
+        if (p && p->rootId() == humRoot(L) && !lua_toboolean(L, 3)) p->standUp();
+    }
     else if (is(k, "AutoRotate")) h.autoRotate = lua_toboolean(L, 3);
+    else if (is(k, "PlatformStand")) h.platformStand = lua_toboolean(L, 3);
     else if (is(k, "Jump")) {
         if (Npc* n = npcOf(L)) n->jump = lua_toboolean(L, 3);
         return 0;

@@ -43,6 +43,10 @@ private:
 public:
     // The floor grid's line spacing in studs (it follows Move snapping).
     void setGridSpacing(float studs);
+    // Something extra to draw over the world (the navmesh view): triangles and
+    // lines, x y z r g b a per corner. Empty lists = nothing.
+    struct OverlayVertex { glm::vec3 pos; glm::vec4 color; };
+    void setOverlay(const std::vector<OverlayVertex>& tris, const std::vector<OverlayVertex>& lines);
 private:
     float m_gridSpacing = 1.0f;
     void buildAxes();
@@ -75,6 +79,10 @@ private:
     Target m_hdr, m_ao, m_ldr, m_bloom[kBloomLevels];
 
     unsigned int m_gridVao = 0, m_gridVbo = 0;
+    std::unique_ptr<Shader> m_overlay;
+    unsigned int m_overlayVao = 0, m_overlayVbo = 0;
+    int          m_overlayTris = 0, m_overlayLines = 0;   // vertex counts
+    void drawOverlay(const glm::mat4& view, const glm::mat4& proj);
     unsigned int m_axisVao = 0, m_axisVbo = 0;
     unsigned int m_emptyVao = 0;
     int          m_gridVertexCount = 0;

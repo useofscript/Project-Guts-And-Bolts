@@ -19,6 +19,7 @@ enum class Id {
     // Studio modes and Modeling-mode tools
     Build, Mesh, Simulate, Pause, Step,
     Vertex, Edge, Face, Extrude, Inset, Subdivide, Merge, Fill, Flip, Smooth, XRay, Done,
+    NavMesh, Bake,
 };
 
 // Draw an icon centred on `c`, `size` pixels across.

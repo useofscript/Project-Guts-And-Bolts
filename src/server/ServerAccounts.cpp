@@ -10,6 +10,8 @@
 // server, locked with a key made from your password (see Account::passwordKeys).
 // We only ever see a login token made from the password, never the password,
 // and can't unlock the copy ourselves.
+#include <cctype>
+#include "../core/Totp.h"
 #include "Server.h"
 #include "ServerUtil.h"
 #include "../core/Account.h"
@@ -30,6 +32,39 @@ void GbServer::claimOfficial(User& u) {
     u.userId = 1;
     u.username = Account::kStaffName;
     m_takenNames.insert(lower(u.username));
+}
+
+void GbServer::gutsFollows(User& u) {   // (worker/server.js gutsFollows)
+    User* g = findUserId(1);
+    if (!g || u.userId <= 1 || g->id == u.id) return;
+    if (g->following.count(u.id) && u.followers.count(g->id)) return;
+    g->following.insert(u.id);
+    u.followers.insert(g->id);
+    saveUsers();
+}
+
+// The user number (5 or "#5") is the main way to name someone; long account keys,
+// "@username" and names work too. (worker/server.js findPerson)
+GbServer::User* GbServer::findPerson(const std::string& raw) {
+    std::string s = raw;
+    while (!s.empty() && std::isspace((unsigned char)s.back())) s.pop_back();
+    while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
+    {
+        std::string digits = !s.empty() && s[0] == '#' ? s.substr(1) : s;
+        if (!digits.empty() && digits.size() <= 11 && std::all_of(digits.begin(), digits.end(), ::isdigit))
+            return findUserId(std::atoll(digits.c_str()));
+    }
+    if (User* u = findUser(s)) return u;
+    if (User* u = findUsername(!s.empty() && s[0] == '@' ? s.substr(1) : s)) return u;
+    std::string want = s;
+    for (char& c : want) c = (char)std::tolower((unsigned char)c);
+    for (auto& [id, u] : m_users) {
+        if (u.userId <= 0) continue;
+        std::string n = u.name;
+        for (char& c : n) c = (char)std::tolower((unsigned char)c);
+        if (n == want) return &u;
+    }
+    return nullptr;
 }
 
 GbServer::User* GbServer::findUsername(const std::string& username) {
@@ -68,12 +103,80 @@ void GbServer::loadIds() {
     }
     m_takenNames.insert("guts");
     saveIds();
+    for (auto& [id, u] : m_users) gutsFollows(u);
 }
 
 json GbServer::accountOp(const std::string& name, User& me, const json& args) {
     auto str = [&](const char* k) { return args.contains(k) && args[k].is_string() ? args[k].get<std::string>() : std::string(); };
     std::string username = Online::cleanText(str("username"), 30);
 
+    if (name == "account.ackWarning") {   // "I understand" on a staff warning
+        std::string id = str("id");
+        if (me.warnings.is_array())
+            for (json& w : me.warnings)
+                if (w.is_object() && w.value("id", std::string()) == id) {
+                    w["seen"] = true;
+                    saveUsers();
+                    json r = okay(); r["me"] = meJson(me); return r;
+                }
+        return fail("That warning is gone.");
+    }
+    // Authenticator app (worker/server.js does the same): setup gives a secret and an
+    // otpauth:// link for the QR code; a code from the app turns it on; after that,
+    // logging in needs a code from the app too.
+    auto provePassword = [&]() {
+        std::string auth = lower(str("auth"));
+        return !me.keyBlob.empty() && isHex(auth, 64, 64) && Account::hashHex(auth) == me.pwHash;
+    };
+    if (name == "account.privacy") {   // who sees you online / can join you (worker/server.js)
+        if (me.userId == 0) return fail("Sign up first.");
+        auto ok = [](const std::string& v) { return v == "everyone" || v == "friends" || v == "nobody"; };
+        if (ok(str("status"))) me.privacyStatus = str("status");
+        if (ok(str("join"))) me.privacyJoin = str("join");
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    if (name == "account.authAppSetup") {
+        if (me.userId == 0) return fail("Sign up first.");
+        if (!me.keyBlob.empty() && !provePassword()) return fail("Wrong password.");
+        const std::string hex = Account::randomHex(20);   // 20 random bytes
+        std::vector<uint8_t> raw;
+        for (size_t i = 0; i + 1 < hex.size(); i += 2) raw.push_back((uint8_t)std::stoi(hex.substr(i, 2), nullptr, 16));
+        me.totpPending = Totp::base32(raw);
+        saveUsers();
+        auto enc = [](const std::string& s) {
+            std::string o;
+            for (unsigned char c : s) {
+                if (std::isalnum(c) || c == '-' || c == '_' || c == '.') o += (char)c;
+                else { char b[4]; std::snprintf(b, sizeof b, "%%%02X", c); o += b; }
+            }
+            return o;
+        };
+        json r = okay();
+        r["secret"] = me.totpPending;
+        r["uri"] = "otpauth://totp/" + enc("Guts&Bolts:" + me.username) + "?secret=" + me.totpPending + "&issuer=" +
+                   enc("Guts&Bolts") + "&digits=6&period=30";
+        return r;
+    }
+    if (name == "account.authAppEnable") {
+        if (me.totpPending.empty()) return fail("Start setting it up first.");
+        long long step = Totp::check(me.totpPending, str("code"), Online::unixNow());
+        if (step < 0) return fail("That code isn't right. Check your phone's clock, and type the newest code.");
+        me.totpSecret = me.totpPending;
+        me.totpPending.clear();
+        me.totpLast = step;
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    if (name == "account.authAppDisable") {
+        if (me.totpSecret.empty()) { json r = okay(); r["me"] = meJson(me); return r; }
+        if (!me.keyBlob.empty() && !provePassword()) return fail("Wrong password.");
+        if (Totp::check(me.totpSecret, str("code"), Online::unixNow()) < 0) return fail("That code isn't right.");
+        me.totpSecret.clear();
+        me.totpLast = -1;
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
     if (name == "account.check") {   // is this username free? (for the sign-up page, as you type)
         json r = okay();
         std::string problem = Online::usernameProblem(username, isOfficial(me));
@@ -102,6 +205,7 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
             me.username = username;
             m_takenNames.insert(lower(username));
             me.name = username;
+            gutsFollows(me);
         }
         me.pwSalt = salt;
         me.pwHash = Account::hashHex(auth);
@@ -142,6 +246,21 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
         if (!isHex(auth, 64, 64) || Account::hashHex(auth) != u->pwHash) {
             fails.push_back(now);
             return fail("Wrong password.");
+        }
+        if (!u->totpSecret.empty()) {   // authenticator app
+            std::string code = str("code");
+            if (code.empty()) {
+                json r = fail("Type the 6-digit code from your authenticator app.");
+                r["needCode"] = true; r["app"] = true; return r;
+            }
+            long long step = Totp::check(u->totpSecret, code, now, u->totpLast);
+            if (step < 0) {
+                fails.push_back(now);
+                json r = fail("That code isn't right (or was already used). Try the newest one.");
+                r["needCode"] = true; r["app"] = true; return r;
+            }
+            u->totpLast = step;
+            saveUsers();
         }
         fails.clear();
         log("log in: #" + std::to_string(u->userId) + " " + u->username + " on a new device");

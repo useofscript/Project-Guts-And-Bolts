@@ -12,7 +12,25 @@ namespace {
 constexpr size_t    kMaxFriends  = 200;
 constexpr size_t    kMaxRequests = 100;   // waiting for someone to answer
 constexpr long long kOnlineFor   = 150;   // seconds since we last heard from them
+constexpr size_t    kMaxFollowing = 2000;
 } // namespace
+
+nlohmann::json GbServer::presence(const User& viewer, const User& u) const {
+    auto allows = [&](const std::string& setting) {
+        if (viewer.id == u.id || setting == "everyone") return true;
+        return setting == "friends" && u.friends.count(viewer.id) > 0;
+    };
+    json r = {{"online", false}, {"playing", nullptr}};
+    if (!allows(u.privacyStatus)) return r;
+    r["online"] = isOnline(u);
+    if (const Session* s = sessionOf(u.id)) {
+        auto g = m_assets.find(s->game);
+        r["playing"] = {{"game", s->game}, {"title", !s->title.empty() ? s->title : g != m_assets.end() ? g->second.name : std::string("a game")},
+                        {"private", s->priv}, {"full", (int)s->players.size() + 1 >= s->max},
+                        {"session", allows(u.privacyJoin) ? json(s->id) : json(nullptr)}};
+    }
+    return r;
+}
 
 bool GbServer::isOnline(const User& u) const {
     return Online::unixNow() - u.lastSeen <= kOnlineFor || sessionOf(u.id) != nullptr;
@@ -29,12 +47,9 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
             const User* u = findUser(id);
             if (!u) continue;
             json f = person(*u);
-            f["online"] = isOnline(*u);
-            if (const Session* s = sessionOf(u->id)) {
-                // Friends can join each other's private servers too.
-                f["playing"] = {{"session", s->id}, {"title", s->title}, {"private", s->priv},
-                                {"full", (int)s->players.size() + 1 >= s->max}};
-            }
+            json pr = presence(me, *u);
+            f["online"] = pr["online"];
+            if (!pr["playing"].is_null()) f["playing"] = pr["playing"];   // (friends can join private servers too)
             friends.push_back(f);
         }
         for (const std::string& id : me.friendIn) if (const User* u = findUser(id)) in.push_back(person(*u));
@@ -46,8 +61,39 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
         return r;
     }
 
-    User* them = findUser(args.value("user", std::string()));
-    if (!them) return fail("There's no account with that ID on this server.");
+    User* them = findPerson(args.contains("user") && args["user"].is_number_integer()
+                                ? std::to_string(args["user"].get<long long>()) : args.value("user", std::string()));
+    if (!them || them->userId == 0) return fail("There's no account with that ID on this server.");
+    // Where you stand with someone (the in-game player list asks before showing its menu).
+    if (name == "friends.relation") {
+        json r = okay();
+        r["id"] = them->id;
+        r["name"] = them->name;
+        r["friendship"] = them->id == me.id ? "self" : me.friends.count(them->id) ? "friends"
+                        : me.friendOut.count(them->id) ? "sent" : me.friendIn.count(them->id) ? "received" : "none";
+        r["following"] = me.following.count(them->id) > 0;
+        r["followers"] = them->followers.size();
+        return r;
+    }
+    // Following: one way, no asking (like Roblox).
+    if (name == "follow.add" || name == "follow.remove") {
+        if (them->id == me.id) return fail("You can't follow yourself.");
+        if (name == "follow.add") {
+            if (them->banned) return fail("You can't follow that account.");
+            if (!me.following.count(them->id) && me.following.size() >= kMaxFollowing)
+                return fail("You already follow " + std::to_string(kMaxFollowing) + " people.");
+            me.following.insert(them->id);
+            them->followers.insert(me.id);
+        } else {
+            me.following.erase(them->id);
+            them->followers.erase(me.id);
+        }
+        saveUsers();
+        json r = okay();
+        r["following"] = name == "follow.add";
+        r["followers"] = them->followers.size();
+        return r;
+    }
     if (them->id == me.id) return fail("You can't be friends with yourself (but we like you).");
 
     auto becomeFriends = [&]() {

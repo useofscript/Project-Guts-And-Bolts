@@ -29,9 +29,17 @@ public:
     std::function<void()> contextMenuExtras;
     // The "+" on a row: open Insert Object for that object.
     std::function<void(SceneNode*)> onInsert;
+    // Insert Object (right-click menu): put a new `what` inside `parent` (null = Workspace).
+    std::function<void(const std::string& what, SceneNode* parent)> onInsertNamed;
+    // The Lighting row was clicked (show its settings).
+    std::function<void()> onLighting;
+    // Is a game running? (Then the character shows in the Workspace, like Roblox.)
+    std::function<bool()> playing;
 
 private:
     void drawNode(SceneNode* node);
+    void insertMenu(SceneNode* parent);                // the Insert Object submenu
+    bool serviceRow(const char* name, int icon, bool hasKids, bool selected);   // Lighting / StarterPlayer
     bool matches(const SceneNode* node) const;         // the search filter
     bool anyMatch(const SceneNode* node) const;        // it or something inside it
     bool isOpen(const SceneNode* node) const;

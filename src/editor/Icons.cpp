@@ -296,6 +296,25 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         }
         dl->AddCircleFilled(ImVec2(c.x + s * 0.25f, c.y - s * 0.25f), s * 0.1f, rgb(80, 150, 240), 10);
         break;
+    case Id::NavMesh: {   // a blue floor with a dotted route across it
+        ImVec2 q[4] = {ImVec2(c.x - s * 0.45f, c.y + s * 0.25f), ImVec2(c.x - s * 0.15f, c.y - s * 0.3f),
+                       ImVec2(c.x + s * 0.45f, c.y - s * 0.3f), ImVec2(c.x + s * 0.15f, c.y + s * 0.25f)};
+        dl->AddConvexPolyFilled(q, 4, IM_COL32(60, 140, 240, 150));
+        dl->AddPolyline(q, 4, rgb(80, 150, 240), ImDrawFlags_Closed, th * 0.6f);
+        for (int i = 0; i < 4; ++i)
+            dl->AddCircleFilled(ImVec2(c.x - s * 0.22f + i * s * 0.15f, c.y + s * 0.1f - i * s * 0.12f), s * 0.05f, rgb(255, 220, 60), 8);
+        break;
+    }
+    case Id::Bake: {   // the floor plus a little oven flame
+        ImVec2 q[4] = {ImVec2(c.x - s * 0.45f, c.y + s * 0.35f), ImVec2(c.x - s * 0.2f, c.y + s * 0.05f),
+                       ImVec2(c.x + s * 0.45f, c.y + s * 0.05f), ImVec2(c.x + s * 0.2f, c.y + s * 0.35f)};
+        dl->AddConvexPolyFilled(q, 4, IM_COL32(60, 140, 240, 170));
+        dl->AddTriangleFilled(ImVec2(c.x - s * 0.12f, c.y - s * 0.02f), ImVec2(c.x + s * 0.12f, c.y - s * 0.02f),
+                              ImVec2(c.x, c.y - s * 0.45f), rgb(255, 140, 40));
+        dl->AddTriangleFilled(ImVec2(c.x - s * 0.06f, c.y - s * 0.02f), ImVec2(c.x + s * 0.06f, c.y - s * 0.02f),
+                              ImVec2(c.x, c.y - s * 0.25f), rgb(255, 230, 90));
+        break;
+    }
     case Id::Collide:
         dl->AddRectFilled(ImVec2(c.x - s * 0.42f, c.y - s * 0.2f), ImVec2(c.x - s * 0.02f, c.y + s * 0.2f), rgb(140, 142, 150));
         dl->AddRectFilled(ImVec2(c.x + s * 0.02f, c.y - s * 0.3f), ImVec2(c.x + s * 0.42f, c.y + s * 0.1f), rgb(80, 150, 240));

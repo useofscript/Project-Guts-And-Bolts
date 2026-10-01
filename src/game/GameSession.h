@@ -49,6 +49,9 @@ public:
 
     // Tools: the held tool's number keys, Backspace to drop, a hotbar click.
     void selectToolSlot(int slot);
+    // Your gear from the catalog: given now and again each time you respawn, like a
+    // StarterPack tool. (Only where tools run: playing alone or hosting.)
+    void addGear(std::unique_ptr<SceneNode> tool);
     void dropTool();
 
     ScriptEngine& scripts() { return m_scripts; }

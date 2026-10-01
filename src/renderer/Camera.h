@@ -22,6 +22,10 @@ public:
     float yaw      = 45.0f;
     float pitch    = 25.0f;
     float distance = 8.0f;
+    // Playing: a wall between the character and the camera pulls it in to here
+    // (< 0 = nothing in the way). `distance` stays what you zoomed to.
+    float clip = -1.0f;
+    float shownDistance() const { return clip >= 0.0f && clip < distance ? clip : distance; }
     glm::vec3 pivot = {0, 0, 0};
     float fov = 60.0f;
 

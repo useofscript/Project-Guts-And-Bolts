@@ -2,6 +2,7 @@
 #include "../renderer/Camera.h"
 #include "../scene/Player.h"
 #include "../scene/Scene.h"
+#include "../scene/Physics.h"
 #include "../scene/SceneNode.h"
 #include "../core/Settings.h"
 
@@ -40,6 +41,32 @@ void turn(Camera& cam, float dx, float dy) {
     cam.orbit(dx * gs.mouseSensitivity, (gs.invertCamera ? -dy : dy) * gs.mouseSensitivity);
 }
 
+// Like Roblox's camera: if a solid part is between the character's head and the
+// camera, the camera comes in to just in front of it (so you never look through a
+// wall), and slides back out once the way is clear. See-through parts, parts you
+// can walk through, water and people don't count.
+void keepOutOfWalls(Camera& cam, Player& player, float dt) {
+    if (firstPerson(cam) || cam.distance <= 0.0f) { cam.clip = -1.0f; return; }
+    Scene* scene = player.scene();
+    if (!scene) return;
+    SceneNode* me = player.root();
+    const glm::vec3 from = cam.pivot;
+    const glm::vec3 back = -cam.forward();   // from the head towards the camera
+    float hit = 0.0f;
+    SceneNode* wall = Physics::raycastIf(*scene, from, back, &hit, [&](const SceneNode* n) {
+        if (n == me) return false;                          // ourselves (and everything we hold)
+        if (scene->isCharacterRoot(n->id)) return false;    // other players
+        if (!n->isPart()) return true;                      // models: look inside them
+        return n->canCollide && n->transparency < 0.25f && !Player::isWater(n);
+    });
+    constexpr float kMargin = 0.35f;   // stay a little in front of the wall (the near plane)
+    float want = wall && hit < cam.distance + kMargin ? std::max(0.2f, hit - kMargin) : cam.distance;
+    float now = cam.shownDistance();
+    if (want < now) now = want;                                        // in: at once
+    else now += (want - now) * std::min(1.0f, dt * 6.0f);             // out: smoothly
+    cam.clip = now >= cam.distance - 0.01f ? -1.0f : now;
+}
+
 void follow(Camera& cam, Player& player, float dt, bool shiftLock) {
     glm::vec3 target = player.focusPoint();
     if (shiftLock && !firstPerson(cam)) {
@@ -58,12 +85,13 @@ void follow(Camera& cam, Player& player, float dt, bool shiftLock) {
     } else {
         cam.pivot += (target - cam.pivot) * std::min(1.0f, dt * 12.0f);
     }
+    keepOutOfWalls(cam, player, dt);
 }
 
 void fade(Scene& scene, Player& player, const Camera& cam) {
     SceneNode* root = player.root();
     if (!root) return;
-    const float d = firstPerson(cam) ? 0.0f : cam.distance;
+    const float d = firstPerson(cam) ? 0.0f : cam.shownDistance();   // (closer when a wall pulls it in)
     float t = std::clamp((kFadeStart - d) / (kFadeStart - kFadeEnd), 0.0f, 1.0f);
     if (player.isDead()) t = 0.0f;   // watch yourself fall apart
     SceneNode* tool = player.equippedTool();

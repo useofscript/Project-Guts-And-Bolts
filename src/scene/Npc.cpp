@@ -167,9 +167,11 @@ void NpcSystem::step(Npc& n, SceneNode* r, float dt, Scene& scene, Physics& phys
 
     glm::vec3 pos = r->transform.position;
 
-    // Where to go: a MoveTo point, or a Move direction.
+    // Where to go: a PathfindTo route, a MoveTo point, or a Move direction.
     glm::vec3 dir = n.moveDir;
-    if (n.hasTarget) {
+    if (n.route.state == Npc::Route::Walking) {
+        dir = followRoute(n, pos, dt, scene, physics);
+    } else if (n.hasTarget) {
         glm::vec3 d = n.target - pos;
         d.y = 0.0f;
         float len = glm::length(d);
@@ -204,7 +206,7 @@ void NpcSystem::step(Npc& n, SceneNode* r, float dt, Scene& scene, Physics& phys
 
     // Jumping: asked to (Humanoid.Jump), or stuck against something while walking.
     if (n.grounded && (n.jump || n.stuckTime > 0.25f)) {
-        n.velocity.y = h.jumpPower;
+        n.velocity.y = h.launchSpeed(scene.world().gravity);
         n.grounded = false;
         n.stuckTime = 0.0f;
     }
@@ -321,4 +323,109 @@ void NpcSystem::updateDeath(Npc& n, SceneNode* r, float dt, Scene& scene, Physic
             d.spin *= 0.8f;
         }
     }
+}
+
+// ===========================================================================
+// PathfindTo
+// ===========================================================================
+
+void NpcSystem::startRoute(Npc& n, const glm::vec3& goal, uint64_t goalNode, const NavMesh::Agent& agent) {
+    Npc::Route& r = n.route;
+    r = Npc::Route{};
+    r.state = Npc::Route::Walking;
+    r.goal = goal;
+    r.goalNode = goalNode;
+    r.agent = agent;
+    n.hasTarget = false;
+    n.moveDir = glm::vec3(0.0f);
+}
+
+glm::vec3 NpcSystem::followRoute(Npc& n, const glm::vec3& feet, float dt, Scene& scene, Physics& physics) {
+    Npc::Route& r = n.route;
+    // A goal that moves: where it is now (a character's feet, or on top of a part).
+    bool besidePart = false;
+    if (r.goalNode) {
+        SceneNode* g = scene.findById(r.goalNode);
+        if (!g) { r.state = Npc::Route::Failed; return glm::vec3(0.0f); }
+        if (g->isPart()) {
+            AABB b = Physics::worldBounds(g);
+            r.goal = glm::vec3((b.min.x + b.max.x) * 0.5f, b.max.y, (b.min.z + b.max.z) * 0.5f);
+            // Touching distance of it counts as there (a tall part you can't stand on, say).
+            glm::vec2 nearest(std::clamp(feet.x, b.min.x, b.max.x), std::clamp(feet.z, b.min.z, b.max.z));
+            besidePart = glm::length(nearest - glm::vec2(feet.x, feet.z)) < std::max(0.5f, r.agent.radius) + 0.35f &&
+                         feet.y > b.min.y - 1.0f && feet.y < b.max.y + 1.0f;
+        } else {
+            r.goal = glm::vec3(g->worldMatrix()[3]);
+        }
+    }
+    const float reach = std::max(0.5f, r.agent.radius);
+    glm::vec2 toGoal(r.goal.x - feet.x, r.goal.z - feet.z);
+    // (Beside it only counts when there's no way up onto it.)
+    if ((besidePart && (r.closest || r.tries > 0)) || (glm::length(toGoal) < reach && std::abs(r.goal.y - feet.y) < 3.0f && n.grounded)) {
+        r.state = Npc::Route::Arrived;   // (call PathfindTo again to keep following something)
+        return glm::vec3(0.0f);
+    }
+
+    const NavMesh& nav = physics.navMesh();
+    r.replan -= dt;
+    const bool goalMoved = glm::length(r.goal - r.plannedFor) > std::max(1.0f, 0.15f * glm::length(toGoal));
+    if (r.stuck > 1.2f) n.jump = true;   // stuck: hop, and think again
+    // Work out a (new) route: none yet (a moment after the last try), the world
+    // changed, stuck, or the goal moved away from where the route ends.
+    const bool plan = (r.waypoints.empty() && r.replan <= 0.0f) || r.navVersion != nav.version() ||
+                      r.stuck > 1.2f || (r.replan <= 0.0f && goalMoved);
+    if (plan) {
+        NavMesh::Status st = nav.findPath(feet, r.goal, r.agent, r.waypoints);
+        r.navVersion = nav.version();
+        r.plannedFor = r.goal;
+        r.replan = 0.35f;
+        r.stuck = 0.0f;
+        r.next = 1;
+        r.closest = st == NavMesh::Status::ClosestNoPath;
+        if (st == NavMesh::Status::Success || r.closest) {
+            r.tries = 0;
+        } else {
+            r.waypoints.clear();
+            // No way there (yet). A moving goal may come back in reach; a fixed one gets a few goes.
+            r.replan = 1.0f;
+            if (!r.goalNode && ++r.tries >= 4) { r.state = Npc::Route::Failed; return glm::vec3(0.0f); }
+        }
+    }
+    if (r.waypoints.empty()) {
+        // Meanwhile head straight for it if it's close (like plain MoveTo).
+        float gl = glm::length(toGoal);
+        return gl < 12.0f ? glm::vec3(toGoal.x, 0.0f, toGoal.y) / gl : glm::vec3(0.0f);
+    }
+
+    // Next waypoint reached? (Close enough sideways, and about the same height.)
+    while (r.next < r.waypoints.size()) {
+        const NavMesh::Waypoint& w = r.waypoints[r.next];
+        glm::vec2 d(w.pos.x - feet.x, w.pos.z - feet.z);
+        const bool last = r.next + 1 == r.waypoints.size();
+        if (glm::length(d) > (last ? 0.35f : 0.55f) || std::abs(w.pos.y - feet.y) > 2.0f) break;
+        ++r.next;
+        if (r.next < r.waypoints.size() && r.waypoints[r.next].action == NavMesh::Action::Jump) {
+            n.jump = true;            // take off here
+            r.toJump = 0.0f;
+        }
+    }
+    if (r.next >= r.waypoints.size()) {
+        if (r.closest || r.goalNode) { r.waypoints.clear(); r.replan = 0.5f; if (!r.goalNode && r.closest) r.state = Npc::Route::Failed; return glm::vec3(0.0f); }
+        r.state = Npc::Route::Arrived;
+        return glm::vec3(0.0f);
+    }
+    const NavMesh::Waypoint& w = r.waypoints[r.next];
+    glm::vec2 d(w.pos.x - feet.x, w.pos.z - feet.z);
+    float len = glm::length(d);
+    // Heading for a jump and still on the ground a moment later: jump again.
+    if (w.action == NavMesh::Action::Jump && n.grounded) {
+        r.toJump += dt;
+        if (r.toJump > 0.35f && len < 2.5f) { n.jump = true; r.toJump = 0.0f; }
+    }
+    // Not getting anywhere?
+    if (n.stuckTime > 0.0f || (n.grounded && n.groundSpeed < 0.15f * n.humanoid.walkSpeed)) r.stuck += dt;
+    else r.stuck = std::max(0.0f, r.stuck - dt);
+    if (len < 1e-4f) return glm::vec3(0.0f);
+    float slow = r.next + 1 == r.waypoints.size() ? std::min(1.0f, len / std::max(0.1f, n.humanoid.walkSpeed * dt)) : 1.0f;
+    return glm::vec3(d.x, 0.0f, d.y) / len * slow;
 }

@@ -62,6 +62,7 @@ void check() {
         result.compareUrl = std::string("https://github.com/") + GB_REPO + "/compare/" + commit.substr(0, 12) + "...main";
         if ((status == "ahead" || status == "diverged") && result.behindBy > 0) {
             result.state = State::Available;
+            result.plainlyBehind = status == "ahead";
             if (j.contains("commits") && j["commits"].is_array() && !j["commits"].empty()) {
                 const auto& last = j["commits"].back();
                 std::string msg = last["commit"].value("message", "");
@@ -84,6 +85,7 @@ void start() {
 #ifdef GB_MOBILE
     return;   // phones get updates from the new APK instead
 #endif
+    if (const char* off = std::getenv("GB_NO_UPDATE"); off && *off) return;   // tests and screenshots
     if (g_running.exchange(true)) return;
     setState(State::Checking);
     std::thread(check).detach();
@@ -109,6 +111,7 @@ bool canUpdate() {
 
 bool launchUpdater(const char* relaunchApp) {
     if (!canUpdate()) return false;
+    if (std::getenv("GB_UPDATE_DRYRUN")) { std::printf("UPDATER would run for %s\n", relaunchApp); std::fflush(stdout); return true; }   // tests
     std::filesystem::path src = GB_SOURCE_DIR;
     std::string app = Paths::sibling(relaunchApp).string();
 #ifdef _WIN32

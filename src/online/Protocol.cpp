@@ -10,12 +10,23 @@ namespace Online {
 
 bool validKind(const std::string& k) {
     return k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal" ||
-           k == "model" || k == "face" || k == "tshirt" || isAccessory(k);
+           k == "model" || k == "face" || k == "tshirt" || k == "gear" || isAccessory(k);
 }
 bool isAccessory(const std::string& k) {
     return k == "hat" || k == "hair" || k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
 }
 bool isClothing(const std::string& k) { return k == "shirt" || k == "pants" || k == "tshirt" || k == "face" || isAccessory(k); }
+bool isCatalogItem(const std::string& k) { return isClothing(k) || k == "gear"; }
+// Gear: one Tool published from Studio (worker/server.js gearProblem). "" if it's fine.
+std::string gearProblem(const std::string& data) {
+    nlohmann::json m = nlohmann::json::parse(data, nullptr, false);
+    if (!m.is_object() || m.value("format", std::string()) != "gbmodel" || !m.contains("nodes") || !m["nodes"].is_array() ||
+        m["nodes"].size() != 1)
+        return "Gear must be one Tool published from Studio.";
+    if (!m["nodes"][0].is_object() || m["nodes"][0].value("kind", std::string()) != "Tool")
+        return "Gear must be a Tool (with a Handle part inside).";
+    return "";
+}
 bool alwaysFree(const std::string& k) { return k == "decal" || k == "audio"; }
 
 const char* banReasonTitle(const std::string& key) {
@@ -36,7 +47,7 @@ long long uploadFee(const std::string& k) {
     if (k == "audio") return kFeeAudio;
     if (k == "plugin") return kFeePlugin;
     if (k == "decal") return kFeeDecal;
-    return kFeeGame;
+    return kFeeGame;   // (games, models and gear are free to upload)
 }
 
 size_t maxSize(const std::string& k) {
@@ -44,7 +55,7 @@ size_t maxSize(const std::string& k) {
     if (k == "game") return kMaxGame;
     if (k == "plugin") return kMaxPlugin;
     if (k == "decal") return kMaxDecal;
-    if (k == "model") return 4u * 1024u * 1024u;   // objects from Studio for the Library
+    if (k == "model" || k == "gear") return 4u * 1024u * 1024u;   // objects from Studio for the Library
     if (k == "shirt" || k == "pants" || k == "tshirt") return 1024u * 1024u;   // a template picture / a T-shirt picture
     if (k == "face" || isAccessory(k)) return 1024u * 1024u;  // a face picture / an accessory from Studio
     return 64u * 1024u;   // clothing is just a little description of the look
@@ -66,6 +77,7 @@ const char* kindTitle(const std::string& k) {
     if (k == "waist") return "Waist Accessory";
     if (k == "face") return "Face";
     if (k == "tshirt") return "T-Shirt";
+    if (k == "gear") return "Gear";
     return "?";
 }
 

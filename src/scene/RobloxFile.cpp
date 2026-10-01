@@ -4,6 +4,9 @@
 #include "SceneNode.h"
 #include "Environment.h"
 #include "Serializer.h"
+#include "EditMesh.h"
+#include "RobloxMesh.h"
+#include "../core/Paths.h"
 #include "../renderer/MeshLibrary.h"
 #include "../scripting/Luau.h"
 
@@ -663,6 +666,80 @@ struct Converter {
             report.notes.push_back(n);
     }
 
+    struct MeshLook {
+        std::shared_ptr<EditMesh> shape;   // a downloaded mesh (else the primitive in `prim`)
+        std::string texture;               // its picture ("roblox/<id>.png" in the games folder)
+        glm::vec3 tint{1.0f};              // SpecialMesh.VertexColor
+        bool special = false;              // sized by a SpecialMesh, not by the part
+    };
+
+    // MeshPart: the mesh is stretched to fill the part's Size.
+    // SpecialMesh: a FileMesh keeps its own size (times Scale); the other kinds are
+    // the part's shape times Scale. Both are moved by Offset.
+    MeshLook meshLook(const Inst& in, const std::string& name, PrimitiveType& prim, glm::vec3& size, glm::vec3& pos,
+                      const glm::mat3& rot) {
+        MeshLook look;
+        std::string meshUrl, texUrl;
+        int type = -1;   // SpecialMesh.MeshType: 0 Head, 1 Torso, 2 Wedge, 3 Sphere, 4 Cylinder, 5 FileMesh, 6 Brick
+        glm::vec3 scale(1.0f), offset(0.0f);
+        if (in.className == "MeshPart") {
+            meshUrl = in.str("MeshId");
+            texUrl = in.str("TextureID");
+        } else {
+            for (const Inst* k : in.children) {
+                const std::string& kc = k->className;
+                if (kc != "SpecialMesh" && kc != "FileMesh" && kc != "BlockMesh" && kc != "CylinderMesh") continue;
+                type = kc == "BlockMesh" ? 6 : kc == "CylinderMesh" ? 4 : kc == "FileMesh" ? 5 : (int)k->num("MeshType", 6);
+                if (const Value* v = k->get("Scale")) scale = v->v;
+                if (const Value* v = k->get("Offset")) offset = v->v;
+                if (const Value* v = k->get("VertexColor")) look.tint = v->v;
+                meshUrl = k->str("MeshId");
+                texUrl = k->str("TextureId");
+                break;
+            }
+            if (type < 0) return look;
+            look.special = true;
+            scale = glm::abs(scale);
+        }
+        if (in.className == "MeshPart" || type == 5) {
+            const std::string id = RobloxMesh::assetId(meshUrl);
+            const std::string file = RobloxMesh::fetch(id, ".mesh");
+            std::string err;
+            RobloxMesh::Shape s;
+            if (!file.empty()) {
+                std::ifstream f(Paths::gamesFolder() / file, std::ios::binary);
+                std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                s = RobloxMesh::parse(bytes, &err);
+            } else if (meshUrl.empty()) {
+                return look;   // an empty MeshPart: just a block
+            } else {
+                err = id.empty() ? "its mesh (" + meshUrl + ") is built into Roblox" : "couldn't download its mesh (Roblox asset " + id + ")";
+            }
+            if (!s.mesh) {
+                note(name + ": " + err + ", so it came in as a block.");
+                return look;
+            }
+            look.shape = s.mesh;
+            prim = PrimitiveType::Mesh;
+            if (type == 5) {
+                pos += rot * ((s.center * scale + offset) * kImportScale);
+                size = glm::max(s.size * scale * kImportScale, glm::vec3(1e-3f));
+            }
+        } else {
+            if (type == 3) prim = PrimitiveType::Sphere;
+            else if (type == 0 || type == 4) prim = PrimitiveType::Cylinder;   // standing up, like ours
+            else prim = PrimitiveType::Cube;
+            if (type == 2) note("Wedges come in as blocks.");
+            size *= scale;
+            pos += rot * (offset * kImportScale);
+        }
+        if (const std::string tid = RobloxMesh::assetId(texUrl); !tid.empty()) {
+            look.texture = RobloxMesh::fetch(tid, ".png");
+            if (look.texture.empty()) note(name + ": couldn't download its picture (Roblox asset " + tid + ").");
+        }
+        return look;
+    }
+
     // World CFrame -> a node placed under `parent` (our transforms are relative).
     static void place(SceneNode& n, SceneNode* parent, glm::vec3 pos, glm::mat3 rot, glm::vec3 size) {
         glm::mat4 world(1.0f);
@@ -698,10 +775,15 @@ struct Converter {
                 else if (shape == 3 || shape == 4) note("Wedges come in as blocks.");
             }
             if (c == "WedgePart" || c == "CornerWedgePart") note("Wedges come in as blocks.");
-            if (c == "MeshPart" || c.find("Operation") != std::string::npos)
-                note("Meshes and unions come in as blocks of the same size.");
-            node->primitiveType = prim;
-            node->mesh = MeshLibrary::get(prim);
+            if (c == "Seat" || c == "VehicleSeat") {   // you sit on it (whatever it's called)
+                node->tags.push_back("Seat");
+                if (in.flag("Disabled", false)) {
+                    Attribute a; a.name = "Disabled"; a.type = Attribute::Bool; a.b = true;
+                    node->attributes.push_back(a);
+                }
+            }
+            if (c.find("Operation") != std::string::npos)
+                note("Unions come in as blocks of the same size.");
             glm::vec3 size(4, 1, 2);
             if (const Value* v = in.get("size")) size = v->v;
             glm::vec3 pos(0.0f);
@@ -709,8 +791,12 @@ struct Converter {
             if (const Value* v = in.get("CFrame")) { pos = v->v; rot = v->r; }
             size *= kImportScale;
             pos *= kImportScale;
-            if (prim == PrimitiveType::Sphere) size = glm::vec3(std::min({size.x, size.y, size.z}));
-            if (prim == PrimitiveType::Cylinder) {
+            // Its real shape: a MeshPart's mesh, or a SpecialMesh / BlockMesh / CylinderMesh inside it.
+            MeshLook look = meshLook(in, name, prim, size, pos, rot);
+            node->primitiveType = prim;
+            node->mesh = MeshLibrary::get(prim);
+            if (prim == PrimitiveType::Sphere && !look.special) size = glm::vec3(std::min({size.x, size.y, size.z}));
+            if (prim == PrimitiveType::Cylinder && !look.special) {
                 // Roblox cylinders lie along X; ours stand along Y.
                 rot = rot * glm::mat3(glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 0, 1)));
                 size = glm::vec3(size.y, size.x, size.z);
@@ -724,6 +810,11 @@ struct Converter {
             node->castShadow = in.flag("CastShadow", true);
             node->locked = in.flag("Locked", false);
             node->material = materialFromRoblox((int)in.num("Material", 256));
+            if (look.shape) MeshEdit::attach(*node, look.shape);
+            if (!look.texture.empty()) {
+                node->texture = look.texture;
+                if (look.special) node->color = look.tint;   // a SpecialMesh's picture replaces the part's colour
+            }
             ++report.parts;
         } else if (c == "IntValue" || c == "NumberValue" || c == "StringValue" || c == "BoolValue") {
             node = std::make_unique<SceneNode>(name, NodeKind::Value);
@@ -799,6 +890,13 @@ struct Converter {
             node->enabled = in.flag("Enabled", true);
             node->canBeDropped = in.flag("CanBeDropped", true);
             node->toolTip = in.str("ToolTip");
+            // Tool.Grip: how it sits in the hand (same maths as Roblox, see Player::updateGrip).
+            if (const Value* g = in.get("Grip"); g && g->kind == Value::CFrame) {
+                node->gripRot = g->r;
+                node->gripPos = g->v * kImportScale;
+            } else {
+                node->gripRot = glm::mat3(1.0f);   // a Roblox tool with no Grip: Roblox's default
+            }
             ++report.models;
         } else if (c == "Model" || c == "Folder" || c == "Configuration" || c == "Accessory") {
             node = std::make_unique<SceneNode>(name, NodeKind::Model);
@@ -864,6 +962,37 @@ struct Converter {
             node->visible = in.flag("Visible", c == "RopeConstraint" || c == "RodConstraint" || c == "SpringConstraint");
             node->color = {0.45f, 0.32f, 0.2f};
             ++report.constraints;
+        } else if (c == "PathfindingModifier") {
+            // Becomes attributes on its part, which the navmesh reads the same way.
+            if (parent) {
+                if (std::string label = in.str("Label"); !label.empty()) {
+                    Attribute a; a.name = "PathfindingLabel"; a.type = Attribute::String; a.s = label;
+                    parent->attributes.push_back(a);
+                }
+                if (in.flag("PassThrough", false)) {
+                    Attribute a; a.name = "PathfindingPassThrough"; a.type = Attribute::Bool; a.b = true;
+                    parent->attributes.push_back(a);
+                }
+            }
+            ++report.other;
+            return nullptr;
+        } else if ((c == "SpecialMesh" || c == "FileMesh" || c == "BlockMesh" || c == "CylinderMesh") && parent) {
+            // The part already took its shape from it (see meshLook); scripts still look
+            // for it (Handle.Mesh), so keep a stand-in with its properties as attributes.
+            node = std::make_unique<SceneNode>(name, NodeKind::Model);
+            auto attrS = [&](const char* k, const std::string& v) {
+                Attribute a; a.name = k; a.type = Attribute::String; a.s = v; node->attributes.push_back(a);
+            };
+            auto attrV = [&](const char* k, glm::vec3 v, Attribute::Type t) {
+                Attribute a; a.name = k; a.type = t; a.v = v; node->attributes.push_back(a);
+            };
+            attrS("RobloxClass", c);
+            attrS("MeshId", in.str("MeshId"));
+            attrS("TextureId", in.str("TextureId"));
+            attrV("Scale", in.get("Scale") ? in.get("Scale")->v : glm::vec3(1.0f), Attribute::Vector3);
+            attrV("Offset", in.get("Offset") ? in.get("Offset")->v : glm::vec3(0.0f), Attribute::Vector3);
+            attrV("VertexColor", in.get("VertexColor") ? in.get("VertexColor")->v : glm::vec3(1.0f), Attribute::Vector3);
+            { Attribute a; a.name = "MeshType"; a.type = Attribute::Number; a.n = in.num("MeshType", 5); node->attributes.push_back(a); }
         } else if (c == "Humanoid" || c == "Decal" || c == "Texture" || c == "SpecialMesh" || c == "TouchTransmitter" ||
                    c.find("Value") != std::string::npos || c == "Camera" || c == "Terrain") {
             if (c == "Decal" || c == "Texture") note("Decals and textures aren't supported yet.");
@@ -1059,6 +1188,12 @@ struct XmlWriter {
         o << "<Item class=\"" << cls << "\" referent=\"" << ref(n.id) << "\">\n<Properties>\n";
         common(n);
         switch (n.kind) {
+        case NodeKind::Tool:
+            cframe("Grip", n.gripPos * kExportScale, n.gripRot);
+            boolean("CanBeDropped", n.canBeDropped);
+            boolean("Enabled", n.enabled);
+            str("ToolTip", n.toolTip);
+            break;
         case NodeKind::Gui: {
             const GuiProps& g = n.gui;
             if (g.type == GuiType::ScreenGui) { boolean("Enabled", n.enabled); o << "<int name=\"DisplayOrder\">" << g.displayOrder << "</int>\n"; boolean("ResetOnSpawn", false); break; }

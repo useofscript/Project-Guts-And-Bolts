@@ -10,6 +10,48 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'who-let-us-cook', name: 'Who Let Us Cook?', version: '0.7.0', time: 1790850600, tag: 'Engine',
+    summary: 'NPCs that find their own way, gear in the catalog, 2011-style moves, safer accounts and a whole lot more for creators.',
+    items: [
+      'Navmesh and pathfinding: Studio bakes every floor characters can walk on, and NPCs walk around walls, jump up ledges, drop down and leap gaps by themselves (PathfindingService, humanoid:PathfindTo)',
+      'Gear in the catalog: buy it, equip up to 4, and bring it into games that allow gear',
+      'Characters move like 2011 Roblox: the Animate script, /e dance, wave, point, laugh and cheer, PlatformStand, tripping and flinging',
+      'Tools are held in the hand the Roblox way (RightGrip and Grip), so imported Roblox gear works',
+      'Roblox hats come in with their real mesh and texture',
+      'Studio: Roblox-style Move and Rotate increments, a studs readout by the mouse while you drag, free Blender-style moving with increments off, and right-click Insert Object in the Explorer',
+      'More Lua: TweenService, workspace:Raycast, HttpService JSON, Random.new, math.noise, BindableEvent and ReplicatedStorage',
+      'Your user number (like #5) is now how you find and add people: no more long account keys',
+      'Leaderboard folds away with Tab or its arrow; click a name to Friend or Follow them',
+      'Following, and Guts follows everybody (like Builderman did)',
+      'Join buttons on profiles, plus privacy settings for who sees you online and who can join you',
+      'Security: authenticator app codes when logging in, and confirming your email gives you the Verified Hat',
+      'Terms of Service, and a heads-up on sign-up that Guts&Bolts is for adults (18+)',
+      'Player and Studio update themselves when a new version is out',
+    ],
+  },
+  {
+    id: 'take-a-seat', name: 'Take a Seat', version: '0.7.0', time: 1790823545, tag: 'Engine',
+    summary: 'Sit on seats, jump as high as a real Roblox character, and the camera stops peeking through walls.',
+    items: [
+      'Seats: walk into one and you sit down (like Roblox), riding along if it moves; jump to get up. Insert one from Insert Object, and Roblox Seats come in working',
+      'Scripts: Humanoid.Sit, Humanoid.SeatPart, seat.Occupant, seat.Disabled and seat:Sit(humanoid)',
+      'Jumps are higher: about 1.4 times your height, like Roblox. New JumpHeight and UseJumpPower settings',
+      'The camera comes in front of walls instead of going through them',
+      'Phones: the thumbstick stays put in the corner instead of jumping to your thumb',
+      'Bans now show a ban screen (why, staff\'s note, and when it ends), bans can last 1, 3, 7 or 30 days, and staff can send warnings you have to read',
+    ],
+  },
+  {
+    id: 'dress-code', name: 'Dress Code', version: '0.7.0', time: 1790812100, tag: 'Player',
+    summary: 'Get dressed right on the Avatar page, and your character finally wears its clothes everywhere.',
+    items: [
+      'New Wardrobe on the app\'s Avatar page: everything you own, sorted into Shirts, Pants, T-Shirts, Faces, Hats, Hair and Accessories',
+      'Click something to wear it, click it again (or in the Wearing row) to take it off, or take everything off at once',
+      'Fix: your character on the home screen (app and website) showed up in no clothes',
+      'Friends\' little pictures on profiles wear their outfits too',
+    ],
+  },
+  {
     id: 'hotfixes-headaches-hand-grenades', name: 'Hotfixes, Headaches & Hand Grenades', version: '0.6.2', time: 1790810194, tag: 'Studio',
     summary: 'Bring 3D models from Blender and friends into Studio, just drag files in, and catalog clothes show their real pictures.',
     items: [

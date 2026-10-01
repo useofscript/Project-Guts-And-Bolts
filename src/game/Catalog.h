@@ -9,7 +9,7 @@
 // ones signed by the official staff account show up, so only staff can add them.
 namespace Catalog {
 
-enum class Type { Hat, Shirt, Pants, Hair, FaceAcc, Neck, Shoulder, Waist, Face, TShirt, Count };
+enum class Type { Hat, Shirt, Pants, Hair, FaceAcc, Neck, Shoulder, Waist, Face, TShirt, Gear, Count };   // (Gear: a Tool for games, not worn)
 const char* typeName(Type t);
 
 struct Item {
@@ -48,5 +48,7 @@ void applyLook(const Item& item);
 // A catalog item from a server upload (hat / shirt / pants).
 Item fromServer(const nlohmann::json& asset);
 bool isWearing(const Item& item);
+// Take it off (shirts and pants go back to the body colour, hats to none).
+void takeOff(const Item& item);
 
 } // namespace Catalog

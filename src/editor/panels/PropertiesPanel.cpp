@@ -243,6 +243,15 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Everyone gets this tool in their backpack when they spawn.");
         ImGui::DragFloat3("GripPos", &node->gripPos.x, 0.02f);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where on the Handle the hand holds it (in the Handle's own space).");
+        {   // Grip's turn, shown as its three axes like Roblox's GripForward / GripRight / GripUp
+            glm::vec3 axes[3] = {node->gripRot[2], node->gripRot[0], node->gripRot[1]};
+            const char* names[3] = {"GripForward", "GripRight", "GripUp"};
+            for (int i = 0; i < 3; ++i)
+                if (ImGui::DragFloat3(names[i], &axes[i].x, 0.01f, -1.0f, 1.0f) && glm::length(axes[i]) > 1e-4f)
+                    node->gripRot[i == 0 ? 2 : i == 1 ? 0 : 1] = glm::normalize(axes[i]);
+            if (ImGui::SmallButton("Reset grip turn")) node->gripRot = kDefaultGripRot;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to holding the Handle's long side (Y) straight out of the fist.");
+        }
         ImGui::Spacing();
         ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("Put a part called Handle inside: that's what the character holds (its long side, Y, "

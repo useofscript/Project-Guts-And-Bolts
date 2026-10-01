@@ -180,6 +180,16 @@ json toJson(const SceneNode& n) {
             for (const auto& p : n.editMesh->verts) { v.push_back(p.x); v.push_back(p.y); v.push_back(p.z); }
             for (const auto& face : n.editMesh->faces) f.push_back(face);
             j["mesh"] = {{"v", v}, {"f", f}, {"smooth", n.editMesh->smooth}};
+            // Texture coordinates (imported models): u,v for each corner of each face.
+            if (n.editMesh->uvs.size() == n.editMesh->faces.size()) {
+                json uv = json::array();
+                for (const auto& face : n.editMesh->uvs) {
+                    json c = json::array();
+                    for (const auto& t : face) { c.push_back(t.x); c.push_back(t.y); }
+                    uv.push_back(std::move(c));
+                }
+                j["mesh"]["uv"] = std::move(uv);
+            }
         }
         j["color"]        = vec(n.color);
         j["transparency"] = n.transparency;
@@ -230,6 +240,9 @@ json toJson(const SceneNode& n) {
         j["canBeDropped"] = n.canBeDropped;
         j["starterTool"] = n.starterTool;
         j["gripPos"] = vec(n.gripPos);
+        if (n.gripRot != kDefaultGripRot)
+            j["gripRot"] = {n.gripRot[0][0], n.gripRot[0][1], n.gripRot[0][2], n.gripRot[1][0], n.gripRot[1][1],
+                            n.gripRot[1][2], n.gripRot[2][0], n.gripRot[2][1], n.gripRot[2][2]};
     }
     if (n.kind == NodeKind::FluidSystem) {
         j["color"] = vec(n.color); j["viscosity"] = n.viscosity; j["surfaceTension"] = n.surfaceTension;
@@ -301,11 +314,22 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
                 const json& v = (*it)["v"];
                 for (size_t i = 0; i + 2 < v.size(); i += 3)
                     m->verts.push_back({v[i].get<float>(), v[i + 1].get<float>(), v[i + 2].get<float>()});
+                const json* uv = it->contains("uv") && (*it)["uv"].is_array() ? &(*it)["uv"] : nullptr;
+                size_t fi = 0;
                 for (const auto& face : (*it)["f"]) {
                     std::vector<uint32_t> fv;
                     for (const auto& k : face) if (k.get<uint32_t>() < m->verts.size()) fv.push_back(k.get<uint32_t>());
-                    if (fv.size() >= 3) m->faces.push_back(std::move(fv));
+                    if (fv.size() >= 3) {
+                        if (uv && fi < uv->size() && (*uv)[fi].size() == fv.size() * 2 && m->uvs.size() == m->faces.size()) {
+                            std::vector<glm::vec2> c;
+                            for (size_t k = 0; k < fv.size(); ++k) c.push_back({(*uv)[fi][k * 2].get<float>(), (*uv)[fi][k * 2 + 1].get<float>()});
+                            m->uvs.push_back(std::move(c));
+                        }
+                        m->faces.push_back(std::move(fv));
+                    }
+                    ++fi;
                 }
+                if (m->uvs.size() != m->faces.size()) m->uvs.clear();
                 m->smooth = get<bool>(*it, "smooth", false);
             }
             if (m->faces.empty()) m = MeshEdit::fromPrimitive(PrimitiveType::Cube);
@@ -368,6 +392,9 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->canBeDropped = get<bool>(j, "canBeDropped", true);
         n->starterTool  = get<bool>(j, "starterTool", false);
         n->gripPos      = vec(j, "gripPos", {0, 0, 0});
+        if (auto g = j.find("gripRot"); g != j.end() && g->is_array() && g->size() == 9)
+            for (int c = 0; c < 3; ++c)
+                for (int r = 0; r < 3; ++r) n->gripRot[c][r] = (*g)[(size_t)(c * 3 + r)].get<float>();
     }
     if (n->kind == NodeKind::FluidSystem) {
         n->color          = vec(j, "color", {0.12f, 0.56f, 1.0f});
@@ -473,6 +500,7 @@ json settingsJson(Scene& scene) {
         j["player"] = {
             {"rootId", p->rootId()}, {"spawn", vec(p->spawn())}, {"hat", (int)p->hat()},
             {"humanoid", {{"walkSpeed", h.walkSpeed}, {"jumpPower", h.jumpPower},
+                          {"jumpHeight", h.jumpHeight}, {"useJumpPower", h.useJumpPower},
                           {"health", h.health}, {"maxHealth", h.maxHealth},
                           {"autoRotate", h.autoRotate}}},
         };
@@ -539,6 +567,14 @@ void applySettings(Scene& scene, const json& j) {
                 Humanoid& h  = p->humanoid();
                 h.walkSpeed  = get<float>(hj, "walkSpeed", h.walkSpeed);
                 h.jumpPower  = get<float>(hj, "jumpPower", h.jumpPower);
+                if (hj.contains("useJumpPower")) {
+                    h.useJumpPower = get<bool>(hj, "useJumpPower", false);
+                    h.jumpHeight   = get<float>(hj, "jumpHeight", h.jumpHeight);
+                } else if (std::abs(h.jumpPower - 8.5f) < 0.01f) {
+                    h.jumpPower = Humanoid{}.jumpPower;   // games saved with the old, too-low default: jump properly now
+                } else {
+                    h.useJumpPower = true;   // the game picked its own Jump Power: keep it
+                }
                 h.maxHealth  = get<float>(hj, "maxHealth", h.maxHealth);
                 h.health     = get<float>(hj, "health", h.maxHealth);
                 h.autoRotate = get<bool>(hj, "autoRotate", h.autoRotate);
@@ -617,7 +653,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.toolTip = src->toolTip;     dst.canBeDropped = src->canBeDropped;
     dst.value = src->value;         dst.intValue = src->intValue;
     dst.texture = src->texture;     dst.face = src->face;
-    dst.starterTool = src->starterTool; dst.gripPos = src->gripPos;
+    dst.starterTool = src->starterTool; dst.gripPos = src->gripPos; dst.gripRot = src->gripRot;
     dst.density = src->density;     dst.friction = src->friction; dst.elasticity = src->elasticity;
     dst.constraintType = src->constraintType; dst.ref0 = src->ref0; dst.ref1 = src->ref1;
     dst.length = src->length;       dst.stiffness = src->stiffness; dst.damping = src->damping;

@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include <vector>
 
 // The currently active manipulation tool, shared between the toolbar (which
@@ -29,6 +30,9 @@ struct EditorState {
     bool      rotSnapEnabled = false; // Rotate goes in steps of snapRotate degrees
     bool      collisions  = false;   // moved parts stop against others instead of going through
     bool      showGrid    = true;
+    bool      showNavMesh = false;    // draw the navigation mesh (where characters can walk)
+    int       bakeNavMesh = 0;        // asks the viewport to rebake it now (Bake button)
+    std::string navInfo;              // "1234 floor cells, baked in 12 ms" for the ribbon tooltip
 
     StudioMode    mode = StudioMode::Build;
     ModelingState modeling;

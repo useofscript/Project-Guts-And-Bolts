@@ -46,12 +46,21 @@ private:
         std::string playDay;   long long playEarned = 0, lastPlay = 0;
         bool        banned = false;
         std::string banReason, banNote;   // Online::kBanReasons key, and staff's note
+        long long   bannedAt = 0, bannedUntil = 0;   // bannedUntil 0 = for good
+        nlohmann::json warnings = nlohmann::json::array();   // staff warnings: {id, reason, note, at, seen}
         std::set<std::string> friends, friendIn, friendOut;   // friends; requests to me; requests I sent
+        std::set<std::string> following, followers;           // one-way follows (no asking)
+        // Privacy: who sees you online / what you play, and who can join you there:
+        // "everyone", "friends" or "nobody" (worker/server.js privacyOf).
+        std::string privacyStatus = "everyone", privacyJoin = "everyone";
+        std::vector<std::string> gear;   // equipped gear (worker/server.js me.gear)
         // Signing up: a username and user number (both never reused), plus the
         // password-locked backup of their key so they can log in on other devices.
         std::string username;
         long long   userId = 0;                  // 0 = hasn't signed up
-        std::string pwSalt, pwHash, keyBlob;     // pwHash = hash of the login token (we never see the password)
+        std::string pwSalt, pwHash, keyBlob;
+        std::string totpSecret, totpPending;    // authenticator app (base32), on / being set up
+        long long   totpLast = -1;              // the newest 30-second step used (no reusing a code)     // pwHash = hash of the login token (we never see the password)
         nlohmann::json avatar;                   // colours (0-255), hat, hatColor, wearing, updated; null = never set
         nlohmann::json gameBadges = nlohmann::json::array();   // [badge id, game id, when] earned in games
     };
@@ -104,6 +113,10 @@ private:
     nlohmann::json accountOp(const std::string& name, User& me, const nlohmann::json& args);  // ServerAccounts.cpp
     void  claimOfficial(User& u);                  // the staff account is user 1, "Guts"
     User* findUsername(const std::string& username);
+    // An account key, "@username", or a name as shown in games.
+    User* findPerson(const std::string& s);
+    // The Guts account (#1) follows every signed-up player (like Builderman did).
+    void gutsFollows(User& u);
     User* findUserId(long long userId);
     void  saveIds();
     void  loadIds();
@@ -116,6 +129,8 @@ private:
     void dropClients(long long now);
     nlohmann::json sessionJson(const Session& s) const;
     const Session* sessionOf(const std::string& userId) const;          // the game they're in right now
+    // What `viewer` may know about where `u` is: {"online", "playing": {game, title, session or null}}.
+    nlohmann::json presence(const User& viewer, const User& u) const;
     bool isOnline(const User& u) const;
     nlohmann::json publicGroup(const Group& g) const;
     nlohmann::json badgesOf(const User& u) const;         // badge keys that check out
@@ -136,6 +151,7 @@ private:
 
     // Files
     void load();
+    void addExampleGames();   // the games folder's example games, as the staff account's
     void saveUsers();
     void saveAssets();
     void saveGroups();

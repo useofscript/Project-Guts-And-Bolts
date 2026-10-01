@@ -307,6 +307,7 @@ humanoid.Died:Connect(function()
 end)
 
 local lastBite = 0
+local chasing = nil
 while humanoid.Health > 0 do
     local target, distance = nearestPlayer()
     if not target then
@@ -320,20 +321,13 @@ while humanoid.Health > 0 do
         end
         wait(0.1)
     else
-        -- Work out a route around walls, and head for its next corner.
-        local path = PathfindingService:CreatePath()
-        path:ComputeAsync(root.Position, target.Position)
-        local points = path:GetWaypoints()
-        if path.Status == Enum.PathStatus.Success and #points > 1 then
-            local nextPoint = points[2]
-            local dx, dz = nextPoint.Position.X - root.Position.X, nextPoint.Position.Z - root.Position.Z
-            if dx * dx + dz * dz < 1 and points[3] then nextPoint = points[3] end
-            if nextPoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
-            humanoid:MoveTo(nextPoint.Position)
-        else
-            humanoid:MoveTo(target.Position)   -- no route found: just go straight at them
+        -- Chase them on the navmesh: the engine finds the way around walls, jumps
+        -- up ledges and over gaps, and keeps following as the player moves.
+        if humanoid.PathfindStatus ~= "Walking" or target ~= chasing then
+            chasing = target
+            humanoid:PathfindStart(target)
         end
-        wait(0.3)   -- then look again (the player keeps moving!)
+        wait(0.3)   -- then look again (someone else might be closer now)
     end
 end
 )";

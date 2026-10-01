@@ -15,10 +15,14 @@
 #include "../net/NetGame.h"
 #include "../online/AssetCache.h"
 #include "../online/OnlineClient.h"
+#include "../scene/Serializer.h"
+#include "../game/GameSession.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 
 using namespace Social;
 using json = nlohmann::json;
@@ -64,8 +68,26 @@ PlayerApp::Starter PlayerApp::onlineStarter(const std::string& id) {
             if (!ok) { m_status = info.value("error", std::string("Couldn't download the game.")); return; }
             joinGame(file, mode, id);
             Online::fetchSounds(*m_scene);
+            if (info.value("allowGear", false)) giveGear(id);
         }, true);
     };
+}
+
+void PlayerApp::giveGear(const std::string& gameKey) {
+    const json& me = Online::me();
+    if (!me.contains("gear") || !me["gear"].is_array()) return;
+    for (const auto& g : me["gear"]) {
+        if (!g.is_string()) continue;
+        Online::download(g.get<std::string>(), [this, gameKey](bool ok, const std::filesystem::path& file, const json&) {
+            if (!ok || m_page != Page::Game || m_loadingGameId != gameKey) return;   // (left the game meanwhile)
+            std::ifstream f(file, std::ios::binary);
+            std::stringstream text;
+            text << f.rdbuf();
+            json m = json::parse(text.str(), nullptr, false);
+            if (!m.is_object() || !m.contains("nodes") || !m["nodes"].is_array() || m["nodes"].empty()) return;
+            if (auto tool = Serializer::nodeFromString(m["nodes"][0].dump(), true)) m_session->addGear(std::move(tool));
+        });
+    }
 }
 
 void PlayerApp::playGame(const std::string& key, const std::string& title, Starter start) {
@@ -299,7 +321,8 @@ void PlayerApp::drawFriends() {
                 ImGui::TextDisabled("Offline");
             }
             ImGui::EndGroup();
-            if (f.contains("playing")) {
+            if (f.contains("playing") && f["playing"].is_object() && f["playing"].contains("session") &&
+                f["playing"]["session"].is_string()) {   // no session = they don't let you join
                 const json& pl = f["playing"];
                 bool full = pl.value("full", false);
                 ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 10, ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 90));

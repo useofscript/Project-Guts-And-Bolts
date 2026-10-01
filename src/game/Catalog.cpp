@@ -75,6 +75,7 @@ const char* typeName(Type t) {
         case Type::Waist:    return "Waist";
         case Type::Face:     return "Face";
         case Type::TShirt:   return "TShirt";
+        case Type::Gear:     return "Gear";
         default:          return "?";
     }
 }
@@ -143,7 +144,7 @@ Item fromServer(const json& a) {
     it.kind = kind;
     it.type = kind == "hat" ? Type::Hat : kind == "shirt" ? Type::Shirt : kind == "pants" ? Type::Pants
             : kind == "hair" ? Type::Hair : kind == "faceacc" ? Type::FaceAcc : kind == "neck" ? Type::Neck
-            : kind == "shoulder" ? Type::Shoulder : kind == "waist" ? Type::Waist : kind == "tshirt" ? Type::TShirt : Type::Face;
+            : kind == "shoulder" ? Type::Shoulder : kind == "waist" ? Type::Waist : kind == "tshirt" ? Type::TShirt : kind == "gear" ? Type::Gear : Type::Face;
     it.price = a.value("price", 0LL);
     it.created = a.value("created", 0LL);
     if (a.contains("meta") && a["meta"].is_object()) {
@@ -181,6 +182,7 @@ void wear(const Item& it) {
 }
 
 void applyLook(const Item& it) {
+    if (it.type == Type::Gear) return;   // gear isn't worn (the Player equips it on the server)
     Profile& me = Profile::get();
     switch (it.type) {
         case Type::Hat:
@@ -224,7 +226,28 @@ void applyLook(const Item& it) {
     me.save();
 }
 
+void takeOff(const Item& it) {
+    Profile& me = Profile::get();
+    switch (it.type) {
+        case Type::Hat:
+            if (!it.model.empty()) me.accessories.erase("hat");
+            else { me.hat = HatStyle::None; me.hatColor = glm::vec3(-1.0f); }
+            break;
+        case Type::Hair: case Type::FaceAcc: case Type::Neck: case Type::Shoulder: case Type::Waist:
+            if (auto a = me.accessories.find(it.kind); a != me.accessories.end() && a->second == it.model) me.accessories.erase(a);
+            break;
+        case Type::Face:   if (me.faceImage == it.image) me.faceImage.clear(); break;
+        case Type::TShirt: if (me.tshirtImage == it.image) me.tshirtImage.clear(); break;
+        case Type::Shirt:  if (me.shirtImage == it.image) me.shirtImage.clear(); break;
+        case Type::Pants:  if (me.pantsImage == it.image) me.pantsImage.clear(); break;
+        default: break;
+    }
+    me.wearing.erase(std::remove(me.wearing.begin(), me.wearing.end(), it.id), me.wearing.end());
+    me.save();
+}
+
 bool isWearing(const Item& it) {
+    if (it.type == Type::Gear) return false;
     const auto& w = Profile::get().wearing;
     return std::find(w.begin(), w.end(), it.id) != w.end();
 }

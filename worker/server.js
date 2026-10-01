@@ -13,14 +13,26 @@
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../website/app/gbcrypto.wasm';
 import { BUILT_IN_UPDATES } from './updates.js';
+// The example games that come with Guts&Bolts: always on the server (as Guts's
+// games), so the website and the apps have something to play from day one.
+import demolitionYard from '../games/Demolition Yard.gbscene';
+import megaWaterSlide from '../games/Mega Water Slide.gbscene';
+import nightPlaza from '../games/Night Plaza.gbscene';
+import obbyOfDoom from '../games/Obby of Doom.gbscene';
+const EXAMPLE_GAMES = [
+  { id: 'game-demolition-yard', text: demolitionYard, genres: ['Destruction', 'Sandbox'] },
+  { id: 'game-mega-water-slide', text: megaWaterSlide, genres: ['Adventure', 'Showcase'] },
+  { id: 'game-night-plaza', text: nightPlaza, genres: ['Showcase', 'Town and City'] },
+  { id: 'game-obby-of-doom', text: obbyOfDoom, genres: ['Obby'] },
+];
 
 // --- rules (src/online/Protocol.h) ---------------------------------------------
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
-const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt'];
+const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt', 'gear'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
-  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
+  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10, gear: 0 };
 // Accessories: things worn on the body, made (and placed on a mannequin) in Studio's
 // Accessory window. Verified creators only. Faces are pictures, and only Guts makes them.
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
@@ -32,7 +44,19 @@ const canBeLimited = (k) => isAccessory(k) || k === 'face';
 const kPublicModelsPerWeek = 5;
 const weekOf = (t) => Math.floor(t / (7 * 86400));
 const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20,
-  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20 };
+  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20, gear: 4 << 20 };
+// Gear: a Tool (made in Studio) sold in the catalog, like Roblox's old gear. Only staff
+// make gear. You can have up to kMostGear equipped, and you get them in games whose
+// creator ticked "Allow gear". (src/server has the same rules.)
+const kMostGear = 4;
+const isCatalogItem = (k) => isClothing(k) || k === 'gear';   // sold in the catalog
+function gearProblem(data) {
+  let m = null;
+  try { m = JSON.parse(new TextDecoder().decode(data)); } catch { m = null; }
+  if (!m || m.format !== 'gbmodel' || !Array.isArray(m.nodes) || m.nodes.length !== 1) return 'Gear must be one Tool published from Studio.';
+  if (!m.nodes[0] || m.nodes[0].kind !== 'Tool') return 'Gear must be a Tool (with a Handle part inside).';
+  return '';
+}
 // Shirts and pants can have a picture: a PNG laid out like the clothing template.
 const kTemplateW = 585, kTemplateH = 559;
 const pngSize = (d) => (d.length > 24 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => d[i] === v)
@@ -69,8 +93,11 @@ const BAN_REASONS = {
 };
 const banMessage = (u) => 'This account has been banned' + (u.banReason && BAN_REASONS[u.banReason]
   ? ' for: ' + BAN_REASONS[u.banReason] + '.' : '.') + (u.banNote ? ' Note from staff: ' + u.banNote : '');
+const kMaxWarnings = 30;   // kept per account (oldest dropped)
 const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
+const kMaxFollowing = 2000;
+const PRIVACY = ['everyone', 'friends', 'nobody'];                   // ServerFriends.cpp
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
@@ -177,6 +204,87 @@ function hashHex(text) {
   return hexOf(new Uint8Array(w.memory.buffer, w.buf() + 64, 32));
 }
 
+// --- Authenticator apps (TOTP, RFC 6238): a 6-digit code that changes every 30 seconds,
+// made from a secret shared once with the app (as a QR code / text). src/core/Totp.h
+// does exactly the same for the C++ server.
+function sha1(bytes) {
+  const ml = bytes.length, words = ((ml + 8) >> 6) + 1, w = new Uint32Array(words * 16);
+  for (let i = 0; i < ml; i++) w[i >> 2] |= bytes[i] << (24 - (i % 4) * 8);
+  w[ml >> 2] |= 0x80 << (24 - (ml % 4) * 8);
+  w[words * 16 - 1] = ml * 8;
+  let h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;
+  const x = new Uint32Array(80);
+  for (let b = 0; b < words * 16; b += 16) {
+    for (let i = 0; i < 16; i++) x[i] = w[b + i];
+    for (let i = 16; i < 80; i++) { const v = x[i - 3] ^ x[i - 8] ^ x[i - 14] ^ x[i - 16]; x[i] = (v << 1) | (v >>> 31); }
+    let a = h0, bb = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      const f = i < 20 ? (bb & c) | (~bb & d) : i < 40 ? bb ^ c ^ d : i < 60 ? (bb & c) | (bb & d) | (c & d) : bb ^ c ^ d;
+      const k = i < 20 ? 0x5A827999 : i < 40 ? 0x6ED9EBA1 : i < 60 ? 0x8F1BBCDC : 0xCA62C1D6;
+      const t = (((a << 5) | (a >>> 27)) + f + e + k + x[i]) >>> 0;
+      e = d; d = c; c = (bb << 30) | (bb >>> 2); bb = a; a = t;
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + bb) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0; h4 = (h4 + e) >>> 0;
+  }
+  const out = new Uint8Array(20);
+  [h0, h1, h2, h3, h4].forEach((v, i) => { out[i * 4] = v >>> 24; out[i * 4 + 1] = (v >>> 16) & 255; out[i * 4 + 2] = (v >>> 8) & 255; out[i * 4 + 3] = v & 255; });
+  return out;
+}
+function hmacSha1(key, msg) {
+  if (key.length > 64) key = sha1(key);
+  const k = new Uint8Array(64); k.set(key);
+  const inner = new Uint8Array(64 + msg.length), outer = new Uint8Array(84);
+  for (let i = 0; i < 64; i++) { inner[i] = k[i] ^ 0x36; outer[i] = k[i] ^ 0x5c; }
+  inner.set(msg, 64);
+  outer.set(sha1(inner), 64);
+  return sha1(outer);
+}
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32(bytes) {
+  let bits = 0, val = 0, out = '';
+  for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += B32[(val << (5 - bits)) & 31];
+  return out;
+}
+function unbase32(text) {
+  let bits = 0, val = 0; const out = [];
+  for (const ch of String(text).toUpperCase().replace(/[^A-Z2-7]/g, '')) {
+    val = (val << 5) | B32.indexOf(ch); bits += 5;
+    if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return new Uint8Array(out);
+}
+function totpCode(secret, step) {
+  const msg = new Uint8Array(8);
+  let s = step;
+  for (let i = 7; i >= 0; i--) { msg[i] = s & 255; s = Math.floor(s / 256); }
+  const h = hmacSha1(unbase32(secret), msg), o = h[19] & 15;
+  const bin = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+// The 30-second step the code belongs to (one step early or late is fine: clocks drift), or -1.
+function totpCheck(secret, code, t, lastStep = -1) {
+  code = String(code || '').replace(/\s/g, '');
+  if (!/^[0-9]{6}$/.test(code)) return -1;
+  const step = Math.floor(t / 30);
+  for (const d of [0, -1, 1]) if (step + d > lastStep && totpCode(secret, step + d) === code) return step + d;
+  return -1;
+}
+
+// The Verified Hat: everyone who confirms their email gets one (an original
+// Guts&Bolts cap with our blue check, not a copy of anything). Server.cpp makes the same one.
+const VERIFIED_HAT_ID = 'item-verified-hat';
+const VERIFIED_HAT = {
+  format: 'gbaccessory', version: 1, kind: 'hat',
+  node: { id: 1, name: 'VerifiedHat', kind: 'Model', pos: [0, 2.66, 0], rot: [0, 0, 0], size: [1, 1, 1], children: [
+    { id: 2, name: 'Crown', kind: 'Part', shape: 'Sphere', pos: [0, 0.02, -0.02], rot: [0, 0, 0], size: [0.8, 0.5, 0.8], color: [0.1, 0.13, 0.2], material: 'Fabric', anchored: true, canCollide: false },
+    { id: 3, name: 'Brim', kind: 'Part', shape: 'Cube', pos: [0, -0.06, 0.42], rot: [-8, 0, 0], size: [0.62, 0.04, 0.36], color: [0.1, 0.13, 0.2], material: 'Fabric', anchored: true, canCollide: false },
+    { id: 4, name: 'Badge', kind: 'Part', shape: 'Cylinder', pos: [0, 0.08, 0.36], rot: [72, 0, 0], size: [0.24, 0.04, 0.24], color: [0.16, 0.55, 1.0], material: 'SmoothPlastic', anchored: true, canCollide: false },
+    { id: 5, name: 'CheckShort', kind: 'Part', shape: 'Cube', pos: [-0.035, 0.065, 0.385], rot: [72, 0, 45], size: [0.035, 0.08, 0.02], color: [1, 1, 1], material: 'SmoothPlastic', anchored: true, canCollide: false },
+    { id: 6, name: 'CheckLong', kind: 'Part', shape: 'Cube', pos: [0.03, 0.085, 0.38], rot: [72, 0, -40], size: [0.035, 0.15, 0.02], color: [1, 1, 1], material: 'SmoothPlastic', anchored: true, canCollide: false },
+  ] },
+};
+
 // nlohmann::json::dump(): keys sorted, no spaces (what signatures are made over).
 function canon(v) {
   if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
@@ -245,6 +353,11 @@ export class GbServerObject extends DurableObject {
       if (u.userId > 0) { this.nextUserId = Math.max(this.nextUserId, u.userId + 1); this.takenNames.add(lower(u.username)); }
     }
     this.takenNames.add('guts');
+    // Guts follows everyone (like Builderman did on old Roblox).
+    for (const u of this.users.values()) this.gutsFollows(u);
+    this.addExampleGames();
+    this.addVerifiedHat();
+    for (const u of this.users.values()) if (u.emailVerified && !u.owned.includes(VERIFIED_HAT_ID)) { this.giveVerifiedHat(u); this.saveUser(u); }
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
     for (const u of this.users.values()) for (const k of u.keys || []) this.aliases.set(k, u.id);
@@ -348,7 +461,7 @@ export class GbServerObject extends DurableObject {
     let u = this.users.get(id);
     if (u) return u;
     u = { id, name: 'Player', created: now(), lastSeen: 0, ledger: [], grants: {}, owned: [], uploadDay: '', uploadsToday: 0,
-      playDay: '', playEarned: 0, lastPlay: 0, banned: false, friends: [], friendIn: [], friendOut: [],
+      playDay: '', playEarned: 0, lastPlay: 0, banned: false, friends: [], friendIn: [], friendOut: [], following: [], followers: [],
       username: '', userId: 0, pwSalt: '', pwHash: '', keyBlob: '' };
     this.users.set(id, u);
     this.claimOfficial(u);
@@ -361,7 +474,30 @@ export class GbServerObject extends DurableObject {
     for (const u of this.users.values()) if (u.userId > 0 && lower(u.username) === want) return u;
     return null;
   }
+  // The Guts account (#1) follows every signed-up player. (ServerAccounts.cpp gutsFollows)
+  gutsFollows(u) {
+    const g = this.findUserId(1);
+    if (!g || u.userId <= 1 || g.id === u.id) return;
+    const following = g.following || (g.following = []), followers = u.followers || (u.followers = []);
+    if (following.includes(u.id) && followers.includes(g.id)) return;
+    if (!following.includes(u.id)) following.push(u.id);
+    if (!followers.includes(g.id)) followers.push(g.id);
+    this.saveUser(g, u);
+  }
   findUserId(n) { if (n <= 0) return null; for (const u of this.users.values()) if (u.userId === n) return u; return null; }
+  // An account key, or "@name" / a name as shown in games (the in-game player list).
+  // The user number (5 or "#5") is the main way to name someone; long account keys,
+  // "@username" and names work too. (ServerAccounts.cpp findPerson)
+  findPerson(s) {
+    if (typeof s === 'number') return this.findUserId(Math.trunc(s));
+    s = String(s || '').trim();
+    if (/^#?[0-9]{1,11}$/.test(s)) return this.findUserId(Number(s.replace('#', '')));
+    const u = this.findUser(s) || this.findUsername(s.replace(/^@/, ''));
+    if (u) return u;
+    const want = lower(s);
+    for (const v of this.users.values()) if (v.userId > 0 && lower(v.name) === want) return v;
+    return null;
+  }
   balance(u) { return u.ledger.reduce((s, e) => s + e[0], 0); }
   hasRef(u, ref) { return u.ledger.some((e) => e[3] === ref); }
   add(u, amount, reason, ref) {
@@ -374,6 +510,27 @@ export class GbServerObject extends DurableObject {
     this.saveUser(u);
   }
   isOnline(u) { return now() - u.lastSeen <= kOnlineFor || !!this.sessionOf(u.id); }
+  // Privacy, like Roblox's: who sees you online / what you're playing, and who can
+  // join you there: 'everyone', 'friends' or 'nobody'. (Server.cpp has the same rules.)
+  privacyOf(u) {
+    const p = u.privacy || {};
+    return { status: PRIVACY.includes(p.status) ? p.status : 'everyone', join: PRIVACY.includes(p.join) ? p.join : 'everyone' };
+  }
+  allows(setting, viewer, u) {
+    if (viewer && viewer.id === u.id) return true;
+    if (setting === 'everyone') return true;
+    return setting === 'friends' && !!viewer && u.friends.includes(viewer.id);
+  }
+  // What `viewer` may know about where `u` is: { online, playing: {game, title, session (null = can't join)} }.
+  presence(viewer, u) {
+    const pv = this.privacyOf(u);
+    if (!this.allows(pv.status, viewer, u)) return { online: false, playing: null };
+    const s = this.sessionOf(u.id);
+    const g = s && this.assets.get(s.game);
+    const playing = s ? { game: s.game, title: s.title || (g ? g.name : 'a game'), private: s.priv,
+      full: s.players.size + 1 >= s.max, session: this.allows(pv.join, viewer, u) ? s.id : null } : null;
+    return { online: this.isOnline(u), playing };
+  }
   badgesOf(u) {
     const b = [];
     if (this.isOfficial(u)) b.push('admin');
@@ -398,7 +555,15 @@ export class GbServerObject extends DurableObject {
       owned: [...u.owned].sort(),
       avatar: u.avatar || null,
       email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
-      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail,
+      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail, authApp: !!u.totpSecret, privacy: this.privacyOf(u),
+      gear: (u.gear || []).filter((g) => u.owned.includes(g)),
+      // Banned: what for and until when (the app and the site show a ban screen).
+      ban: u.banned ? { reason: u.banReason || '', title: BAN_REASONS[u.banReason] || 'Breaking the rules',
+        note: u.banNote || '', at: u.bannedAt || 0, until: u.bannedUntil || 0 } : null,
+      // Staff warnings not seen yet (shown once, until "I understand").
+      warnings: (u.warnings || []).filter((w) => !w.seen)
+        .map((w) => ({ id: w.id, reason: w.reason, title: BAN_REASONS[w.reason] || 'Breaking the rules', note: w.note, at: w.at })),
+      warningCount: (u.warnings || []).length,
     });
   }
 
@@ -457,14 +622,64 @@ export class GbServerObject extends DurableObject {
       }
     }
   }
+  // The example games (see EXAMPLE_GAMES): added once, kept up to date with the
+  // copies that come with the server, and owned by the staff account (Guts).
+  // The Verified Hat (see VERIFIED_HAT): an award, not for sale.
+  addVerifiedHat() {
+    if (!this.official) return;
+    const text = JSON.stringify(VERIFIED_HAT), data = new TextEncoder().encode(text);
+    let a = this.assets.get(VERIFIED_HAT_ID);
+    if (!a) {
+      a = { id: VERIFIED_HAT_ID, kind: 'hat', name: 'Verified Hat', creator: this.official, price: 0, created: now(), sales: 0,
+        plays: 0, size: 0, meta: { award: 'email' }, builtin: true, likes: 0, dislikes: 0 };
+      this.assets.set(a.id, a);
+    }
+    a.description = 'Given to everyone who confirms their email address. Can\'t be bought: add and confirm an email in Settings to get it.';
+    if (a.size !== data.length) { a.size = data.length; a.updated = now(); this.writeFile(a.id, data); }
+    this.saveAsset(a);
+  }
+
+  giveVerifiedHat(u) {
+    const a = this.assets.get(VERIFIED_HAT_ID);
+    if (!a || !u.emailVerified || u.owned.includes(a.id)) return;
+    u.owned.push(a.id);
+    a.sales++;
+    this.saveAsset(a);
+  }
+
+  addExampleGames() {
+    if (!this.official) return;
+    for (const ex of EXAMPLE_GAMES) {
+      let info = {};
+      try { info = JSON.parse(ex.text).info || {}; } catch { continue; }
+      const data = new TextEncoder().encode(ex.text);
+      let a = this.assets.get(ex.id);
+      if (!a) {
+        a = { id: ex.id, kind: 'game', name: cleanText(info.title || 'Game', 50), creator: this.official, price: 0,
+          created: now(), sales: 0, plays: 0, size: 0, meta: {}, access: 'public', genres: ex.genres, maxPlayers: 12,
+          builtin: true, likes: 0, dislikes: 0 };
+        this.assets.set(a.id, a);
+      }
+      a.description = cleanText(info.description || '', 1000, true);
+      if (a.size !== data.length) { a.size = data.length; a.updated = now(); this.writeFile(a.id, data); }
+      this.saveAsset(a);
+    }
+  }
+
+  // What someone is wearing (their avatar's items), as the catalog shows them.
+  wornItems(u) {
+    const ids = u && u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
+    return ids.map((id) => this.assets.get(id)).filter(Boolean).map((a) => this.publicAsset(a));
+  }
+
   publicAsset(a, me = null) {
     const c = this.users.get(a.creator);
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
-      creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
+      creatorName: c ? c.name : (a.builtin ? 'Guts' : '?'), creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
       icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
       badges: a.kind === 'game' ? (a.badges || []) : undefined,
-      genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
+      genres: a.kind === 'game' ? (a.genres || []) : undefined, allowGear: a.kind === 'game' ? !!a.allowGear : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a) };
@@ -539,6 +754,11 @@ export class GbServerObject extends DurableObject {
       return { bad: fail('This device was logged out because the account\'s password was reset. Log in again with the new password.') };
     me.lastSeen = t;
     this.saveUser(me);
+    if (me.banned && me.bannedUntil && t >= me.bannedUntil) {   // a timed ban is over
+      me.banned = false;
+      delete me.banReason; delete me.banNote; delete me.bannedAt; delete me.bannedUntil;
+      this.saveUser(me);
+    }
     if (me.banned && opName !== 'hello') return { bad: fail(banMessage(me)) };
     if (me.userId === 0 && opName !== 'hello' && opName !== 'ping' && !opName.startsWith('account.') && !GUEST_OK.has(opName))
       return { bad: fail('Sign up or log in first.') };
@@ -577,7 +797,7 @@ export class GbServerObject extends DurableObject {
     }
     if (name === 'profile') {
       const want = str(args, 'id');
-      const u = want && want.length < 12 && /^[0-9]+$/.test(want) ? this.findUserId(Number(want)) : this.findUser(want);
+      const u = want && want.length < 12 && /^[0-9]+$/.test(want) ? this.findUserId(Number(want)) : this.findPerson(want);
       if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
       const user = Object.assign(this.publicUser(u), { badges: this.badgesOf(u), avatar: u.avatar || null });
       const creations = [...this.assets.values()].filter((a) => a.creator === u.id && this.canPlay(a, me)).map((a) => this.publicAsset(a));
@@ -585,10 +805,9 @@ export class GbServerObject extends DurableObject {
       const friendship = u.id === me.id ? 'self' : me.friends.includes(u.id) ? 'friends'
         : me.friendOut.includes(u.id) ? 'sent' : me.friendIn.includes(u.id) ? 'received' : 'none';
       // Like a Roblox profile: what they're wearing, some friends, visits to their games.
-      const wornIds = u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
-      const wearing = wornIds.map((id) => this.assets.get(id)).filter(Boolean).map((a) => this.publicAsset(a));
+      const wearing = this.wornItems(u);
       const friends = u.friends.slice(0, 9).map((id) => this.users.get(id)).filter(Boolean)
-        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.isOnline(f) }));
+        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.presence(me, f).online, wearing: this.wornItems(f) }));
       const placeVisits = creations.filter((a) => a.kind === 'game').reduce((n, a) => n + (a.plays || 0), 0);
       // Game badges (made by game creators, earned by playing) - separate from the
       // Guts&Bolts badges above, which only staff give out.
@@ -597,7 +816,9 @@ export class GbServerObject extends DurableObject {
         return b ? { id: b.id, name: b.name, description: b.description, color: b.color, game: gid, gameName: g.name, earned: when } : null;
       }).filter(Boolean).reverse();
       return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
-        online: this.isOnline(u), placeVisits, gameBadges });
+        followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
+        isFollowing: (me.following || []).includes(u.id),
+        online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges });
     }
     if (name === 'users.search') {
       let q = lower(cleanText(str(args, 'query'), 64));
@@ -617,10 +838,12 @@ export class GbServerObject extends DurableObject {
     }
     if (name.startsWith('account.')) return this.accountOp(name, me, args);
     if (name.startsWith('groups.')) return this.groupOp(name, me, args);
-    if (name.startsWith('friends.')) return this.friendOp(name, me, args);
+    if (name.startsWith('friends.') || name.startsWith('follow.')) return this.friendOp(name, me, args);
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
     if (name.startsWith('updates.')) return this.updateOp(name, me, args);
-    if (name === 'ping') return okay();
+    // "I'm still here" (for friends' online dots); the answer keeps your account fresh
+    // (a new warning, or Bolts someone sent you, shows up within a minute).
+    if (name === 'ping') return okay({ me: this.meJson(me) });
 
     if (name === 'avatar.set') {
       // Your look, shared by the website and the apps. Colours are 0-255 whole numbers.
@@ -640,6 +863,19 @@ export class GbServerObject extends DurableObject {
       const hatColor = rgb(a.hatColor, true) || [-1, -1, -1];
       const wearing = Array.isArray(a.wearing) ? a.wearing.filter((w) => typeof w === 'string' && me.owned.includes(w)).slice(0, 12) : [];
       me.avatar = Object.assign(colors, { hat, hatColor, wearing, updated: t });
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'gear.equip') {   // put gear you own in (or take it out of) your backpack for games
+      const id = str(args, 'id'), on = args.on !== false;
+      const a = this.assets.get(id);
+      me.gear = (me.gear || []).filter((g) => g !== id && me.owned.includes(g));
+      if (on) {
+        if (!a || a.kind !== 'gear') return fail('That gear doesn\'t exist (any more).');
+        if (!me.owned.includes(id)) return fail('Get it from the catalog first.');
+        if (me.gear.length >= kMostGear) return fail('You can have ' + kMostGear + ' gear equipped at once. Take one off first.');
+        me.gear.push(id);
+      }
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
@@ -698,6 +934,7 @@ export class GbServerObject extends DurableObject {
         a.genres = picked;
       }
       if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
+      if ('allowGear' in args) a.allowGear = args.allowGear === true;
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
@@ -765,14 +1002,15 @@ export class GbServerObject extends DurableObject {
 
     if (name.startsWith('admin.')) {
       if (!this.isStaff(me)) return fail('Only staff can do that.');
-      let to = this.findUser(str(args, 'to'));
+      let to = this.findPerson(args.to);
       if (!to && name !== 'admin.find' && isHex(lower(str(args, 'to')), 64, 64)) to = this.user(lower(str(args, 'to')));
       if (name === 'admin.find') {
         const q = lower(cleanText(str(args, 'query'), 64));
         const list = [];
         for (const u of this.users.values()) {
           if (list.length >= 40) break;
-          if (!q || lower(u.name).includes(q) || u.id.startsWith(q)) list.push(this.publicUser(u));
+          const num = /^#?[0-9]+$/.test(q) ? Number(q.replace('#', '')) : -1;
+          if (!q || u.userId === num || lower(u.name).includes(q) || u.id.startsWith(q)) list.push(this.publicUser(u));
         }
         return okay({ users: list });
       }
@@ -808,10 +1046,22 @@ export class GbServerObject extends DurableObject {
           to.banReason = reason;
           to.banNote = cleanText(str(args, 'note'), 200);
           to.bannedAt = now();
+          const days = clamp(num(args, 'days'), 0, 3650);   // 0 = for good
+          if (days > 0) to.bannedUntil = to.bannedAt + days * 86400; else delete to.bannedUntil;
         } else {
-          delete to.banReason; delete to.banNote; delete to.bannedAt;
+          delete to.banReason; delete to.banNote; delete to.bannedAt; delete to.bannedUntil;
         }
         to.banned = on;
+        this.saveUser(to);
+        return okay({ user: this.publicUser(to) });
+      }
+      if (name === 'admin.warn') {
+        // A warning: they see it (with the reason) next time they open the app or the site.
+        const reason = str(args, 'reason');
+        if (!BAN_REASONS[reason]) return fail('Pick a reason for the warning.');
+        to.warnings = to.warnings || [];
+        to.warnings.push({ id: randomHex(4), reason, note: cleanText(str(args, 'note'), 200), at: now(), seen: false });
+        if (to.warnings.length > kMaxWarnings) to.warnings.splice(0, to.warnings.length - kMaxWarnings);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -827,6 +1077,7 @@ export class GbServerObject extends DurableObject {
       const verified = this.isVerified(me);
       if (isAccessory(kind) && !verified && !this.isStaff(me)) return fail('Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!');
       if (kind === 'face' && !this.isOfficial(me)) return fail('Only Guts can make faces.');
+      if (kind === 'gear' && !this.isStaff(me)) return fail('Only Guts&Bolts staff can make gear.');
       let price = clamp(num(args, 'price'), 0, 1000000);
       if (kind === 'game' || alwaysFree(kind)) price = 0;
       if (price > 0 && !verified) return fail('Only Verified creators can sell things. Upload it for free, or get Verified!');
@@ -853,6 +1104,7 @@ export class GbServerObject extends DurableObject {
       }
       if (kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
       if (kind === 'plugin' && !data.length) return fail('That plugin is empty.');
+      if (kind === 'gear') { const problem = gearProblem(data); if (problem) return fail(problem); }
       let access;
       if (kind === 'model') {
         if (!isJson(data)) return fail('That isn\'t a Guts&Bolts model.');
@@ -963,6 +1215,7 @@ export class GbServerObject extends DurableObject {
       try { data = b64ToBytes(str(args, 'data')); } catch { return fail('The upload got scrambled. Try again.'); }
       if (data.length > maxSize(a.kind)) return fail('That\'s too big.');
       if (a.kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
+      if (a.kind === 'gear') { const problem = gearProblem(data); if (problem) return fail(problem); }
       if (!isClothing(a.kind)) this.writeFile(a.id, data);
       const title = cleanText(str(args, 'name'), 50);
       if (title) a.name = title;
@@ -980,8 +1233,10 @@ export class GbServerObject extends DurableObject {
     if (name === 'list') {
       const kind = str(args, 'kind'), q = lower(cleanText(str(args, 'query'), 64)), creator = lower(str(args, 'creator'));
       const sort = str(args, 'sort'), genre = str(args, 'genre');
+      const ownedOnly = args.owned === true;   // your inventory (the Avatar page)
       const found = [...this.assets.values()].filter((a) =>
-        (!kind || a.kind === kind || (kind === 'clothing' && isClothing(a.kind))) &&
+        (!kind || a.kind === kind || (kind === 'clothing' && isCatalogItem(a.kind))) &&
+        (!ownedOnly || me.owned.includes(a.id)) &&
         (!creator || a.creator === creator) && this.canPlay(a, me) &&
         (!genre || (a.genres || []).includes(genre)) &&
         (!q || lower(a.name).includes(q) || lower(a.description || '').includes(q) || (a.genres || []).some((g) => lower(g) === q)));
@@ -1001,7 +1256,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       const mine = me.owned.includes(a.id) || a.creator === me.id;
-      if (a.price > 0 && !mine && !this.isStaff(me) && (a.kind === 'plugin' || a.kind === 'audio')) return fail('Buy it first.');
+      if (a.price > 0 && !mine && !this.isStaff(me) && (a.kind === 'plugin' || a.kind === 'audio' || a.kind === 'gear')) return fail('Buy it first.');
       if (!this.canPlay(a, me)) return fail(this.noPlay(a));
       const data = this.readFile(a.id);
       if (!data) return fail('The server lost that file.');
@@ -1017,6 +1272,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
+      if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
       if (a.price > 0) {
         if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
@@ -1050,7 +1306,7 @@ export class GbServerObject extends DurableObject {
     // --- Editing items (their creator or staff) ---
     if (name === 'item.edit') {
       const a = this.assets.get(str(args, 'id'));
-      if (!a || !isClothing(a.kind)) return fail('That item doesn\'t exist (any more).');
+      if (!a || !isCatalogItem(a.kind)) return fail('That item doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('Only the item\'s creator or staff can change it.');
       if ('name' in args) {
         const title = cleanText(str(args, 'name'), 50);
@@ -1142,12 +1398,12 @@ export class GbServerObject extends DurableObject {
     }
     // --- Trading limited copies ---
     if (name === 'trade.inventory') {
-      const u = this.findUser(str(args, 'user')) || this.findUserId(num(args, 'user'));
+      const u = this.findPerson(args.user);
       if (!u) return fail('There\'s no account with that ID on this server.');
       return okay({ user: this.publicUser(u), items: this.copiesOf(u) });
     }
     if (name === 'trade.send') {
-      const to = this.findUser(str(args, 'to'));
+      const to = this.findPerson(args.to);
       if (!to || to.userId === 0) return fail('There\'s no account with that ID on this server.');
       if (to.id === me.id) return fail('You can\'t trade with yourself.');
       const pick = (list) => (Array.isArray(list) ? list : []).slice(0, 4).map((x) => ({ id: String(x && x.id || ''), serial: Number(x && x.serial) | 0 }));
@@ -1206,6 +1462,13 @@ export class GbServerObject extends DurableObject {
 
   accountOp(name, me, args) {
     const username = cleanText(str(args, 'username'), 30);
+    if (name === 'account.ackWarning') {   // "I understand" on a staff warning
+      const w = (me.warnings || []).find((x) => x.id === str(args, 'id'));
+      if (!w) return fail('That warning is gone.');
+      w.seen = true;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
     if (name === 'account.check') {
       let problem = usernameProblem(username, this.isOfficial(me));
       if (!problem && this.takenNames.has(lower(username)) && !(this.isOfficial(me) && lower(username) === 'guts'))
@@ -1229,6 +1492,7 @@ export class GbServerObject extends DurableObject {
         me.username = username;
         this.takenNames.add(lower(username));
         me.name = username;
+        this.gutsFollows(me);
       }
       me.pwSalt = salt; me.pwHash = hashHex(auth); me.keyBlob = blob;
       this.dirty.ids = true;
@@ -1255,6 +1519,7 @@ export class GbServerObject extends DurableObject {
       const problem = this.checkCode(me, 'email', str(args, 'code'));
       if (problem) return fail(problem);
       me.email = me.pendingEmail; me.emailVerified = true; me.pendingEmail = '';
+      this.giveVerifiedHat(me);
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
@@ -1271,6 +1536,42 @@ export class GbServerObject extends DurableObject {
       const on = !!args.on;
       if (on && !me.emailVerified) return fail('Add and confirm an email first: the codes go there.');
       me.twoStep = on;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    // Authenticator app: setup gives a secret (and an otpauth:// link for the QR code);
+    // a code from the app turns it on. Then logging in needs a code from the app.
+    if (name === 'account.privacy') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const p = this.privacyOf(me);
+      if (PRIVACY.includes(args.status)) p.status = args.status;
+      if (PRIVACY.includes(args.join)) p.join = args.join;
+      me.privacy = p;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.authAppSetup') {
+      if (me.userId === 0) return fail('Sign up first.');
+      if (me.keyBlob && !provePassword()) return fail('Wrong password.');
+      me.totpPending = base32(crypto.getRandomValues(new Uint8Array(20)));
+      this.saveUser(me);
+      const label = encodeURIComponent('Guts&Bolts:' + me.username);
+      return okay({ secret: me.totpPending,
+        uri: 'otpauth://totp/' + label + '?secret=' + me.totpPending + '&issuer=' + encodeURIComponent('Guts&Bolts') + '&digits=6&period=30' });
+    }
+    if (name === 'account.authAppEnable') {
+      if (!me.totpPending) return fail('Start setting it up first.');
+      const step = totpCheck(me.totpPending, str(args, 'code'), now());
+      if (step < 0) return fail('That code isn\'t right. Check your phone\'s clock, and type the newest code.');
+      me.totpSecret = me.totpPending; me.totpPending = ''; me.totpLast = step;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.authAppDisable') {
+      if (!me.totpSecret) return okay({ me: this.meJson(me) });
+      if (me.keyBlob && !provePassword()) return fail('Wrong password.');
+      if (totpCheck(me.totpSecret, str(args, 'code'), now()) < 0) return fail('That code isn\'t right.');
+      me.totpSecret = ''; me.totpLast = -1;
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
@@ -1368,7 +1669,14 @@ export class GbServerObject extends DurableObject {
       if (fails.length >= kMaxWrongPasswords) return fail('Too many wrong passwords. Wait 10 minutes and try again.');
       const auth = lower(str(args, 'auth'));
       if (!isHex(auth, 64, 64) || hashHex(auth) !== u.pwHash) { fails.push(t); return fail('Wrong password.'); }
-      if (u.twoStep && u.emailVerified) {
+      if (u.totpSecret) {   // authenticator app (checked first; it doesn't need email)
+        const code = str(args, 'code');
+        if (!code) return Object.assign(fail('Type the 6-digit code from your authenticator app.'), { needCode: true, app: true });
+        const step = totpCheck(u.totpSecret, code, now(), u.totpLast ?? -1);
+        if (step < 0) { fails.push(t); return Object.assign(fail('That code isn\'t right (or was already used). Try the newest one.'), { needCode: true, app: true }); }
+        u.totpLast = step;
+        this.saveUser(u);
+      } else if (u.twoStep && u.emailVerified) {
         const code = str(args, 'code');
         if (!code) {
           const problem = this.mailCode(u, 'login', u.email, 'Your Guts&Bolts login code',
@@ -1394,16 +1702,40 @@ export class GbServerObject extends DurableObject {
       for (const id of me.friends) {
         const u = this.findUser(id);
         if (!u) continue;
-        const f = Object.assign(person(u), { online: this.isOnline(u) });
-        const s = this.sessionOf(u.id);
-        if (s) f.playing = { session: s.id, title: s.title, private: s.priv, full: s.players.size + 1 >= s.max };
+        const pr = this.presence(me, u);
+        const f = Object.assign(person(u), { online: pr.online });
+        if (pr.playing) f.playing = pr.playing;
         friends.push(f);
       }
       return okay({ friends, incoming: me.friendIn.map((id) => this.findUser(id)).filter(Boolean).map(person),
         outgoing: me.friendOut.map((id) => this.findUser(id)).filter(Boolean).map(person) });
     }
-    const them = this.findUser(str(args, 'user'));
-    if (!them) return fail('There\'s no account with that ID on this server.');
+    const them = this.findPerson(args.user);
+    if (!them || them.userId === 0) return fail('There\'s no account with that ID on this server.');
+    const following = me.following || (me.following = []), followers = them.followers || (them.followers = []);
+    // Where you stand with someone (the in-game player list asks before showing its menu).
+    if (name === 'friends.relation') {
+      const friendship = them.id === me.id ? 'self' : me.friends.includes(them.id) ? 'friends'
+        : me.friendOut.includes(them.id) ? 'sent' : me.friendIn.includes(them.id) ? 'received' : 'none';
+      return okay({ id: them.id, name: them.name, friendship, following: following.includes(them.id),
+        followers: followers.length });
+    }
+    // Following: one way, no asking (like Roblox). You see what they're up to.
+    if (name === 'follow.add' || name === 'follow.remove') {
+      if (them.id === me.id) return fail('You can\'t follow yourself.');
+      const i = following.indexOf(them.id), j = followers.indexOf(me.id);
+      if (name === 'follow.add') {
+        if (them.banned) return fail('You can\'t follow that account.');
+        if (i < 0 && following.length >= kMaxFollowing) return fail('You already follow ' + kMaxFollowing + ' people.');
+        if (i < 0) following.push(them.id);
+        if (j < 0) followers.push(me.id);
+      } else {
+        if (i >= 0) following.splice(i, 1);
+        if (j >= 0) followers.splice(j, 1);
+      }
+      this.saveUser(me, them);
+      return okay({ following: name === 'follow.add', followers: followers.length });
+    }
     if (them.id === me.id) return fail('You can\'t be friends with yourself (but we like you).');
     const drop = (list, id) => { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); };
     const addTo = (list, id) => { if (!list.includes(id)) list.push(id); };

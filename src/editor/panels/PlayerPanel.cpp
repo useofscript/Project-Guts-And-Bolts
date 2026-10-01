@@ -20,7 +20,10 @@ void PlayerPanel::render() {
 
     if (ImGui::CollapsingHeader("Humanoid", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("Walk Speed", &h.walkSpeed, 0.0f, 30.0f);
-        ImGui::SliderFloat("Jump Power", &h.jumpPower, 0.0f, 30.0f);
+        ImGui::Checkbox("Use Jump Power", &h.useJumpPower);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Off: set how high to jump (Jump Height).\nOn: set how fast you leave the ground (Jump Power).");
+        if (h.useJumpPower) ImGui::SliderFloat("Jump Power", &h.jumpPower, 0.0f, 40.0f);
+        else                ImGui::SliderFloat("Jump Height", &h.jumpHeight, 0.0f, 20.0f, "%.1f studs");
         ImGui::Checkbox   ("Auto Rotate", &h.autoRotate);
     }
 

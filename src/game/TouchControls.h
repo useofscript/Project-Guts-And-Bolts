@@ -57,6 +57,7 @@ private:
     float  m_dt = 0.0f;
     std::vector<Touch> m_touches;
     ImVec2 m_stickCenter{0, 0};
+    ImVec2 stickHome() const;
     bool   m_stickActive = false;
     float  m_pinchDist = 0.0f;
 

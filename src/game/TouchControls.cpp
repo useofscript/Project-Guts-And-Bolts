@@ -18,11 +18,18 @@ void TouchControls::begin(ImVec2 min, ImVec2 max, float scale) {
     m_tap = m_chat = m_menu = false;
 }
 
+// The thumbstick stays put in the bottom-left corner (it doesn't jump to your thumb).
+ImVec2 TouchControls::stickHome() const { return ImVec2(m_min.x + 120 * m_scale, m_max.y - 120 * m_scale); }
+
 ImVec2 TouchControls::jumpCenter() const { return ImVec2(m_max.x - 105 * m_scale, m_max.y - 105 * m_scale); }
 float  TouchControls::jumpRadius() const { return 48 * m_scale; }
 
 bool TouchControls::inStickZone(ImVec2 p) const {
-    return p.x < m_min.x + (m_max.x - m_min.x) * 0.45f && p.y > m_min.y + (m_max.y - m_min.y) * 0.35f;
+    // On (or near) the stick: a thumb that lands a bit off it still grabs it.
+    ImVec2 h = stickHome();
+    float dx = p.x - h.x, dy = p.y - h.y;
+    float r = 62 * m_scale * 2.0f;
+    return dx * dx + dy * dy < r * r;
 }
 
 void TouchControls::buttonRects(ImVec2& chatA, ImVec2& chatB, ImVec2& menuA, ImVec2& menuB) const {
@@ -77,7 +84,7 @@ void TouchControls::feed(const std::vector<Finger>& fingers, bool allowNew) {
         else if (!m_stickActive && inStickZone(f.pos)) {
             t.role = Role::Stick;
             m_stickActive = true;
-            m_stickCenter = f.pos;       // the stick appears under your thumb
+            m_stickCenter = stickHome();   // always the same place, wherever your thumb lands
         } else                                                     t.role = Role::Look;
         m_touches.push_back(t);
     }
@@ -92,11 +99,7 @@ void TouchControls::feed(const std::vector<Finger>& fingers, bool allowNew) {
             case Role::Stick: {
                 glm::vec2 d(t.pos.x - m_stickCenter.x, t.pos.y - m_stickCenter.y);
                 float len = glm::length(d);
-                if (len > stickR) {
-                    // Drag past the edge and the stick follows your thumb.
-                    glm::vec2 pull = d * (1.0f - stickR / len);
-                    m_stickCenter.x += pull.x;
-                    m_stickCenter.y += pull.y;
+                if (len > stickR) {   // past the edge: full speed that way (the stick stays where it is)
                     d *= stickR / len;
                     len = stickR;
                 }
@@ -131,7 +134,7 @@ void TouchControls::feedMouse(bool allowed) {
 void TouchControls::draw(ImDrawList* dl) const {
     const float s = m_scale;
     // Thumbstick: faint at its resting place, solid while held.
-    ImVec2 base = m_stickActive ? m_stickCenter : ImVec2(m_min.x + 120 * s, m_max.y - 120 * s);
+    ImVec2 base = stickHome();
     ImVec2 knob = base;
     for (const Touch& t : m_touches)
         if (t.role == Role::Stick) {

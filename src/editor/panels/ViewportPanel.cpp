@@ -26,6 +26,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* state)
     : m_window(window), m_scene(scene), m_state(state) {
@@ -292,14 +293,15 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     else if (m_state->tool == GizmoTool::Scale) op = ImGuizmo::SCALE;
     ImGuizmo::MODE mode = m_state->gizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
 
+    // Increments, like Roblox Studio: Move (studs) also sets how Scale grows, Rotate
+    // turns in steps of degrees. Turned off, everything moves freely (Blender style).
     float snap[3] = {0, 0, 0};
     bool snapping = op == ImGuizmo::ROTATE ? m_state->rotSnapEnabled : m_state->snapEnabled;
     if (snapping) {
-        float s = (op == ImGuizmo::TRANSLATE) ? m_state->snapTranslate
-                : (op == ImGuizmo::ROTATE)    ? m_state->snapRotate
-                                              : m_state->snapScale;
+        float s = (op == ImGuizmo::TRANSLATE) ? m_state->snapTranslate : m_state->snapRotate;
         snap[0] = snap[1] = snap[2] = s;
     }
+    const bool snapSize = snapping && op == ImGuizmo::SCALE && m_state->snapTranslate > 0.01f;   // (done below, in studs)
 
     // Models are handled around their middle (their "pivot"), like Roblox,
     // rather than their origin, which may be far away from their parts.
@@ -321,9 +323,18 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
             localPivot = Anim::jointPivot(sel);
     glm::mat4 world = base * glm::translate(glm::mat4(1.0f), localPivot);
     const glm::vec3 pivotBefore(world[3]);
-    if (ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
-                             glm::value_ptr(world), nullptr,
-                             snapping ? snap : nullptr)) {
+    const Transform before0 = sel->transform;
+    const bool changed = ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
+                                              glm::value_ptr(world), nullptr,
+                                              snapping && op != ImGuizmo::SCALE ? snap : nullptr);
+    // Started dragging: remember where from (for the readout).
+    if (ImGuizmo::IsUsing() && !m_gizmoDragging) {
+        m_gizmoDragging = true;
+        m_dragStart = before0;
+        m_dragStartPivot = pivotBefore;
+    }
+    if (!ImGuizmo::IsUsing()) m_gizmoDragging = false;
+    if (changed) {
         glm::vec3 movedPivot = glm::vec3(world[3]) - pivotBefore;
         world = world * glm::translate(glm::mat4(1.0f), -localPivot);
         // Convert the manipulated world matrix back into a local transform.
@@ -362,8 +373,42 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
         sel->transform.position = {t[0], t[1], t[2]};
         sel->transform.rotation += deltaRot;
         sel->transform.scale    = {s[0], s[1], s[2]};
+        if (snapSize) {   // sizes in whole steps of the Move increment (never smaller than one step)
+            const float st = m_state->snapTranslate;
+            for (int i = 0; i < 3; ++i)
+                if (std::abs(sel->transform.scale[i] - m_dragStart.scale[i]) > 1e-5f) {
+                    const float d = std::round((sel->transform.scale[i] - m_dragStart.scale[i]) / st) * st;
+                    sel->transform.scale[i] = std::max(st, m_dragStart.scale[i] + d);
+                }
+        }
 
         if (collide) stopAtCollisions(*m_scene, movers, before, hitBefore, m_state->tool == GizmoTool::Translate);
+    }
+
+    // While dragging: how far, next to the mouse (like Roblox Studio's "4 studs").
+    if (m_gizmoDragging) {
+        char text[96] = "";
+        if (op == ImGuizmo::TRANSLATE) {
+            const glm::vec3 d = glm::vec3((sel->worldMatrix() * glm::translate(glm::mat4(1.0f), localPivot))[3]) - m_dragStartPivot;
+            std::snprintf(text, sizeof text, "%.2f studs", glm::length(d));
+            if (std::abs(d.x) > 1e-3f && std::abs(d.y) + std::abs(d.z) < 1e-3f) std::snprintf(text, sizeof text, "X  %+.2f studs", d.x);
+            else if (std::abs(d.y) > 1e-3f && std::abs(d.x) + std::abs(d.z) < 1e-3f) std::snprintf(text, sizeof text, "Y  %+.2f studs", d.y);
+            else if (std::abs(d.z) > 1e-3f && std::abs(d.x) + std::abs(d.y) < 1e-3f) std::snprintf(text, sizeof text, "Z  %+.2f studs", d.z);
+        } else if (op == ImGuizmo::ROTATE) {
+            glm::vec3 d = sel->transform.rotation - m_dragStart.rotation;
+            int big = std::abs(d.x) >= std::abs(d.y) && std::abs(d.x) >= std::abs(d.z) ? 0 : std::abs(d.y) >= std::abs(d.z) ? 1 : 2;
+            std::snprintf(text, sizeof text, "%+.1f\xC2\xB0", d[big]);
+        } else {
+            const glm::vec3 sz = sel->transform.scale, d = sz - m_dragStart.scale;
+            std::snprintf(text, sizeof text, "%.2f x %.2f x %.2f  (%+.2f studs)", sz.x, sz.y, sz.z,
+                          std::abs(d.x) >= std::abs(d.y) && std::abs(d.x) >= std::abs(d.z) ? d.x : std::abs(d.y) >= std::abs(d.z) ? d.y : d.z);
+        }
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        const ImVec2 m = ImGui::GetMousePos(), ts = ImGui::CalcTextSize(text);
+        const ImVec2 p0(m.x + 18, m.y + 14), p1(p0.x + ts.x + 12, p0.y + ts.y + 8);
+        dl->AddRectFilled(p0, p1, IM_COL32(30, 32, 38, 230), 4.0f);
+        dl->AddRect(p0, p1, IM_COL32(90, 150, 240, 255), 4.0f);
+        dl->AddText(ImVec2(p0.x + 6, p0.y + 4), IM_COL32(255, 255, 255, 255), text);
     }
 }
 
@@ -385,6 +430,7 @@ void ViewportPanel::render(float dt) {
         }
         bool playing = m_session != nullptr;
         m_renderer.setGridSpacing(m_state->snapEnabled && m_state->snapTranslate >= 0.25f ? m_state->snapTranslate : 1.0f);
+        updateNavOverlay();
         m_renderer.render(*m_scene, m_camera, m_fbo, m_state->showGrid && (!playing || m_session->runOnly()));
         Audio::setListener(m_camera.position(), m_camera.forward());
 
@@ -452,7 +498,10 @@ void ViewportPanel::render(float dt) {
             if (int slot = Hud::drawHotbar(dl, imgPos, imgMax, *m_scene); slot >= 0 && m_hovered) m_session->selectToolSlot(slot);
             // The leaderboard, once the game gives the player some leaderstats.
             if (auto stats = m_session->scripts().leaderstats(m_session->scripts().playerName()); !stats.empty())
-                Hud::drawPlayerList(dl, imgPos, imgMax, {{m_session->scripts().playerName(), false, false, stats}});
+            {
+                static bool listOpen = true;   // (the arrow on its title folds it away)
+                Hud::drawPlayerList(dl, imgPos, imgMax, {{m_session->scripts().playerName(), false, false, stats}}, listOpen);
+            }
             // Green frame = the game is running.
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);
             const char* tip = m_state->simPaused ? "PLAY (paused)  -  F6 resume, F7 step, Shift+F5 stop"
@@ -746,4 +795,38 @@ std::string ViewportPanel::snapshotPng(int width, int height, bool fromView) {
         static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
     }, &png, width, height, 4, img.data(), (int)row);
     return png;
+}
+
+void ViewportPanel::updateNavOverlay() {
+    static bool testFlag = std::getenv("GB_TEST_NAVMESH") != nullptr;   // (tests: start with it showing)
+    if (testFlag) { m_state->showNavMesh = true; testFlag = false; }
+    if (!m_state->showNavMesh && !m_state->bakeNavMesh) {
+        if (m_navShown) { m_renderer.setOverlay({}, {}); m_navShown = false; }
+        return;
+    }
+    // Look at the parts again now and then (twice a second); the navmesh rebakes
+    // itself when they've changed.
+    const double now = ImGui::GetTime();
+    if (now - m_navGather > 0.5 || m_state->bakeNavMesh) {
+        m_navGather = now;
+        m_navPhysics.gather(*m_scene);
+        if (m_state->bakeNavMesh) { m_navPhysics.rebakeNavMesh(); m_state->bakeNavMesh = 0; }
+    }
+    const NavMesh& nav = m_navPhysics.navMesh();
+    char info[96];
+    std::snprintf(info, sizeof info, "%zu floor cells, baked in %.0f ms", nav.spanCount(), nav.bakeMs());
+    m_state->navInfo = info;
+    if (!m_state->showNavMesh) return;
+    if (m_navShown && m_navDrawn == nav.version()) return;
+    std::vector<NavMesh::DrawVertex> tris, lines;
+    nav.buildDrawing(tris, lines, NavMesh::Agent{});
+    auto conv = [](const std::vector<NavMesh::DrawVertex>& in) {
+        std::vector<SceneRenderer::OverlayVertex> out;
+        out.reserve(in.size());
+        for (const auto& v : in) out.push_back({v.pos, v.color});
+        return out;
+    };
+    m_renderer.setOverlay(conv(tris), conv(lines));
+    m_navDrawn = nav.version();
+    m_navShown = true;
 }

@@ -1,3 +1,64 @@
+# Guts&Bolts 0.7.0: Who Let Us Cook? (October 1, 2026)
+
+## New
+- **Navmesh and pathfinding** (the headline): Studio bakes a navigation mesh of
+  every floor a character can stand on (re-baked by itself when anchored parts
+  change; *MODEL > Navigation > Navmesh* shows it). NPCs walk around walls, jump up
+  ledges, drop down and leap gaps. Scripts: Roblox's `PathfindingService`
+  (`CreatePath`, `ComputeAsync`, `GetWaypoints`, `Blocked`, ...) or just
+  `humanoid:PathfindTo(target)`.
+- **Gear in the catalog**: staff publish a Tool from Studio as Gear; people buy
+  it, equip up to 4, and get it in games whose creator ticked *Allow gear*.
+- **2011-style characters**: an Animate script (idle, walk, run, jump, fall,
+  climb, sit, tool), emotes (`/e dance`, wave, point, laugh, cheer),
+  `PlatformStand`, tripping and flinging.
+- **Tools held like Roblox's** (a `RightGrip` weld and the Grip properties), so
+  imported Roblox gear such as the LinkedSword works, scripts and all.
+- **Roblox hats** import with their real mesh and texture (mesh versions 1 to 7).
+- **Studio**: Move / Rotate increments like Roblox Studio, a studs readout by the
+  mouse while dragging, free movement with increments off, right-click
+  *Insert Object*, and Lighting / StarterPlayer in the Explorer.
+- **More Lua**: `TweenService`, `workspace:Raycast` (+ `Ray.new` /
+  `FindPartOnRay`), `GetPartBoundsInRadius`, `HttpService` JSON, `Random.new`,
+  `math.noise`, `BindableEvent` / `BindableFunction`, `ReplicatedStorage` /
+  `ServerStorage`, `Debris`, `Teams`, `GetPropertyChangedSignal`.
+- **User numbers** (#5) are the main way to name someone: add friends, search,
+  staff tools and profile links all use them.
+- **Leaderboard** folds away with Tab or its arrow; click a name to Friend or
+  Follow. **Following** is new, and Guts follows everyone.
+- **Join** buttons on profiles, and **privacy settings**: who sees you online
+  and what you play (everyone, friends, no one), and who can join you.
+- **Security**: authenticator app codes (TOTP) for logging in; confirming your
+  email gives you the **Verified Hat**.
+- **Terms of Service** and an 18+ heads-up on sign-up.
+- **Automatic updates**: the Player and Studio update themselves when they open
+  and a new version is out.
+
+## Also new since 0.6.2 (Dress Code and Take a Seat)
+- **Seats** (like Roblox): walk into a Seat and you sit on it, facing its front,
+  riding along if it moves; jump to get up. Insert one from Insert Object (or
+  tag any part "Seat"); Roblox Seats and VehicleSeats import working. Scripts:
+  `Humanoid.Sit`, `Humanoid.SeatPart`, `seat.Occupant`, `seat.Disabled`,
+  `seat:Sit(humanoid)`.
+- **Moderation that works**: a banned account sees a ban screen (in the app
+  and on the website) with the reason, staff's note and when it ends; bans can
+  last 1, 3, 7 or 30 days or forever, and end by themselves. Staff can also send
+  **warnings**, shown once until the player says they understand.
+- The app's Avatar page has a **Wardrobe**: everything you own, by kind
+  (Shirts, Pants, T-Shirts, Faces, Hats, Hair, Accessories). Click to wear,
+  click again to take off, or take everything off. No trip to the Catalog
+  needed. Colours and the classic hats are on the **Body & Colours** tab.
+
+## Fixed
+- Jumps were too low (about half your height). Now about 1.4 times your height,
+  like Roblox; `Humanoid.JumpHeight` and `UseJumpPower` work like Roblox's.
+- The play camera no longer goes through walls: it comes in front of them.
+- Phones: the thumbstick stays in its corner instead of moving to your thumb.
+- Your character on the home screen (the app's banner and the website's home
+  page) showed up wearing nothing: shirts and pants are now downloaded and
+  worn there too.
+- Friends' pictures on profiles wear their outfits.
+
 # Guts&Bolts 0.6.2: Hotfixes, Headaches & Hand Grenades (September 30, 2026)
 
 ## New

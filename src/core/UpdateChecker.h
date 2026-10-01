@@ -11,6 +11,7 @@ enum class State { Idle, Checking, UpToDate, Available, Failed };
 struct Info {
     State       state = State::Idle;
     int         behindBy = 0;            // how many new changes
+    bool        plainlyBehind = false;   // just older than main (not a build with its own changes)
     std::string latestMessage;           // first line of the newest change
     std::string latestDate;
     std::string compareUrl;              // page listing what's new

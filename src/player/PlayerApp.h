@@ -9,6 +9,8 @@
 #include "../renderer/Camera.h"
 #include "../renderer/Framebuffer.h"
 #include "../scene/Scene.h"
+
+namespace Catalog { struct Item; }
 #include "../game/Catalog.h"
 #include "../game/PlayerEntry.h"
 #include "../game/TouchControls.h"
@@ -114,6 +116,11 @@ private:
     void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
     bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
+    void drawWardrobe();
+    void drawModeration();                          // the ban screen and staff warnings (PlayerOnline.cpp)                            // Avatar page: what you own, click to wear (PlayerOnline.cpp)
+    void wardrobeToggle(const Catalog::Item& it);
+    bool itemOn(const Catalog::Item& it) const;   // worn, or (gear) equipped
+    void toggleGear(const std::string& id, bool on);
     void drawOnlineItemDialog();
     void drawCreate();
     void drawMyGames();
@@ -165,6 +172,7 @@ private:
     void joinRelay(const std::string& session, const std::string& code, const std::string& title);
     Starter localStarter(const std::filesystem::path& path);
     Starter onlineStarter(const std::string& assetId);
+    void giveGear(const std::string& gameKey);   // your equipped catalog gear, in games that allow it
 
     void refreshGames();
     void joinGame(const std::filesystem::path& path, HostMode mode = HostMode::Solo, const std::string& gameKey = "");
@@ -222,6 +230,14 @@ private:
     std::unique_ptr<ChatLog>       m_soloChat;     // chat when playing alone
     std::string m_chatInput;
     bool        m_chatOpen = false;
+    // The leaderboard: folded away or not (Tab), and the little menu you get by
+    // clicking someone's name (Add Friend / Follow).
+    bool        m_listOpen = true;
+    std::string m_listMenu;          // whose menu is open ("" = none)
+    ImVec2      m_listMenuAt{0, 0};
+    nlohmann::json m_listRel;        // where you stand with them (friends.relation)
+    std::string m_listMsg;           // "Friend request sent!" and such
+    void        drawPlayerMenu();
     bool        m_showJoin = false;
     std::string m_joinAddress;
 
@@ -250,6 +266,10 @@ private:
 
     // Online
     nlohmann::json m_onlineItems = nlohmann::json::array();   // server hats / shirts / pants
+    nlohmann::json m_wardrobe = nlohmann::json::array();      // the Avatar page: items you own
+    double      m_wardrobeAt = -100.0;                         // when it was last asked for
+    int         m_avatarTab = 0;                               // 0 Wardrobe, 1 Body
+    int         m_wardrobeKind = 0;                            // which kind of item it shows
     nlohmann::json m_onlineGames = nlohmann::json::array();
     nlohmann::json m_myCreations = nlohmann::json::array();
     nlohmann::json m_onlineHistory = nlohmann::json::array();
@@ -258,6 +278,9 @@ private:
     std::string    m_onlineMsg, m_createMsg, m_staffMsg, m_findQuery;
     std::string    m_banTarget, m_banTargetName, m_banNote;   // the "Ban account" popup
     int            m_banReason = 0;                           // index into Online::kBanReasons
+    int            m_banDays = 4;                             // index into the ban lengths (last = forever)
+    bool           m_warnMode = false;                        // the popup sends a warning, not a ban
+    std::string    m_warnAcking;                              // the warning we said "I understand" to
     int            m_createKind = 0, m_createStyle = 2, m_createPrice = 0, m_giveServerBolts = 100;
     std::string    m_createName, m_createDesc, m_createPath;
     glm::vec3      m_createColor{0.9f, 0.2f, 0.2f};
@@ -286,9 +309,12 @@ private:
 
     // Sign up / log in
     int            m_loginTab = 0;                 // Sign Up / Log In
+    bool           m_signupAgree = false;          // "I'm 18+ and agree to the Terms" (sign up)
+    bool           m_showTerms = false;            // the Terms of Service window
     std::string    m_loginUser, m_loginPass, m_loginPass2, m_loginMsg;
     std::string    m_loginCode;                    // two-step verification: the code from your email
     bool           m_loginNeedCode = false;
+    bool           m_loginAppCode = false;         // ...from an authenticator app (not email)
     nlohmann::json m_nameCheck = nlohmann::json::object();   // is the typed username free?
     double         m_nameCheckAt = 0.0;
 

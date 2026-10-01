@@ -508,6 +508,16 @@ ChatLog& PlayerApp::chat() {
 
 void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
+    // "/e dance" and friends: emotes, like old Roblox (they don't go into the chat).
+    if (text.rfind("/e ", 0) == 0 || text.rfind("/emote ", 0) == 0) {
+        std::string name = text.substr(text.find(' ') + 1);
+        while (!name.empty() && name.back() == ' ') name.pop_back();
+        Player* p = m_scene->player();
+        if (!p || !p->playEmote(name))
+            chat().add("", "Emotes: /e dance, /e dance2, /e dance3, /e laugh, /e cheer, /e wave, /e point "
+                           "(stand still on the ground first).", true);
+        return;
+    }
     if (Online::isGuest() && Online::online()) { chat().add("", Online::kGuestChatText, true); return; }
     std::string to, msg;
     if (!m_server && !m_client && ChatLog::parseWhisper(text, to, msg)) {   // playing alone
@@ -542,6 +552,8 @@ void PlayerApp::fetchAvatarParts() {
     std::vector<std::string> want;
     for (const auto& [kind, src] : me.accessories) want.push_back(src);
     want.push_back(me.faceImage);
+    want.push_back(me.shirtImage);   // (without these the character showed up in no clothes)
+    want.push_back(me.pantsImage);
     want.push_back(me.tshirtImage);
     for (const std::string& src : want) {
         if (src.rfind("gb:", 0) != 0) continue;
@@ -680,6 +692,8 @@ void PlayerApp::frame(float dt) {
         ImGui::PopStyleColor(8);
         Classic::popLight();
     }
+    // The site's dialogs: white boxes with dark text, like its pages.
+    Classic::pushLight();
     drawJoinDialog();
     drawServersDialog();
     drawItemDialog();
@@ -687,7 +701,9 @@ void PlayerApp::frame(float dt) {
     drawOnlineItemDialog();
     drawOnlineGameDialog();
     drawNotice();
+    Classic::popLight();
     if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
+    drawModeration();   // last: the ban screen covers everything
 }
 
 void PlayerApp::drawJoinDialog() {
@@ -888,9 +904,7 @@ bool PlayerApp::drawTile(int index) {
     ImGui::Dummy(ImVec2(w, 0));
     ImGui::EndGroup();
     if (hover && !g.info.description.empty() && !m_window->hasTouchScreen()) {   // no hovering on phones
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));   // light text on the dark tooltip
         ImGui::SetTooltip("%s", g.info.description.c_str());
-        ImGui::PopStyleColor();
     }
     ImGui::PopID();
     if (clicked) { m_selected = index; m_page = Page::GameInfo; }
@@ -910,10 +924,14 @@ void PlayerApp::drawRow(const char* title, const std::vector<int>& games, const 
     }
     float avail = ImGui::GetContentRegionAvail().x;
     int fit = std::max(1, (int)((avail + 14) / (150 + 14)));
+    // (The same game can be in several rows: each row gets its own IDs, or hovering
+    // it shows "conflicting ID" errors.)
+    ImGui::PushID(title);
     for (int i = 0; i < (int)games.size() && i < fit; ++i) {
         if (i > 0) ImGui::SameLine(0, 14);
         drawTile(games[i]);
     }
+    ImGui::PopID();
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -1281,7 +1299,22 @@ void PlayerApp::drawAvatar(float dt) {
     }
     if (!m_nameError.empty()) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "%s", m_nameError.c_str());
 
-    ImGui::SeparatorText("Outfits");
+    // Two tabs: your wardrobe (what you own: wear it right here, no trip to the
+    // catalog) and your body (colours and the classic hats).
+    ImGui::Spacing();
+    {
+        const char* tabNames[] = {"Wardrobe", "Body & Colours"};
+        for (int t = 0; t < 2; ++t) {
+            if (t) ImGui::SameLine();
+            bool on = m_avatarTab == t;
+            if (on ? Classic::button(tabNames[t], Classic::kBlue, ImVec2(150, 30)) : ImGui::Button(tabNames[t], ImVec2(150, 30)))
+                m_avatarTab = t;
+        }
+    }
+    if (m_avatarTab == 0) {
+        drawWardrobe();
+    } else {
+    ImGui::SeparatorText("Colour sets");
     int i = 0;
     for (const auto& [name, colors] : Player::colorPresets()) {
         // Three per row, shrinking to fit narrow (phone) screens.
@@ -1315,6 +1348,7 @@ void PlayerApp::drawAvatar(float dt) {
         }
         if (h % 4 != 3 && h + 1 < kHatStyleCount) ImGui::SameLine();   // four to a row
     }
+    }   // Body & Colours
 
     drawAccount();
 
@@ -1498,7 +1532,24 @@ void PlayerApp::drawGame(float dt) {
         m_session->selectToolSlot(slot);
     Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
-    Hud::drawPlayerList(dl, pos, max, currentPlayers());
+    // Tab folds the leaderboard away (and back), like old Roblox.
+    if (acceptInput && !m_chatOpen && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Tab, false))
+        m_listOpen = !m_listOpen;
+    {
+        ImVec2 at;
+        std::string who = Hud::drawPlayerList(dl, pos, max, currentPlayers(), m_listOpen, &at, tapped ? &tapAt : nullptr);
+        if (!who.empty() && who != Online::playerName()) {
+            m_listMenu = who;
+            m_listMenuAt = at;
+            m_listRel = nlohmann::json();
+            m_listMsg.clear();
+            if (!Online::isGuest())
+                Online::request("friends.relation", {{"user", who}}, [this, who](const nlohmann::json& r) {
+                    if (m_listMenu == who) m_listRel = r;
+                });
+        }
+    }
+    drawPlayerMenu();
     if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
 
     // "+5 Bolts for playing!" popup, top middle.
@@ -2069,6 +2120,24 @@ void PlayerApp::drawAccount() {
             }
         }
     }
+    if (Online::online() && Online::me().value("userId", 0LL) > 0) {   // privacy (worker/server.js account.privacy)
+        ImGui::SeparatorText("Privacy");
+        const nlohmann::json& om = Online::me();
+        const nlohmann::json pv = om.contains("privacy") && om["privacy"].is_object() ? om["privacy"] : nlohmann::json::object();
+        static const char* kKeys[] = {"everyone", "friends", "nobody"};
+        auto pick = [&](const char* label, const char* field, const char* const* names) {
+            std::string cur = pv.contains(field) && pv[field].is_string() ? pv[field].get<std::string>() : "everyone";
+            int at = 0;
+            for (int i = 0; i < 3; ++i) if (cur == kKeys[i]) at = i;
+            ImGui::SetNextItemWidth(220);
+            if (ImGui::Combo(label, &at, names, 3))
+                Online::request("account.privacy", {{field, kKeys[at]}}, [](const nlohmann::json&) {});
+        };
+        static const char* kSee[] = {"Everyone", "Friends only", "No one (appear offline)"};
+        static const char* kJoin[] = {"Everyone", "Friends only", "No one"};
+        pick("Who sees me online##pvs", "status", kSee);
+        pick("Who can join me##pvj", "join", kJoin);
+    }
     ImGui::Text("Account ID: %s...", Account::shortId().c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy full ID")) ImGui::SetClipboardText(Account::id().c_str());
@@ -2547,4 +2616,65 @@ void PlayerApp::touchScroll() {
     if (!w || w->ScrollMax.y <= 0.0f) return;
     ImGui::SetScrollY(w, std::clamp(w->Scroll.y - io.MouseDelta.y, 0.0f, w->ScrollMax.y));
     if (g.ActiveId != 0) ImGui::ClearActiveID();   // a swipe isn't a tap on whatever it started on
+}
+
+// The menu under a name on the leaderboard: friend them, or follow them.
+void PlayerApp::drawPlayerMenu() {
+    if (m_listMenu.empty()) return;
+    const std::string who = m_listMenu;
+    ImGui::SetNextWindowPos(m_listMenuAt);
+    ImGui::SetNextWindowSize(ImVec2(190, 0));
+    Classic::pushLight();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    bool keep = true;
+    ImGui::Begin("##playermenu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextUnformatted(who.c_str());
+    ImGui::Separator();
+    auto send = [this, who](const char* op, const char* done) {
+        std::string doneMsg = done;
+        Online::request(op, {{"user", who}}, [this, who, doneMsg](const nlohmann::json& r) {
+            if (m_listMenu != who) return;
+            m_listMsg = r.value("ok", false) ? doneMsg : r.value("error", std::string("That didn't work."));
+            Online::request("friends.relation", {{"user", who}}, [this, who](const nlohmann::json& rel) {
+                if (m_listMenu == who) m_listRel = rel;
+            });
+        });
+    };
+    const ImVec2 full(-1, 26);
+    if (Online::isGuest()) {
+        ImGui::TextWrapped("Sign up to add friends and follow people.");
+    } else if (m_listRel.is_null()) {
+        ImGui::TextDisabled("...");
+    } else if (!m_listRel.value("ok", false)) {
+        ImGui::TextWrapped("%s is playing as a guest.", who.c_str());
+    } else {
+        const std::string f = m_listRel.value("friendship", std::string("none"));
+        if (f == "none") {
+            if (Classic::button("Add Friend", Classic::kBlue, full)) send("friends.add", "Friend request sent!");
+        } else if (f == "sent") {
+            ImGui::BeginDisabled(); ImGui::Button("Friend request sent", full); ImGui::EndDisabled();
+        } else if (f == "received") {
+            if (Classic::button("Accept Friend Request", Classic::kPlay, full)) send("friends.accept", "You're friends now!");
+        } else if (f == "friends") {
+            ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Friends");
+        }
+        const bool following = m_listRel.value("following", false);
+        if (following) {
+            if (ImGui::Button("Unfollow", full)) send("follow.remove", "Unfollowed.");
+        } else if (Classic::button("Follow", Classic::kPlay, full)) {
+            send("follow.add", "You're following them now.");
+        }
+        ImGui::TextDisabled("%d follower%s", m_listRel.value("followers", 0), m_listRel.value("followers", 0) == 1 ? "" : "s");
+    }
+    if (!m_listMsg.empty()) ImGui::TextWrapped("%s", m_listMsg.c_str());
+    if (ImGui::Button("Close", full)) keep = false;
+    // A click anywhere else closes it too.
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+        ImGui::GetIO().MousePos.y > m_listMenuAt.y + 2)
+        keep = false;
+    ImGui::End();
+    ImGui::PopStyleVar();
+    Classic::popLight();
+    if (!keep || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_listMenu.clear();
 }

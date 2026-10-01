@@ -10,6 +10,7 @@
 #include "../../renderer/Framebuffer.h"
 #include "../../renderer/SceneRenderer.h"
 #include "../EditorState.h"
+#include "../../scene/Physics.h"
 #include <imgui.h>
 
 struct GLFWwindow;
@@ -60,7 +61,7 @@ public:
                                  bool sliding);
 
     // While a session is set, the viewport is in Play mode.
-    void setSession(GameSession* session) { m_session = session; }
+    void setSession(GameSession* session) { m_session = session; if (!session) m_camera.clip = -1.0f; }
     void focus() { m_wantFocus = true; }
     void setTeam(TeamCreate* t) { m_team = t; }
     // Called when the connect tool has picked two parts (and the clicked points).
@@ -69,6 +70,18 @@ public:
     std::function<void(StudioMode)> onMode;
 
 private:
+    // The navmesh view: its own look at the parts, rebaked when they change.
+    void updateNavOverlay();
+    // Dragging the move / scale / rotate handles: where it started (for the readout
+    // by the mouse: "4 studs", "45 deg", like Roblox Studio).
+    bool      m_gizmoDragging = false;
+    Transform m_dragStart;
+    glm::vec3 m_dragStartPivot{0.0f};
+    Physics  m_navPhysics;
+    uint32_t m_navDrawn = 0;
+    double   m_navGather = 0.0;
+    bool     m_navShown = false;
+
     void handleInput(float dt);
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);

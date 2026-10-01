@@ -14,6 +14,7 @@
 #include "ShirtTemplate.h"   // generated: the clothing templates
 #include "PantsTemplate.h"
 #include "../renderer/Framebuffer.h"
+#include "../core/AppWindow.h"
 #include "../renderer/Textures.h"
 #include "../scene/Scene.h"
 
@@ -99,6 +100,14 @@ void PlayerApp::refreshOnline(const std::string& what) {
         Online::request("list", {{"kind", "clothing"}, {"limit", 100}}, [this](const json& r) {
             if (r.value("ok", false)) m_onlineItems = r["assets"];
         });
+    } else if (what == "wardrobe") {
+        m_wardrobeAt = ImGui::GetTime();
+        // Only your own things (older servers send everything: those are filtered below).
+        Online::request("list", {{"kind", "clothing"}, {"owned", true}, {"limit", 100}}, [this](const json& r) {
+            if (!r.value("ok", false)) return;
+            m_wardrobe = json::array();
+            for (const json& a : r["assets"]) if (Online::owns(a.value("id", std::string()))) m_wardrobe.push_back(a);
+        });
     } else if (what == "games") {
         Online::request("list", {{"kind", "game"}, {"sort", "popular"}, {"limit", 30}}, [this](const json& r) {
             if (r.value("ok", false)) m_onlineGames = r["assets"];
@@ -137,12 +146,12 @@ void PlayerApp::drawOnlineCatalog() {
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted("Catalog");
     ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("Hats, hair, faces, accessories and clothes made by the Guts&Bolts community.");
+    ImGui::TextDisabled("Hats, hair, faces, accessories, clothes and gear made by the Guts&Bolts community.");
     ImGui::Spacing();
     // "Accessories" covers face, neck, shoulder and waist accessories.
-    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "T-Shirts", "Pants"};
-    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "tshirt", "pants"};
-    const int nTabs = 8;
+    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "T-Shirts", "Pants", "Gear"};
+    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "tshirt", "pants", "gear"};
+    const int nTabs = 9;
     float tabW = std::min(100.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
     float rowRight = ImGui::GetContentRegionMax().x;
     for (int i = 0; i < nTabs; ++i) {
@@ -185,7 +194,7 @@ void PlayerApp::drawOnlineCatalog() {
         dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(160, 165, 175, 255),
                     0, 0, hover ? 2.0f : 1.0f);
         drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
-        if (Catalog::isWearing(it)) dl->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(20, 140, 60, 255), "Wearing");
+        if (itemOn(it)) dl->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(20, 140, 60, 255), it.type == Catalog::Type::Gear ? "Equipped" : "Wearing");
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
         ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
         ImGui::PopTextWrapPos();
@@ -242,6 +251,7 @@ void PlayerApp::drawOnlineItemDialog() {
     ImGui::Spacing();
 
     auto wearIt = [this, it]() {
+        if (it.type == Catalog::Type::Gear) { toggleGear(it.id, true); return; }
         Catalog::applyLook(it);
         if (Player* pl = m_avatarScene->player()) Profile::get().applyTo(*pl);
         Online::fetchSounds(*m_avatarScene);   // its clothing picture, if it has one
@@ -260,10 +270,15 @@ void PlayerApp::drawOnlineItemDialog() {
         }
         ImGui::EndDisabled();
     } else {
-        bool wearing = Catalog::isWearing(it);
-        ImGui::BeginDisabled(wearing);
-        if (bigButton(wearing ? "Wearing" : "Wear", kGreen, ImVec2(140, 34))) wearIt();
-        ImGui::EndDisabled();
+        if (it.type == Catalog::Type::Gear) {   // gear: in your backpack in games that allow gear
+            const bool on = itemOn(it);
+            if (bigButton(on ? "Unequip" : "Equip", kGreen, ImVec2(140, 34))) toggleGear(it.id, !on);
+        } else {
+            bool wearing = Catalog::isWearing(it);
+            ImGui::BeginDisabled(wearing);
+            if (bigButton(wearing ? "Wearing" : "Wear", kGreen, ImVec2(140, 34))) wearIt();
+            ImGui::EndDisabled();
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 34))) { m_openOnlineItem = -1; ImGui::CloseCurrentPopup(); }
@@ -994,7 +1009,7 @@ void PlayerApp::drawOnlineBolts() {
 void PlayerApp::drawOnlineStaff() {
     ImGui::SeparatorText("People on the server");
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Find someone by name (or the start of their account ID) and verify them right here - "
+    ImGui::TextDisabled("Find someone by name or user number (#5) and verify them right here - "
                         "no codes needed. They get the badge next time they open the site.");
     ImGui::PopTextWrapPos();
     const bool official = Account::iAmStaff();
@@ -1059,28 +1074,43 @@ void PlayerApp::drawOnlineStaff() {
                     Online::request("admin.giveBolts", {{"to", id}, {"amount", m_giveServerBolts}}, updateRow);
                 ImGui::SameLine();
                 bool banned = u.value("banned", false);
+                auto openFor = [&](bool warn) {   // pick why first (they'll see the reason)
+                    m_banTarget = id;
+                    m_banTargetName = u.value("name", std::string());
+                    m_banReason = 0;
+                    m_banNote.clear();
+                    m_warnMode = warn;
+                    ImGui::OpenPopup("Ban account");
+                };
+                if (ImGui::SmallButton("Warn")) openFor(true);
+                ImGui::SameLine();
                 if (ImGui::SmallButton(banned ? "Unban" : "Ban")) {
                     if (banned) Online::request("admin.ban", {{"to", id}, {"on", false}}, updateRow);
-                    else {   // pick why first (they'll see the reason)
-                        m_banTarget = id;
-                        m_banTargetName = u.value("name", std::string());
-                        m_banReason = 0;
-                        m_banNote.clear();
-                        ImGui::OpenPopup("Ban account");
-                    }
+                    else openFor(false);
                 }
                 if (ImGui::BeginPopupModal("Ban account", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     if (tappedOutside()) ImGui::CloseCurrentPopup();
-                    ImGui::Text("Ban %s?", m_banTargetName.c_str());
+                    ImGui::Text(m_warnMode ? "Warn %s" : "Ban %s?", m_banTargetName.c_str());
                     ImGui::TextDisabled("Pick why. They'll see this reason.");
                     for (int i = 0; i < (int)std::size(Online::kBanReasons); ++i)
                         ImGui::RadioButton(Online::kBanReasons[i].title, &m_banReason, i);
                     ImGui::SetNextItemWidth(320);
                     ImGui::InputTextWithHint("##banNote", "Note for them (optional)", &m_banNote);
-                    if (Classic::button("Ban", ImVec4(0.75f, 0.25f, 0.25f, 1))) {
-                        Online::request("admin.ban", {{"to", m_banTarget}, {"on", true},
-                                                      {"reason", Online::kBanReasons[m_banReason].key},
-                                                      {"note", m_banNote}}, updateRow);
+                    static const char* kLengths[] = {"1 day", "3 days", "7 days", "30 days", "Forever"};
+                    static const int kDays[] = {1, 3, 7, 30, 0};
+                    if (!m_warnMode) {
+                        ImGui::SetNextItemWidth(160);
+                        ImGui::Combo("How long", &m_banDays, kLengths, 5);
+                    }
+                    if (Classic::button(m_warnMode ? "Send warning" : "Ban",
+                                        m_warnMode ? Classic::kBlue : ImVec4(0.75f, 0.25f, 0.25f, 1))) {
+                        if (m_warnMode)
+                            Online::request("admin.warn", {{"to", m_banTarget}, {"reason", Online::kBanReasons[m_banReason].key},
+                                                           {"note", m_banNote}}, updateRow);
+                        else
+                            Online::request("admin.ban", {{"to", m_banTarget}, {"on", true},
+                                                          {"reason", Online::kBanReasons[m_banReason].key},
+                                                          {"note", m_banNote}, {"days", kDays[std::clamp(m_banDays, 0, 4)]}}, updateRow);
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::SameLine();
@@ -1091,4 +1121,265 @@ void PlayerApp::drawOnlineStaff() {
         }
         ImGui::PopID();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Avatar page: your wardrobe (everything you own, click to wear or take off)
+// ---------------------------------------------------------------------------
+
+bool PlayerApp::itemOn(const Catalog::Item& it) const {
+    if (it.type != Catalog::Type::Gear) return Catalog::isWearing(it);
+    const json& me = Online::me();
+    if (!me.contains("gear") || !me["gear"].is_array()) return false;
+    for (const auto& g : me["gear"]) if (g.is_string() && g.get<std::string>() == it.id) return true;
+    return false;
+}
+
+void PlayerApp::toggleGear(const std::string& id, bool on) {
+    Online::request("gear.equip", {{"id", id}, {"on", on}}, [this, on](const json& r) {   // (the reply updates Online::me)
+        if (!r.value("ok", false)) m_onlineMsg = r.value("error", std::string("Couldn't change your gear."));
+        else m_onlineMsg = on ? "Equipped! You'll have it in games that allow gear." : "Taken out of your backpack.";
+    });
+}
+
+void PlayerApp::wardrobeToggle(const Catalog::Item& it) {
+    if (it.type == Catalog::Type::Gear) { toggleGear(it.id, !itemOn(it)); return; }
+    if (Catalog::isWearing(it)) Catalog::takeOff(it);
+    else Catalog::applyLook(it);
+    Profile& me = Profile::get();
+    if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+    if (m_scene) if (Player* p = m_scene->player()) me.applyTo(*p);
+    if (m_avatarScene) Online::fetchSounds(*m_avatarScene);   // download its picture / model if it's new
+    me.save();
+    m_avatarPushAt = ImGui::GetTime() + 1.5;   // saved on the server once you stop clicking
+}
+
+void PlayerApp::drawWardrobe() {
+    const bool signedUp = Online::online() && Online::me().value("userId", 0LL) > 0;
+    if (!signedUp) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("Log in to keep clothes, hats and faces and wear them here.");
+        if (Classic::button("Log in or sign up", Classic::kBlue, ImVec2(200, 30))) m_page = Page::Login;
+        return;
+    }
+    if (ImGui::GetTime() - m_wardrobeAt > 20.0) refreshOnline("wardrobe");   // new things you just got show up
+
+    // What kinds there are ("acc" = face, neck, shoulder and waist accessories).
+    static const char* tabs[] = {"All", "Shirts", "Pants", "T-Shirts", "Faces", "Hats", "Hair", "Accessories", "Gear"};
+    static const char* kinds[] = {"", "shirt", "pants", "tshirt", "face", "hat", "hair", "acc", "gear"};
+    const int nTabs = 9;
+    auto matches = [&](const std::string& k, int tab) {
+        const std::string want = kinds[tab];
+        bool acc = k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
+        return want.empty() || k == want || (want == "acc" && acc);
+    };
+
+    // --- What you have on (click one to take it off) ---
+    std::vector<int> worn;
+    for (int i = 0; i < (int)m_wardrobe.size(); ++i)
+        if (itemOn(Catalog::fromServer(m_wardrobe[i]))) worn.push_back(i);
+    ImGui::SeparatorText("Wearing");
+    // Always the same height, so the things below don't jump when you put something on.
+    const float small = 64.0f;
+    ImGui::BeginChild("##wearing", ImVec2(0, small + 8), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    if (worn.empty()) {
+        ImGui::Dummy(ImVec2(0, 20));
+        ImGui::TextDisabled("Nothing from your wardrobe yet. Pick something below!");
+    }
+    for (size_t k = 0; k < worn.size(); ++k) {
+        Catalog::Item it = Catalog::fromServer(m_wardrobe[worn[k]]);
+        if (k > 0) ImGui::SameLine(0, 8);
+        ImGui::PushID(("w" + it.id).c_str());
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##worn", ImVec2(small, small))) wardrobeToggle(it);
+        bool hover = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + small, p.y + small), IM_COL32(255, 255, 255, 255), 4);
+        dl->AddRect(p, ImVec2(p.x + small, p.y + small), IM_COL32(30, 150, 70, 255), 4, 0, 2.0f);
+        drawItemIcon(dl, ImVec2(p.x + small * 0.5f, p.y + small * 0.5f), small * 0.8f, it);
+        if (hover) {   // a little x in the corner: click to take it off
+            ImVec2 c(p.x + small - 9, p.y + 9);
+            dl->AddCircleFilled(c, 8, IM_COL32(200, 50, 50, 255));
+            dl->AddLine(ImVec2(c.x - 3, c.y - 3), ImVec2(c.x + 3, c.y + 3), IM_COL32_WHITE, 2);
+            dl->AddLine(ImVec2(c.x - 3, c.y + 3), ImVec2(c.x + 3, c.y - 3), IM_COL32_WHITE, 2);
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::BeginDisabled(worn.empty());
+    if (ImGui::Button("Take everything off")) {
+        for (int i : worn) {
+            Catalog::Item w = Catalog::fromServer(m_wardrobe[i]);
+            if (w.type == Catalog::Type::Gear) toggleGear(w.id, false);
+            else Catalog::takeOff(w);
+        }
+        Profile& me = Profile::get();
+        if (m_avatarScene) if (Player* p = m_avatarScene->player()) me.applyTo(*p);
+        if (m_scene) if (Player* p = m_scene->player()) me.applyTo(*p);
+        m_avatarPushAt = ImGui::GetTime() + 1.5;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(click a picture to take it off)");
+
+    // --- Everything you own, by kind ---
+    ImGui::SeparatorText("My stuff");
+    float tabW = std::min(96.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
+    const float rowRight = ImGui::GetWindowPos().x + ImGui::GetContentRegionMax().x;
+    for (int i = 0; i < nTabs; ++i) {
+        int count = 0;
+        for (const json& a : m_wardrobe) if (matches(a.value("kind", std::string()), i)) ++count;
+        std::string label = std::string(tabs[i]) + (count ? " (" + std::to_string(count) + ")" : "");
+        if (i > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + tabW <= rowRight) ImGui::SameLine();
+        ImGui::PushID(i);
+        bool on = m_wardrobeKind == i;
+        if (on ? Classic::button(label.c_str(), Classic::kBlue, ImVec2(tabW, 26)) : ImGui::Button(label.c_str(), ImVec2(tabW, 26)))
+            m_wardrobeKind = i;
+        ImGui::PopID();
+    }
+    ImGui::Spacing();
+
+    std::vector<int> list;
+    for (int i = 0; i < (int)m_wardrobe.size(); ++i)
+        if (matches(m_wardrobe[i].value("kind", std::string()), m_wardrobeKind)) list.push_back(i);
+    if (list.empty()) {
+        ImGui::TextDisabled(Online::pending() && m_wardrobe.empty() ? "Loading your stuff..." : "You don't have any of these yet.");
+    } else {
+        const float tile = 104.0f;
+        int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 10) / (tile + 10)));
+        for (size_t k = 0; k < list.size(); ++k) {
+            Catalog::Item it = Catalog::fromServer(m_wardrobe[list[k]]);
+            const bool on = itemOn(it);
+            if (k % perRow != 0) ImGui::SameLine(0, 10);
+            ImGui::PushID(list[k]);
+            ImGui::BeginGroup();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("##own", ImVec2(tile, tile))) wardrobeToggle(it);
+            bool hover = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255), 4);
+            ImU32 edge = on ? IM_COL32(30, 150, 70, 255) : hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(170, 175, 185, 255);
+            dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), edge, 4, 0, on || hover ? 2.5f : 1.0f);
+            drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+            if (on) {
+                ImVec2 t(p.x + 5, p.y + tile - 20);
+                dl->AddRectFilled(t, ImVec2(t.x + 60, t.y + 16), IM_COL32(30, 150, 70, 255), 3);
+                dl->AddText(ImVec2(t.x + 6, t.y + 1), IM_COL32_WHITE, it.type == Catalog::Type::Gear ? "Equipped" : "Wearing");
+            }
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+            ImGui::TextUnformatted(it.name.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            ImGui::PopID();
+        }
+    }
+    ImGui::Spacing();
+    ImGui::TextDisabled("Want more?");
+    ImGui::SameLine();
+    if (Classic::button("Shop the Catalog", Classic::kPlay, ImVec2(160, 26))) { m_page = Page::Catalog; m_itemType = -1; }
+}
+
+// ---------------------------------------------------------------------------
+// Moderation: a banned account sees only the ban screen; staff warnings pop up
+// once, until you say you understand.
+// ---------------------------------------------------------------------------
+
+void PlayerApp::drawModeration() {
+    const json& me = Online::me();
+    auto dateText = [](long long t) {
+        std::time_t tt = (std::time_t)t;
+        char buf[64] = "";
+        if (std::tm* tm = std::localtime(&tt)) std::strftime(buf, sizeof(buf), "%B %d, %Y at %H:%M", tm);
+        return std::string(buf);
+    };
+    if (me.contains("ban") && me["ban"].is_object()) {
+        const json& b = me["ban"];
+        if (m_page == Page::Game) leaveGame();   // out of the game you were in
+        ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(vp->Pos);
+        ImGui::SetNextWindowSize(vp->Size);
+        ImGui::SetNextWindowFocus();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.13f, 0.16f, 0.97f));
+        ImGui::Begin("##banned", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+        const float w = std::min(560.0f, vp->Size.x - 40.0f);
+        ImGui::SetCursorPos(ImVec2((vp->Size.x - w) * 0.5f, std::max(20.0f, vp->Size.y * 0.18f)));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1, 1, 1, 1));
+        ImGui::BeginChild("##banbox", ImVec2(w, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+        Classic::pushLight();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 p = ImGui::GetWindowPos();
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + 6), IM_COL32(200, 40, 40, 255));
+        ImGui::Dummy(ImVec2(0, 6));
+        const long long at = b.value("at", 0LL), until = b.value("until", 0LL);
+        ImGui::SetWindowFontScale(1.6f);
+        if (until > 0) {
+            long long days = std::max(1LL, (until - at + 43200) / 86400);
+            ImGui::TextColored(ImVec4(0.75f, 0.12f, 0.12f, 1), "Banned for %lld day%s", days, days == 1 ? "" : "s");
+        } else {
+            ImGui::TextColored(ImVec4(0.75f, 0.12f, 0.12f, 1), "Account Banned");
+        }
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextWrapped("Our moderators have found that your account broke the Guts&Bolts rules.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("Reason");
+        ImGui::SetWindowFontScale(1.2f);
+        ImGui::TextWrapped("%s", b.value("title", std::string("Breaking the rules")).c_str());
+        ImGui::SetWindowFontScale(1.0f);
+        if (std::string note = b.value("note", std::string()); !note.empty()) {
+            ImGui::TextDisabled("Note from staff");
+            ImGui::TextWrapped("%s", note.c_str());
+        }
+        if (at > 0) { ImGui::TextDisabled("Banned on"); ImGui::TextUnformatted(dateText(at).c_str()); }
+        ImGui::TextDisabled("Can play again");
+        ImGui::TextWrapped("%s", until > 0 ? dateText(until).c_str() : "Never: this ban is for good.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Please keep Guts&Bolts a fun, safe place for everyone.");
+        ImGui::Spacing();
+        if (until > 0 && Classic::button("Check again", Classic::kBlue, ImVec2(140, 32))) Online::connect();
+        if (until > 0) ImGui::SameLine();
+        if (Online::me().value("hasPassword", false) && Classic::button("Log out", Classic::kBlue, ImVec2(120, 32))) logOut();
+        ImGui::SameLine();
+        if (ImGui::Button("Quit", ImVec2(100, 32))) m_window->close();
+        Classic::popLight();
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::End();
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    // A warning from staff (the oldest one not seen yet).
+    if (!me.contains("warnings") || !me["warnings"].is_array() || me["warnings"].empty()) return;
+    const json w = me["warnings"][0];
+    const std::string id = w.value("id", std::string());
+    if (id.empty() || id == m_warnAcking) return;
+    if (!ImGui::IsPopupOpen("Warning##staff")) ImGui::OpenPopup("Warning##staff");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(460.0f, ImGui::GetMainViewport()->Size.x - 30.0f), 0));
+    Classic::pushLight();
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));   // a white box, like the rest of the site
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.78f, 0.16f, 0.16f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
+    if (ImGui::BeginPopupModal("Warning##staff", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) {
+        ImGui::SetWindowFontScale(1.5f);
+        ImGui::TextColored(ImVec4(0.75f, 0.12f, 0.12f, 1), "Warning");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextWrapped("A moderator has warned your account for:");
+        ImGui::SetWindowFontScale(1.2f);
+        ImGui::TextWrapped("%s", w.value("title", std::string("Breaking the rules")).c_str());
+        ImGui::SetWindowFontScale(1.0f);
+        if (std::string note = w.value("note", std::string()); !note.empty()) ImGui::TextWrapped("\"%s\"", note.c_str());
+        ImGui::TextDisabled("%s", dateText(w.value("at", 0LL)).c_str());
+        ImGui::TextWrapped("More breaks of the rules can get your account banned.");
+        ImGui::Spacing();
+        if (Classic::button("I understand", Classic::kBlue, ImVec2(160, 32))) {
+            m_warnAcking = id;   // (the answer brings a fresh me() without it)
+            Online::request("account.ackWarning", {{"id", id}});
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    Classic::popLight();
 }

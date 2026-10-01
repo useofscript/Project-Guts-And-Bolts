@@ -82,10 +82,47 @@ function Players:FindFirstChild(name)
     for _, p in ipairs(playerList) do if p.Name == name then return p end end
     return nil
 end
+-- Teams, like Roblox's Teams service: Team objects (Insert Object > Team) in a
+-- folder called Teams, each with a TeamColor. Players join the AutoAssignable team
+-- with the fewest people; set player.Team to move them.
+Teams = { ClassName = "Teams", Name = "Teams" }
+function Teams:GetTeams()
+    local t, f = {}, workspace:FindFirstChild("Teams")
+    if f then
+        for _, c in ipairs(f:GetChildren()) do
+            if c:GetAttribute("RobloxClass") == "Team" then t[#t + 1] = c end
+        end
+    end
+    return t
+end
+function Teams:GetPlayersOnTeam(team)
+    local t = {}
+    for _, p in ipairs(playerList) do if rawget(p, "Team") == team then t[#t + 1] = p end end
+    return t
+end
+local function autoTeam(p)
+    local best, fewest = nil, math.huge
+    for _, team in ipairs(Teams:GetTeams()) do
+        if team:GetAttribute("AutoAssignable") ~= false then
+            local n = #Teams:GetPlayersOnTeam(team)
+            if n < fewest then best, fewest = team, n end
+        end
+    end
+    if best then
+        rawset(p, "Team", best)
+        rawset(p, "TeamColor", best:GetAttribute("TeamColor"))
+        rawset(p, "Neutral", false)
+    else
+        rawset(p, "Neutral", true)
+    end
+end
+autoTeam(LocalPlayer)
+
 -- Used by the engine when people join / leave a multiplayer game.
 function __gb_addPlayer(name, character, id)
     local p = makePlayer(name, character, id)
     table.insert(playerList, p)
+    autoTeam(p)
     return p
 end
 function __gb_removePlayer(name)
@@ -183,34 +220,126 @@ function DataStoreService:GetDataStore(name, scope)
 end
 DataStoreService.GetOrderedDataStore = DataStoreService.GetDataStore
 
--- PathfindingService: a walking route around walls (for NPCs).
---   local path = PathfindingService:CreatePath()
---   path:ComputeAsync(zombie.HumanoidRootPart.Position, target)
+-- PathfindingService: walking routes on the navigation mesh (every floor a character
+-- can stand on, baked from the parts; it re-bakes itself when anchored parts change).
+-- Works like Roblox's:
+--   local path = PathfindingService:CreatePath({ AgentRadius = 0.6, AgentCanJump = true,
+--                                                Costs = { Water = 10, Lava = math.huge } })
+--   path:ComputeAsync(npc.HumanoidRootPart.Position, target)
 --   if path.Status == Enum.PathStatus.Success then
---       for _, wp in ipairs(path:GetWaypoints()) do ... humanoid:MoveTo(wp.Position) ... end
+--       for _, wp in ipairs(path:GetWaypoints()) do
+--           if wp.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+--           humanoid:MoveTo(wp.Position)
+--           humanoid.MoveToFinished:Wait()
+--       end
 --   end
-local findPath = __gb_findPath
-PathfindingService = {}
+-- ...or let the engine do all of that: humanoid:PathfindTo(target) walks there by itself
+-- (jumping, finding a new way when blocked or stuck, keeping up with a moving target).
+-- Extras: PathfindingService:IsWalkable(pos), :FindClosestPoint(pos), :GetRandomPoint(near, radius),
+-- :CanWalkStraight(a, b), :Bake(), :SetBakeSettings({...}). Part attributes
+-- PathfindingLabel (a name for Costs) and PathfindingPassThrough (ignored) work like
+-- Roblox's PathfindingModifier.
+local navPath, navQuery = __gb_navPath, __gb_navQuery
+local function luaSignal()
+    local sig, list = {}, {}
+    function sig:Connect(fn)
+        local c = { Connected = true }
+        function c:Disconnect() self.Connected = false end
+        list[#list + 1] = { c, fn }
+        return c
+    end
+    sig.connect = sig.Connect
+    function sig:Wait()
+        local done, args = false, nil
+        local c
+        c = sig:Connect(function(...) args = { ... }; done = true; c:Disconnect() end)
+        while not done do task.wait() end
+        return table.unpack(args)
+    end
+    function sig:Fire(...)
+        for _, e in ipairs(list) do if e[1].Connected then task.spawn(e[2], ...) end end
+    end
+    return sig
+end
+local watched = setmetatable({}, { __mode = "k" })   -- paths that can be Blocked
+local watching = false
+local function startWatching()
+    if watching then return end
+    watching = true
+    task.spawn(function()
+        while true do
+            task.wait(0.25)
+            for path in pairs(watched) do
+                if path._ver ~= navQuery("version") then
+                    path._ver = navQuery("version")
+                    local idx = path:CheckOcclusionAsync(1)
+                    if idx > 0 and not path._blocked then path._blocked = true; path.Blocked:Fire(idx)
+                    elseif idx < 0 and path._blocked then path._blocked = false; path.Unblocked:Fire(1) end
+                end
+            end
+        end
+    end)
+end
+PathfindingService = { ClassName = "PathfindingService", Name = "PathfindingService" }
 function PathfindingService:CreatePath(params)
-    local jumpHeight = 1.6
-    if params and params.AgentCanJump == false then jumpHeight = 0.5 end
-    local path = { Status = "NoPath", points = {} }
+    local path = { ClassName = "Path", Status = "NoPath", _wps = {}, _params = params or {} }
+    path.Blocked, path.Unblocked = luaSignal(), luaSignal()
     function path:ComputeAsync(from, to)
-        local pts = findPath(from, to, jumpHeight)
-        self.points = pts or {}
-        self.Status = pts and "Success" or "NoPath"
+        local status, wps = navPath(from, to, self._params)
+        self.Status = status
+        self._wps = wps
+        self._ver = navQuery("version")
+        self._blocked = false
+        watched[self] = true
+        startWatching()
     end
     function path:GetWaypoints()
         local t = {}
-        for i, p in ipairs(self.points) do
-            t[i] = { Position = p[1], Action = p[2] and "Jump" or "Walk" }
+        for i, w in ipairs(self._wps) do
+            t[i] = { ClassName = "PathWaypoint", Position = w[1], Action = w[2], Label = w[3] }
         end
         return t
     end
-    local noop = { Connect = function() return { Disconnect = function() end } end }
-    path.Blocked, path.Unblocked = noop, noop
-    function path:Destroy() end
+    -- The first waypoint (from `start` on) whose way there is blocked now, or -1.
+    function path:CheckOcclusionAsync(start)
+        local w = self._wps
+        for i = math.max(2, start or 1), #w do
+            if w[i][2] == "Jump" then
+                if not navQuery("walkable", w[i][1], self._params) then return i end
+            elseif not navQuery("straight", w[i - 1][1], w[i][1], self._params) then
+                return i
+            end
+        end
+        return -1
+    end
+    function path:Destroy() watched[self] = nil; self._wps = {} end
     return path
+end
+function PathfindingService:FindPathAsync(from, to)
+    local p = self:CreatePath()
+    p:ComputeAsync(from, to)
+    return p
+end
+PathfindingService.ComputeRawPathAsync = PathfindingService.FindPathAsync
+PathfindingService.ComputeSmoothPathAsync = PathfindingService.FindPathAsync
+function PathfindingService:IsWalkable(pos, params) return navQuery("walkable", pos, params) end
+function PathfindingService:FindClosestPoint(pos, range, params) return navQuery("closest", pos, range or 10, params) end
+function PathfindingService:GetRandomPoint(near, radius, params) return navQuery("random", near, radius, params) end
+function PathfindingService:CanWalkStraight(a, b, params) return navQuery("straight", a, b, params) end
+function PathfindingService:Bake() return navQuery("bake") end
+function PathfindingService:SetBakeSettings(t) navQuery("settings", t) end
+function PathfindingService:GetService() return self end
+
+-- humanoid:PathfindTo(target [, params]): walk there by itself; waits until it gets
+-- there (true) or gives up (false). target: a Vector3, a part, or a model/character.
+function __gb_pathfindTo(hum, target, params)
+    if not hum:PathfindStart(target, params) then return false end
+    while true do
+        local st = hum.PathfindStatus
+        if st == "Arrived" then return true end
+        if st ~= "Walking" then return false end
+        task.wait(0.1)
+    end
 end
 
 -- BadgeService: give players the badges you made for your game on its page
@@ -234,15 +363,409 @@ function BadgeService:UserHasBadgeAsync(player, badgeId)
 end
 BadgeService.UserHasBadge = BadgeService.UserHasBadgeAsync
 
-local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Players = Players, Lighting = Lighting,
+-- Debris: throw something away later, like Roblox's. Debris:AddItem(part, 5)
+Debris = { ClassName = "Debris", Name = "Debris", MaxItems = 1000 }
+function Debris:AddItem(obj, lifetime)
+    task.delay(tonumber(lifetime) or 10, function()
+        if obj and obj.Parent then pcall(function() obj:Destroy() end) end
+    end)
+end
+Debris.addItem = Debris.AddItem
+
+
+-- ---------------------------------------------------------------------------
+-- More of Roblox's API (the "Who Let Us Cook?" update)
+-- ---------------------------------------------------------------------------
+local raycast, addMethod = __gb_raycast, __gb_addMethod
+
+-- workspace:Raycast(origin, direction [, params]) -> RaycastResult or nil
+--   local params = RaycastParams.new()
+--   params.FilterDescendantsInstances = { character }
+--   params.FilterType = Enum.RaycastFilterType.Exclude   -- or Include
+--   local hit = workspace:Raycast(gun.Position, gun.CFrame.LookVector * 300, params)
+--   if hit then print(hit.Instance.Name, hit.Position, hit.Normal, hit.Distance) end
+RaycastParams = {}
+function RaycastParams.new()
+    return { ClassName = "RaycastParams", FilterDescendantsInstances = {}, FilterType = "Exclude", IgnoreWater = false }
+end
+local function castWith(origin, direction, list, include)
+    local part, pos, normal, dist = raycast(origin, direction, list or {}, include)
+    if not part then return nil end
+    return { ClassName = "RaycastResult", Instance = part, Position = pos, Normal = normal, Distance = dist,
+             Material = part.Material }
+end
+addMethod("Raycast", function(_, origin, direction, params)
+    params = params or RaycastParams.new()
+    local ft = tostring(params.FilterType)
+    return castWith(origin, direction, params.FilterDescendantsInstances,
+                    ft == "Include" or ft == "Whitelist" or ft == "Enum.RaycastFilterType.Include")
+end)
+-- The old way: Ray.new(origin, direction) and workspace:FindPartOnRay(ray, ignore)
+Ray = {}
+function Ray.new(origin, direction)
+    local r = { ClassName = "Ray", Origin = origin, Direction = direction }
+    r.Unit = setmetatable({}, { __index = function(_, k)
+        if k == "Origin" then return origin elseif k == "Direction" then return direction.Unit end
+    end })
+    return r
+end
+local function findOnRay(ray, list, include)
+    local hit = castWith(ray.Origin, ray.Direction, list, include)
+    if not hit then return nil, ray.Origin + ray.Direction, Vector3.new(0, 0, 0), nil end
+    return hit.Instance, hit.Position, hit.Normal, hit.Material
+end
+addMethod("FindPartOnRay", function(_, ray, ignore) return findOnRay(ray, ignore and { ignore } or {}, false) end)
+addMethod("FindPartOnRayWithIgnoreList", function(_, ray, list) return findOnRay(ray, list, false) end)
+addMethod("FindPartOnRayWithWhitelist", function(_, ray, list) return findOnRay(ray, list, true) end)
+-- workspace:GetPartBoundsInRadius(position, radius): parts near a point.
+addMethod("GetPartBoundsInRadius", function(self, pos, radius)
+    local out = {}
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local s = d.Size
+            local reach = radius + math.max(s.X, s.Y, s.Z) * 0.5
+            if (d.Position - pos).Magnitude <= reach then out[#out + 1] = d end
+        end
+    end
+    return out
+end)
+
+-- TweenService: smoothly change properties over time.
+--   local info = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+--   TweenService:Create(door, info, { Position = door.Position + Vector3.new(0, 10, 0) }):Play()
+-- Works on numbers, Vector3, Color3, CFrame, UDim2 and Vector2 properties.
+TweenInfo = {}
+function TweenInfo.new(time, style, direction, repeatCount, reverses, delayTime)
+    return { ClassName = "TweenInfo", Time = time or 1, EasingStyle = tostring(style or "Quad"),
+             EasingDirection = tostring(direction or "Out"), RepeatCount = repeatCount or 0,
+             Reverses = reverses or false, DelayTime = delayTime or 0 }
+end
+local function bareName(s) return (tostring(s):match("([%w]+)$")) end
+local easeIn = {
+    Linear = function(t) return t end,
+    Quad = function(t) return t * t end,
+    Cubic = function(t) return t * t * t end,
+    Quart = function(t) return t ^ 4 end,
+    Quint = function(t) return t ^ 5 end,
+    Sine = function(t) return 1 - math.cos(t * math.pi / 2) end,
+    Exponential = function(t) return t == 0 and 0 or 2 ^ (10 * (t - 1)) end,
+    Circular = function(t) return 1 - math.sqrt(1 - t * t) end,
+    Back = function(t) local s = 1.70158; return t * t * ((s + 1) * t - s) end,
+    Elastic = function(t)
+        if t == 0 or t == 1 then return t end
+        return -(2 ^ (10 * (t - 1))) * math.sin((t - 1.075) * (2 * math.pi) / 0.3)
+    end,
+    Bounce = function(t)
+        t = 1 - t
+        local v
+        if t < 1 / 2.75 then v = 7.5625 * t * t
+        elseif t < 2 / 2.75 then t = t - 1.5 / 2.75; v = 7.5625 * t * t + 0.75
+        elseif t < 2.5 / 2.75 then t = t - 2.25 / 2.75; v = 7.5625 * t * t + 0.9375
+        else t = t - 2.625 / 2.75; v = 7.5625 * t * t + 0.984375 end
+        return 1 - v
+    end,
+}
+local function ease(style, dir, t)
+    local f = easeIn[bareName(style)] or easeIn.Quad
+    dir = bareName(dir)
+    if dir == "In" then return f(t) end
+    if dir == "InOut" then
+        if t < 0.5 then return f(t * 2) / 2 end
+        return 1 - f((1 - t) * 2) / 2
+    end
+    return 1 - f(1 - t)   -- Out
+end
+local function lerpValue(a, b, t)
+    if type(a) == "number" then return a + (b - a) * t end
+    if type(a) == "boolean" or type(a) == "string" then return t < 1 and a or b end
+    return a:Lerp(b, t)
+end
+TweenService = { ClassName = "TweenService", Name = "TweenService" }
+function TweenService:GetValue(alpha, style, direction) return ease(style, direction, math.clamp(alpha, 0, 1)) end
+function TweenService:Create(obj, info, goals)
+    info = info or TweenInfo.new()
+    local tw = { ClassName = "Tween", Instance = obj, TweenInfo = info, PlaybackState = "Begin" }
+    tw.Completed = luaSignal()
+    local run = 0   -- which Play is running (a new Play or Cancel stops the old one)
+    function tw:Play()
+        run = run + 1
+        local me = run
+        self.PlaybackState = "Playing"
+        task.spawn(function()
+            if info.DelayTime > 0 then task.wait(info.DelayTime) end
+            local loops = info.RepeatCount < 0 and math.huge or info.RepeatCount
+            local done = 0
+            while true do
+                local from = {}
+                for k in pairs(goals) do from[k] = obj[k] end
+                for pass = 1, info.Reverses and 2 or 1 do
+                    local start = time()
+                    while true do
+                        if run ~= me then return end
+                        local a = info.Time <= 0 and 1 or math.min(1, (time() - start) / info.Time)
+                        local e = ease(info.EasingStyle, info.EasingDirection, a)
+                        if pass == 2 then e = 1 - e end
+                        for k, goal in pairs(goals) do obj[k] = lerpValue(from[k], goal, e) end
+                        if a >= 1 then break end
+                        task.wait()
+                    end
+                end
+                done = done + 1
+                if done > loops then break end
+                if info.Reverses then
+                    -- (back where it started: go again)
+                else
+                    for k, v in pairs(from) do obj[k] = v end
+                end
+            end
+            if run == me then self.PlaybackState = "Completed"; self.Completed:Fire("Completed") end
+        end)
+    end
+    function tw:Pause() run = run + 1; self.PlaybackState = "Paused" end
+    function tw:Cancel()
+        run = run + 1
+        self.PlaybackState = "Cancelled"
+        self.Completed:Fire("Cancelled")
+    end
+    tw.Destroy = tw.Cancel
+    return tw
+end
+
+-- HttpService: JSON in and out, and unique ids. (Games can't reach other websites.)
+HttpService = { ClassName = "HttpService", Name = "HttpService", HttpEnabled = false }
+local function jsonString(s)
+    return '"' .. s:gsub('[%c"\\]', function(c)
+        local map = { ['"'] = '\\"', ['\\'] = '\\\\', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
+        return map[c] or string.format("\\u%04x", c:byte())
+    end) .. '"'
+end
+local function encode(v, depth)
+    depth = depth or 0
+    if depth > 100 then error("JSONEncode: that table goes too deep (or contains itself)", 0) end
+    local t = type(v)
+    if v == nil then return "null"
+    elseif t == "boolean" then return tostring(v)
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return "null" end
+        if math.type and math.type(v) == "integer" then return tostring(v) end
+        return string.format("%.14g", v)
+    elseif t == "string" then return jsonString(v)
+    elseif t == "table" then
+        local n = #v
+        local isArray = n > 0 or next(v) == nil
+        if isArray then for k in pairs(v) do if type(k) ~= "number" or k < 1 or k > n or k % 1 ~= 0 then isArray = false break end end end
+        local parts = {}
+        if isArray then
+            for i = 1, n do parts[i] = encode(v[i], depth + 1) end
+            return "[" .. table.concat(parts, ",") .. "]"
+        end
+        for k, val in pairs(v) do parts[#parts + 1] = jsonString(tostring(k)) .. ":" .. encode(val, depth + 1) end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    error("JSONEncode can't save a " .. t, 0)
+end
+function HttpService:JSONEncode(v) return encode(v) end
+function HttpService:JSONDecode(s)
+    local pos = 1
+    local function ws() pos = s:find("[^ \t\r\n]", pos) or #s + 1 end
+    local value
+    local function str()
+        local out = {}
+        pos = pos + 1
+        while true do
+            local c = s:sub(pos, pos)
+            if c == "" then error("JSONDecode: a string never ends", 0) end
+            if c == '"' then pos = pos + 1 break end
+            if c == "\\" then
+                local e = s:sub(pos + 1, pos + 1)
+                local map = { b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" }
+                if e == "u" then
+                    out[#out + 1] = utf8.char(tonumber(s:sub(pos + 2, pos + 5), 16) or 63)
+                    pos = pos + 6
+                else
+                    out[#out + 1] = map[e] or e
+                    pos = pos + 2
+                end
+            else
+                out[#out + 1] = c
+                pos = pos + 1
+            end
+        end
+        return table.concat(out)
+    end
+    value = function()
+        ws()
+        local c = s:sub(pos, pos)
+        if c == "{" then
+            local t = {}
+            pos = pos + 1; ws()
+            if s:sub(pos, pos) == "}" then pos = pos + 1 return t end
+            while true do
+                ws()
+                local k = str()
+                ws()
+                if s:sub(pos, pos) ~= ":" then error("JSONDecode: expected ':' at " .. pos, 0) end
+                pos = pos + 1
+                t[k] = value()
+                ws()
+                local d = s:sub(pos, pos); pos = pos + 1
+                if d == "}" then return t end
+                if d ~= "," then error("JSONDecode: expected ',' or '}' at " .. (pos - 1), 0) end
+            end
+        elseif c == "[" then
+            local t = {}
+            pos = pos + 1; ws()
+            if s:sub(pos, pos) == "]" then pos = pos + 1 return t end
+            while true do
+                t[#t + 1] = value()
+                ws()
+                local d = s:sub(pos, pos); pos = pos + 1
+                if d == "]" then return t end
+                if d ~= "," then error("JSONDecode: expected ',' or ']' at " .. (pos - 1), 0) end
+            end
+        elseif c == '"' then return str()
+        elseif s:sub(pos, pos + 3) == "true" then pos = pos + 4 return true
+        elseif s:sub(pos, pos + 4) == "false" then pos = pos + 5 return false
+        elseif s:sub(pos, pos + 3) == "null" then pos = pos + 4 return nil
+        end
+        local num = s:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
+        if not num or num == "" then error("JSONDecode: unexpected '" .. c .. "' at " .. pos, 0) end
+        pos = pos + #num
+        return tonumber(num)
+    end
+    local v = value()
+    ws()
+    if pos <= #s then error("JSONDecode: extra text at " .. pos, 0) end
+    return v
+end
+function HttpService:GenerateGUID(braces)
+    local g = string.gsub("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx", "[xy]", function(c)
+        local v = c == "x" and math.random(0, 15) or math.random(8, 11)
+        return string.format("%X", v)
+    end)
+    if braces == false then return g end
+    return "{" .. g .. "}"
+end
+function HttpService:UrlEncode(s)
+    return (tostring(s):gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+function HttpService:GetAsync() error("Games can't reach other websites from Guts&Bolts.", 2) end
+HttpService.PostAsync, HttpService.RequestAsync = HttpService.GetAsync, HttpService.GetAsync
+
+-- Random.new(seed): its own stream of random numbers (the same seed, the same numbers).
+Random = {}
+function Random.new(seed)
+    local state = math.floor(tonumber(seed) or (os.time() + math.random(1, 1000000))) % 2147483646 + 1
+    local r = { ClassName = "Random" }
+    local function step()
+        state = (state * 48271) % 2147483647
+        return (state - 1) / 2147483646
+    end
+    function r:NextNumber(lo, hi)
+        lo, hi = lo or 0, hi or 1
+        return lo + (hi - lo) * step()
+    end
+    function r:NextInteger(lo, hi)
+        if hi < lo then lo, hi = hi, lo end
+        return math.min(hi, lo + math.floor(step() * (hi - lo + 1)))
+    end
+    function r:NextUnitVector()
+        local z = r:NextNumber(-1, 1)
+        local a = r:NextNumber(0, math.pi * 2)
+        local s = math.sqrt(1 - z * z)
+        return Vector3.new(s * math.cos(a), s * math.sin(a), z)
+    end
+    function r:Shuffle(t)
+        for i = #t, 2, -1 do
+            local j = r:NextInteger(1, i)
+            t[i], t[j] = t[j], t[i]
+        end
+    end
+    function r:Clone()
+        local c = Random.new(1)
+        local saved = state
+        -- (copy the state by stepping a fresh one to the same place)
+        c._set(saved)
+        return c
+    end
+    function r._set(v) state = v end
+    return r
+end
+
+-- math.noise(x [, y, z]): smooth "Perlin" noise between about -1 and 1 (0 on whole numbers),
+-- for hills, wobbly lights, wind...
+do
+    local perm = {}
+    local base = Random.new(1234)
+    local p = {}
+    for i = 0, 255 do p[i] = i end
+    for i = 255, 1, -1 do local j = base:NextInteger(0, i); p[i], p[j] = p[j], p[i] end
+    for i = 0, 511 do perm[i] = p[i % 256] end
+    local function fade(t) return t * t * t * (t * (t * 6 - 15) + 10) end
+    local function grad(h, x, y, z)
+        h = h % 16
+        local u = h < 8 and x or y
+        local v = h < 4 and y or ((h == 12 or h == 14) and x or z)
+        return ((h % 2 == 0) and u or -u) + ((h % 4 < 2) and v or -v)
+    end
+    function math.noise(x, y, z)
+        x, y, z = x or 0, y or 0, z or 0
+        local X, Y, Z = math.floor(x) % 256, math.floor(y) % 256, math.floor(z) % 256
+        x, y, z = x - math.floor(x), y - math.floor(y), z - math.floor(z)
+        local u, v, w = fade(x), fade(y), fade(z)
+        local A, B = perm[X] + Y, perm[X + 1] + Y
+        local AA, AB, BA, BB = perm[A] + Z, perm[A + 1] + Z, perm[B] + Z, perm[B + 1] + Z
+        local function lerp(t, a, b) return a + t * (b - a) end
+        return lerp(w, lerp(v, lerp(u, grad(perm[AA], x, y, z), grad(perm[BA], x - 1, y, z)),
+                               lerp(u, grad(perm[AB], x, y - 1, z), grad(perm[BB], x - 1, y - 1, z))),
+                       lerp(v, lerp(u, grad(perm[AA + 1], x, y, z - 1), grad(perm[BA + 1], x - 1, y, z - 1)),
+                               lerp(u, grad(perm[AB + 1], x, y - 1, z - 1), grad(perm[BB + 1], x - 1, y - 1, z - 1))))
+    end
+end
+
+-- BindableEvent / BindableFunction: scripts talking to each other.
+--   local ev = Instance.new("BindableEvent")      ev.Event:Connect(print)    ev:Fire("hi")
+--   local fn = Instance.new("BindableFunction")   fn.OnInvoke = function(x) return x * 2 end   fn:Invoke(21)
+-- (They live in the script that made them: share them through a module or _G.)
+do
+    local rawNew = Instance.new
+    local function bindable(cls, parent)
+        local o = { ClassName = cls, Name = cls, Parent = parent }
+        function o:IsA(c) return c == cls or c == "Instance" end
+        function o:Destroy() self.Parent = nil; self._dead = true end
+        function o:GetFullName() return self.Name end
+        if cls == "BindableEvent" then
+            o.Event = luaSignal()
+            function o:Fire(...) if not self._dead then self.Event:Fire(...) end end
+        else
+            function o:Invoke(...)
+                if not self.OnInvoke then error("BindableFunction has no OnInvoke", 2) end
+                return self.OnInvoke(...)
+            end
+        end
+        return o
+    end
+    Instance.new = function(cls, parent)
+        if cls == "BindableEvent" or cls == "BindableFunction" then return bindable(cls, parent) end
+        return rawNew(cls, parent)
+    end
+end
+_G = _G or {}
+
+local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Teams = Teams, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
-                   CollectionService = CollectionService, DataStoreService = DataStoreService }
+                   CollectionService = CollectionService, DataStoreService = DataStoreService,
+                   TweenService = TweenService, HttpService = HttpService }
+local storageNames = { ReplicatedStorage = true, ServerStorage = true, ReplicatedFirst = true }
+local storage = __gb_storage
 game = setmetatable({}, { __index = function(_, name)
     if name == "StarterGui" then return __gb_uiFolder() end
+    if storageNames[name] then return storage(name) end
     return services[name]
 end })
 function game:GetService(name)
     if name == "StarterGui" then return __gb_uiFolder() end
+    if storageNames[name] then return storage(name) end
     local s = services[name]
     if s == nil then
         error("'" .. tostring(name) .. "' is not a service Guts and Bolts knows about", 2)
@@ -278,8 +801,9 @@ end
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
-__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_findPath = nil, nil, nil, nil, nil
+__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil
 __gb_awardBadge, __gb_hasBadge = nil, nil
+__gb_raycast, __gb_storage, __gb_addMethod = nil, nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -531,20 +1055,159 @@ int gui_clear(lua_State* L) {
 }
 
 // Explode(position, radius, power)
-// __gb_findPath(from, to, jumpHeight) -> { {position, jump}, ... } or nil (PathfindingService).
-int l_findPath(lua_State* L) {
+// __gb_navPath(from, to, params) -> status, { {position, action, label}, ... } (PathfindingService).
+// __gb_raycast(origin, direction, filterList, includeOnly) -> part, position, normal, distance
+// (workspace:Raycast / FindPartOnRay). `direction`'s length is how far to look.
+int l_raycast(lua_State* L) {
+    Scene* scene = LuaApi::engine(L)->scene();
+    const glm::vec3 from = LuaApi::checkVector3(L, 1), dir = LuaApi::checkVector3(L, 2);
+    const float range = glm::length(dir);
+    if (!scene || range < 1e-6f) return 0;
+    std::vector<const SceneNode*> list;
+    if (lua_istable(L, 3)) {
+        for (lua_Integer i = 1;; ++i) {
+            lua_rawgeti(L, 3, i);
+            if (lua_isnil(L, -1)) { lua_pop(L, 1); break; }
+            if (lua_isuserdata(L, -1)) list.push_back(LuaApi::checkNode(L, -1));
+            lua_pop(L, 1);
+        }
+    }
+    const bool include = lua_toboolean(L, 4);
+    auto inside = [&](const SceneNode* n) {   // n is one of the list, or inside one
+        for (const SceneNode* p = n; p; p = p->parent)
+            if (std::find(list.begin(), list.end(), p) != list.end()) return true;
+        return false;
+    };
+    auto above = [&](const SceneNode* n) {    // n holds one of the list
+        for (const SceneNode* l : list)
+            for (const SceneNode* p = l; p; p = p->parent) if (p == n) return true;
+        return false;
+    };
+    const glm::vec3 rd = dir / range;
+    float dist = 0.0f;
+    SceneNode* hit = Physics::raycastIf(*scene, from, rd, &dist, [&](const SceneNode* n) {
+        if (n == scene->root()) return true;
+        return include ? (inside(n) || above(n)) : !inside(n);
+    });
+    if (!hit || dist > range) return 0;
+    const glm::vec3 at = from + rd * dist;
+    const OBB box = Physics::worldOBB(hit);
+    glm::vec3 normal(0, 1, 0);
+    if (hit->primitiveType == PrimitiveType::Sphere) {
+        if (glm::length(at - box.center) > 1e-5f) normal = glm::normalize(at - box.center);
+    } else {   // the face of the box it hit
+        float best = -1.0f;
+        for (int i = 0; i < 3; ++i) {
+            const float f = glm::dot(at - box.center, box.axis[i]) / std::max(box.half[i], 1e-4f);
+            if (std::abs(f) > best) { best = std::abs(f); normal = box.axis[i] * (f < 0 ? -1.0f : 1.0f); }
+        }
+    }
+    LuaApi::pushInstance(L, hit->id);
+    LuaApi::pushVector3(L, at);
+    LuaApi::pushVector3(L, normal);
+    lua_pushnumber(L, dist);
+    return 4;
+}
+
+// __gb_addMethod(name, fn): a method every object gets (the prelude adds workspace:Raycast etc. this way).
+int l_addMethod(lua_State* L) {
+    luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_getfield(L, LUA_REGISTRYINDEX, "GB.InstanceMethods");
+    lua_pushvalue(L, 2);
+    lua_setfield(L, -2, lua_tostring(L, 1));
+    return 0;
+}
+
+// __gb_storage(name): ReplicatedStorage / ServerStorage - a hidden folder for templates
+// (what Roblox imports put there too).
+int l_storage(lua_State* L) {
+    Scene* scene = LuaApi::engine(L)->scene();
+    const std::string name = luaL_checkstring(L, 1);
+    if (!scene) return 0;
+    for (auto& c : scene->root()->children)
+        if (c->name == name && c->kind == NodeKind::Model) { LuaApi::pushInstance(L, c->id); return 1; }
+    auto folder = std::make_unique<SceneNode>(name, NodeKind::Model);
+    folder->visible = false;
+    LuaApi::pushInstance(L, scene->insert(std::move(folder))->id);
+    return 1;
+}
+
+int l_navPath(lua_State* L) {
     glm::vec3 from = LuaApi::checkVector3(L, 1), to = LuaApi::checkVector3(L, 2);
+    NavMesh::Agent agent = LuaApi::checkAgent(L, 3);
     const Physics* ph = LuaApi::engine(L)->physics();
-    std::vector<PathPoint> pts;
-    if (!ph || !ph->findPath(from, to, (float)luaL_optnumber(L, 3, 1.6), pts)) { lua_pushnil(L); return 1; }
-    lua_createtable(L, (int)pts.size(), 0);
-    for (size_t i = 0; i < pts.size(); ++i) {
-        lua_createtable(L, 2, 0);
-        LuaApi::pushVector3(L, pts[i].pos); lua_rawseti(L, -2, 1);
-        lua_pushboolean(L, pts[i].jump);    lua_rawseti(L, -2, 2);
+    if (!ph) { lua_pushstring(L, "NoPath"); lua_newtable(L); return 2; }
+    std::vector<NavMesh::Waypoint> wps;
+    NavMesh::Status st = ph->navMesh().findPath(from, to, agent, wps);
+    lua_pushstring(L, NavMesh::statusName(st));
+    lua_createtable(L, (int)wps.size(), 0);
+    for (size_t i = 0; i < wps.size(); ++i) {
+        lua_createtable(L, 3, 0);
+        LuaApi::pushVector3(L, wps[i].pos);  lua_rawseti(L, -2, 1);
+        lua_pushstring(L, wps[i].action == NavMesh::Action::Jump ? "Jump" : "Walk"); lua_rawseti(L, -2, 2);
+        lua_pushstring(L, wps[i].label.c_str()); lua_rawseti(L, -2, 3);
         lua_rawseti(L, -2, (int)i + 1);
     }
-    return 1;
+    return 2;
+}
+
+// __gb_navQuery(what, ...): the navmesh's other questions (see PathfindingService below).
+int l_navQuery(lua_State* L) {
+    const std::string what = luaL_checkstring(L, 1);
+    const Physics* ph = LuaApi::engine(L)->physics();
+    if (!ph) { lua_pushnil(L); return 1; }
+    if (what == "bake") {
+        ph->rebakeNavMesh();
+        lua_pushnumber(L, ph->navMesh().bakeMs());
+        lua_pushinteger(L, (lua_Integer)ph->navMesh().spanCount());
+        return 2;
+    }
+    if (what == "settings") {   // SetBakeSettings({CellSize=, MaxSlope=, JumpHeight=, JumpGap=, MaxDrop=, StepHeight=})
+        NavMesh::Settings st = ph->navMesh().settings();
+        luaL_checktype(L, 2, LUA_TTABLE);
+        auto num = [&](const char* k, float& out) {
+            lua_getfield(L, 2, k);
+            if (lua_isnumber(L, -1)) out = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+        };
+        num("CellSize", st.cell); num("MaxSlope", st.maxSlope); num("JumpHeight", st.jumpHeight);
+        num("JumpGap", st.jumpGap); num("MaxDrop", st.maxDrop); num("StepHeight", st.maxClimb);
+        st.cell = std::clamp(st.cell, 0.2f, 4.0f);
+        ph->setNavSettings(st);
+        return 0;
+    }
+    const NavMesh& nav = ph->navMesh();
+    if (what == "version") { lua_pushinteger(L, nav.version()); return 1; }
+    if (what == "walkable") {
+        lua_pushboolean(L, nav.walkable(LuaApi::checkVector3(L, 2), LuaApi::checkAgent(L, 3)));
+        return 1;
+    }
+    if (what == "closest") {
+        glm::vec3 out;
+        if (nav.closestPoint(LuaApi::checkVector3(L, 2), LuaApi::checkAgent(L, 4), (float)luaL_optnumber(L, 3, 10.0), out))
+            LuaApi::pushVector3(L, out);
+        else
+            lua_pushnil(L);
+        return 1;
+    }
+    if (what == "straight") {
+        glm::vec3 hit;
+        bool ok = nav.straightWalk(LuaApi::checkVector3(L, 2), LuaApi::checkVector3(L, 3), LuaApi::checkAgent(L, 4), &hit);
+        lua_pushboolean(L, ok);
+        if (ok) LuaApi::pushVector3(L, LuaApi::checkVector3(L, 3)); else LuaApi::pushVector3(L, hit);
+        return 2;
+    }
+    if (what == "random") {
+        glm::vec3 around = lua_isnoneornil(L, 2) ? glm::vec3(0.0f) : LuaApi::checkVector3(L, 2);
+        float radius = lua_isnoneornil(L, 2) ? 0.0f : (float)luaL_optnumber(L, 3, 20.0);
+        static uint32_t seed = 1;
+        glm::vec3 out;
+        if (nav.randomPoint(around, radius, LuaApi::checkAgent(L, 4), seed++, out)) LuaApi::pushVector3(L, out);
+        else lua_pushnil(L);
+        return 1;
+    }
+    return luaL_error(L, "unknown navmesh question '%s'", what.c_str());
 }
 
 int l_explode(lua_State* L) {
@@ -615,6 +1278,42 @@ void timeoutHook(lua_State* L, lua_Debug*) { LuaApi::engine(L)->checkTimeout(L);
 
 namespace LuaApi {
 ScriptEngine* engine(lua_State* L) { return *static_cast<ScriptEngine**>(lua_getextraspace(L)); }
+
+NavMesh::Agent checkAgent(lua_State* L, int idx) {
+    NavMesh::Agent a;
+    if (lua_isnoneornil(L, idx) || !lua_istable(L, idx)) return a;
+    idx = lua_absindex(L, idx);
+    auto num = [&](const char* k, float& out) {
+        lua_getfield(L, idx, k);
+        if (lua_isnumber(L, -1)) out = (float)lua_tonumber(L, -1);
+        lua_pop(L, 1);
+    };
+    num("AgentRadius", a.radius);
+    num("AgentHeight", a.height);
+    num("WaypointSpacing", a.spacing);
+    // Copied from a Roblox game (AgentHeight 5, AgentRadius 2...)? Those are Roblox
+    // studs: characters here are half that size.
+    if (a.height >= 4.0f) { a.radius *= 0.5f; a.height *= 0.5f; a.spacing *= 0.5f; }
+    a.radius = std::clamp(a.radius, 0.1f, 20.0f);
+    a.height = std::clamp(a.height, 0.5f, 50.0f);
+    if (!std::isfinite(a.spacing) || a.spacing <= 0.0f) a.spacing = 0.0f;   // math.huge: corners only
+    lua_getfield(L, idx, "AgentCanJump");
+    if (lua_isboolean(L, -1)) a.canJump = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    lua_getfield(L, idx, "Costs");
+    if (lua_istable(L, -1)) {
+        lua_pushnil(L);
+        while (lua_next(L, -2)) {
+            if (lua_type(L, -2) == LUA_TSTRING && lua_isnumber(L, -1)) {
+                double v = lua_tonumber(L, -1);
+                a.costs[lua_tostring(L, -2)] = !std::isfinite(v) || v > 1e8 ? 1e9f : (float)std::max(0.01, v);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+    return a;
+}
 }
 
 ScriptEngine::ScriptEngine(Scene* scene) : m_scene(scene) {}
@@ -672,7 +1371,11 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_setRespawn", l_setRespawn);
     lua_register(L, "__gb_dsGet", l_dsGet);
     lua_register(L, "__gb_dsSet", l_dsSet);
-    lua_register(L, "__gb_findPath", l_findPath);
+    lua_register(L, "__gb_navPath", l_navPath);
+    lua_register(L, "__gb_navQuery", l_navQuery);
+    lua_register(L, "__gb_raycast", l_raycast);
+    lua_register(L, "__gb_storage", l_storage);
+    lua_register(L, "__gb_addMethod", l_addMethod);
     lua_register(L, "__gb_awardBadge", l_awardBadge);
     lua_register(L, "__gb_hasBadge", l_hasBadge);
 

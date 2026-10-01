@@ -64,6 +64,11 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_outliner = std::make_unique<OutlinerPanel>(scene, open, [this](SceneNode* n) { addScript(n); });
     EditorTheme::applyStudio();
     m_outliner->onInsert = [this](SceneNode* parent) { m_insertParent = parent; m_openInsert = true; };
+    m_outliner->onInsertNamed = [this](const std::string& what, SceneNode* parent) {
+        m_deferred = [this, what, parent] { insertObject(what, parent); };   // (not while the Explorer is drawing)
+    };
+    m_outliner->onLighting = [] { ImGui::SetWindowFocus("Lighting"); };
+    m_outliner->playing = [this] { return m_playing; };
     m_viewport->onMode = [this](StudioMode mode) { setMode(mode); };
     m_outliner->contextMenuExtras = [this] {
         ImGui::Separator();
@@ -180,7 +185,7 @@ void Editor::render(float dt) {
     }
     if (!m_showPanel[kPanelAnimation] && m_animEditor->editing()) m_animEditor->close();
     SettingsWindow::draw(&m_showSettings);
-    if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+    if (UpdateToast::draw("GutsAndBolts", !m_dirty)) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 
     trackChanges();
     updateTitle();
@@ -943,6 +948,13 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         t->color = {0.6f, 0.62f, 0.66f};
         t->material = Material::Metal;
     }
+    else if (what == "Seat") {   // walk into it to sit down (jump to get up), like Roblox's
+        SceneNode* t = part("Seat", PrimitiveType::Cube);
+        t->transform.scale = {1.0f, 0.2f, 1.0f};
+        t->transform.position.y -= 0.35f;
+        t->color = {0.64f, 0.64f, 0.64f};
+        t->tags.push_back("Seat");
+    }
     else if (what == "Water") {   // swim in it
         SceneNode* w = part("Water", PrimitiveType::Cube);
         w->transform.scale = {16, 6, 16};
@@ -986,6 +998,22 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         sp->color = {0.25f, 0.6f, 1.0f};
     }
     else if (what == "Model" || what == "Folder") put(std::make_unique<SceneNode>(what, NodeKind::Model));
+    else if (what == "Team") {
+        // Teams live in a folder called Teams (Roblox's Teams service). A Team has a
+        // colour; players join the AutoAssignable ones and spawn on SpawnLocations
+        // with the same TeamColor attribute.
+        SceneNode* folder = nullptr;
+        for (auto& c : m_scene->root()->children) if (c->name == "Teams" && c->kind == NodeKind::Model) folder = c.get();
+        if (!folder) folder = m_scene->insert(std::make_unique<SceneNode>("Teams", NodeKind::Model), nullptr);
+        static const glm::vec3 colors[] = {{0.77f, 0.16f, 0.11f}, {0.05f, 0.41f, 0.67f}, {0.16f, 0.5f, 0.27f}, {0.96f, 0.8f, 0.19f}};
+        auto t = std::make_unique<SceneNode>(std::string("Team ") + std::to_string(folder->children.size() + 1), NodeKind::Model);
+        Attribute cls; cls.name = "RobloxClass"; cls.type = Attribute::String; cls.s = "Team";
+        Attribute col; col.name = "TeamColor"; col.type = Attribute::Color3; col.v = colors[folder->children.size() % 4];
+        Attribute aa; aa.name = "AutoAssignable"; aa.type = Attribute::Bool; aa.b = true;
+        t->attributes = {cls, col, aa};
+        parent = folder;
+        put(std::move(t));
+    }
     else if (what == "Script" || what == "LocalScript") { addScript(parent); }
     else if (what == "ModuleScript") {
         auto n = std::make_unique<SceneNode>("ModuleScript", NodeKind::Script);
@@ -1097,7 +1125,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},

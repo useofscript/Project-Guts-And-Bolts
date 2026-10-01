@@ -266,7 +266,7 @@ void Editor::renderToolbar() {
                 Stack st;
                 if (smallButton("Anchor", Icons::Id::Anchor, sel && sel->anchored && sel->isPart(), editable, "Anchor: stays put (Alt+A)"))
                     toggleAnchored();
-                if (smallButton("Snap", Icons::Id::Snap, m_state.snapEnabled, true, "Move in steps of the grid (studs: MODEL tab)"))
+                if (smallButton("Snap", Icons::Id::Snap, m_state.snapEnabled, true, "Move in steps of the grid (studs: Increments)"))
                     m_state.snapEnabled = !m_state.snapEnabled;
                 if (smallButton(m_state.gizmoLocal ? "Local" : "World", Icons::Id::Transform, false, true, "Local / world axes (Ctrl+L)"))
                     m_state.gizmoLocal = !m_state.gizmoLocal;
@@ -277,11 +277,39 @@ void Editor::renderToolbar() {
                                 "Collisions: moved parts stop flush against others instead of going through"))
                     m_state.collisions = !m_state.collisions;
                 if (smallButton("Rot snap", Icons::Id::Rotate, m_state.rotSnapEnabled, true,
-                                "Turn in steps (degrees: MODEL tab)"))
+                                "Turn in steps (degrees: Increments)"))
                     m_state.rotSnapEnabled = !m_state.rotSnapEnabled;
                 if (smallButton("Grid", Icons::Id::Snap, m_state.showGrid, true, "Show the floor grid"))
                     m_state.showGrid = !m_state.showGrid;
             }
+        }
+        {
+            // Like modern Roblox Studio: the step sizes right on the Home tab. Ticked =
+            // moves / sizes / turns in steps; unticked = free (Blender style). While you
+            // drag, how far shows next to the mouse.
+            Group g("Increments");
+            ImGui::BeginGroup();
+            ImGui::Checkbox("##rotinc", &m_state.rotSnapEnabled);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rotate in steps (unticked: turn freely)");
+            ImGui::SameLine(0, 2);
+            ImGui::TextUnformatted("Rotate");
+            ImGui::SameLine(62);
+            ImGui::SetNextItemWidth(58);
+            ImGui::BeginDisabled(!m_state.rotSnapEnabled);
+            ImGui::DragFloat("##rotdeg", &m_state.snapRotate, 1.0f, 1.0f, 180.0f, "%.0f\xC2\xB0");
+            ImGui::EndDisabled();
+            ImGui::Checkbox("##moveinc", &m_state.snapEnabled);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Move and resize in steps of studs (unticked: free)");
+            ImGui::SameLine(0, 2);
+            ImGui::TextUnformatted("Move");
+            ImGui::SameLine(62);
+            ImGui::SetNextItemWidth(58);
+            ImGui::BeginDisabled(!m_state.snapEnabled);
+            ImGui::DragFloat("##movestuds", &m_state.snapTranslate, 0.05f, 0.05f, 64.0f, "%.2f st");
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Studs per step (moving, and growing / shrinking with Scale)");
+            ImGui::EndGroup();
+            ImGui::SameLine(0, 4);
         }
         test(m_playing, false);   // Pause only while testing (Pause and Step are always on the TEST tab)
         {
@@ -331,6 +359,19 @@ void Editor::renderToolbar() {
             if (bigButton("Edit Mesh", Icons::Id::Extrude, false, editable && sel->isPart() && !m_scene->isCharacterPart(sel),
                           "Modeling mode: reshape the selected part's corners, edges and faces (Tab)"))
                 setMode(StudioMode::Modeling);
+        }
+        {
+            Group g("Navigation");
+            if (bigButton("Navmesh", Icons::Id::NavMesh, m_state.showNavMesh, true,
+                          "Show the navigation mesh: the blue floor is where characters can walk; yellow arcs are "
+                          "jumps, orange lines are drops. PathfindingService uses it."))
+                m_state.showNavMesh = !m_state.showNavMesh;
+            std::string tip = "Bake the navigation mesh again now (it also rebakes by itself when parts change)";
+            if (!m_state.navInfo.empty()) tip += "\n" + m_state.navInfo;
+            if (bigButton("Bake", Icons::Id::Bake, false, true, tip.c_str())) {
+                m_state.bakeNavMesh = 1;
+                m_state.showNavMesh = true;
+            }
         }
         {
             Group g("Constraints");

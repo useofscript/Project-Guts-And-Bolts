@@ -28,14 +28,14 @@ function show(content) { view.innerHTML = content.s; }
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
   hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
-  tshirt: 'T-Shirt' };
+  tshirt: 'T-Shirt', gear: 'Gear' };
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
 const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
 // Only Guts' own accessories and faces can be Limited.
 const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
 // Items with a real picture (Studio accessories, faces) show that instead of a drawing.
-const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || a.kind === 'tshirt' || (a.meta && a.meta.model));
+const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || a.kind === 'tshirt' || a.kind === 'gear' || (a.meta && a.meta.model));
 const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
 
 let me = null;          // our account on the server (from "hello")
@@ -95,6 +95,9 @@ function itemIcon(a) {
   } else if (k === 'tshirt') {   // (no picture yet)
     shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="#fff" stroke="#999" stroke-width="2"/>
       <rect x="38" y="40" width="24" height="24" rx="3" fill="#ddd"/>`;
+  } else if (k === 'gear') {   // a little sword (until Studio's picture of it loads)
+    shape = `<path d="M78 16 L84 22 L44 62 L38 56 Z" fill="#ccd0d8" stroke="#555" stroke-width="2"/><path d="M30 50 L50 70" stroke="#e6b428" stroke-width="7" stroke-linecap="round"/>
+      <path d="M38 62 L20 80" stroke="#7a5028" stroke-width="7" stroke-linecap="round"/><circle cx="18" cy="82" r="5" fill="#e6b428"/>`;
   } else if (k === 'face') {
     shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
       <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
@@ -339,7 +342,7 @@ function loginPopup(what) {
 // Which clicks and forms need an account, and what to say.
 const NEEDS_ACCOUNT = {
   buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
-  friend: 'add friends', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
+  friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
 };
 
@@ -376,6 +379,47 @@ function setMe(m) {
   } else {
     box.innerHTML = html`<a href="#/signup">Sign Up</a> | <a href="#/login">Login</a>`.s;
   }
+  showWarning();
+}
+
+// --- Moderation: bans and staff warnings ---------------------------------------------
+
+const banned = () => !!(me && me.ban);
+const dateText = (t) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+// A banned account sees only this (like Roblox's "Banned" page): why, the note from
+// staff, when, and when it ends.
+function banPage() {
+  const b = me.ban;
+  show(html`<div class="box ban-box">
+      <h1>${b.until ? 'Banned for ' + Math.max(1, Math.round((b.until - b.at) / 86400)) + ' day' + (Math.round((b.until - b.at) / 86400) === 1 ? '' : 's') : 'Account Banned'}</h1>
+      <p>Our moderators have found that your account broke the Guts&amp;Bolts rules.</p>
+      <table class="ban-table">
+        <tr><th>Reason</th><td><b>${b.title}</b></td></tr>
+        ${b.note ? html`<tr><th>Note from staff</th><td>${b.note}</td></tr>` : ''}
+        ${b.at ? html`<tr><th>Banned on</th><td>${dateText(b.at)}</td></tr>` : ''}
+        <tr><th>Can play again</th><td>${b.until ? dateText(b.until) : 'Never: this ban is for good.'}</td></tr>
+      </table>
+      <p class="small muted">${b.until ? 'When the ban ends, just come back and log in again.' : ''}
+        Please keep Guts&amp;Bolts a fun, safe place for everyone.</p>
+      <p><button class="btn" data-act="logout">Log out</button></p></div>`);
+}
+
+// A staff warning, shown once until you say you understand.
+let warningShown = '';
+function showWarning() {
+  if (!signedIn() || banned() || !me.warnings || !me.warnings.length) return;
+  const w = me.warnings[0];
+  if (warningShown === w.id) return;
+  warningShown = w.id;
+  const box = popup(html`<div class="popup-title" style="color:#c0392b">Warning</div>
+    <p>A moderator has warned your account for:</p>
+    <p style="font-size:18px"><b>${w.title}</b></p>
+    ${w.note ? html`<p>"${w.note}"</p>` : ''}
+    <p class="small muted">${dateText(w.at)}. More breaks of the rules can get your account banned.</p>
+    <div class="popup-buttons"><button class="btn blue" data-act="ackWarning" data-id="${w.id}">I understand</button></div>`, 'warning');
+  box.querySelector('.popup-x').remove();   // no sneaking past it
+  box.onclick = null;
 }
 
 // How many friend requests are waiting (shown on the Friends link).
@@ -388,6 +432,16 @@ async function checkRequests() {
     if (r.ok) n = r.incoming.length;
   }
   link.innerHTML = 'Friends' + (n ? ` <span class="badge">${n}</span>` : '');
+}
+
+// Once a minute: has anything happened to the account (a warning, a ban)?
+async function keepFresh() {
+  if (!signedIn()) return;
+  const wasBanned = banned();
+  const r = await gb.call('ping', {});
+  if (r.ok && r.me) setMe(r.me);
+  else if (!r.ok && /^This account has been banned/.test(r.error || '')) await hello();
+  if (banned() !== wasBanned) render();
 }
 
 async function hello() {
@@ -464,7 +518,10 @@ pages.home = async () => {
       </div>
       <div class="home-right">${updateBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
     </div>`);
-  mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), [], { width: 170 }).catch(() => {});
+  // Dressed in what you're wearing (the server says which items those are).
+  const mine = await pageCall('profile', { id: me.id });
+  const worn = mine.ok ? mine.wearing || [] : [];
+  if ($('#homeAvatar')) mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), worn, { width: 170 }).catch(() => {});
 };
 
 // --- Updates: the update log, newest first. It checks for new ones by itself while
@@ -681,7 +738,7 @@ pages.catalog = async () => {
   const tab = (k, label) => html`<a class="btn ${kind === k ? 'blue' : ''}" href="#/catalog?kind=${k}">${label}</a>`;
   show(html`<h1>Catalog</h1>
     <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('hair', 'Hair')}${tab('face', 'Faces')}${tab('faceacc', 'Face Accessories')}${tab('neck', 'Neck')}
-      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('tshirt', 'T-Shirts')}${tab('pants', 'Pants')}</div>
+      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('tshirt', 'T-Shirts')}${tab('pants', 'Pants')}${tab('gear', 'Gear')}</div>
     <form class="row" data-form="catalogSearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the catalog" value="${query}" style="max-width:280px">
       <button class="btn blue">Search</button></form><br>
@@ -695,6 +752,7 @@ pages.item = async (id) => {
   const a = r.ok && r.assets.find((x) => x.id === id);
   if (!a) { show(html`<h1>Item not found</h1>`); return; }
   const owned = signedIn() && (me.owned || []).includes(a.id);
+  const gearOn = a.kind === 'gear' && signedIn() && (me.gear || []).includes(a.id);
   const canEdit = signedIn() && (a.creator === me.id || me.staff);
   const L = a.limited;
   const copies = L ? ((await pageCall('item.copies', { id: a.id })).copies || []) : [];
@@ -709,7 +767,10 @@ pages.item = async (id) => {
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
         ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
           ${L.resellers ? html` · ${L.resellers} for resale from ${bolts(L.lowest)}` : ''}</p>` : ''}
-        ${owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
+        ${owned && a.kind === 'gear' ? html`<p class="ok"><b>You own this.</b></p>
+            <button class="btn ${gearOn ? '' : 'green'} big" data-act="gearEquip" data-id="${a.id}" data-on="${gearOn ? '' : '1'}">${gearOn ? 'Unequip' : 'Equip'}</button>
+            <p class="small muted">Equipped gear goes in your backpack in games that allow gear (up to 4 at once).</p>`
+          : owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
           : soldOut ? html`<button class="btn big" disabled>Sold out</button>`
           : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
         ${canEdit ? html` <button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button>` : ''}
@@ -722,6 +783,7 @@ pages.item = async (id) => {
         ${drawable3d(a) ? html`<label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">` : ''}
         ${a.kind === 'face' ? html`<label>New picture <span class="muted small">(optional, a .png face)</span></label><input type="file" name="picture" accept="image/png">`
           : a.kind === 'tshirt' ? html`<label>New picture <span class="muted small">(optional, a .png or .jpg)</span></label><input type="file" name="picture" accept="image/png,image/jpeg">`
+          : a.kind === 'gear' ? html`<p class="small muted">To change the tool itself, publish it again from Studio.</p>`
           : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
           : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
           : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
@@ -849,7 +911,8 @@ pages.configure = async (id) => {
       <div class="box"><h2 class="boxhead">Genres and players</h2>
         <p class="small muted">Pick up to 3 genres so people can find your game.</p>
         <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
-        <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px"></div>
+        <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px">
+        <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label></div>
       <div class="box"><h2 class="boxhead">Who can play</h2>
         ${choice('public', 'Public', 'Everyone can find and play it.')}
         ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
@@ -950,11 +1013,17 @@ pages.user = async (id) => {
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
   const f = r.friendship;
+  // People are known by their user number: show #/user/5, not the long account key.
+  if (u.userId > 0 && String(id) !== String(u.userId)) history.replaceState(null, '', '#/user/' + u.userId);
   const friendBtn = f === 'self' ? '' : !signedIn() ? html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`
     : f === 'friends' ? html`<button class="btn small" data-act="friend" data-op="friends.remove" data-user="${u.id}">Unfriend</button>`
       : f === 'sent' ? html`<button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${u.id}">Cancel request</button>`
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
           : html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`;
+  // Following: one way, no asking (older servers don't know it: no button then).
+  const followBtn = f === 'self' || r.followerCount === undefined ? ''
+    : r.isFollowing ? html` <button class="btn small" data-act="follow" data-op="follow.remove" data-user="${u.id}">Unfollow</button>`
+      : html` <button class="btn blue small" data-act="follow" data-op="follow.add" data-user="${u.id}">Follow</button>`;
   const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => WEARABLE.includes(a.kind));
   // What they wear (older servers don't say: look it up in the catalog).
   let worn = r.wearing;
@@ -966,9 +1035,12 @@ pages.user = async (id) => {
   const badgeNames = { admin: 'Administrator', verified: 'Verified', staff: 'Staff', tester: 'Tester', bughunter: 'Bug Hunter', featured: 'Featured Creator' };
   const online = r.online === undefined ? null : r.online;
   show(html`<div class="profile-head">
-      <h1>${u.username}${verified(u.verified)}</h1>
+      <h1>${u.username}${verified(u.verified)}</h1><span class="small muted user-number">#${u.userId}</span>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
-      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
+      ${r.playing ? html`<span class="small playing-now">Playing <a href="#/game/${r.playing.game}">${r.playing.title}</a></span>
+        ${r.playing.session && f !== 'self' ? html` <button class="btn green small" data-act="joinServer" data-id="${r.playing.game}"
+            data-name="${r.playing.title}" data-server="${r.playing.session}"${r.playing.full ? raw(' disabled title="That server is full"') : ''}>Join</button>` : ''}` : ''}
+      <span class="grow"></span>${friendBtn}${followBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
         : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
     ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
@@ -983,6 +1055,8 @@ pages.user = async (id) => {
           <table class="stats"><tr><td>Joined</td><td>${new Date(u.created * 1000).toLocaleDateString()} (${ago(u.created)})</td></tr>
             <tr><td>User number</td><td>#${u.userId}</td></tr>
             <tr><td>Friends</td><td>${r.friendCount}</td></tr>
+            ${r.followerCount === undefined ? '' : html`<tr><td>Followers</td><td>${r.followerCount}</td></tr>
+            <tr><td>Following</td><td>${r.followingCount}</td></tr>`}
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
           ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
@@ -1011,7 +1085,7 @@ pages.user = async (id) => {
   // The 3D avatar (the flat one stays if the browser can't do 3D).
   mountAvatar($('#profileAvatar'), u.avatar, worn, { width: 220 }).catch(() => {});
   for (const p of friends) {
-    avatarPicture(p.avatar, [], 60).then((url) => {
+    avatarPicture(p.avatar, p.wearing || [], 60).then((url) => {
       const box = view.querySelector(`[data-friend-avatar="${p.id}"]`);
       if (url && box) box.innerHTML = html`<img src="${url}" alt="" width="60" height="75">`.s;
     }).catch(() => {});
@@ -1107,7 +1181,7 @@ pages.group = async (id) => {
 let avatarDraft = null;   // the avatar being edited (saved with the Save button)
 
 pages.avatar = async () => {
-  const r = signedIn() ? await pageCall('list', { kind: 'clothing', limit: 100 }) : { ok: true, assets: [] };
+  const r = signedIn() ? await pageCall('list', { kind: 'clothing', owned: true, limit: 100 }) : { ok: true, assets: [] };
   const owned = (r.ok ? r.assets : []).filter((a) => (me.owned || []).includes(a.id));
   if (!avatarDraft) avatarDraft = Object.assign(defaultAvatar(), JSON.parse(JSON.stringify(me.avatar || {})));
   const a = avatarDraft;
@@ -1161,7 +1235,7 @@ pages.staff = async () => {
   show(html`<h1>Staff</h1>
     <p class="muted">${me.official ? 'You\'re the official Guts account: you can verify people, make staff, give Bolts and ban.'
       : 'Staff can verify people and take Verified away.'}</p>
-    <form class="row" data-form="staffSearch"><input type="search" name="q" placeholder="Search by name or account ID" value="${query}" style="max-width:320px">
+    <form class="row" data-form="staffSearch"><input type="search" name="q" placeholder="Search by name or user number (#5)" value="${query}" style="max-width:320px">
       <button class="btn blue">Search</button></form>
     <div class="list">${r.ok ? r.users.map((u) => html`<div>
       <a class="grow" href="#/user/${u.id}"><b>${u.username || u.name}</b></a>${verified(u.verified)}
@@ -1173,6 +1247,7 @@ pages.staff = async () => {
           ${u.staff ? html`<button class="btn small" data-act="staff" data-op="revoke" data-key="staff" data-id="${u.id}">Remove staff</button>`
             : html`<button class="btn small" data-act="staff" data-op="grant" data-key="staff" data-id="${u.id}">Make staff</button>`}
           <button class="btn small" data-act="staff" data-op="bolts" data-id="${u.id}" data-name="${u.username || u.name}">Give Bolts</button>
+          <button class="btn small" data-act="staff" data-op="warn" data-id="${u.id}">Warn</button>
           <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
       </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
 };
@@ -1252,6 +1327,32 @@ pages.settings = async () => {
           : html`<form class="form" data-form="twoStep"><input type="hidden" name="on" value="${me.twoStep ? '' : '1'}">
             <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>
             <p><button class="btn ${me.twoStep ? '' : 'green'}">${me.twoStep ? 'Turn off' : 'Turn on'}</button> <span id="twoStepMsg"></span></p></form>`}</div>
+      <div class="box"><h2 class="boxhead">Privacy</h2>
+        <form class="form" data-form="privacy">
+          <label>Who can see when I'm online and what I'm playing</label>
+          <select name="status">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).status === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one (appear offline)' }[v]}</option>`)}</select>
+          <label>Who can join me in games</label>
+          <select name="join">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).join === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
+          <p><button class="btn green">Save</button></p></form></div>
+      <div class="box"><h2 class="boxhead">Authenticator app</h2>
+        ${me.authApp ? html`<p><b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> the 6-digit code
+            from your authenticator app (Google Authenticator, Authy, 2FAS, Aegis, Microsoft Authenticator...).</p>
+          <form class="form" data-form="authAppOff">
+            ${noPw ? '' : html`<input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>`}
+            <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Code from the app" required>
+            <p><button class="btn">Turn off</button> <span id="authAppMsg"></span></p></form>`
+          : authSetup ? html`<p>1. In your authenticator app, add an account and type this key (or tap the link on your phone):</p>
+            <p class="secret-key"><code>${authSetup.secret.replace(/(.{4})/g, '$1 ').trim()}</code></p>
+            <p class="small"><a href="${authSetup.uri}">Open in my authenticator app</a></p>
+            <p>2. Type the 6-digit code it shows:</p>
+            <form class="form" data-form="authAppOn">
+              <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits" required>
+              <p><button class="btn green">Turn on</button> <span id="authAppMsg"></span></p></form>`
+          : html`<p><b>Off.</b> The safest way to protect your account: a code from an app on your phone that changes every 30
+              seconds. A stolen password alone won't get anyone in. (No email needed.)</p>
+            <form class="form" data-form="authAppSetup">
+              ${noPw ? '' : html`<input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>`}
+              <p><button class="btn green">Set up</button> <span id="authAppMsg"></span></p></form>`}</div>
       ${noPw ? '' : html`<div class="box"><h2 class="boxhead">Change password</h2>
         <form class="form" data-form="changePassword">
           <label>Current password</label><input type="password" name="current" autocomplete="current-password" required>
@@ -1263,6 +1364,71 @@ pages.settings = async () => {
 
 pages.login = async () => loginPage(false);
 pages.signup = async () => loginPage(true);
+let authSetup = null;   // Settings: an authenticator app being set up ({secret, uri})
+
+// The Terms of Service. Plain words on purpose. (Also in the Player app: PlayerLogin.cpp.)
+pages.terms = async () => {
+  show(html`<div class="terms">
+    <h1>Guts&amp;Bolts Terms of Service</h1>
+    <p class="muted small">Last updated October 2026. By making an account or playing, you agree to these terms.</p>
+
+    <h2>1. What Guts&amp;Bolts is</h2>
+    <p>Guts&amp;Bolts is a free, independent game engine and platform: Studio to build games, the Player to play them,
+      and this website. It's a hobby project made for fun. Nobody makes a profit from it: there are no paid
+      subscriptions, and Bolts (the in-game money) can't be bought with or turned into real money.</p>
+    <p>Guts&amp;Bolts is <b>not affiliated with, endorsed by, or connected to Roblox Corporation</b>. "Roblox" is
+      their trademark. We don't use their name or logos for our own branding, and we don't support or speak for them.
+      Guts&amp;Bolts exists because its creator got fed up with update after update on that platform and decided to
+      build their own.</p>
+
+    <h2>2. Adults only (18+)</h2>
+    <p>This is the R-rated, non-kid version of the genre. Games and chat can contain <b>strong language, crude
+      humour, cartoon violence and gore, and mature themes</b>, and chat isn't filtered. You must be <b>18 or
+      older</b> to make an account or play. If you're under 18, please don't use Guts&amp;Bolts.</p>
+
+    <h2>3. Your account</h2>
+    <ul>
+      <li>Keep your password (and your authenticator, if you turn one on) to yourself. You're responsible for
+        what happens on your account.</li>
+      <li>Your password never leaves your device in a readable form, so if you lose it and have no recovery email,
+        nobody can get it back.</li>
+      <li>One person, one account is the normal way to play. Don't make accounts to dodge a ban.</li>
+    </ul>
+
+    <h2>4. Rules</h2>
+    <p>Mature content is allowed; being a menace isn't. Don't:</p>
+    <ul>
+      <li>post anything sexual involving minors, or anything illegal where you live;</li>
+      <li>threaten, stalk, dox (share someone's personal info) or seriously harass anyone;</li>
+      <li>cheat, exploit bugs to hurt others, or attack the servers;</li>
+      <li>scam people out of their items or Bolts;</li>
+      <li>upload things you don't have the right to share (other people's art, music, or another platform's assets
+        passed off as yours);</li>
+      <li>pretend to be staff or another player.</li>
+    </ul>
+    <p>Staff can warn, ban (for a time or for good) and remove content that breaks these rules, at their own judgement.</p>
+
+    <h2>5. What you make</h2>
+    <p>Games, models, clothing and anything else you make stay yours. By uploading them you let Guts&amp;Bolts store
+      them and show them to other players (and, if you make them public, let others use them in their games, like the
+      Library works). You can delete what you upload.</p>
+
+    <h2>6. No guarantees</h2>
+    <p>Guts&amp;Bolts is provided <b>"as is"</b>, with no warranty of any kind. It's a hobby project: things may break,
+      be changed, lose data, or shut down at any time. As far as the law allows, the people who make Guts&amp;Bolts aren't
+      liable for any loss or damage from using it, including lost items, Bolts or games.</p>
+
+    <h2>7. Privacy, in short</h2>
+    <p>We keep what's needed to run your account: your username, user number, avatar, friends, what you own and make,
+      and an email address if you add one (only used for account emails, like resetting your password). We don't sell
+      anything to anyone. Online play goes through our servers, not straight to other players.</p>
+
+    <h2>8. Changes</h2>
+    <p>These terms can change as the platform grows. If they change in a big way, it'll be on the Updates page. Keeping
+      on playing means you accept the new version.</p>
+    <p class="small muted">This page is a plain-words summary written for a hobby project, not legal advice.</p>
+  </div>`);
+};
 
 function loginPage(signup) {
   if (signedIn()) { show(html`<h1>You're signed in as ${me.username}.</h1><p><a class="btn" href="#/">Home</a></p>`); return; }
@@ -1279,6 +1445,12 @@ function loginPage(signup) {
         : html`<div id="codeBox" hidden><label>Code from your email</label>
           <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits"></div>
           <p class="small"><a href="#/forgot">Forgot your password?</a></p>`}
+      ${signup ? html`<div class="mature-note"><b>Heads up: Guts&amp;Bolts is for adults (18+).</b> It's the
+          uncensored, R-rated cousin of the blocky-game genre: games can have strong language, crude humour,
+          cartoon gore and violence, and other players' chat isn't filtered. It's a free hobby project, not
+          Roblox and not connected to Roblox.</div>
+        <label class="check"><input type="checkbox" name="agree" required> I'm 18 or older and I agree to the
+          <a href="#/terms" target="_blank">Terms of Service</a>.</label>` : ''}
       <p><button class="btn green big" style="width:100%">${signup ? 'Sign Up' : 'Log In'}</button></p>
       <p class="error" id="loginMsg"></p></form>
     <p class="small muted">${signup ? 'Usernames can\'t be changed. Your password never leaves this page: if you forget it, nobody can get it back, so write it down somewhere safe.'
@@ -1375,9 +1547,20 @@ const actions = {
     render();
   },
   closeModal(d, el) { el.closest('.modal').remove(); },
+  async ackWarning(d, el) {
+    const r = await call('account.ackWarning', { id: d.id });
+    el.closest('.modal').remove();
+    if (r.ok && r.me) setMe(r.me);
+  },
   async buy(d) {
     const r = await call('buy', { id: d.id });
-    toast(r.ok ? 'It\'s yours! Wear it from the Avatar page in the app.' : r.error);
+    toast(r.ok ? 'It\'s yours! Wear (or equip) it from the Avatar page.' : r.error);
+    render();
+  },
+  async gearEquip(d) {
+    const r = await call('gear.equip', { id: d.id, on: !!d.on });
+    if (r.ok) me = r.me;
+    toast(r.ok ? (d.on ? 'Equipped! You\'ll have it in games that allow gear.' : 'Unequipped.') : r.error);
     render();
   },
   async copyId(d) {
@@ -1450,11 +1633,21 @@ const actions = {
           <p>Why are they being banned? They'll see this reason.</p>
           <p><select id="banReason">${BAN_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
           <p><input id="banNote" maxlength="200" placeholder="Note for them (optional)"></p>
+          <p>For how long? <select id="banDays"><option value="1">1 day</option><option value="3">3 days</option>
+            <option value="7">7 days</option><option value="30">30 days</option><option value="0" selected>Forever</option></select></p>
           <p><button class="btn red" data-act="doBan" data-id="${d.id}">Ban</button>
              <button class="btn" data-act="closeModal">Cancel</button></p>`);
         return;
       }
       r = await call('admin.ban', { to: d.id, on: false });
+    } else if (d.op === 'warn') {   // a warning they see next time they come (and must say they understand)
+      popup(html`<h1 class="popup-title">Warn this account</h1>
+        <p>What did they do? They'll see this.</p>
+        <p><select id="warnReason">${BAN_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
+        <p><input id="warnNote" maxlength="200" placeholder="Note for them (optional)"></p>
+        <p><button class="btn blue" data-act="doWarn" data-id="${d.id}">Send warning</button>
+           <button class="btn" data-act="closeModal">Cancel</button></p>`);
+      return;
     }
     toast(r && r.ok ? 'Done.' : (r && r.error) || 'That didn\'t work.');
     render();
@@ -1462,14 +1655,27 @@ const actions = {
   async doBan(d) {
     const reason = document.getElementById('banReason').value;
     const note = document.getElementById('banNote').value;
-    const r = await call('admin.ban', { to: d.id, on: true, reason, note });
+    const days = parseInt(document.getElementById('banDays').value, 10) || 0;
+    const r = await call('admin.ban', { to: d.id, on: true, reason, note, days });
     document.querySelectorAll('.modal').forEach((m) => m.remove());
     toast(r && r.ok ? 'Banned.' : (r && r.error) || 'That didn\'t work.');
     render();
   },
+  async doWarn(d) {
+    const reason = document.getElementById('warnReason').value;
+    const note = document.getElementById('warnNote').value;
+    const r = await call('admin.warn', { to: d.id, reason, note });
+    document.querySelectorAll('.modal').forEach((m) => m.remove());
+    toast(r && r.ok ? 'Warning sent. They\'ll see it next time they come.' : (r && r.error) || 'That didn\'t work.');
+  },
   async friend(d) {
     const r = await call(d.op, { user: d.user });
     toast(r.ok ? ({ friends: 'You\'re friends now!', sent: 'Friend request sent.', none: 'Done.' }[r.status] || 'Done.') : r.error);
+    render();
+  },
+  async follow(d) {
+    const r = await call(d.op, { user: d.user });
+    toast(r.ok ? (r.following ? 'You\'re following them now.' : 'Unfollowed.') : r.error);
     render();
   },
   async group(d) {
@@ -1507,6 +1713,7 @@ const forms = {
     const msg = $('#resetMsg');
     if (f.password.value.length < 8) { msg.textContent = 'Your password needs at least 8 characters.'; return; }
     if (f.password.value !== f.password2.value) { msg.textContent = 'The two passwords don\'t match.'; return; }
+    if (f.agree && !f.agree.checked) { msg.textContent = 'Tick the box to say you\'re 18+ and agree to the Terms.'; return; }
     msg.className = 'muted'; msg.textContent = 'Setting your new password...';
     const r = await gb.resetPassword(f.username.value, f.code.value.trim(), f.password.value);
     if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
@@ -1537,6 +1744,29 @@ const forms = {
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Email removed.'); render();
   },
+  async privacy(f) {
+    const r = await call('account.privacy', { status: f.status.value, join: f.join.value });
+    if (!r.ok) { toast(r.error); return; }
+    me = r.me; toast('Privacy saved.');
+  },
+  async authAppSetup(f) {
+    const r = await call('account.authAppSetup', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});
+    if (!r.ok) { const m = $('#authAppMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    authSetup = { secret: r.secret, uri: r.uri };
+    render();
+  },
+  async authAppOn(f) {
+    const r = await call('account.authAppEnable', { code: f.code.value.trim() });
+    if (!r.ok) { const m = $('#authAppMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    authSetup = null; me = r.me; toast('Authenticator app is on. Keep that phone safe!', 5000); render();
+  },
+  async authAppOff(f) {
+    const args = { code: f.code.value.trim() };
+    if (f.password) args.auth = await gb.passwordProof(me.username, f.password.value);
+    const r = await call('account.authAppDisable', args);
+    if (!r.ok) { const m = $('#authAppMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    me = r.me; toast('Authenticator app is off.'); render();
+  },
   async twoStep(f) {
     const r = await call('account.twoStep', { on: !!f.on.value, auth: await gb.passwordProof(me.username, f.password.value) });
     if (!r.ok) { const m = $('#twoStepMsg'); m.className = 'error'; m.textContent = r.error; return; }
@@ -1566,7 +1796,7 @@ const forms = {
       const genres = [...f.querySelectorAll('input[name=genre]:checked')].map((x) => x.value);
       if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
       let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
-        genres, maxPlayers: Number(f.maxPlayers.value) || 12 });
+        genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
         r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });
@@ -1602,7 +1832,11 @@ const forms = {
     const msg = $('#loginMsg');
     msg.className = 'muted'; msg.textContent = 'Logging in...';
     const r = await gb.logIn(f.username.value.trim(), f.password.value, f.code ? f.code.value.trim() : '');
-    if (r.needCode) { $('#codeBox').hidden = false; f.code.focus(); }   // two-step verification: type the emailed code
+    if (r.needCode) {   // two-step verification: the code from the email, or from the authenticator app
+      $('#codeBox').hidden = false;
+      $('#codeBox label').textContent = r.app ? 'Code from your authenticator app' : 'Code from your email';
+      f.code.focus();
+    }
     if (!r.ok) { msg.className = r.needCode ? 'muted' : 'error'; msg.textContent = r.error; return; }
     await hello();
     toast('Welcome back, ' + me.username + '!');
@@ -1746,6 +1980,7 @@ async function render() {
       <p><button class="btn blue" data-act="retry">Try again</button></p>`);
     return;
   }
+  if (banned()) { banPage(); return; }
   try {
     await pages[name](...path.slice(1).map(decodeURIComponent));
   } catch (err) {
@@ -1765,5 +2000,5 @@ window.addEventListener('hashchange', () => {
   render();
   checkRequests();
   checkUpdates();
-  setInterval(() => { if (document.visibilityState === 'visible') { checkRequests(); checkUpdates(); } }, 60000);
+  setInterval(() => { if (document.visibilityState === 'visible') { checkRequests(); checkUpdates(); keepFresh(); } }, 60000);
 })();

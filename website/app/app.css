@@ -316,3 +316,23 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 .latest-update b { font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { .update.fresh, .live-dot { animation: none; } }
+
+/* Moderation: the ban page and warnings */
+.ban-box { max-width: 620px; margin: 30px auto; text-align: center; border-top: 6px solid var(--red); }
+.ban-box h1 { color: var(--red); }
+.ban-table { margin: 14px auto; border-collapse: collapse; text-align: left; }
+.ban-table th { padding: 6px 14px 6px 0; color: #555; font-weight: normal; vertical-align: top; white-space: nowrap; }
+.ban-table td { padding: 6px 0; }
+.modal > div.popup.warning { border-top: 6px solid var(--red); }
+
+/* Sign-up: the 18+ notice, and the Terms page */
+.mature-note { background: #fff3cd; border: 1px solid #e0b84c; color: #4a3800; padding: 8px 10px; margin: 10px 0 6px; font-size: 12px; border-radius: 3px; }
+.check { display: flex; gap: 6px; align-items: flex-start; font-weight: normal; font-size: 12px; margin: 6px 0; }
+.check input { width: auto; margin-top: 2px; }
+.terms { max-width: 760px; line-height: 1.5; }
+.terms h2 { font-size: 16px; margin-top: 18px; }
+.user-number { margin-left: 8px; }
+@media (prefers-color-scheme: dark) { .mature-note { background: #3a3010; color: #ffe8a8; border-color: #8a6d1e; } }
+.secret-key code { font-size: 16px; letter-spacing: 1px; background: #f2f4f7; padding: 4px 8px; border-radius: 3px; }
+@media (prefers-color-scheme: dark) { .secret-key code { background: #20242c; } }
+.playing-now { margin-left: 8px; }

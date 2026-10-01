@@ -472,6 +472,26 @@ void main() {
 }
 )";
 
+// Debug drawing on top of the world (Studio's navmesh view): see-through coloured
+// triangles and lines, one colour per corner.
+inline const char* overlayVert = R"(#version 410 core
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec4 aColor;
+uniform mat4 uView;
+uniform mat4 uProj;
+out vec4 vColor;
+void main() {
+    vColor = aColor;
+    gl_Position = uProj * uView * vec4(aPos, 1.0);
+}
+)";
+
+inline const char* overlayFrag = R"(#version 410 core
+in vec4 vColor;
+out vec4 FragColor;
+void main() { FragColor = vec4(pow(vColor.rgb, vec3(2.2)), vColor.a); }
+)";
+
 inline const char* depthVert = R"(#version 410 core
 layout(location=0) in vec3 aPos;
 uniform mat4 uLightSpace;

@@ -74,12 +74,22 @@ inline void pushLight() {
     ImGui::PushStyleColor(ImGuiCol_CheckMark, kBlue);
     ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.9f, 0.91f, 0.93f, 1));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.7f, 0.72f, 0.76f, 1));
+    // Popups, dropdowns and tooltips opened on the light pages are light too (the
+    // dark default boxes with this dark text were unreadable).
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.86f, 0.91f, 0.98f, 1));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.80f, 0.88f, 0.98f, 1));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.72f, 0.83f, 0.97f, 1));
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.06f, 0.38f, 0.73f, 1));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.10f, 0.45f, 0.82f, 1));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, kBlue);
+    ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0, 0, 0, 0.45f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
 }
 inline void popLight() {
     ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(14);
+    ImGui::PopStyleColor(22);
 }
 
 inline bool button(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {
@@ -199,6 +209,19 @@ inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item&
         dl->AddRect(w0, w1, line, 0, 0, t);
         dl->AddRect(l0, l1, line, 0, 0, t);
         dl->AddRect(r0, r1, line, 0, 0, t);
+        break;
+    }
+    case Catalog::Type::Gear: {   // a little sword, tilted
+        const ImU32 blade = IM_COL32(200, 205, 215, 255), hilt = IM_COL32(120, 80, 40, 255), guard = IM_COL32(230, 180, 40, 255);
+        ImVec2 tip(c.x + s * 0.3f, c.y - s * 0.3f), base(c.x - s * 0.12f, c.y + s * 0.12f);
+        const float bw = s * 0.06f;
+        ImVec2 q[] = {{tip.x, tip.y}, {base.x + bw, base.y + bw}, {base.x - bw, base.y - bw}};
+        ImVec2 blade4[] = {{tip.x, tip.y}, {base.x + bw, base.y + bw * 0.2f}, {base.x - bw * 0.2f, base.y - bw}};
+        dl->AddTriangleFilled(q[0], q[1], q[2], blade);
+        dl->AddPolyline(blade4, 3, line, ImDrawFlags_Closed, t);
+        dl->AddLine(ImVec2(base.x - s * 0.13f, base.y - s * 0.01f), ImVec2(base.x + s * 0.01f, base.y + s * 0.13f), guard, s * 0.06f);
+        dl->AddLine(ImVec2(base.x - s * 0.02f, base.y + s * 0.02f), ImVec2(base.x - s * 0.18f, base.y + s * 0.18f), hilt, s * 0.06f);
+        dl->AddCircleFilled(ImVec2(base.x - s * 0.2f, base.y + s * 0.2f), s * 0.045f, guard);
         break;
     }
     case Catalog::Type::TShirt: {   // a white tee with its picture on the front

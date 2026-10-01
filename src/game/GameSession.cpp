@@ -81,6 +81,17 @@ void GameSession::giveStarterTools() {
     }
 }
 
+void GameSession::addGear(std::unique_ptr<SceneNode> tool) {
+    if (!m_running || m_role == Role::Client || !tool || !tool->isTool()) return;
+    tool->starterTool = false;
+    m_starterPack.push_back(std::move(tool));
+    Player* p = m_scene->player();
+    if (!p) return;
+    SceneNode* copy = m_scene->insert(Serializer::clone(*m_starterPack.back()));
+    if (!p->give(copy)) { m_scene->removeNode(copy); return; }
+    m_scripts.runScriptsIn(copy);
+}
+
 void GameSession::pickUpTools(const std::vector<TouchEvent>& touches) {
     Player* p = m_scene->player();
     SceneNode* me = p ? p->root() : nullptr;

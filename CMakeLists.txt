@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.6.2 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.7.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -303,7 +303,7 @@ add_library(gb_engine STATIC
     src/scene/Scene.cpp
     src/scene/Player.cpp
     src/scene/Physics.cpp
-    src/scene/Pathfinding.cpp
+    src/scene/NavMesh.cpp
     src/scene/Npc.cpp
     src/scene/Water.cpp
     src/scene/Liquid.cpp
@@ -316,6 +316,7 @@ add_library(gb_engine STATIC
     src/scene/Effects.cpp
     src/scene/Serializer.cpp
     src/scene/RobloxFile.cpp
+    src/scene/RobloxMesh.cpp
     src/scene/EditMesh.cpp
     src/scripting/Luau.cpp
     src/scripting/ScriptEngine.cpp

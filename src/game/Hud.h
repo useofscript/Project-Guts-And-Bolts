@@ -26,7 +26,11 @@ void drawNameTags(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const gl
                   const glm::vec3& cameraPos);
 // Everyone in the game (top-right, under the health bar). Administrators get
 // a little floating badge next to their name.
-void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players);
+// The player list (leaderboard), top right. Like old Roblox it folds away: click
+// the little arrow on its title bar (or press Tab - the caller handles the key).
+// Returns the name of a player whose row was clicked ("" if none), and where.
+std::string drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players,
+                           bool& open, ImVec2* clickedAt = nullptr, const ImVec2* tap = nullptr);
 // The tool hotbar along the bottom (slots 1-9, the held one lit up). Returns the
 // slot that was clicked or tapped (`tap`: a finger's tap, if any), or -1.
 int  drawHotbar(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const ImVec2* tap = nullptr);

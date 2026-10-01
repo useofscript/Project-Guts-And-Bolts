@@ -29,7 +29,7 @@ const char* const kWords[] = {
     "workspace", "game", "script", "Instance.new", "Vector3.new", "Color3.new", "Color3.fromRGB", "Color3.fromHSV",
     "CFrame.new", "CFrame.Angles", "CFrame.lookAt", "task.wait", "task.spawn", "task.delay", "wait", "spawn", "delay",
     "time", "tick", "Explode", "Effects", "Sounds", "Gui", "Lighting", "Enum",
-    "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService",
+    "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService", "TweenService", "TweenInfo", "HttpService", "JSONEncode", "JSONDecode", "Raycast", "RaycastParams", "FindPartOnRay", "GetPartBoundsInRadius", "BindableEvent", "BindableFunction", "ReplicatedStorage", "ServerStorage", "NextInteger", "NextNumber",
     "game:GetService", "Players.LocalPlayer", "RunService.Heartbeat", "UserInputService.InputBegan",
     // Members
     "Parent", "Name", "ClassName", "Position", "Orientation", "Size", "CFrame", "Color", "Transparency", "Material",
@@ -39,6 +39,9 @@ const char* const kWords[] = {
     "GetDescendants", "Destroy", "Clone", "IsA", "IsDescendantOf", "GetFullName", "GetPivot", "PivotTo",
     "ApplyImpulse", "ApplyAngularImpulse", "TakeDamage", "BreakJoints", "Play", "Stop",
     "MoveTo", "MoveToFinished", "Move", "Jump", "RootPart", "GetState", "CreatePath", "ComputeAsync", "GetWaypoints",
+    "PathfindTo", "PathfindStart", "PathfindStatus", "StopPathfinding", "CheckOcclusionAsync", "FindPathAsync",
+    "IsWalkable", "FindClosestPoint", "GetRandomPoint", "CanWalkStraight", "Bake", "SetBakeSettings",
+    "AgentRadius", "AgentHeight", "AgentCanJump", "WaypointSpacing", "Costs", "Blocked", "Unblocked",
     "GetAttribute", "SetAttribute", "GetAttributes", "GetAttributeChangedSignal", "AttributeChanged",
     "AddTag", "RemoveTag", "HasTag", "GetTags", "GetTagged", "GetInstanceAddedSignal",
     "ClockTime", "Brightness", "FogEnabled", "FogColor", "Ambient",
