@@ -1,6 +1,40 @@
-# Next version (not released yet): Dress Code
+# Next version (not released yet): Who Let Us Cook?
 
 ## New
+- **Navmesh and pathfinding** (the headline): Studio bakes a navigation mesh of
+  every floor a character can stand on (re-baked by itself when anchored parts
+  change; *MODEL > Navigation > Navmesh* shows it). NPCs walk around walls, jump up
+  ledges, drop down and leap gaps. Scripts: Roblox's `PathfindingService`
+  (`CreatePath`, `ComputeAsync`, `GetWaypoints`, `Blocked`, ...) or just
+  `humanoid:PathfindTo(target)`.
+- **Gear in the catalog**: staff publish a Tool from Studio as Gear; people buy
+  it, equip up to 4, and get it in games whose creator ticked *Allow gear*.
+- **2011-style characters**: an Animate script (idle, walk, run, jump, fall,
+  climb, sit, tool), emotes (`/e dance`, wave, point, laugh, cheer),
+  `PlatformStand`, tripping and flinging.
+- **Tools held like Roblox's** (a `RightGrip` weld and the Grip properties), so
+  imported Roblox gear such as the LinkedSword works, scripts and all.
+- **Roblox hats** import with their real mesh and texture (mesh versions 1 to 7).
+- **Studio**: Move / Rotate increments like Roblox Studio, a studs readout by the
+  mouse while dragging, free movement with increments off, right-click
+  *Insert Object*, and Lighting / StarterPlayer in the Explorer.
+- **More Lua**: `TweenService`, `workspace:Raycast` (+ `Ray.new` /
+  `FindPartOnRay`), `GetPartBoundsInRadius`, `HttpService` JSON, `Random.new`,
+  `math.noise`, `BindableEvent` / `BindableFunction`, `ReplicatedStorage` /
+  `ServerStorage`, `Debris`, `Teams`, `GetPropertyChangedSignal`.
+- **User numbers** (#5) are the main way to name someone: add friends, search,
+  staff tools and profile links all use them.
+- **Leaderboard** folds away with Tab or its arrow; click a name to Friend or
+  Follow. **Following** is new, and Guts follows everyone.
+- **Join** buttons on profiles, and **privacy settings**: who sees you online
+  and what you play (everyone, friends, no one), and who can join you.
+- **Security**: authenticator app codes (TOTP) for logging in; confirming your
+  email gives you the **Verified Hat**.
+- **Terms of Service** and an 18+ heads-up on sign-up.
+- **Automatic updates**: the Player and Studio update themselves when they open
+  and a new version is out.
+
+## Also new since 0.6.2 (Dress Code and Take a Seat)
 - **Seats** (like Roblox): walk into a Seat and you sit on it, facing its front,
   riding along if it moves; jump to get up. Insert one from Insert Object (or
   tag any part "Seat"); Roblox Seats and VehicleSeats import working. Scripts:

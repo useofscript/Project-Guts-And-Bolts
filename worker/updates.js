@@ -10,6 +10,26 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'who-let-us-cook', name: 'Who Let Us Cook?', version: '', time: 1790850600, tag: 'Engine',
+    summary: 'NPCs that find their own way, gear in the catalog, 2011-style moves, safer accounts and a whole lot more for creators.',
+    items: [
+      'Navmesh and pathfinding: Studio bakes every floor characters can walk on, and NPCs walk around walls, jump up ledges, drop down and leap gaps by themselves (PathfindingService, humanoid:PathfindTo)',
+      'Gear in the catalog: buy it, equip up to 4, and bring it into games that allow gear',
+      'Characters move like 2011 Roblox: the Animate script, /e dance, wave, point, laugh and cheer, PlatformStand, tripping and flinging',
+      'Tools are held in the hand the Roblox way (RightGrip and Grip), so imported Roblox gear works',
+      'Roblox hats come in with their real mesh and texture',
+      'Studio: Roblox-style Move and Rotate increments, a studs readout by the mouse while you drag, free Blender-style moving with increments off, and right-click Insert Object in the Explorer',
+      'More Lua: TweenService, workspace:Raycast, HttpService JSON, Random.new, math.noise, BindableEvent and ReplicatedStorage',
+      'Your user number (like #5) is now how you find and add people: no more long account keys',
+      'Leaderboard folds away with Tab or its arrow; click a name to Friend or Follow them',
+      'Following, and Guts follows everybody (like Builderman did)',
+      'Join buttons on profiles, plus privacy settings for who sees you online and who can join you',
+      'Security: authenticator app codes when logging in, and confirming your email gives you the Verified Hat',
+      'Terms of Service, and a heads-up on sign-up that Guts&Bolts is for adults (18+)',
+      'Player and Studio update themselves when a new version is out',
+    ],
+  },
+  {
     id: 'take-a-seat', name: 'Take a Seat', version: '', time: 1790823545, tag: 'Engine',
     summary: 'Sit on seats, jump as high as a real Roblox character, and the camera stops peeking through walls.',
     items: [

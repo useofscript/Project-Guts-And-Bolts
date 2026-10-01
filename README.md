@@ -33,6 +33,13 @@ apps and adds Desktop / menu shortcuts. The first build takes a few minutes.
 > No window? Run `python3 install.py --cli` for the text version.
 > `python3 install.py --check` just shows what it detected.
 
+**Updates are automatic.** When the Player or Studio opens and a newer version
+is out, an *Updating Guts&Bolts* screen counts down from 3, runs the updater
+and reopens the app, so everyone plays on the same version. Studio waits
+while you have unsaved work, and the Player waits until you leave a game.
+(A copy downloaded without the source folder can't update itself: it shows an
+*Update available* card with a link instead.)
+
 ## Android (experimental)
 
 The Player also runs on Android phones and tablets (Android 7.0+). Download
@@ -242,6 +249,17 @@ Studio's **File** menu also has **Publish to Guts&Bolts...**. It puts your
 game on the server so everyone can play it, and later **updates** it with
 your new version.
 
+### Move, Scale and Rotate (increments)
+
+The **HOME** tab has Roblox Studio's increment boxes: **Move** (studs) and
+**Rotate** (degrees). Scaling snaps to the Move step too. While you drag a
+handle, a little label by the mouse shows how far you've gone (like *+4
+studs* or *45°*). Untick an increment and that tool moves freely, like
+Blender.
+
+Right-click in the Explorer for **Insert Object** (every kind of object, with
+a search box). **Lighting** and **StarterPlayer** are in the Explorer too.
+
 ### Controls
 
 These match Roblox Studio. Press **F1** (or **View > Shortcuts**) in Studio
@@ -327,6 +345,22 @@ What you can use:
   `:GetInstanceAddedSignal("Lava")` / `:GetInstanceRemovedSignal` (or add tags in the Properties panel)
 - **Modules:** `require(workspace.MyModule)` runs a ModuleScript once and hands back what it returns
 - **Game rules:** `workspace.Gravity`, `workspace.DeathStyle = "Classic" | "Ragdoll"`, `workspace.Gore = "Off" | "Oil" | "Blood"`
+- **Rays:** `workspace:Raycast(origin, direction, params)` gives back `Instance`, `Position`, `Normal` and
+  `Distance` (or nil). `RaycastParams.new()` with `FilterDescendantsInstances` and `FilterType`
+  (`Exclude` / `Include`). The old `Ray.new` + `workspace:FindPartOnRay(ray, ignore)` works too, and
+  `workspace:GetPartBoundsInRadius(position, radius)` finds parts near a point
+- **Tweens:** `TweenService:Create(part, TweenInfo.new(2, Enum.EasingStyle.Bounce), { Position = ... }):Play()`
+  smoothly changes numbers, `Vector3`, `Color3`, `CFrame`, `UDim2` and `Vector2` properties. Every easing
+  style (Linear, Quad, Cubic, Quart, Quint, Sine, Exponential, Circular, Back, Elastic, Bounce), In / Out /
+  InOut, repeats, reverses, delays, `:Pause()`, `:Cancel()` and the `Completed` event
+- **JSON:** `HttpService:JSONEncode(t)` / `:JSONDecode(text)` / `:GenerateGUID()` (games can't reach other
+  websites)
+- **Randomness:** `Random.new(seed)` with `:NextInteger`, `:NextNumber`, `:NextUnitVector`, `:Shuffle`
+  (the same seed gives the same numbers), and `math.noise(x, y, z)` for smooth hills and wobbles
+- **Scripts talking to each other:** `Instance.new("BindableEvent")` (`.Event:Connect`, `:Fire`) and
+  `Instance.new("BindableFunction")` (`.OnInvoke`, `:Invoke`)
+- **Storage:** `game.ReplicatedStorage` / `game.ServerStorage`: hidden folders for things you clone
+  later (Roblox files keep theirs there too). `Debris:AddItem(obj, seconds)` throws something away later
 
 `script:Destroy()` or `script.Disabled = true` stops a script (and all of its
 events), just like in Roblox.
@@ -393,6 +427,21 @@ Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
 **Bat** in *Demolition Yard*. Tools work in single player and for the host
 of an online game; people who join someone else's game can't carry tools
 yet.
+
+Tools are held in the right hand the Roblox way: a `RightGrip` weld joins the
+hand to the `Handle`, placed by the tool's **Grip** (`GripPos`, `GripForward`,
+`GripRight`, `GripUp`, also in the Properties panel). Roblox gear you import
+(like the classic LinkedSword) is held exactly as it was there.
+
+### Gear
+
+Like Roblox's old gear: staff make a Tool in Studio, select it and use
+**File > Publish Selection to Library** with **Sell it in the catalog as
+Gear** ticked. It shows up in the catalog under **Gear**. Buy it, then press
+**Equip** (on the item, or on the app's Avatar page under *Gear*). You can have
+up to 4 equipped. You get your equipped gear in your backpack (and again every
+time you respawn) in games whose creator ticked **Allow gear** in the game's
+settings on the website. Gear is off unless a game turns it on.
 
 ## Game UI (ScreenGui, buttons, labels)
 
@@ -493,6 +542,19 @@ An AnimationTrack has `Play`, `Stop(fadeTime)`, `AdjustSpeed`,
 `Speed`, `TimePosition`, `Priority`, plus the `Stopped`, `Ended`, `DidLoop`
 and `KeyframeReached` events. Animations play on top of walking: an
 animation that moves the arms takes over the arms, and the legs keep walking.
+
+### Your character's moves (the Animate script)
+
+Every character gets a 2011-style **Animate** script: idle, walk, run, jump,
+fall, climb, sit, holding a tool, and the emotes **dance** (1-3), **wave**,
+**point**, **laugh** and **cheer**. Type `/e dance` (or `/e wave`, ...) in chat.
+To change a move, put an Animation in the matching value of the Animate
+script (for example `Animate.walk.WalkAnim.AnimationId`): your clip plays
+instead of the built-in one. Scripts can call `humanoid:PlayEmote("cheer")`.
+
+`humanoid.PlatformStand = true` makes the character go limp and fall over,
+like 2011 Roblox, and hard hits can trip or fling you. `humanoid:ChangeState`
+and `humanoid:GetState()` work too.
 
 ## Leaderboard, checkpoints and saved data
 
@@ -1297,6 +1359,12 @@ never leaves your device. The server only gets a scrambled token made from
 it, so it can't unlock your key. After 5 wrong passwords, that username is
 locked for 10 minutes.
 
+**Terms of Service.** Signing up (on the website or in the app) means ticking
+that you've read the **Terms of Service** (the link is at the bottom of every
+page). In short: Guts&Bolts is a free hobby project nobody makes money from,
+it has nothing to do with Roblox, and it's for **adults (18+)**: games can have
+strong language, gore and grown-up jokes. The sign-up page says so up front.
+
 ### Email, forgot password and two-step verification
 
 On the website, **Settings** (top right) has your account settings:
@@ -1327,6 +1395,17 @@ Until one is set, the settings page says email isn't switched on yet. For
 testing with `wrangler dev`, put `MAIL_DEBUG=1` in a `.dev.vars` file: codes
 are printed in the terminal instead of emailed.
 
+### Authenticator app and the Verified Hat
+
+For more account safety, turn on an **authenticator app** (Google
+Authenticator, Microsoft Authenticator, Authy, 2FAS, ...) in **Settings** on
+the website: scan the QR code (or type the secret), then type the 6-digit code
+the app shows to switch it on. After that, logging in on a new device asks for
+the newest code from the app as well as your password. Each code works once.
+
+**Confirm your email** in Settings and you get the **Verified Hat**, a navy cap
+with the Guts&Bolts check badge, free. It's an award: it can't be bought.
+
 ### Friends and servers (no IP addresses)
 
 Online games go **through the Guts&Bolts server**. Someone's computer still
@@ -1353,6 +1432,20 @@ The **Friends** page has three tabs:
 
 Profiles also have an **Add Friend** button. Your friends list is only shown to
 you, and nothing on the site shows anyone's address or when they were last on.
+
+**Join.** If someone's playing and lets you join, their profile (on the site
+and in the app) shows *Playing ...* with a **Join** button that puts you in the
+same server.
+
+**Privacy** (Settings on the website, or *Avatar > Privacy* in the app):
+
+- **Who can see when I'm online and what I'm playing:** Everyone, Friends
+  only, or No one (you look offline to everybody else);
+- **Who can join me:** Everyone, Friends only, or No one.
+
+**Following** is one way: no asking. Press **Follow** on a profile (or click
+a name on the in-game player list). Profiles show followers and following.
+Like Builderman back in the day, **Guts follows everybody**.
 
 ### People and Groups
 
