@@ -101,6 +101,19 @@ const kMaxFollowing = 2000;
 // src/server/Server.cpp has the same limits).
 const kMaxOutfits = 30, kMaxFavorites = 200, kMaxRecent = 30;
 const kMaxInbox = 100, kMaxSent = 50, kMessagesPerDay = 40;
+// Classic profiles: an "About me" blurb, a "Right now I'm..." status (the last few
+// make up your friends' My Feed), and player badges earned by doing things.
+const kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10, kStatusesPerDay = 30;
+// Player badges (ServerSocial.cpp has the same list): earned automatically, checked
+// whenever a profile is looked at. `need` says how to get one.
+const PLAYER_BADGES = [
+  { key: 'creator', name: 'Creator', need: 'Publish a game.' },
+  { key: 'builder', name: 'Builder', need: 'Get 100 visits on your games.' },
+  { key: 'architect', name: 'Architect', need: 'Get 1,000 visits on your games.' },
+  { key: 'friendly', name: 'Friendly', need: 'Have 20 friends.' },
+  { key: 'collector', name: 'Collector', need: 'Own 10 things from the catalog.' },
+  { key: 'oldtimer', name: 'Old Timer', need: 'Be a member for a year.' },
+];
 const PRIVACY = ['everyone', 'friends', 'nobody'];                   // ServerFriends.cpp
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
@@ -544,6 +557,15 @@ export class GbServerObject extends DurableObject {
       full: s.players.size + 1 >= s.max, session: this.allows(pv.join, viewer, u) ? s.id : null } : null;
     return { online: this.isOnline(u), playing };
   }
+  // The player badges `u` has earned (PLAYER_BADGES), each { key, name, need }.
+  playerBadgesOf(u) {
+    const games = [...this.assets.values()].filter((a) => a.kind === 'game' && a.creator === u.id);
+    const visits = games.reduce((n, a) => n + (a.plays || 0), 0);
+    const items = (u.owned || []).filter((id) => { const a = this.assets.get(id); return a && isCatalogItem(a.kind); }).length;
+    const has = { creator: games.length > 0, builder: visits >= 100, architect: visits >= 1000, friendly: u.friends.length >= 20,
+      collector: items >= 10, oldtimer: now() - (u.created || now()) >= 365 * 86400 };
+    return PLAYER_BADGES.filter((b) => has[b.key]);
+  }
   badgesOf(u) {
     const b = [];
     if (this.isOfficial(u)) b.push('admin');
@@ -849,7 +871,8 @@ export class GbServerObject extends DurableObject {
       return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
         followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
         isFollowing: (me.following || []).includes(u.id),
-        online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges });
+        online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges,
+        blurb: u.blurb || '', status: (u.posts || [])[0] || null, playerBadges: this.playerBadgesOf(u), allPlayerBadges: PLAYER_BADGES });
     }
     if (name === 'people.list') {
       // Someone's friends, who they follow, or their followers (anyone can look, like a
@@ -986,6 +1009,36 @@ export class GbServerObject extends DurableObject {
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
+    }
+    // --- Classic profile: "About me" and "Right now I'm..." ---
+    if (name === 'profile.set') {
+      if (me.userId === 0) return fail('Sign up first.');
+      if ('blurb' in args) me.blurb = cleanText(str(args, 'blurb'), kMaxBlurb, true);
+      if ('status' in args) {
+        const text = cleanText(str(args, 'status'), kMaxStatus);
+        if (text) {
+          if (me.statusDay !== today) { me.statusDay = today; me.statusesToday = 0; }
+          if (me.statusesToday >= kStatusesPerDay) return fail('That\'s enough status updates for today.');
+          me.statusesToday++;
+          me.posts = [{ text, at: t }, ...(me.posts || [])].slice(0, kMaxPosts);
+        }
+      }
+      this.saveUser(me);
+      return okay({ me: this.meJson(me), blurb: me.blurb || '', status: (me.posts || [])[0] || null });
+    }
+    // My Feed: what your friends and the people you follow said lately (newest first).
+    if (name === 'feed.list') {
+      if (me.userId === 0) return okay({ feed: [] });
+      const ids = new Set([me.id, ...me.friends, ...(me.following || [])]);
+      const feed = [];
+      for (const id of ids) {
+        const u = this.users.get(id);
+        if (!u || u.banned) continue;
+        for (const post of (u.posts || []).slice(0, 5))
+          feed.push({ text: post.text, at: post.at, user: { id: u.id, userId: u.userId, name: u.name, verified: this.isVerified(u), avatar: u.avatar || null } });
+      }
+      feed.sort((x, y) => y.at - x.at);
+      return okay({ feed: feed.slice(0, 40) });
     }
     // --- Saved outfits: your whole look (colours, hat, what you wear), kept to put back on later ---
     if (name.startsWith('outfit.')) {

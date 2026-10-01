@@ -302,6 +302,55 @@ void PlayerApp::drawOutfits() {
 // Your games: Continue Playing and Favorites (the home page)
 // ---------------------------------------------------------------------------
 
+// My Feed: what you and your friends are up to right now ("Right now I'm...").
+void PlayerApp::drawFeed() {
+    if (!Online::online() || Online::me().value("userId", 0LL) <= 0) return;
+    if (ImGui::GetTime() - m_feedAt > 60.0) {
+        m_feedAt = ImGui::GetTime();
+        Online::request("feed.list", json::object(), [this](const json& r) {
+            if (r.value("ok", false)) m_feed = r.value("feed", json::array());
+        });
+    }
+    ImGui::SetWindowFontScale(1.2f);
+    ImGui::TextUnformatted("My Feed");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1, 1, 1, 1));
+    ImGui::BeginChild("##feed", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+    ImGui::TextUnformatted("Right now I'm...");
+    ImGui::SetNextItemWidth(std::max(80.0f, ImGui::GetContentRegionAvail().x - 90));
+    bool enter = ImGui::InputTextWithHint("##feedpost", "building a castle", &m_feedPost, ImGuiInputTextFlags_EnterReturnsTrue);
+    if (m_feedPost.size() > 140) m_feedPost.resize(140);
+    ImGui::SameLine();
+    if ((Classic::button("Share", Classic::kBlue, ImVec2(80, 0)) || enter) && !m_feedPost.empty()) {
+        Online::request("profile.set", {{"status", m_feedPost}}, [this](const json& r) {
+            if (r.value("ok", false)) { m_feedPost.clear(); m_feedAt = -1000.0; }
+            else m_status = r.value("error", std::string());
+        });
+    }
+    ImGui::Separator();
+    if (m_feed.empty()) ImGui::TextDisabled("Nothing yet. Share what you're up to, and add friends to see theirs here.");
+    int shown = 0;
+    for (const auto& p : m_feed) {
+        if (++shown > 8) break;
+        const json& u = p.value("user", json::object());
+        ImGui::PushID(shown);
+        ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
+        if (ImGui::Selectable(u.value("name", std::string("?")).c_str(), false, 0,
+                              ImGui::CalcTextSize(u.value("name", std::string("?")).c_str())))
+            openProfile(u.value("id", std::string()));
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushTextWrapPos(0);
+        ImGui::Text("\"%s\"", p.value("text", std::string()).c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::TextDisabled("  %s", agoText(p.value("at", 0LL)).c_str());
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+}
+
 void PlayerApp::refreshMyGames() {
     if (!Online::online() || Online::me().value("userId", 0LL) == 0) return;
     m_myGamesAt = ImGui::GetTime();

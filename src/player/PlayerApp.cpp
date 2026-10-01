@@ -997,6 +997,7 @@ void PlayerApp::drawHome() {
     }
     // Online: games people published.
     drawOnlineGames();
+    drawFeed();
     // Daily Bolts waiting for you?
     if (Online::online() ? Online::me().value("canDaily", false) : Bolts::canClaimDaily()) {
         ImVec2 p = ImGui::GetCursorScreenPos();

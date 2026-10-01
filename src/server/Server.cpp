@@ -394,6 +394,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 }
         }
         r["gameBadges"] = gameBadges;
+        r["blurb"] = u->blurb;
+        r["status"] = u->posts.is_array() && !u->posts.empty() ? u->posts[0] : json();
+        r["playerBadges"] = playerBadgesOf(*u);
+        r["allPlayerBadges"] = allPlayerBadges();
         return r;
     }
     if (name == "users.search") {
@@ -428,7 +432,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
     if (name.rfind("friends.", 0) == 0 || name.rfind("follow.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
-    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine")
+    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
+        name == "profile.set" || name == "feed.list")
         return socialOp(name, me, args);
     if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
         json r = okay(); r["me"] = meJson(me); return r;
@@ -951,6 +956,10 @@ void GbServer::saveUsers() {
         all[id]["sent"] = u.sent;
         all[id]["messageDay"] = u.messageDay;
         all[id]["messagesToday"] = u.messagesToday;
+        all[id]["blurb"] = u.blurb;
+        all[id]["posts"] = u.posts;
+        all[id]["statusDay"] = u.statusDay;
+        all[id]["statusesToday"] = u.statusesToday;
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -1067,6 +1076,10 @@ void GbServer::load() {
                         for (const auto& g : j[k]) if (g.is_string()) (std::string(k) == "favorites" ? u.favorites : u.recent).push_back(g.get<std::string>());
                 u.messageDay = j.value("messageDay", std::string());
                 u.messagesToday = j.value("messagesToday", 0);
+                u.blurb = j.value("blurb", std::string());
+                if (j.contains("posts") && j["posts"].is_array()) u.posts = j["posts"];
+                u.statusDay = j.value("statusDay", std::string());
+                u.statusesToday = j.value("statusesToday", 0);
                 if (j.contains("gear") && j["gear"].is_array())
                     for (const auto& g : j["gear"]) if (g.is_string()) u.gear.push_back(g.get<std::string>());
                 u.totpSecret = j.value("totpSecret", std::string());

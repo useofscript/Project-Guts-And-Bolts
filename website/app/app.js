@@ -77,6 +77,22 @@ function gameColors(id) {
 // An item's picture: never a drawing. Things you wear are a real 3D render of a grey
 // mannequin wearing them (upgradeItemPictures fills these in); gear, decals and the rest
 // show the picture Studio rendered when they were published.
+// Player badges (earned by doing things), each a coloured shield with a white drawing.
+const PLAYER_BADGE_LOOK = {
+  creator: ['#e8590c', '<rect x="9" y="17" width="14" height="7" rx="1"/><circle cx="12" cy="17" r="1.6"/><circle cx="20" cy="17" r="1.6"/><path d="M19 8 l6 6 -2 2 -6 -6z"/><rect x="11" y="11" width="9" height="2.4" transform="rotate(-45 15 12)"/>'],
+  builder: ['#1d6fd8', '<rect x="7" y="14" width="18" height="9" rx="1"/><circle cx="12" cy="14" r="2"/><circle cx="20" cy="14" r="2"/>'],
+  architect: ['#6b2fb3', '<path d="M16 6 L26 15 H23 V25 H9 V15 H6 Z"/><rect x="14" y="18" width="4" height="7" fill="#6b2fb3"/>'],
+  friendly: ['#16a34a', '<circle cx="12" cy="12" r="3.5"/><circle cx="20" cy="12" r="3.5"/><path d="M5 25 q7-10 14 0z"/><path d="M13 25 q7-10 14 0z"/>'],
+  collector: ['#b07800', '<path d="M16 6 l3 6.5 7 .8 -5.2 4.8 1.4 7 -6.2-3.5 -6.2 3.5 1.4-7 -5.2-4.8 7-.8z"/>'],
+  oldtimer: ['#5b6472', '<circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2.5"/><path d="M16 10 V16 L20 19" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>'],
+};
+function playerBadgeIcon(key, size = 48) {
+  const [col, art] = PLAYER_BADGE_LOOK[key] || ['#888', ''];
+  return raw(`<svg viewBox="0 0 32 36" width="${size}" height="${Math.round(size * 1.125)}" aria-hidden="true">
+    <path d="M16 1 L30 6 V18 C30 27 23 32 16 35 C9 32 2 27 2 18 V6 Z" fill="${col}" stroke="rgba(0,0,0,.25)"/>
+    <path d="M16 3 L28 7.5 V12 C20 14 12 10 4 12 V7.5 Z" fill="rgba(255,255,255,.18)"/><g fill="#fff">${art}</g></svg>`);
+}
+
 function itemIcon(a) {
   // Catalog items are always drawn from the item itself, never from an uploaded picture.
   if (drawable3d(a) || a.kind === 'gear') {
@@ -328,7 +344,7 @@ const NEEDS_ACCOUNT = {
   buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
   friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
-  favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages',
+  favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages', statusSet: 'post a status', blurbSet: 'edit your profile',
 };
 
 function needSignIn(what) {
@@ -468,6 +484,15 @@ pages.home = async () => {
   const mineBox = (title, r, more) => r.ok && r.assets.length ? html`<div class="box"><h2 class="boxhead">${title}
       <a href="${more}" style="float:right">See all &raquo;</a></h2><div class="grid">${r.assets.map(gameCard)}</div></div>` : '';
   const continueBox = mineBox('Continue Playing', recent, '#/games/mine/recent');
+  const feedR = signedIn() ? await pageCall('feed.list', {}) : { ok: false };
+  const feedBox = signedIn() ? html`<div class="box feed"><h2 class="boxhead">My Feed</h2>
+      <form class="row" data-form="statusSet"><input type="text" name="status" maxlength="140" placeholder="Right now I'm..." style="flex:1">
+        <button class="btn blue small">Share</button></form>
+      ${feedR.ok && feedR.feed.length ? html`<div class="feed-list">${feedR.feed.map((p) => html`<div class="feed-item">
+          <a href="#/user/${p.user.userId}" class="feed-pic" data-feed-avatar="${p.user.id}">${avatarSvg(p.user.avatar, 40)}</a>
+          <div><a class="link" href="#/user/${p.user.userId}">${p.user.name}</a>${verified(p.user.verified)}
+            <div>"${p.text}"</div><div class="small muted">${ago(p.at)}</div></div></div>`)}</div>`
+        : html`<p class="muted small">Nothing yet. What your friends and the people you follow are up to shows up here.</p>`}</div>` : '';
   const favBox = mineBox('Favorites', favs, '#/games/mine/favorites');
   const gameBox = (title, r, more) => html`<div class="box"><h2 class="boxhead">${title}
       <a href="${more}" style="float:right">See more &raquo;</a></h2>
@@ -513,12 +538,21 @@ pages.home = async () => {
               <span class="dot on"></span><a class="grow" href="#/user/${p.userId}">${p.username || p.name}</a></div>`)}</div>`
             : html`<p class="small muted">${friends.length ? 'None of your friends are on right now.' : html`No friends yet. <a href="#/people">Find some!</a>`}</p>`}</div>
       </div>
-      <div class="home-right">${updateBox}${continueBox}${favBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
+      <div class="home-right">${updateBox}${feedBox}${continueBox}${favBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
     </div>`);
   // Dressed in what you're wearing (the server says which items those are).
   const mine = await pageCall('profile', { id: me.id });
   const worn = mine.ok ? mine.wearing || [] : [];
   if ($('#homeAvatar')) mountAvatar($('#homeAvatar'), me.avatar || defaultAvatar(), worn, { width: 170 }).catch(() => {});
+  // My Feed: each person's character next to what they said.
+  const seen = new Set();
+  for (const p of feedR.ok ? feedR.feed : []) {
+    if (seen.has(p.user.id)) continue;
+    seen.add(p.user.id);
+    avatarPicture(p.user.avatar, [], 40).then((url) => {
+      if (url) view.querySelectorAll(`[data-feed-avatar="${p.user.id}"]`).forEach((el) => { el.innerHTML = html`<img src="${url}" alt="" width="40" height="50">`.s; });
+    }).catch(() => {});
+  }
 };
 
 // --- Updates: the update log, newest first. It checks for new ones by itself while
@@ -1194,12 +1228,25 @@ pages.user = async (id, tab, page) => {
         ${(u.badges || []).length ? html`<div class="box"><h2 class="boxhead">Guts&amp;Bolts Badges</h2>
           <p class="small muted">Given by Guts&amp;Bolts staff.</p><div class="row">
           ${u.badges.map((b) => html`<span class="badge-pill">${badgeNames[b] || b}</span>`)}</div></div>` : ''}
+        ${r.allPlayerBadges ? html`<div class="box"><h2 class="boxhead">Player Badges (${(r.playerBadges || []).length})</h2>
+          <div class="badge-grid">${r.allPlayerBadges.map((b) => {
+            const got = (r.playerBadges || []).some((x) => x.key === b.key);
+            return html`<span class="game-badge player-badge ${got ? '' : 'locked'}" title="${b.name}: ${got ? 'earned!' : b.need}">${playerBadgeIcon(b.key, 44)}<span>${b.name}</span></span>`;
+          })}</div></div>` : ''}
         <div class="box"><h2 class="boxhead">Game Badges (${(r.gameBadges || []).length})</h2>
           ${(r.gameBadges || []).length ? html`<div class="badge-grid">${r.gameBadges.slice(0, 24).map((b) => html`<a class="game-badge" href="#/game/${b.game}"
               title="${b.name}${b.description ? ': ' + b.description : ''} (${b.gameName})">${gameBadgeIcon(b, 48)}<span>${b.name}</span></a>`)}</div>`
             : html`<p class="muted small">No badges from games yet.</p>`}</div>
       </div>
       <div class="profile-right">
+        <div class="box about"><h2 class="boxhead">About ${u.username || u.name}</h2>
+          ${r.status ? html`<p class="status-line"><b>Right now:</b> <i>"${r.status.text}"</i> <span class="muted small">${ago(r.status.at)}</span></p>` : ''}
+          ${r.blurb ? html`<p class="blurb">${r.blurb}</p>` : html`<p class="muted small">${f === 'self' ? 'Tell people about yourself below.' : 'Nothing here yet.'}</p>`}
+          ${f === 'self' && r.blurb !== undefined ? html`<details class="edit-about"><summary class="btn small">Edit</summary>
+            <form class="form" data-form="statusSet"><label>Right now I'm...</label>
+              <div class="row"><input type="text" name="status" maxlength="140" placeholder="building a castle"><button class="btn blue small">Update</button></div></form>
+            <form class="form" data-form="blurbSet"><label>About me</label><textarea name="blurb" maxlength="1000" rows="4">${r.blurb}</textarea>
+              <p><button class="btn green small">Save</button></p></form></details>` : ''}</div>
         <div class="box"><h2 class="boxhead">Friends (${r.friendCount}) <a class="small" href="#/user/${u.userId}/friends" style="float:right">See all</a></h2>
           ${friends.length ? html`<div class="friends-grid">${friends.map((p) => html`<a class="friend" href="#/user/${p.userId}">
               <div class="friend-pic" data-friend-avatar="${p.id}">${avatarSvg(p.avatar, 60)}</div>
@@ -1985,6 +2032,19 @@ const forms = {
     const r = await call('account.emailRemove', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Email removed.'); render();
+  },
+  async statusSet(f) {
+    if (!f.status.value.trim()) return;
+    const r = await call('profile.set', { status: f.status.value });
+    if (!r.ok) { toast(r.error); return; }
+    toast('Status updated!');
+    render();
+  },
+  async blurbSet(f) {
+    const r = await call('profile.set', { blurb: f.blurb.value });
+    if (!r.ok) { toast(r.error); return; }
+    toast('Saved!');
+    render();
   },
   async outfitSave(f) {
     // Save the look on screen first (it may have unsaved changes), then keep it as an outfit.

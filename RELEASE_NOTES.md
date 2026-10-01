@@ -1,6 +1,11 @@
 # Next version (not released yet)
 
 ## New
+- **Classic profiles**: an *About me* blurb and a *Right now I'm...* status
+  (140 letters) on your profile, a **My Feed** box on the home page with your
+  friends' and followed people's statuses, and **Player Badges** you earn on your
+  own (Creator, Builder, Architect, Friendly, Collector, Old Timer). On the
+  website and in the Player.
 - **Messages**: a private inbox on the website (Messages in the top bar, with a
   red count of unread ones). Send a message from anyone's profile, reply, and
   delete. *Settings > Privacy* says who can message you (everyone, friends, no

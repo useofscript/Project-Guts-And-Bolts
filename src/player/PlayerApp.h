@@ -173,6 +173,7 @@ private:
     void drawOutfits();
     void outfitPicture(ImDrawList* dl, ImVec2 c, float s, const nlohmann::json& outfit);
     void refreshMyGames();
+    void drawFeed();
     void setFavorite(const std::string& id, bool on);
     nlohmann::json m_messages = nlohmann::json::array();
     std::string    m_msgBox = "inbox", m_msgTo, m_msgSubject, m_msgBody, m_msgStatus;
@@ -342,6 +343,9 @@ private:
 
     // People and groups
     std::string    m_peopleQuery, m_profileId, m_groupId, m_groupQuery, m_socialMsg;
+    std::string    m_statusEdit, m_blurbEdit, m_feedPost;   // classic "Right now I'm..." and About me
+    nlohmann::json m_feed = nlohmann::json::array();
+    double         m_feedAt = -1000.0;
     nlohmann::json m_peopleResults = nlohmann::json::array();
     nlohmann::json m_profile = nlohmann::json::object();
     nlohmann::json m_groupList = nlohmann::json::array();

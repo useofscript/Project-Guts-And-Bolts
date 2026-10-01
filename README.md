@@ -1517,6 +1517,19 @@ All three work the same in the Player app: *Messages* in its menu bar, the
 its home page (open a game and press *Favorite*). In October the Player wears the
 Gutstober theme like the website; turn it off in *Settings > Gutstober theme*.
 
+**About me, status and My Feed.** Press *Edit* in the About box on your own
+profile to write an *About me* and a *Right now I'm...* status (up to 140
+letters; 30 a day). The home page's **My Feed** box shows your status and the
+latest ones from your friends and the people you follow, newest first. You can
+post a new status straight from it.
+
+**Player Badges** come by themselves: *Creator* (make a game), *Builder* (100
+visits to your games), *Architect* (1,000 visits), *Friendly* (20 friends),
+*Collector* (own 10 catalog items) and *Old Timer* (a year on Guts&Bolts).
+Profiles show all six; the grey ones are still locked.
+
+All of this is in the Player app too, on profiles and the home page.
+
 **Join.** If someone's playing and lets you join, their profile (on the site
 and in the app) shows *Playing ...* with a **Join** button that puts you in the
 same server.

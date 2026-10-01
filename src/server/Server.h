@@ -70,6 +70,9 @@ private:
         nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
         std::string messageDay; int messagesToday = 0;
         std::string privacyMessages = "everyone";            // who can send you messages
+        std::string blurb;                                   // "About me"
+        nlohmann::json posts = nlohmann::json::array();     // "Right now I'm..." {text, at}, newest first
+        std::string statusDay; int statusesToday = 0;
     };
     struct Asset {
         std::string id, kind, name, description, creator;
@@ -130,6 +133,8 @@ private:
     nlohmann::json friendOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerFriends.cpp
     nlohmann::json socialOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerSocial.cpp
     void rememberPlayed(User& me, const std::string& gameId);                                 // ServerSocial.cpp
+    nlohmann::json playerBadgesOf(const User& u) const;                                       // ServerSocial.cpp
+    static nlohmann::json allPlayerBadges();                                                  // ServerSocial.cpp
     static constexpr size_t kMaxRecentGames = 30;
     nlohmann::json serverOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerRelay.cpp
     nlohmann::json checkRequest(const nlohmann::json& req, User*& me);   // null = fine, else the failure reply

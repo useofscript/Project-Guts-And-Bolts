@@ -6,6 +6,7 @@
 #include "../online/Protocol.h"
 
 #include <algorithm>
+#include <set>
 
 using json = nlohmann::json;
 using namespace ServerUtil;
@@ -14,7 +15,43 @@ namespace {
 constexpr size_t kMaxOutfits = 30, kMaxFavorites = 200;
 constexpr size_t kMaxInbox = 100, kMaxSent = 50;
 constexpr int    kMessagesPerDay = 40;
+constexpr size_t kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10;
+constexpr int    kStatusesPerDay = 30;
+// Player badges (worker/server.js PLAYER_BADGES): earned automatically.
+struct PlayerBadge { const char* key; const char* name; const char* need; };
+constexpr PlayerBadge kPlayerBadges[] = {
+    {"creator", "Creator", "Publish a game."},
+    {"builder", "Builder", "Get 100 visits on your games."},
+    {"architect", "Architect", "Get 1,000 visits on your games."},
+    {"friendly", "Friendly", "Have 20 friends."},
+    {"collector", "Collector", "Own 10 things from the catalog."},
+    {"oldtimer", "Old Timer", "Be a member for a year."},
+};
 } // namespace
+
+json GbServer::allPlayerBadges() {
+    json all = json::array();
+    for (const PlayerBadge& b : kPlayerBadges) all.push_back({{"key", b.key}, {"name", b.name}, {"need", b.need}});
+    return all;
+}
+
+json GbServer::playerBadgesOf(const User& u) const {
+    long long games = 0, visits = 0, items = 0;
+    for (const auto& [id, a] : m_assets)
+        if (a.kind == "game" && a.creator == u.id) { ++games; visits += a.plays; }
+    for (const std::string& id : u.owned)
+        if (auto it = m_assets.find(id); it != m_assets.end() && Online::isCatalogItem(it->second.kind)) ++items;
+    const long long age = Online::unixNow() - (u.created ? u.created : Online::unixNow());
+    json out = json::array();
+    for (const PlayerBadge& b : kPlayerBadges) {
+        const std::string k = b.key;
+        const bool has = (k == "creator" && games > 0) || (k == "builder" && visits >= 100) || (k == "architect" && visits >= 1000) ||
+                         (k == "friendly" && u.friends.size() >= 20) || (k == "collector" && items >= 10) ||
+                         (k == "oldtimer" && age >= 365LL * 86400);
+        if (has) out.push_back({{"key", b.key}, {"name", b.name}, {"need", b.need}});
+    }
+    return out;
+}
 
 // "Continue playing": the games you opened last, newest first (Server.cpp "get").
 void GbServer::rememberPlayed(User& me, const std::string& gameId) {
@@ -28,6 +65,48 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
     const long long now = Online::unixNow();
     const std::string today = Online::utcDay(now);
     auto str = [&](const char* k) { return args.contains(k) && args[k].is_string() ? args[k].get<std::string>() : std::string(); };
+
+    // --- Classic profile: "About me" and "Right now I'm..." ---
+    if (name == "profile.set") {
+        if (me.userId == 0) return fail("Sign up first.");
+        if (args.contains("blurb")) me.blurb = Online::cleanText(str("blurb"), kMaxBlurb, true);
+        if (args.contains("status")) {
+            const std::string text = Online::cleanText(str("status"), kMaxStatus);
+            if (!text.empty()) {
+                if (me.statusDay != today) { me.statusDay = today; me.statusesToday = 0; }
+                if (me.statusesToday >= kStatusesPerDay) return fail("That's enough status updates for today.");
+                me.statusesToday++;
+                if (!me.posts.is_array()) me.posts = json::array();
+                me.posts.insert(me.posts.begin(), json{{"text", text}, {"at", now}});
+                while (me.posts.size() > kMaxPosts) me.posts.erase(me.posts.end() - 1);
+            }
+        }
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); r["blurb"] = me.blurb;
+        r["status"] = me.posts.is_array() && !me.posts.empty() ? me.posts[0] : json();
+        return r;
+    }
+    // My Feed: what your friends and the people you follow said lately (newest first).
+    if (name == "feed.list") {
+        json feed = json::array();
+        if (me.userId != 0) {
+            std::set<std::string> ids(me.friends.begin(), me.friends.end());
+            ids.insert(me.following.begin(), me.following.end());
+            ids.insert(me.id);
+            std::vector<json> all;
+            for (const std::string& id : ids) {
+                auto it = m_users.find(id);
+                if (it == m_users.end() || it->second.banned || !it->second.posts.is_array()) continue;
+                const User& u = it->second;
+                for (size_t k = 0; k < u.posts.size() && k < 5; ++k)
+                    all.push_back({{"text", u.posts[k].value("text", std::string())}, {"at", u.posts[k].value("at", 0LL)},
+                                   {"user", {{"id", u.id}, {"userId", u.userId}, {"name", u.name}, {"verified", isVerified(u)}, {"avatar", u.avatar}}}});
+            }
+            std::sort(all.begin(), all.end(), [](const json& a, const json& b) { return a.value("at", 0LL) > b.value("at", 0LL); });
+            for (size_t k = 0; k < all.size() && k < 40; ++k) feed.push_back(all[k]);
+        }
+        json r = okay(); r["feed"] = feed; return r;
+    }
 
     // --- Saved outfits: your whole look, kept to put back on later ---
     if (name.rfind("outfit.", 0) == 0) {
