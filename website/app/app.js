@@ -1327,6 +1327,70 @@ pages.settings = async () => {
 pages.login = async () => loginPage(false);
 pages.signup = async () => loginPage(true);
 
+// The Terms of Service. Plain words on purpose. (Also in the Player app: PlayerLogin.cpp.)
+pages.terms = async () => {
+  show(html`<div class="terms">
+    <h1>Guts&amp;Bolts Terms of Service</h1>
+    <p class="muted small">Last updated October 2026. By making an account or playing, you agree to these terms.</p>
+
+    <h2>1. What Guts&amp;Bolts is</h2>
+    <p>Guts&amp;Bolts is a free, independent game engine and platform: Studio to build games, the Player to play them,
+      and this website. It's a hobby project made for fun. Nobody makes a profit from it: there are no paid
+      subscriptions, and Bolts (the in-game money) can't be bought with or turned into real money.</p>
+    <p>Guts&amp;Bolts is <b>not affiliated with, endorsed by, or connected to Roblox Corporation</b>. "Roblox" is
+      their trademark. We don't use their name or logos for our own branding, and we don't support or speak for them.
+      Guts&amp;Bolts exists because its creator got fed up with update after update on that platform and decided to
+      build their own.</p>
+
+    <h2>2. Adults only (18+)</h2>
+    <p>This is the R-rated, non-kid version of the genre. Games and chat can contain <b>strong language, crude
+      humour, cartoon violence and gore, and mature themes</b>, and chat isn't filtered. You must be <b>18 or
+      older</b> to make an account or play. If you're under 18, please don't use Guts&amp;Bolts.</p>
+
+    <h2>3. Your account</h2>
+    <ul>
+      <li>Keep your password (and your authenticator, if you turn one on) to yourself. You're responsible for
+        what happens on your account.</li>
+      <li>Your password never leaves your device in a readable form, so if you lose it and have no recovery email,
+        nobody can get it back.</li>
+      <li>One person, one account is the normal way to play. Don't make accounts to dodge a ban.</li>
+    </ul>
+
+    <h2>4. Rules</h2>
+    <p>Mature content is allowed; being a menace isn't. Don't:</p>
+    <ul>
+      <li>post anything sexual involving minors, or anything illegal where you live;</li>
+      <li>threaten, stalk, dox (share someone's personal info) or seriously harass anyone;</li>
+      <li>cheat, exploit bugs to hurt others, or attack the servers;</li>
+      <li>scam people out of their items or Bolts;</li>
+      <li>upload things you don't have the right to share (other people's art, music, or another platform's assets
+        passed off as yours);</li>
+      <li>pretend to be staff or another player.</li>
+    </ul>
+    <p>Staff can warn, ban (for a time or for good) and remove content that breaks these rules, at their own judgement.</p>
+
+    <h2>5. What you make</h2>
+    <p>Games, models, clothing and anything else you make stay yours. By uploading them you let Guts&amp;Bolts store
+      them and show them to other players (and, if you make them public, let others use them in their games, like the
+      Library works). You can delete what you upload.</p>
+
+    <h2>6. No guarantees</h2>
+    <p>Guts&amp;Bolts is provided <b>"as is"</b>, with no warranty of any kind. It's a hobby project: things may break,
+      be changed, lose data, or shut down at any time. As far as the law allows, the people who make Guts&amp;Bolts aren't
+      liable for any loss or damage from using it, including lost items, Bolts or games.</p>
+
+    <h2>7. Privacy, in short</h2>
+    <p>We keep what's needed to run your account: your username, user number, avatar, friends, what you own and make,
+      and an email address if you add one (only used for account emails, like resetting your password). We don't sell
+      anything to anyone. Online play goes through our servers, not straight to other players.</p>
+
+    <h2>8. Changes</h2>
+    <p>These terms can change as the platform grows. If they change in a big way, it'll be on the Updates page. Keeping
+      on playing means you accept the new version.</p>
+    <p class="small muted">This page is a plain-words summary written for a hobby project, not legal advice.</p>
+  </div>`);
+};
+
 function loginPage(signup) {
   if (signedIn()) { show(html`<h1>You're signed in as ${me.username}.</h1><p><a class="btn" href="#/">Home</a></p>`); return; }
   show(html`<div class="form" style="margin:0 auto">
@@ -1342,6 +1406,12 @@ function loginPage(signup) {
         : html`<div id="codeBox" hidden><label>Code from your email</label>
           <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits"></div>
           <p class="small"><a href="#/forgot">Forgot your password?</a></p>`}
+      ${signup ? html`<div class="mature-note"><b>Heads up: Guts&amp;Bolts is for adults (18+).</b> It's the
+          uncensored, R-rated cousin of the blocky-game genre: games can have strong language, crude humour,
+          cartoon gore and violence, and other players' chat isn't filtered. It's a free hobby project, not
+          Roblox and not connected to Roblox.</div>
+        <label class="check"><input type="checkbox" name="agree" required> I'm 18 or older and I agree to the
+          <a href="#/terms" target="_blank">Terms of Service</a>.</label>` : ''}
       <p><button class="btn green big" style="width:100%">${signup ? 'Sign Up' : 'Log In'}</button></p>
       <p class="error" id="loginMsg"></p></form>
     <p class="small muted">${signup ? 'Usernames can\'t be changed. Your password never leaves this page: if you forget it, nobody can get it back, so write it down somewhere safe.'
@@ -1598,6 +1668,7 @@ const forms = {
     const msg = $('#resetMsg');
     if (f.password.value.length < 8) { msg.textContent = 'Your password needs at least 8 characters.'; return; }
     if (f.password.value !== f.password2.value) { msg.textContent = 'The two passwords don\'t match.'; return; }
+    if (f.agree && !f.agree.checked) { msg.textContent = 'Tick the box to say you\'re 18+ and agree to the Terms.'; return; }
     msg.className = 'muted'; msg.textContent = 'Setting your new password...';
     const r = await gb.resetPassword(f.username.value, f.code.value.trim(), f.password.value);
     if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }

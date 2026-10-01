@@ -306,6 +306,8 @@ private:
 
     // Sign up / log in
     int            m_loginTab = 0;                 // Sign Up / Log In
+    bool           m_signupAgree = false;          // "I'm 18+ and agree to the Terms" (sign up)
+    bool           m_showTerms = false;            // the Terms of Service window
     std::string    m_loginUser, m_loginPass, m_loginPass2, m_loginMsg;
     std::string    m_loginCode;                    // two-step verification: the code from your email
     bool           m_loginNeedCode = false;

@@ -125,7 +125,51 @@ void PlayerApp::logOut() {
     m_page = Page::Home;
 }
 
+// The Terms of Service, in short (the whole thing is on the website's Terms page).
+static void drawTermsWindow(bool& open) {
+    if (!open) return;
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(560.0f, vp->WorkSize.x - 20), std::min(520.0f, vp->WorkSize.y - 20)), ImGuiCond_Appearing);
+    Classic::pushLight();
+    if (ImGui::Begin("Guts&Bolts Terms of Service", &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::PushTextWrapPos(0);
+        auto head = [](const char* t) { ImGui::Spacing(); ImGui::TextColored(ImVec4(0.1f, 0.25f, 0.55f, 1), "%s", t); };
+        head("What Guts&Bolts is");
+        ImGui::TextUnformatted("A free, independent game engine and platform made for fun. Nobody profits from it: there are no "
+                               "paid subscriptions, and Bolts can't be bought with or turned into real money. It is NOT "
+                               "affiliated with, endorsed by, or connected to Roblox Corporation, and doesn't support or speak "
+                               "for them. It exists because its creator got fed up with Roblox's updates and built their own.");
+        head("Adults only (18+)");
+        ImGui::TextUnformatted("This is the R-rated, non-kid version of the genre: strong language, crude humour, cartoon "
+                               "violence and gore, mature themes, and chat that isn't filtered. You must be 18 or older.");
+        head("Your account");
+        ImGui::TextUnformatted("Keep your password and authenticator to yourself; you're responsible for your account. "
+                               "Don't make new accounts to dodge a ban.");
+        head("Rules");
+        ImGui::TextUnformatted("Mature content is allowed; being a menace isn't. No sexual content involving minors or anything "
+                               "illegal, no threats, stalking, doxxing or serious harassment, no cheating or attacking the "
+                               "servers, no scams, no uploading things you don't have the right to share, and no pretending "
+                               "to be staff or someone else. Staff can warn, ban and remove content.");
+        head("What you make");
+        ImGui::TextUnformatted("Stays yours. Uploading lets Guts&Bolts store and show it (and others use it, if you make it public).");
+        head("No guarantees");
+        ImGui::TextUnformatted("Provided \"as is\", with no warranty. Things may break, change, lose data or shut down; as far "
+                               "as the law allows, the makers aren't liable for any loss.");
+        head("Privacy, in short");
+        ImGui::TextUnformatted("We keep what's needed to run your account and never sell anything to anyone.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("The full version is on the website (Terms, at the bottom of every page).");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (Classic::button("Close", Classic::kBlue, ImVec2(120, 30))) open = false;
+    }
+    ImGui::End();
+    Classic::popLight();
+}
+
 void PlayerApp::drawLogin() {
+    drawTermsWindow(m_showTerms);
     const bool official = Account::iAmStaff();
     const float w = std::min(420.0f, ImGui::GetContentRegionAvail().x);
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (ImGui::GetContentRegionAvail().x - w) * 0.5f));
@@ -191,11 +235,42 @@ void PlayerApp::drawLogin() {
             enter = ImGui::InputTextWithHint("##pass2", "", &m_loginPass2,
                                              ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue) || enter;
         }
+        if (m_loginTab == 0) {
+            // The heads-up everyone sees before joining (same as the website's).
+            ImGui::Spacing();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->ChannelsSplit(2);
+            dl->ChannelsSetCurrent(1);   // the words on top...
+            const ImVec2 p0 = ImGui::GetCursorScreenPos();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - 8);
+            ImGui::Dummy(ImVec2(0, 2));
+            ImGui::Indent(6);
+            ImGui::TextColored(ImVec4(0.35f, 0.25f, 0.0f, 1), "Heads up: Guts&Bolts is for adults (18+).");
+            ImGui::TextColored(ImVec4(0.3f, 0.23f, 0.02f, 1),
+                               "It's the uncensored, R-rated cousin of the blocky-game genre: games can have strong "
+                               "language, crude humour, cartoon gore and violence, and chat isn't filtered. It's a free "
+                               "hobby project, not Roblox and not connected to Roblox.");
+            ImGui::Unindent(6);
+            ImGui::Dummy(ImVec2(0, 2));
+            ImGui::PopTextWrapPos();
+            dl->ChannelsSetCurrent(0);   // ...the yellow box behind them
+            const ImVec2 p1(p0.x + w, ImGui::GetCursorScreenPos().y);
+            dl->AddRectFilled(p0, p1, IM_COL32(255, 243, 205, 255), 3.0f);
+            dl->AddRect(p0, p1, IM_COL32(224, 184, 76, 255), 3.0f);
+            dl->ChannelsMerge();
+            ImGui::Checkbox("I'm 18 or older and agree to the", &m_signupAgree);
+            ImGui::SameLine(0, 4);
+            ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            if (ImGui::SmallButton("Terms")) m_showTerms = true;
+            ImGui::PopStyleColor(2);
+        }
         ImGui::Spacing();
         ImGui::BeginDisabled(m_busy);
         if (Classic::button(m_busy ? "Working...##go" : m_loginTab == 0 ? "Sign Up##go" : "Log In##go", Classic::kPlay, ImVec2(w, 40)) || (enter && !m_busy)) {
             if (m_loginTab == 1) logIn(m_loginUser, m_loginPass);
             else if (m_loginPass != m_loginPass2) m_loginMsg = "The two passwords don't match.";
+            else if (!m_signupAgree) m_loginMsg = "Tick the box to say you're 18+ and agree to the Terms.";
             else signUp(m_loginUser, m_loginPass);
         }
         ImGui::EndDisabled();
