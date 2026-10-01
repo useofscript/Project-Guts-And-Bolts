@@ -851,46 +851,63 @@ void PlayerApp::drawCreate() {
 void PlayerApp::drawOnlineGames() {
     if (!Online::online()) return;
     if (m_loaded.find("games") == std::string::npos) refreshOnline("games");
-    ImGui::SetWindowFontScale(1.25f);
-    ImGui::TextUnformatted("Online Games");
-    ImGui::SetWindowFontScale(1.0f);
-    if (m_onlineGames.empty()) {
-        ImGui::TextDisabled(Online::pending() ? "Loading..." : "No games published yet. Publish one from Studio!");
-        ImGui::Separator();
-        return;
-    }
+    if (ImGui::GetTime() - m_myGamesAt > 60.0) refreshMyGames();
     const float tw = 196.0f, th = 110.0f;
     int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 14) / (tw + 14)));
-    for (size_t i = 0; i < m_onlineGames.size() && (int)i < perRow * 2; ++i) {
-        const json& g = m_onlineGames[i];
-        if (i % perRow != 0) ImGui::SameLine(0, 14);
-        ImGui::PushID((int)i);
-        ImGui::BeginGroup();
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        if (ImGui::InvisibleButton("##g", ImVec2(tw, th))) { m_openOnlineGame = (int)i; m_onlineMsg.clear(); }
-        gameCard(ImGui::GetWindowDrawList(), p, ImVec2(p.x + tw, p.y + th), g.value("id", std::string()),
-                 g.value("name", std::string()));
-        if (ImGui::IsItemHovered()) ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + tw, p.y + th), IM_COL32(255, 255, 255, 200), 0.0f, 0, 2.0f);
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tw);
-        ImGui::TextColored(Classic::kLink, "%s", g.value("name", std::string()).c_str());
-        ImGui::PopTextWrapPos();
-        byLine(g);
-        ImGui::TextDisabled("%lld plays", g.value("plays", 0LL));
-        ImGui::EndGroup();
+    // One row (or two) of game cards; clicking one opens it.
+    auto row = [&](const char* title, const json& list, int rows, const char* empty) {
+        if (!empty && (!list.is_array() || list.empty())) return;   // (an empty Continue Playing / Favorites row isn't shown)
+        ImGui::SetWindowFontScale(1.25f);
+        ImGui::TextUnformatted(title);
+        ImGui::SetWindowFontScale(1.0f);
+        if (!list.is_array() || list.empty()) { ImGui::TextDisabled("%s", empty); ImGui::Separator(); return; }
+        ImGui::PushID(title);
+        for (size_t i = 0; i < list.size() && (int)i < perRow * rows; ++i) {
+            const json& g = list[i];
+            if (i % perRow != 0) ImGui::SameLine(0, 14);
+            ImGui::PushID((int)i);
+            ImGui::BeginGroup();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("##g", ImVec2(tw, th))) { m_openGame = g; m_openOnlineGame = 0; m_onlineMsg.clear(); }
+            gameCard(ImGui::GetWindowDrawList(), p, ImVec2(p.x + tw, p.y + th), g.value("id", std::string()),
+                     g.value("name", std::string()));
+            if (ImGui::IsItemHovered()) ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + tw, p.y + th), IM_COL32(255, 255, 255, 200), 0.0f, 0, 2.0f);
+            if (g.value("myFavorite", false)) {   // a gold star on your favourites
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ImVec2 c(p.x + tw - 14, p.y + 14);
+                ImVec2 pts[10];
+                for (int k = 0; k < 10; ++k) {
+                    const float r = (k % 2 ? 4.0f : 9.0f), a = -1.5708f + k * 0.6283f;
+                    pts[k] = ImVec2(c.x + std::cos(a) * r, c.y + std::sin(a) * r);
+                }
+                dl->AddConcavePolyFilled(pts, 10, IM_COL32(255, 196, 40, 255));
+                dl->AddPolyline(pts, 10, IM_COL32(150, 100, 0, 255), ImDrawFlags_Closed, 1.0f);
+            }
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tw);
+            ImGui::TextColored(Classic::kLink, "%s", g.value("name", std::string()).c_str());
+            ImGui::PopTextWrapPos();
+            byLine(g);
+            ImGui::TextDisabled("%lld plays", g.value("plays", 0LL));
+            ImGui::EndGroup();
+            ImGui::PopID();
+        }
         ImGui::PopID();
-    }
-    ImGui::Separator();
+        ImGui::Separator();
+    };
+    row("Continue Playing", m_recentGames, 1, nullptr);
+    row("Favorites", m_favGames, 1, nullptr);
+    row("Online Games", m_onlineGames, 2, Online::pending() ? "Loading..." : "No games published yet. Publish one from Studio!");
 }
 
 void PlayerApp::drawOnlineGameDialog() {
-    if (m_openOnlineGame >= (int)m_onlineGames.size()) m_openOnlineGame = -1;
+    if (m_openOnlineGame >= 0 && !m_openGame.contains("id")) m_openOnlineGame = -1;
     if (m_openOnlineGame >= 0 && !ImGui::IsPopupOpen("Game##online")) ImGui::OpenPopup("Game##online");
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(520), 0));
     if (!ImGui::BeginPopupModal("Game##online", nullptr, ImGuiWindowFlags_NoResize)) return;
     if (tappedOutside()) m_openOnlineGame = -1;
     if (m_openOnlineGame < 0) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
-    const json g = m_onlineGames[m_openOnlineGame];
+    const json g = m_openGame;
     ImVec2 p = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x;
     ImGui::Dummy(ImVec2(w, 150));
@@ -900,6 +917,12 @@ void PlayerApp::drawOnlineGameDialog() {
     ImGui::SetWindowFontScale(1.0f);
     byLine(g);
     ImGui::TextDisabled("%lld plays  -  published %s", g.value("plays", 0LL), ago(g.value("created", 0LL)).c_str());
+    if (!Online::isGuest() && Online::me().value("userId", 0LL) > 0) {   // the favourite star
+        const bool fav = g.value("myFavorite", false);
+        std::string star = std::string(fav ? "Favorited" : "Favorite") + " (" + std::to_string(g.value("favorites", 0LL)) + ")";
+        if (fav ? Classic::button(star.c_str(), ImVec4(0.85f, 0.62f, 0.05f, 1), ImVec2(0, 26)) : ImGui::Button(star.c_str(), ImVec2(0, 26)))
+            setFavorite(g.value("id", std::string()), !fav);
+    }
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(g.value("description", std::string()).c_str());
     ImGui::PopTextWrapPos();

@@ -212,7 +212,7 @@ static bool isServerItem(const std::string& id) {
     return false;
 }
 
-void pushAvatar() {
+void pushAvatar(std::function<void(const json&)> done) {
     const Profile& p = Profile::get();
     auto rgb = [](const glm::vec3& c) {
         if (c.x < 0.0f) return json::array({-1, -1, -1});
@@ -224,12 +224,13 @@ void pushAvatar() {
     json avatar = {{"head", rgb(p.colors.head)}, {"torso", rgb(p.colors.torso)}, {"leftArm", rgb(p.colors.leftArm)},
                    {"rightArm", rgb(p.colors.rightArm)}, {"leftLeg", rgb(p.colors.leftLeg)}, {"rightLeg", rgb(p.colors.rightLeg)},
                    {"hat", (int)p.hat}, {"hatColor", rgb(p.hatColor)}, {"wearing", wearing}};
-    request("avatar.set", {{"avatar", avatar}}, [](const json& r) {
+    request("avatar.set", {{"avatar", avatar}}, [done](const json& r) {
         if (r.value("ok", false) && r.contains("me") && r["me"].contains("avatar") && r["me"]["avatar"].is_object()) {
             Profile& p = Profile::get();
             p.avatarUpdated = r["me"]["avatar"].value("updated", p.avatarUpdated);
             p.save();
         }
+        if (done) done(r);
     });
 }
 

@@ -230,7 +230,14 @@ void PlayerApp::drawProfile() {
         else ImGui::TextDisabled("[ Offline ]");
     }
     std::string fs = m_profile.value("friendship", std::string("none"));
-    if (fs != "self") { ImGui::SameLine(0, 16); friendButton(id, fs); }
+    if (fs != "self") {
+        ImGui::SameLine(0, 16); friendButton(id, fs);
+        if (!Online::isGuest()) {
+            ImGui::SameLine(0, 8);
+            const long long num = u.value("userId", 0LL);
+            if (ImGui::Button("Send Message", ImVec2(0, 28))) openNewMessage(num > 0 ? "#" + std::to_string(num) : id);
+        }
+    }
     if (m_profile.contains("playing") && m_profile["playing"].is_object()) {
         const json& pl = m_profile["playing"];
         ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Playing %s", pl.value("title", std::string()).c_str());
