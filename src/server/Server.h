@@ -50,6 +50,9 @@ private:
         nlohmann::json warnings = nlohmann::json::array();   // staff warnings: {id, reason, note, at, seen}
         std::set<std::string> friends, friendIn, friendOut;   // friends; requests to me; requests I sent
         std::set<std::string> following, followers;           // one-way follows (no asking)
+        // Privacy: who sees you online / what you play, and who can join you there:
+        // "everyone", "friends" or "nobody" (worker/server.js privacyOf).
+        std::string privacyStatus = "everyone", privacyJoin = "everyone";
         // Signing up: a username and user number (both never reused), plus the
         // password-locked backup of their key so they can log in on other devices.
         std::string username;
@@ -125,6 +128,8 @@ private:
     void dropClients(long long now);
     nlohmann::json sessionJson(const Session& s) const;
     const Session* sessionOf(const std::string& userId) const;          // the game they're in right now
+    // What `viewer` may know about where `u` is: {"online", "playing": {game, title, session or null}}.
+    nlohmann::json presence(const User& viewer, const User& u) const;
     bool isOnline(const User& u) const;
     nlohmann::json publicGroup(const Group& g) const;
     nlohmann::json badgesOf(const User& u) const;         // badge keys that check out

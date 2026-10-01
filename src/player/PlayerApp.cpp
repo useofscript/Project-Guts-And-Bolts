@@ -2120,6 +2120,24 @@ void PlayerApp::drawAccount() {
             }
         }
     }
+    if (Online::online() && Online::me().value("userId", 0LL) > 0) {   // privacy (worker/server.js account.privacy)
+        ImGui::SeparatorText("Privacy");
+        const nlohmann::json& om = Online::me();
+        const nlohmann::json pv = om.contains("privacy") && om["privacy"].is_object() ? om["privacy"] : nlohmann::json::object();
+        static const char* kKeys[] = {"everyone", "friends", "nobody"};
+        auto pick = [&](const char* label, const char* field, const char* const* names) {
+            std::string cur = pv.contains(field) && pv[field].is_string() ? pv[field].get<std::string>() : "everyone";
+            int at = 0;
+            for (int i = 0; i < 3; ++i) if (cur == kKeys[i]) at = i;
+            ImGui::SetNextItemWidth(220);
+            if (ImGui::Combo(label, &at, names, 3))
+                Online::request("account.privacy", {{field, kKeys[at]}}, [](const nlohmann::json&) {});
+        };
+        static const char* kSee[] = {"Everyone", "Friends only", "No one (appear offline)"};
+        static const char* kJoin[] = {"Everyone", "Friends only", "No one"};
+        pick("Who sees me online##pvs", "status", kSee);
+        pick("Who can join me##pvj", "join", kJoin);
+    }
     ImGui::Text("Account ID: %s...", Account::shortId().c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy full ID")) ImGui::SetClipboardText(Account::id().c_str());

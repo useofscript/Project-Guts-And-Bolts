@@ -15,6 +15,23 @@ constexpr long long kOnlineFor   = 150;   // seconds since we last heard from th
 constexpr size_t    kMaxFollowing = 2000;
 } // namespace
 
+nlohmann::json GbServer::presence(const User& viewer, const User& u) const {
+    auto allows = [&](const std::string& setting) {
+        if (viewer.id == u.id || setting == "everyone") return true;
+        return setting == "friends" && u.friends.count(viewer.id) > 0;
+    };
+    json r = {{"online", false}, {"playing", nullptr}};
+    if (!allows(u.privacyStatus)) return r;
+    r["online"] = isOnline(u);
+    if (const Session* s = sessionOf(u.id)) {
+        auto g = m_assets.find(s->game);
+        r["playing"] = {{"game", s->game}, {"title", !s->title.empty() ? s->title : g != m_assets.end() ? g->second.name : std::string("a game")},
+                        {"private", s->priv}, {"full", (int)s->players.size() + 1 >= s->max},
+                        {"session", allows(u.privacyJoin) ? json(s->id) : json(nullptr)}};
+    }
+    return r;
+}
+
 bool GbServer::isOnline(const User& u) const {
     return Online::unixNow() - u.lastSeen <= kOnlineFor || sessionOf(u.id) != nullptr;
 }
@@ -30,12 +47,9 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
             const User* u = findUser(id);
             if (!u) continue;
             json f = person(*u);
-            f["online"] = isOnline(*u);
-            if (const Session* s = sessionOf(u->id)) {
-                // Friends can join each other's private servers too.
-                f["playing"] = {{"session", s->id}, {"title", s->title}, {"private", s->priv},
-                                {"full", (int)s->players.size() + 1 >= s->max}};
-            }
+            json pr = presence(me, *u);
+            f["online"] = pr["online"];
+            if (!pr["playing"].is_null()) f["playing"] = pr["playing"];   // (friends can join private servers too)
             friends.push_back(f);
         }
         for (const std::string& id : me.friendIn) if (const User* u = findUser(id)) in.push_back(person(*u));

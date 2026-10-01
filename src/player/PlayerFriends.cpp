@@ -299,7 +299,8 @@ void PlayerApp::drawFriends() {
                 ImGui::TextDisabled("Offline");
             }
             ImGui::EndGroup();
-            if (f.contains("playing")) {
+            if (f.contains("playing") && f["playing"].is_object() && f["playing"].contains("session") &&
+                f["playing"]["session"].is_string()) {   // no session = they don't let you join
                 const json& pl = f["playing"];
                 bool full = pl.value("full", false);
                 ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 10, ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 90));

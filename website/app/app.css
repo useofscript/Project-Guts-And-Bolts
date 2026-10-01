@@ -335,3 +335,4 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 @media (prefers-color-scheme: dark) { .mature-note { background: #3a3010; color: #ffe8a8; border-color: #8a6d1e; } }
 .secret-key code { font-size: 16px; letter-spacing: 1px; background: #f2f4f7; padding: 4px 8px; border-radius: 3px; }
 @media (prefers-color-scheme: dark) { .secret-key code { background: #20242c; } }
+.playing-now { margin-left: 8px; }

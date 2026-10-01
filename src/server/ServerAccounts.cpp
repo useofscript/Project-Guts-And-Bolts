@@ -128,6 +128,14 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
         std::string auth = lower(str("auth"));
         return !me.keyBlob.empty() && isHex(auth, 64, 64) && Account::hashHex(auth) == me.pwHash;
     };
+    if (name == "account.privacy") {   // who sees you online / can join you (worker/server.js)
+        if (me.userId == 0) return fail("Sign up first.");
+        auto ok = [](const std::string& v) { return v == "everyone" || v == "friends" || v == "nobody"; };
+        if (ok(str("status"))) me.privacyStatus = str("status");
+        if (ok(str("join"))) me.privacyJoin = str("join");
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
     if (name == "account.authAppSetup") {
         if (me.userId == 0) return fail("Sign up first.");
         if (!me.keyBlob.empty() && !provePassword()) return fail("Wrong password.");

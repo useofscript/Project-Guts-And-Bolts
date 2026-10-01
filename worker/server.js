@@ -84,7 +84,8 @@ const banMessage = (u) => 'This account has been banned' + (u.banReason && BAN_R
 const kMaxWarnings = 30;   // kept per account (oldest dropped)
 const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
-const kMaxFollowing = 2000;                   // ServerFriends.cpp
+const kMaxFollowing = 2000;
+const PRIVACY = ['everyone', 'friends', 'nobody'];                   // ServerFriends.cpp
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
@@ -497,6 +498,27 @@ export class GbServerObject extends DurableObject {
     this.saveUser(u);
   }
   isOnline(u) { return now() - u.lastSeen <= kOnlineFor || !!this.sessionOf(u.id); }
+  // Privacy, like Roblox's: who sees you online / what you're playing, and who can
+  // join you there: 'everyone', 'friends' or 'nobody'. (Server.cpp has the same rules.)
+  privacyOf(u) {
+    const p = u.privacy || {};
+    return { status: PRIVACY.includes(p.status) ? p.status : 'everyone', join: PRIVACY.includes(p.join) ? p.join : 'everyone' };
+  }
+  allows(setting, viewer, u) {
+    if (viewer && viewer.id === u.id) return true;
+    if (setting === 'everyone') return true;
+    return setting === 'friends' && !!viewer && u.friends.includes(viewer.id);
+  }
+  // What `viewer` may know about where `u` is: { online, playing: {game, title, session (null = can't join)} }.
+  presence(viewer, u) {
+    const pv = this.privacyOf(u);
+    if (!this.allows(pv.status, viewer, u)) return { online: false, playing: null };
+    const s = this.sessionOf(u.id);
+    const g = s && this.assets.get(s.game);
+    const playing = s ? { game: s.game, title: s.title || (g ? g.name : 'a game'), private: s.priv,
+      full: s.players.size + 1 >= s.max, session: this.allows(pv.join, viewer, u) ? s.id : null } : null;
+    return { online: this.isOnline(u), playing };
+  }
   badgesOf(u) {
     const b = [];
     if (this.isOfficial(u)) b.push('admin');
@@ -521,7 +543,7 @@ export class GbServerObject extends DurableObject {
       owned: [...u.owned].sort(),
       avatar: u.avatar || null,
       email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
-      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail, authApp: !!u.totpSecret,
+      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail, authApp: !!u.totpSecret, privacy: this.privacyOf(u),
       // Banned: what for and until when (the app and the site show a ban screen).
       ban: u.banned ? { reason: u.banReason || '', title: BAN_REASONS[u.banReason] || 'Breaking the rules',
         note: u.banNote || '', at: u.bannedAt || 0, until: u.bannedUntil || 0 } : null,
@@ -772,7 +794,7 @@ export class GbServerObject extends DurableObject {
       // Like a Roblox profile: what they're wearing, some friends, visits to their games.
       const wearing = this.wornItems(u);
       const friends = u.friends.slice(0, 9).map((id) => this.users.get(id)).filter(Boolean)
-        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.isOnline(f), wearing: this.wornItems(f) }));
+        .map((f) => Object.assign(this.publicUser(f), { avatar: f.avatar || null, online: this.presence(me, f).online, wearing: this.wornItems(f) }));
       const placeVisits = creations.filter((a) => a.kind === 'game').reduce((n, a) => n + (a.plays || 0), 0);
       // Game badges (made by game creators, earned by playing) - separate from the
       // Guts&Bolts badges above, which only staff give out.
@@ -783,7 +805,7 @@ export class GbServerObject extends DurableObject {
       return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
         followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
         isFollowing: (me.following || []).includes(u.id),
-        online: this.isOnline(u), placeVisits, gameBadges });
+        online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges });
     }
     if (name === 'users.search') {
       let q = lower(cleanText(str(args, 'query'), 64));
@@ -1489,6 +1511,15 @@ export class GbServerObject extends DurableObject {
     }
     // Authenticator app: setup gives a secret (and an otpauth:// link for the QR code);
     // a code from the app turns it on. Then logging in needs a code from the app.
+    if (name === 'account.privacy') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const p = this.privacyOf(me);
+      if (PRIVACY.includes(args.status)) p.status = args.status;
+      if (PRIVACY.includes(args.join)) p.join = args.join;
+      me.privacy = p;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
     if (name === 'account.authAppSetup') {
       if (me.userId === 0) return fail('Sign up first.');
       if (me.keyBlob && !provePassword()) return fail('Wrong password.');
@@ -1641,9 +1672,9 @@ export class GbServerObject extends DurableObject {
       for (const id of me.friends) {
         const u = this.findUser(id);
         if (!u) continue;
-        const f = Object.assign(person(u), { online: this.isOnline(u) });
-        const s = this.sessionOf(u.id);
-        if (s) f.playing = { session: s.id, title: s.title, private: s.priv, full: s.players.size + 1 >= s.max };
+        const pr = this.presence(me, u);
+        const f = Object.assign(person(u), { online: pr.online });
+        if (pr.playing) f.playing = pr.playing;
         friends.push(f);
       }
       return okay({ friends, incoming: me.friendIn.map((id) => this.findUser(id)).filter(Boolean).map(person),

@@ -1028,6 +1028,9 @@ pages.user = async (id) => {
   show(html`<div class="profile-head">
       <h1>${u.username}${verified(u.verified)}</h1><span class="small muted user-number">#${u.userId}</span>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
+      ${r.playing ? html`<span class="small playing-now">Playing <a href="#/game/${r.playing.game}">${r.playing.title}</a></span>
+        ${r.playing.session && f !== 'self' ? html` <button class="btn green small" data-act="joinServer" data-id="${r.playing.game}"
+            data-name="${r.playing.title}" data-server="${r.playing.session}"${r.playing.full ? raw(' disabled title="That server is full"') : ''}>Join</button>` : ''}` : ''}
       <span class="grow"></span>${friendBtn}${followBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
         : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
     ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
@@ -1315,6 +1318,13 @@ pages.settings = async () => {
           : html`<form class="form" data-form="twoStep"><input type="hidden" name="on" value="${me.twoStep ? '' : '1'}">
             <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>
             <p><button class="btn ${me.twoStep ? '' : 'green'}">${me.twoStep ? 'Turn off' : 'Turn on'}</button> <span id="twoStepMsg"></span></p></form>`}</div>
+      <div class="box"><h2 class="boxhead">Privacy</h2>
+        <form class="form" data-form="privacy">
+          <label>Who can see when I'm online and what I'm playing</label>
+          <select name="status">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).status === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one (appear offline)' }[v]}</option>`)}</select>
+          <label>Who can join me in games</label>
+          <select name="join">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).join === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
+          <p><button class="btn green">Save</button></p></form></div>
       <div class="box"><h2 class="boxhead">Authenticator app</h2>
         ${me.authApp ? html`<p><b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> the 6-digit code
             from your authenticator app (Google Authenticator, Authy, 2FAS, Aegis, Microsoft Authenticator...).</p>
@@ -1718,6 +1728,11 @@ const forms = {
     const r = await call('account.emailRemove', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Email removed.'); render();
+  },
+  async privacy(f) {
+    const r = await call('account.privacy', { status: f.status.value, join: f.join.value });
+    if (!r.ok) { toast(r.error); return; }
+    me = r.me; toast('Privacy saved.');
   },
   async authAppSetup(f) {
     const r = await call('account.authAppSetup', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});

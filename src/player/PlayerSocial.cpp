@@ -233,6 +233,18 @@ void PlayerApp::drawProfile() {
     }
     std::string fs = m_profile.value("friendship", std::string("none"));
     if (fs != "self") { ImGui::SameLine(0, 16); friendButton(id, fs); }
+    if (m_profile.contains("playing") && m_profile["playing"].is_object()) {
+        const json& pl = m_profile["playing"];
+        ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Playing %s", pl.value("title", std::string()).c_str());
+        if (fs != "self" && pl.contains("session") && pl["session"].is_string()) {
+            ImGui::SameLine(0, 12);
+            bool full = pl.value("full", false);
+            ImGui::BeginDisabled(full);
+            if (Classic::button(full ? "Full" : "Join", Classic::kPlay, ImVec2(80, 28)))
+                joinRelay(pl["session"].get<std::string>(), "", pl.value("title", std::string()));
+            ImGui::EndDisabled();
+        }
+    }
     if (u.value("official", false)) ImGui::TextColored(ImVec4(0.8f, 0.15f, 0.15f, 1), "Guts&Bolts staff");
     else if (u.value("staff", false)) ImGui::TextColored(ImVec4(0.15f, 0.3f, 0.6f, 1), "Staff");
     if (u.value("banned", false)) ImGui::TextColored(ImVec4(0.8f, 0.1f, 0.1f, 1), "This account is banned.");

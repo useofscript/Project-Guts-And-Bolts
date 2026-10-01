@@ -212,6 +212,7 @@ json GbServer::meJson(const User& u) const {
     j["bolts"] = balance(u);
     j["hasPassword"] = !u.keyBlob.empty();   // can log in on other devices
     j["authApp"] = !u.totpSecret.empty();    // logging in needs an authenticator-app code
+    j["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}};
     json g = json::array();
     for (const auto& [k, s] : u.grants) g.push_back({k, s});
     j["grants"] = g;
@@ -330,12 +331,16 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (it == m_users.end()) continue;
             json f = publicUser(it->second);
             f["avatar"] = it->second.avatar;
-            f["online"] = isOnline(it->second);
+            f["online"] = presence(me, it->second)["online"];
             f["wearing"] = wornItems(it->second);
             friends.push_back(f);
         }
         r["friends"] = friends;
-        r["online"] = isOnline(*u);
+        {
+            json pr = presence(me, *u);
+            r["online"] = pr["online"];
+            r["playing"] = pr["playing"];
+        }
         long long visits = 0;
         for (const auto& [id, a] : m_assets) if (a.creator == u->id && a.kind == "game") visits += a.plays;
         r["placeVisits"] = visits;
@@ -863,6 +868,7 @@ void GbServer::saveUsers() {
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
         if (!u.totpSecret.empty()) { all[id]["totpSecret"] = u.totpSecret; all[id]["totpLast"] = u.totpLast; }
         if (!u.totpPending.empty()) all[id]["totpPending"] = u.totpPending;
+        all[id]["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}};
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -941,6 +947,12 @@ void GbServer::load() {
                 if (j.contains("grants") && j["grants"].is_object())
                     for (auto& [k, v] : j["grants"].items()) if (v.is_string()) u.grants[k] = v.get<std::string>();
                 if (j.contains("owned")) for (const auto& o : j["owned"]) if (o.is_string()) u.owned.insert(o.get<std::string>());
+                if (j.contains("privacy") && j["privacy"].is_object()) {
+                    auto ok = [](const std::string& v) { return v == "everyone" || v == "friends" || v == "nobody"; };
+                    std::string st = j["privacy"].value("status", std::string("everyone")), jn = j["privacy"].value("join", std::string("everyone"));
+                    u.privacyStatus = ok(st) ? st : "everyone";
+                    u.privacyJoin = ok(jn) ? jn : "everyone";
+                }
                 u.totpSecret = j.value("totpSecret", std::string());
                 u.totpPending = j.value("totpPending", std::string());
                 u.totpLast = j.value("totpLast", -1LL);
