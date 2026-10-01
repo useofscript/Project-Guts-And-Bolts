@@ -921,6 +921,9 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change pictures of your own things.');
+      // Catalog items aren't given pictures: everyone sees the item itself, drawn from its
+      // real shape (so a picture can never be swapped for something it isn't).
+      if (isCatalogItem(a.kind)) return fail('Catalog items don\'t take pictures: they\'re shown as the item itself.');
       let data;
       try { data = b64ToBytes(str(args, 'data')); } catch { return fail('The picture got scrambled. Try again.'); }
       const png = data.length > 8 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => data[i] === v);
@@ -2206,8 +2209,21 @@ export class GbServerObject extends DurableObject {
     }
     // GET /wear/<asset id>: a Studio-made accessory's 3D shape (public: anyone can see it worn),
     // so the website's 3D avatars draw hats, hair and the rest like the game does.
+    // Gear too, but only its shape (no scripts), so item pictures are drawn from the item itself.
     if (url.pathname.startsWith('/wear/')) {
       const a = this.assets.get(decodeURIComponent(url.pathname.slice(6)));
+      if (a && a.kind === 'gear') {
+        const raw = this.readFile(a.id);
+        let m = null;
+        try { m = raw ? JSON.parse(new TextDecoder().decode(raw)) : null; } catch { m = null; }
+        if (!m || !Array.isArray(m.nodes)) return new Response('No gear.', { status: 404 });
+        const shape = (n) => (n && typeof n === 'object' && n.kind !== 'Script' && n.kind !== 'LocalScript' && n.kind !== 'ModuleScript' ? {
+          kind: n.kind, shape: n.shape, mesh: n.mesh, pos: n.pos, rot: n.rot, size: n.size, color: n.color, material: n.material,
+          transparency: n.transparency, children: (Array.isArray(n.children) ? n.children : []).map(shape).filter(Boolean),
+        } : null);
+        return new Response(JSON.stringify({ nodes: m.nodes.map(shape).filter(Boolean) }),
+          { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
+      }
       const data = a && isAccessory(a.kind) && a.meta && a.meta.model ? this.readFile(a.id) : null;
       if (!data) return new Response('No accessory.', { status: 404 });
       return new Response(data, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });

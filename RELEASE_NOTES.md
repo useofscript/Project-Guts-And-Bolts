@@ -16,7 +16,11 @@
 - **Premades**: Time Bomb, Nuke and Depth Charge.
 - **Real item pictures**: catalog and inventory pictures are renders of the item
   on a character (gear on its own), never drawn icons, in the Player and on the
-  website. Hats and accessories now show up on characters on the website and on
+  website. Catalog items no longer take uploaded pictures at all (both servers
+  refuse them), so a picture can never be swapped for something it isn't.
+- **New item pages** on the website, laid out like the 2016 catalog: NEW ribbon,
+  LIMITED tag, a buy box with what's left and a live off-sale countdown, and the
+  creator's character next to their name. Hats and accessories now show up on characters on the website and on
   profiles in the Player.
 - **Gutstober** (website): a Halloween theme for all of October (orange and
   purple, a pumpkin and bats), which you can turn off in *Settings > Site theme*.

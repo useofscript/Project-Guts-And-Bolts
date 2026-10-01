@@ -1291,8 +1291,13 @@ accessories. Verified creators make them in **Studio**:
    try it on, pick the **type**, select your model and press **Move to the
    spot** (it jumps to where that type sits, like the top of the head).
 3. Move, turn and stretch it until it looks right, then **Save position**.
-4. Give it a name, description and price and press **Upload**. Studio takes a
-   picture of it for the catalog.
+4. Give it a name, description and price and press **Upload**. Its catalog
+   picture is drawn from the accessory itself, worn by a mannequin.
+
+Catalog pictures are never uploaded pictures: the website, the Player and Studio
+all draw each item from its real shape (clothes, faces, hats, hair and
+accessories on a plain mannequin, zoomed in on where they're worn; gear on its
+own). The servers refuse pictures for catalog items, so nobody can swap one in.
 
 A worn hat or hair takes the place of the built-in hat.
 

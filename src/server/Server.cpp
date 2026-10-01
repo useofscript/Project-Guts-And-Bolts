@@ -467,6 +467,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change pictures of your own things.");
+        // Catalog items aren't given pictures (worker/server.js): they're drawn from the item itself.
+        if (Online::isCatalogItem(a.kind)) return fail("Catalog items don't take pictures: they're shown as the item itself.");
         std::string data;
         if (!Online::base64Decode(str("data"), data)) return fail("The picture got scrambled. Try again.");
         bool png = data.size() > 8 && data.compare(0, 4, "\x89PNG") == 0;

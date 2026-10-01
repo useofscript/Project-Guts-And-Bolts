@@ -327,8 +327,8 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 
 /* Sign-up: the 18+ notice, and the Terms page */
 .mature-note { background: #fff3cd; border: 1px solid #e0b84c; color: #4a3800; padding: 8px 10px; margin: 10px 0 6px; font-size: 12px; border-radius: 3px; }
-.check { display: flex; gap: 6px; align-items: flex-start; font-weight: normal; font-size: 12px; margin: 6px 0; }
-.check input { width: auto; margin-top: 2px; }
+label.check { display: flex; gap: 6px; align-items: flex-start; font-weight: normal; font-size: 12px; margin: 6px 0; }
+label.check input { width: auto; margin-top: 2px; }
 .terms { max-width: 760px; line-height: 1.5; }
 .terms h2 { font-size: 16px; margin-top: 18px; }
 .user-number { margin-left: 8px; }
@@ -402,3 +402,55 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 @keyframes gt-flap { from { transform: scaleY(1) translateY(0); } to { transform: scaleY(.4) translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .gt-bats i { animation: none; } }
 @media (max-width: 600px) { .gutstober-banner span:not(.gt-pumpkin):not(.gt-bats) { display: none; } }
+
+/* Item pictures while they're being drawn */
+.item-render.loading::after { content: ""; width: 22px; height: 22px; border-radius: 50%;
+  border: 3px solid rgba(120,130,145,.25); border-top-color: rgba(120,130,145,.8); animation: gb-spin .8s linear infinite; }
+@keyframes gb-spin { to { transform: rotate(360deg); } }
+
+/* The item page, laid out like the 2016 catalog: picture, details, and a buy box */
+.item-page { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 14px 16px 18px; }
+.item-title { font-size: 30px; font-weight: bold; margin: 0; letter-spacing: -.5px; }
+.item-sub { font-weight: bold; color: var(--text); font-size: 13px; margin: 2px 0 12px; }
+.item-cols { display: grid; grid-template-columns: 330px 1fr 190px; gap: 18px; align-items: start; }
+.item-pic { position: relative; width: 330px; height: 330px; overflow: hidden; background: #fff; border: 1px solid var(--line); }
+.item-pic .pic { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.item-pic .pic canvas { display: block; }
+/* the red "NEW" ribbon across the top right corner */
+.item-ribbon { position: absolute; top: 26px; right: -44px; width: 170px; transform: rotate(45deg); text-align: center;
+  background: linear-gradient(#d6261c, #a3150d); color: #fff; font: bold 17px Arial, sans-serif; letter-spacing: 2px;
+  padding: 5px 0; box-shadow: 0 2px 3px rgba(0,0,0,.35); pointer-events: none; }
+/* a little alarm clock (timed item), drawn with CSS */
+.item-clock { position: absolute; top: 8px; left: 8px; width: 32px; height: 32px; border-radius: 6px; background: #d6261c;
+  display: flex; align-items: center; justify-content: center; }
+.item-clock i { width: 16px; height: 16px; border: 2px solid #fff; border-radius: 50%; position: relative; }
+.item-clock i::before { content: ""; position: absolute; left: 6px; top: 2px; width: 2px; height: 6px; background: #fff; }
+.item-clock i::after { content: ""; position: absolute; left: 6px; top: 6px; width: 5px; height: 2px; background: #fff; }
+/* the green LIMITED tag with its yellow U, bottom left */
+.item-limited { position: absolute; left: 0; bottom: 8px; display: flex; align-items: stretch; font: bold 17px Arial, sans-serif;
+  color: #fff; letter-spacing: 1px; pointer-events: none; }
+.item-limited { background: linear-gradient(#26a540, #137a28); padding: 3px 4px 3px 10px; border: 1px solid #0d5a1c; }
+.item-limited b { background: #f5d000; color: #222; margin: -3px -4px -3px 8px; padding: 3px 14px 3px 10px;
+  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%); }
+.item-3d { position: absolute; right: 8px; bottom: 8px; font-size: 10px; border: 1px solid #999; background: #f4f4f4; color: #333;
+  padding: 1px 5px; border-radius: 2px; pointer-events: none; }
+.item-creator { display: flex; gap: 10px; align-items: center; }
+.item-creator-pic { width: 48px; height: 60px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--panel2); border-radius: 3px; }
+.item-creator-pic img { max-width: 100%; max-height: 100%; }
+.item-creator td { padding: 1px 6px 1px 0; font-size: 12px; }
+.item-creator td:first-child { color: var(--muted); }
+.item-desc { white-space: pre-wrap; font-size: 14px; margin: 14px 0; }
+.item-info hr { border: 0; border-top: 1px solid var(--line); }
+.item-buybox { border: 1px solid #999; background: linear-gradient(#f2f2f2, #e2e2e2); padding: 10px; text-align: center; color: #222; }
+.item-left { color: #c8100c; font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+.item-offsale { font-size: 13px; margin-bottom: 4px; color: #444; }
+.item-offsale b { color: #c8100c; font-size: 15px; }
+.item-price { font-size: 13px; margin: 2px 0 6px; color: #333; }
+.item-price .price { color: #0a7d2c; font-weight: bold; }
+.item-buybox .btn.buy { width: 100%; font-size: 18px; padding: 8px 6px; }
+.item-sold { color: #555; font-size: 12px; margin-top: 6px; }
+@media (max-width: 820px) {
+  .item-cols { grid-template-columns: 1fr; }
+  .item-pic { width: 100%; max-width: 330px; margin: 0 auto; }
+}
+.item-creator td { white-space: nowrap; }

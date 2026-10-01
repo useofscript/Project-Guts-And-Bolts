@@ -399,7 +399,8 @@ void Editor::renderPublishModelDialog() {
                 m_onlineBusy = false;
                 if (!r.value("ok", false)) { m_modelMsg = r.value("error", std::string("Publishing didn't work.")); return; }
                 std::string id = r["asset"].value("id", std::string());
-                if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
+                // (Gear in the catalog is drawn from the item itself, so it takes no picture.)
+                if (!gear && !picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
                 m_modelMsg = gear ? "Published! It's in the catalog under Gear." : "Published! Find it in the Toolbox's Library.";
                 m_libraryLoaded = false;
                 Online::connect();   // refresh "public models left"
@@ -700,18 +701,15 @@ void Editor::renderAccessoryWindow() {
             node["rot"] = place["rotation"];
             node["size"] = place["scale"];
             json acc = {{"format", "gbaccessory"}, {"version", 1}, {"kind", place.value("kind", std::string("hat"))}, {"node", node}};
-            // A picture of just the accessory for the catalog.
-            std::string picture = m_thumbnailer->png({model}, 256);
             std::string name = m_accessoryName.empty() ? model->name : m_accessoryName;
             json args = {{"kind", acc["kind"]}, {"name", name}, {"description", m_accessoryDesc}, {"price", m_accessoryPrice},
                          {"data", Online::base64Encode(acc.dump())}};
             m_onlineBusy = true;
             m_accessoryMsg = "Uploading...";
-            Online::request("upload", args, [this, picture, name](const json& r) {
+            Online::request("upload", args, [this, name](const json& r) {
                 m_onlineBusy = false;
                 if (!r.value("ok", false)) { m_accessoryMsg = r.value("error", std::string("The upload didn't work.")); return; }
                 std::string id = r["asset"].value("id", std::string());
-                if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
                 m_accessoryMsg = "Uploaded \"" + name + "\" to the catalog!";
                 Log::system("Uploaded the accessory \"" + name + "\" (" + id + ")");
             }, 120);

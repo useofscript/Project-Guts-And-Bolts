@@ -255,7 +255,9 @@ function accessoryPieces(acc) {
     }
     for (const c of node.children || []) walk(c, m);
   };
-  if (acc && acc.format === 'gbaccessory' && acc.node) walk(acc.node, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  if (acc && acc.format === 'gbaccessory' && acc.node) walk(acc.node, I);
+  else if (acc && Array.isArray(acc.nodes)) for (const n of acc.nodes) walk(n, I);   // gear: the tool's parts
   return out;
 }
 function loadAccessory(id) {
@@ -513,7 +515,7 @@ function blankTexture() {
 let headBox = null;   // the head's middle and size (from the model)
 let torsoBox = null;  // ... and the torso's
 
-function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', pants = '') {
+function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', pants = '', cam = null) {
   if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
@@ -523,9 +525,10 @@ function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', 
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
   // model: turn about Y; view: tilt about X, then back off.
   const rotY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
-  const center = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1.45, 0, 1];
+  const at = cam && cam.at ? cam.at : [0, 1.45, 0];   // what's in the middle of the picture
+  const center = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -at[0], -at[1], -at[2], 1];
   const tilt = [1, 0, 0, 0, 0, cp, -sp, 0, 0, sp, cp, 0, 0, 0, 0, 1];
-  const back = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -7.2, 1];
+  const back = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -(cam && cam.dist ? cam.dist : 7.2), 1];
   const proj = perspective(0.42, w / h, 0.5, 50);
   const view = mul(back, mul(tilt, center));
   const mvp = mul(proj, mul(view, rotY));
@@ -548,7 +551,7 @@ function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', 
   gl.bindBuffer(gl.ARRAY_BUFFER, shadowVbo);
   attrs();
   gl.uniform1f(loc.shadow, 1);
-  gl.drawArrays(gl.TRIANGLES, 0, 32 * 12);
+  if (!(cam && cam.noShadow)) gl.drawArrays(gl.TRIANGLES, 0, 32 * 12);
   gl.disable(gl.BLEND);
   gl.enable(gl.DEPTH_TEST);
   gl.uniform1f(loc.shadow, 0);
@@ -616,7 +619,7 @@ export async function mountAvatar(el, avatar, items = [], opts = {}) {
   };
   let yaw = opts.yaw ?? -0.35, spin = 0, dragging = false, lastX = 0, frame = 0;
   const paint = () => {
-    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face, tee, shirt, pants);
+    draw(buffer, count, canvas.width, canvas.height, yaw, 0.12, face, tee, shirt, pants, opts.cam || null);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(glCanvas, 0, 0);
   };
@@ -675,6 +678,61 @@ export async function avatarPicture(avatar, items = [], size = 96) {
   for (const id of [tee, shirt, pants]) if (id) await teeTexture(id).ready;
   draw(buffer, buffer.length / STRIDE, Math.round(size * dpr), Math.round(size * 1.25 * dpr), -0.35, 0.12, face, tee, shirt, pants);
   const url = glCanvas.toDataURL('image/png');
+  pictureCache.set(key, url);
+  return url;
+}
+
+// A catalog item's picture, drawn here from the item itself (never an uploaded picture):
+// worn by a plain grey mannequin and framed on where it's worn (the head for hats, hair
+// and faces), or, for gear, the tool on its own. A data: URL, or null.
+const MANNEQUIN_GREY = { head: [204, 207, 212], torso: [204, 207, 212], leftArm: [204, 207, 212], rightArm: [204, 207, 212],
+  leftLeg: [189, 191, 199], rightLeg: [189, 191, 199], hat: 0 };
+const HEAD_KINDS = ['hat', 'hair', 'face', 'faceacc'], UPPER_KINDS = ['neck', 'shoulder'];
+// Where to look for a turnable view of an item being worn (a little wider than its picture).
+export function itemCamera(kind) {
+  return HEAD_KINDS.includes(kind) ? { at: [0, 2.25, 0], dist: 4.4 } : UPPER_KINDS.includes(kind) ? { at: [0, 1.9, 0], dist: 5.2 } : { at: [0, 1.45, 0], dist: 7.2 };
+}
+export async function itemPicture(item, size = 150) {
+  if (!item || !initGl()) return null;
+  const key = 'item:' + JSON.stringify([item.id, item.meta || {}, size]);
+  if (pictureCache.has(key)) return pictureCache.get(key);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(size * dpr), h = Math.round(size * dpr);
+  let url = null;
+  if (item.kind === 'gear') {
+    const entry = loadAccessory(item.id);
+    await entry.ready;
+    const list = entry.pieces || [];
+    if (!list.length) return null;
+    // Frame it: the middle of its parts, far enough back to fit them.
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const p of list) for (let i = 0; i < p.mesh.pos.length; i += 3)
+      for (let k = 0; k < 3; ++k) { lo[k] = Math.min(lo[k], p.mesh.pos[i + k]); hi[k] = Math.max(hi[k], p.mesh.pos[i + k]); }
+    const mid = lo.map((v, k) => (v + hi[k]) / 2);
+    const moved = list.map((p) => {   // turn about its own middle
+      const pos = p.mesh.pos.slice();
+      for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; ++k) pos[i + k] -= mid[k];
+      return Object.assign({}, p, { mesh: { pos, nrm: p.mesh.nrm } });
+    });
+    const span = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+    const buffer = build(moved);
+    await faceTexture('').ready;
+    draw(buffer, buffer.length / STRIDE, w, h, -0.6, 0.35, '', '', '', '', { at: [0, 0, 0], dist: span * 2.6, noShadow: true });
+    url = glCanvas.toDataURL('image/png');
+  } else {
+    let model;
+    try { model = await loadModel(); } catch { return null; }
+    const items = [item];
+    await loadAccessories(items);
+    const buffer = build(pieces(model, MANNEQUIN_GREY, items));
+    const face = faceOf(items), tee = teeOf(items), shirt = clothOf(items, 'shirt'), pants = clothOf(items, 'pants');
+    await faceTexture(face).ready;
+    for (const id of [tee, shirt, pants]) if (id) await teeTexture(id).ready;
+    const cam = HEAD_KINDS.includes(item.kind) ? { at: [0, 2.4, 0], dist: 3.3 }
+      : UPPER_KINDS.includes(item.kind) ? { at: [0, 2.0, 0], dist: 4.4 } : { at: [0, 1.45, 0], dist: 7.0 };
+    draw(buffer, buffer.length / STRIDE, w, h, item.kind === 'face' ? 0 : -0.35, 0.1, face, tee, shirt, pants, cam);
+    url = glCanvas.toDataURL('image/png');
+  }
   pictureCache.set(key, url);
   return url;
 }
