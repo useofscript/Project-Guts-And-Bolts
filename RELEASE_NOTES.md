@@ -1,4 +1,4 @@
-# Guts&Bolts 0.7.0: Who Let Us Cook? (October 1, 2026)
+# Guts&Bolts 0.6.3: Who Let Us Cook? (October 1, 2026)
 
 ## New
 - **Navmesh and pathfinding** (the headline): Studio bakes a navigation mesh of
