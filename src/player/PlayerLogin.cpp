@@ -80,7 +80,10 @@ void PlayerApp::logIn(const std::string& username, const std::string& password) 
         Online::request("account.login", args, [this, lock](const json& r) {
             m_busy = false;
             if (!r.value("ok", false)) {
-                if (r.value("needCode", false)) m_loginNeedCode = true;   // two-step verification: a code was emailed
+                if (r.value("needCode", false)) {   // two-step verification: a code was emailed, or is in the authenticator app
+                    m_loginNeedCode = true;
+                    m_loginAppCode = r.value("app", false);
+                }
                 m_loginMsg = r.value("error", std::string("Couldn't log in."));
                 std::printf("LOGIN failed: %s\n", m_loginMsg.c_str());
                 std::fflush(stdout);
@@ -224,7 +227,7 @@ void PlayerApp::drawLogin() {
         bool enter = ImGui::InputTextWithHint("##pass", m_loginTab == 0 ? "at least 8 characters" : "", &m_loginPass,
                                               ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
         if (m_loginTab == 1 && m_loginNeedCode) {
-            ImGui::TextUnformatted("Code from your email");
+            ImGui::TextUnformatted(m_loginAppCode ? "Code from your authenticator app" : "Code from your email");
             ImGui::SetNextItemWidth(w);
             enter = ImGui::InputTextWithHint("##code", "6 digits", &m_loginCode,
                                              ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue) || enter;

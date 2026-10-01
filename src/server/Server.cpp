@@ -211,6 +211,7 @@ json GbServer::meJson(const User& u) const {
     json j = publicUser(u);
     j["bolts"] = balance(u);
     j["hasPassword"] = !u.keyBlob.empty();   // can log in on other devices
+    j["authApp"] = !u.totpSecret.empty();    // logging in needs an authenticator-app code
     json g = json::array();
     for (const auto& [k, s] : u.grants) g.push_back({k, s});
     j["grants"] = g;
@@ -795,6 +796,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
+        if (a.meta.is_object() && a.meta.value("award", std::string()) == "email")
+            return fail("This hat can't be bought: confirm an email in Settings and it's yours.");
         if (a.price > 0) {
             if (balance(me) < a.price)
                 return fail("You need " + std::to_string(a.price - balance(me)) + " more Bolts for that.");
@@ -858,6 +861,8 @@ void GbServer::saveUsers() {
                    {"following", u.following}, {"followers", u.followers},
                    {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
+        if (!u.totpSecret.empty()) { all[id]["totpSecret"] = u.totpSecret; all[id]["totpLast"] = u.totpLast; }
+        if (!u.totpPending.empty()) all[id]["totpPending"] = u.totpPending;
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -898,6 +903,22 @@ void GbServer::addExampleGames() {
         if (a.size != text.size()) { a.size = text.size(); writeFile(blobPath(id), text); }
         changed = true;
     }
+    // The Verified Hat (worker/server.js VERIFIED_HAT, the same hat): an award for
+    // confirming an email, not for sale. (This server has no email yet, so nobody
+    // earns it here; it's listed so the catalogs match.)
+    {
+        static const char* kHat = R"HAT({"format":"gbaccessory","version":1,"kind":"hat","node":{"id":1,"name":"VerifiedHat","kind":"Model","pos":[0,2.66,0],"rot":[0,0,0],"size":[1,1,1],"children":[{"id":2,"name":"Crown","kind":"Part","shape":"Sphere","pos":[0,0.02,-0.02],"rot":[0,0,0],"size":[0.8,0.5,0.8],"color":[0.1,0.13,0.2],"material":"Fabric","anchored":true,"canCollide":false},{"id":3,"name":"Brim","kind":"Part","shape":"Cube","pos":[0,-0.06,0.42],"rot":[-8,0,0],"size":[0.62,0.04,0.36],"color":[0.1,0.13,0.2],"material":"Fabric","anchored":true,"canCollide":false},{"id":4,"name":"Badge","kind":"Part","shape":"Cylinder","pos":[0,0.08,0.36],"rot":[72,0,0],"size":[0.24,0.04,0.24],"color":[0.16,0.55,1],"material":"SmoothPlastic","anchored":true,"canCollide":false},{"id":5,"name":"CheckShort","kind":"Part","shape":"Cube","pos":[-0.035,0.065,0.385],"rot":[72,0,45],"size":[0.035,0.08,0.02],"color":[1,1,1],"material":"SmoothPlastic","anchored":true,"canCollide":false},{"id":6,"name":"CheckLong","kind":"Part","shape":"Cube","pos":[0.03,0.085,0.38],"rot":[72,0,-40],"size":[0.035,0.15,0.02],"color":[1,1,1],"material":"SmoothPlastic","anchored":true,"canCollide":false}]}})HAT";
+        Asset& a = m_assets["item-verified-hat"];
+        if (a.id.empty()) {
+            a.id = "item-verified-hat"; a.kind = "hat"; a.creator = Account::officialId(); a.created = Online::unixNow();
+            a.meta = {{"builtin", true}, {"award", "email"}};
+        }
+        a.name = "Verified Hat";
+        a.description = "Given to everyone who confirms their email address. Can't be bought.";
+        const std::string text = kHat;
+        if (a.size != text.size()) { a.size = text.size(); writeFile(blobPath(a.id), text); }
+        changed = true;
+    }
     if (changed) saveAssets();
 }
 
@@ -920,6 +941,9 @@ void GbServer::load() {
                 if (j.contains("grants") && j["grants"].is_object())
                     for (auto& [k, v] : j["grants"].items()) if (v.is_string()) u.grants[k] = v.get<std::string>();
                 if (j.contains("owned")) for (const auto& o : j["owned"]) if (o.is_string()) u.owned.insert(o.get<std::string>());
+                u.totpSecret = j.value("totpSecret", std::string());
+                u.totpPending = j.value("totpPending", std::string());
+                u.totpLast = j.value("totpLast", -1LL);
                 u.uploadDay = j.value("uploadDay", std::string());
                 u.uploadsToday = j.value("uploadsToday", 0);
                 u.playDay = j.value("playDay", std::string());

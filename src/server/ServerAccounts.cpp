@@ -11,6 +11,7 @@
 // We only ever see a login token made from the password, never the password,
 // and can't unlock the copy ourselves.
 #include <cctype>
+#include "../core/Totp.h"
 #include "Server.h"
 #include "ServerUtil.h"
 #include "../core/Account.h"
@@ -120,6 +121,54 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
                 }
         return fail("That warning is gone.");
     }
+    // Authenticator app (worker/server.js does the same): setup gives a secret and an
+    // otpauth:// link for the QR code; a code from the app turns it on; after that,
+    // logging in needs a code from the app too.
+    auto provePassword = [&]() {
+        std::string auth = lower(str("auth"));
+        return !me.keyBlob.empty() && isHex(auth, 64, 64) && Account::hashHex(auth) == me.pwHash;
+    };
+    if (name == "account.authAppSetup") {
+        if (me.userId == 0) return fail("Sign up first.");
+        if (!me.keyBlob.empty() && !provePassword()) return fail("Wrong password.");
+        const std::string hex = Account::randomHex(20);   // 20 random bytes
+        std::vector<uint8_t> raw;
+        for (size_t i = 0; i + 1 < hex.size(); i += 2) raw.push_back((uint8_t)std::stoi(hex.substr(i, 2), nullptr, 16));
+        me.totpPending = Totp::base32(raw);
+        saveUsers();
+        auto enc = [](const std::string& s) {
+            std::string o;
+            for (unsigned char c : s) {
+                if (std::isalnum(c) || c == '-' || c == '_' || c == '.') o += (char)c;
+                else { char b[4]; std::snprintf(b, sizeof b, "%%%02X", c); o += b; }
+            }
+            return o;
+        };
+        json r = okay();
+        r["secret"] = me.totpPending;
+        r["uri"] = "otpauth://totp/" + enc("Guts&Bolts:" + me.username) + "?secret=" + me.totpPending + "&issuer=" +
+                   enc("Guts&Bolts") + "&digits=6&period=30";
+        return r;
+    }
+    if (name == "account.authAppEnable") {
+        if (me.totpPending.empty()) return fail("Start setting it up first.");
+        long long step = Totp::check(me.totpPending, str("code"), Online::unixNow());
+        if (step < 0) return fail("That code isn't right. Check your phone's clock, and type the newest code.");
+        me.totpSecret = me.totpPending;
+        me.totpPending.clear();
+        me.totpLast = step;
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    if (name == "account.authAppDisable") {
+        if (me.totpSecret.empty()) { json r = okay(); r["me"] = meJson(me); return r; }
+        if (!me.keyBlob.empty() && !provePassword()) return fail("Wrong password.");
+        if (Totp::check(me.totpSecret, str("code"), Online::unixNow()) < 0) return fail("That code isn't right.");
+        me.totpSecret.clear();
+        me.totpLast = -1;
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
     if (name == "account.check") {   // is this username free? (for the sign-up page, as you type)
         json r = okay();
         std::string problem = Online::usernameProblem(username, isOfficial(me));
@@ -189,6 +238,21 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
         if (!isHex(auth, 64, 64) || Account::hashHex(auth) != u->pwHash) {
             fails.push_back(now);
             return fail("Wrong password.");
+        }
+        if (!u->totpSecret.empty()) {   // authenticator app
+            std::string code = str("code");
+            if (code.empty()) {
+                json r = fail("Type the 6-digit code from your authenticator app.");
+                r["needCode"] = true; r["app"] = true; return r;
+            }
+            long long step = Totp::check(u->totpSecret, code, now, u->totpLast);
+            if (step < 0) {
+                fails.push_back(now);
+                json r = fail("That code isn't right (or was already used). Try the newest one.");
+                r["needCode"] = true; r["app"] = true; return r;
+            }
+            u->totpLast = step;
+            saveUsers();
         }
         fails.clear();
         log("log in: #" + std::to_string(u->userId) + " " + u->username + " on a new device");

@@ -311,6 +311,7 @@ private:
     std::string    m_loginUser, m_loginPass, m_loginPass2, m_loginMsg;
     std::string    m_loginCode;                    // two-step verification: the code from your email
     bool           m_loginNeedCode = false;
+    bool           m_loginAppCode = false;         // ...from an authenticator app (not email)
     nlohmann::json m_nameCheck = nlohmann::json::object();   // is the typed username free?
     double         m_nameCheckAt = 0.0;
 

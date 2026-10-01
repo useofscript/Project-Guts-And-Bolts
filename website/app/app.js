@@ -1315,6 +1315,25 @@ pages.settings = async () => {
           : html`<form class="form" data-form="twoStep"><input type="hidden" name="on" value="${me.twoStep ? '' : '1'}">
             <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>
             <p><button class="btn ${me.twoStep ? '' : 'green'}">${me.twoStep ? 'Turn off' : 'Turn on'}</button> <span id="twoStepMsg"></span></p></form>`}</div>
+      <div class="box"><h2 class="boxhead">Authenticator app</h2>
+        ${me.authApp ? html`<p><b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> the 6-digit code
+            from your authenticator app (Google Authenticator, Authy, 2FAS, Aegis, Microsoft Authenticator...).</p>
+          <form class="form" data-form="authAppOff">
+            ${noPw ? '' : html`<input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>`}
+            <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Code from the app" required>
+            <p><button class="btn">Turn off</button> <span id="authAppMsg"></span></p></form>`
+          : authSetup ? html`<p>1. In your authenticator app, add an account and type this key (or tap the link on your phone):</p>
+            <p class="secret-key"><code>${authSetup.secret.replace(/(.{4})/g, '$1 ').trim()}</code></p>
+            <p class="small"><a href="${authSetup.uri}">Open in my authenticator app</a></p>
+            <p>2. Type the 6-digit code it shows:</p>
+            <form class="form" data-form="authAppOn">
+              <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits" required>
+              <p><button class="btn green">Turn on</button> <span id="authAppMsg"></span></p></form>`
+          : html`<p><b>Off.</b> The safest way to protect your account: a code from an app on your phone that changes every 30
+              seconds. A stolen password alone won't get anyone in. (No email needed.)</p>
+            <form class="form" data-form="authAppSetup">
+              ${noPw ? '' : html`<input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>`}
+              <p><button class="btn green">Set up</button> <span id="authAppMsg"></span></p></form>`}</div>
       ${noPw ? '' : html`<div class="box"><h2 class="boxhead">Change password</h2>
         <form class="form" data-form="changePassword">
           <label>Current password</label><input type="password" name="current" autocomplete="current-password" required>
@@ -1326,6 +1345,7 @@ pages.settings = async () => {
 
 pages.login = async () => loginPage(false);
 pages.signup = async () => loginPage(true);
+let authSetup = null;   // Settings: an authenticator app being set up ({secret, uri})
 
 // The Terms of Service. Plain words on purpose. (Also in the Player app: PlayerLogin.cpp.)
 pages.terms = async () => {
@@ -1699,6 +1719,24 @@ const forms = {
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Email removed.'); render();
   },
+  async authAppSetup(f) {
+    const r = await call('account.authAppSetup', f.password ? { auth: await gb.passwordProof(me.username, f.password.value) } : {});
+    if (!r.ok) { const m = $('#authAppMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    authSetup = { secret: r.secret, uri: r.uri };
+    render();
+  },
+  async authAppOn(f) {
+    const r = await call('account.authAppEnable', { code: f.code.value.trim() });
+    if (!r.ok) { const m = $('#authAppMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    authSetup = null; me = r.me; toast('Authenticator app is on. Keep that phone safe!', 5000); render();
+  },
+  async authAppOff(f) {
+    const args = { code: f.code.value.trim() };
+    if (f.password) args.auth = await gb.passwordProof(me.username, f.password.value);
+    const r = await call('account.authAppDisable', args);
+    if (!r.ok) { const m = $('#authAppMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    me = r.me; toast('Authenticator app is off.'); render();
+  },
   async twoStep(f) {
     const r = await call('account.twoStep', { on: !!f.on.value, auth: await gb.passwordProof(me.username, f.password.value) });
     if (!r.ok) { const m = $('#twoStepMsg'); m.className = 'error'; m.textContent = r.error; return; }
@@ -1764,7 +1802,11 @@ const forms = {
     const msg = $('#loginMsg');
     msg.className = 'muted'; msg.textContent = 'Logging in...';
     const r = await gb.logIn(f.username.value.trim(), f.password.value, f.code ? f.code.value.trim() : '');
-    if (r.needCode) { $('#codeBox').hidden = false; f.code.focus(); }   // two-step verification: type the emailed code
+    if (r.needCode) {   // two-step verification: the code from the email, or from the authenticator app
+      $('#codeBox').hidden = false;
+      $('#codeBox label').textContent = r.app ? 'Code from your authenticator app' : 'Code from your email';
+      f.code.focus();
+    }
     if (!r.ok) { msg.className = r.needCode ? 'muted' : 'error'; msg.textContent = r.error; return; }
     await hello();
     toast('Welcome back, ' + me.username + '!');

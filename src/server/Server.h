@@ -54,7 +54,9 @@ private:
         // password-locked backup of their key so they can log in on other devices.
         std::string username;
         long long   userId = 0;                  // 0 = hasn't signed up
-        std::string pwSalt, pwHash, keyBlob;     // pwHash = hash of the login token (we never see the password)
+        std::string pwSalt, pwHash, keyBlob;
+        std::string totpSecret, totpPending;    // authenticator app (base32), on / being set up
+        long long   totpLast = -1;              // the newest 30-second step used (no reusing a code)     // pwHash = hash of the login token (we never see the password)
         nlohmann::json avatar;                   // colours (0-255), hat, hatColor, wearing, updated; null = never set
         nlohmann::json gameBadges = nlohmann::json::array();   // [badge id, game id, when] earned in games
     };

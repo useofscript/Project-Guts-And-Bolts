@@ -191,6 +191,87 @@ function hashHex(text) {
   return hexOf(new Uint8Array(w.memory.buffer, w.buf() + 64, 32));
 }
 
+// --- Authenticator apps (TOTP, RFC 6238): a 6-digit code that changes every 30 seconds,
+// made from a secret shared once with the app (as a QR code / text). src/core/Totp.h
+// does exactly the same for the C++ server.
+function sha1(bytes) {
+  const ml = bytes.length, words = ((ml + 8) >> 6) + 1, w = new Uint32Array(words * 16);
+  for (let i = 0; i < ml; i++) w[i >> 2] |= bytes[i] << (24 - (i % 4) * 8);
+  w[ml >> 2] |= 0x80 << (24 - (ml % 4) * 8);
+  w[words * 16 - 1] = ml * 8;
+  let h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;
+  const x = new Uint32Array(80);
+  for (let b = 0; b < words * 16; b += 16) {
+    for (let i = 0; i < 16; i++) x[i] = w[b + i];
+    for (let i = 16; i < 80; i++) { const v = x[i - 3] ^ x[i - 8] ^ x[i - 14] ^ x[i - 16]; x[i] = (v << 1) | (v >>> 31); }
+    let a = h0, bb = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      const f = i < 20 ? (bb & c) | (~bb & d) : i < 40 ? bb ^ c ^ d : i < 60 ? (bb & c) | (bb & d) | (c & d) : bb ^ c ^ d;
+      const k = i < 20 ? 0x5A827999 : i < 40 ? 0x6ED9EBA1 : i < 60 ? 0x8F1BBCDC : 0xCA62C1D6;
+      const t = (((a << 5) | (a >>> 27)) + f + e + k + x[i]) >>> 0;
+      e = d; d = c; c = (bb << 30) | (bb >>> 2); bb = a; a = t;
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + bb) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0; h4 = (h4 + e) >>> 0;
+  }
+  const out = new Uint8Array(20);
+  [h0, h1, h2, h3, h4].forEach((v, i) => { out[i * 4] = v >>> 24; out[i * 4 + 1] = (v >>> 16) & 255; out[i * 4 + 2] = (v >>> 8) & 255; out[i * 4 + 3] = v & 255; });
+  return out;
+}
+function hmacSha1(key, msg) {
+  if (key.length > 64) key = sha1(key);
+  const k = new Uint8Array(64); k.set(key);
+  const inner = new Uint8Array(64 + msg.length), outer = new Uint8Array(84);
+  for (let i = 0; i < 64; i++) { inner[i] = k[i] ^ 0x36; outer[i] = k[i] ^ 0x5c; }
+  inner.set(msg, 64);
+  outer.set(sha1(inner), 64);
+  return sha1(outer);
+}
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32(bytes) {
+  let bits = 0, val = 0, out = '';
+  for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += B32[(val << (5 - bits)) & 31];
+  return out;
+}
+function unbase32(text) {
+  let bits = 0, val = 0; const out = [];
+  for (const ch of String(text).toUpperCase().replace(/[^A-Z2-7]/g, '')) {
+    val = (val << 5) | B32.indexOf(ch); bits += 5;
+    if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return new Uint8Array(out);
+}
+function totpCode(secret, step) {
+  const msg = new Uint8Array(8);
+  let s = step;
+  for (let i = 7; i >= 0; i--) { msg[i] = s & 255; s = Math.floor(s / 256); }
+  const h = hmacSha1(unbase32(secret), msg), o = h[19] & 15;
+  const bin = ((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+// The 30-second step the code belongs to (one step early or late is fine: clocks drift), or -1.
+function totpCheck(secret, code, t, lastStep = -1) {
+  code = String(code || '').replace(/\s/g, '');
+  if (!/^[0-9]{6}$/.test(code)) return -1;
+  const step = Math.floor(t / 30);
+  for (const d of [0, -1, 1]) if (step + d > lastStep && totpCode(secret, step + d) === code) return step + d;
+  return -1;
+}
+
+// The Verified Hat: everyone who confirms their email gets one (an original
+// Guts&Bolts cap with our blue check, not a copy of anything). Server.cpp makes the same one.
+const VERIFIED_HAT_ID = 'item-verified-hat';
+const VERIFIED_HAT = {
+  format: 'gbaccessory', version: 1, kind: 'hat',
+  node: { id: 1, name: 'VerifiedHat', kind: 'Model', pos: [0, 2.66, 0], rot: [0, 0, 0], size: [1, 1, 1], children: [
+    { id: 2, name: 'Crown', kind: 'Part', shape: 'Sphere', pos: [0, 0.02, -0.02], rot: [0, 0, 0], size: [0.8, 0.5, 0.8], color: [0.1, 0.13, 0.2], material: 'Fabric', anchored: true, canCollide: false },
+    { id: 3, name: 'Brim', kind: 'Part', shape: 'Cube', pos: [0, -0.06, 0.42], rot: [-8, 0, 0], size: [0.62, 0.04, 0.36], color: [0.1, 0.13, 0.2], material: 'Fabric', anchored: true, canCollide: false },
+    { id: 4, name: 'Badge', kind: 'Part', shape: 'Cylinder', pos: [0, 0.08, 0.36], rot: [72, 0, 0], size: [0.24, 0.04, 0.24], color: [0.16, 0.55, 1.0], material: 'SmoothPlastic', anchored: true, canCollide: false },
+    { id: 5, name: 'CheckShort', kind: 'Part', shape: 'Cube', pos: [-0.035, 0.065, 0.385], rot: [72, 0, 45], size: [0.035, 0.08, 0.02], color: [1, 1, 1], material: 'SmoothPlastic', anchored: true, canCollide: false },
+    { id: 6, name: 'CheckLong', kind: 'Part', shape: 'Cube', pos: [0.03, 0.085, 0.38], rot: [72, 0, -40], size: [0.035, 0.15, 0.02], color: [1, 1, 1], material: 'SmoothPlastic', anchored: true, canCollide: false },
+  ] },
+};
+
 // nlohmann::json::dump(): keys sorted, no spaces (what signatures are made over).
 function canon(v) {
   if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
@@ -262,6 +343,8 @@ export class GbServerObject extends DurableObject {
     // Guts follows everyone (like Builderman did on old Roblox).
     for (const u of this.users.values()) this.gutsFollows(u);
     this.addExampleGames();
+    this.addVerifiedHat();
+    for (const u of this.users.values()) if (u.emailVerified && !u.owned.includes(VERIFIED_HAT_ID)) { this.giveVerifiedHat(u); this.saveUser(u); }
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
     for (const u of this.users.values()) for (const k of u.keys || []) this.aliases.set(k, u.id);
@@ -438,7 +521,7 @@ export class GbServerObject extends DurableObject {
       owned: [...u.owned].sort(),
       avatar: u.avatar || null,
       email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
-      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail,
+      twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail, authApp: !!u.totpSecret,
       // Banned: what for and until when (the app and the site show a ban screen).
       ban: u.banned ? { reason: u.banReason || '', title: BAN_REASONS[u.banReason] || 'Breaking the rules',
         note: u.banNote || '', at: u.bannedAt || 0, until: u.bannedUntil || 0 } : null,
@@ -506,6 +589,29 @@ export class GbServerObject extends DurableObject {
   }
   // The example games (see EXAMPLE_GAMES): added once, kept up to date with the
   // copies that come with the server, and owned by the staff account (Guts).
+  // The Verified Hat (see VERIFIED_HAT): an award, not for sale.
+  addVerifiedHat() {
+    if (!this.official) return;
+    const text = JSON.stringify(VERIFIED_HAT), data = new TextEncoder().encode(text);
+    let a = this.assets.get(VERIFIED_HAT_ID);
+    if (!a) {
+      a = { id: VERIFIED_HAT_ID, kind: 'hat', name: 'Verified Hat', creator: this.official, price: 0, created: now(), sales: 0,
+        plays: 0, size: 0, meta: { award: 'email' }, builtin: true, likes: 0, dislikes: 0 };
+      this.assets.set(a.id, a);
+    }
+    a.description = 'Given to everyone who confirms their email address. Can\'t be bought: add and confirm an email in Settings to get it.';
+    if (a.size !== data.length) { a.size = data.length; a.updated = now(); this.writeFile(a.id, data); }
+    this.saveAsset(a);
+  }
+
+  giveVerifiedHat(u) {
+    const a = this.assets.get(VERIFIED_HAT_ID);
+    if (!a || !u.emailVerified || u.owned.includes(a.id)) return;
+    u.owned.push(a.id);
+    a.sales++;
+    this.saveAsset(a);
+  }
+
   addExampleGames() {
     if (!this.official) return;
     for (const ex of EXAMPLE_GAMES) {
@@ -1114,6 +1220,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
+      if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
       if (a.price > 0) {
         if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
@@ -1360,6 +1467,7 @@ export class GbServerObject extends DurableObject {
       const problem = this.checkCode(me, 'email', str(args, 'code'));
       if (problem) return fail(problem);
       me.email = me.pendingEmail; me.emailVerified = true; me.pendingEmail = '';
+      this.giveVerifiedHat(me);
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
@@ -1376,6 +1484,33 @@ export class GbServerObject extends DurableObject {
       const on = !!args.on;
       if (on && !me.emailVerified) return fail('Add and confirm an email first: the codes go there.');
       me.twoStep = on;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    // Authenticator app: setup gives a secret (and an otpauth:// link for the QR code);
+    // a code from the app turns it on. Then logging in needs a code from the app.
+    if (name === 'account.authAppSetup') {
+      if (me.userId === 0) return fail('Sign up first.');
+      if (me.keyBlob && !provePassword()) return fail('Wrong password.');
+      me.totpPending = base32(crypto.getRandomValues(new Uint8Array(20)));
+      this.saveUser(me);
+      const label = encodeURIComponent('Guts&Bolts:' + me.username);
+      return okay({ secret: me.totpPending,
+        uri: 'otpauth://totp/' + label + '?secret=' + me.totpPending + '&issuer=' + encodeURIComponent('Guts&Bolts') + '&digits=6&period=30' });
+    }
+    if (name === 'account.authAppEnable') {
+      if (!me.totpPending) return fail('Start setting it up first.');
+      const step = totpCheck(me.totpPending, str(args, 'code'), now());
+      if (step < 0) return fail('That code isn\'t right. Check your phone\'s clock, and type the newest code.');
+      me.totpSecret = me.totpPending; me.totpPending = ''; me.totpLast = step;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
+    if (name === 'account.authAppDisable') {
+      if (!me.totpSecret) return okay({ me: this.meJson(me) });
+      if (me.keyBlob && !provePassword()) return fail('Wrong password.');
+      if (totpCheck(me.totpSecret, str(args, 'code'), now()) < 0) return fail('That code isn\'t right.');
+      me.totpSecret = ''; me.totpLast = -1;
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
@@ -1473,7 +1608,14 @@ export class GbServerObject extends DurableObject {
       if (fails.length >= kMaxWrongPasswords) return fail('Too many wrong passwords. Wait 10 minutes and try again.');
       const auth = lower(str(args, 'auth'));
       if (!isHex(auth, 64, 64) || hashHex(auth) !== u.pwHash) { fails.push(t); return fail('Wrong password.'); }
-      if (u.twoStep && u.emailVerified) {
+      if (u.totpSecret) {   // authenticator app (checked first; it doesn't need email)
+        const code = str(args, 'code');
+        if (!code) return Object.assign(fail('Type the 6-digit code from your authenticator app.'), { needCode: true, app: true });
+        const step = totpCheck(u.totpSecret, code, now(), u.totpLast ?? -1);
+        if (step < 0) { fails.push(t); return Object.assign(fail('That code isn\'t right (or was already used). Try the newest one.'), { needCode: true, app: true }); }
+        u.totpLast = step;
+        this.saveUser(u);
+      } else if (u.twoStep && u.emailVerified) {
         const code = str(args, 'code');
         if (!code) {
           const problem = this.mailCode(u, 'login', u.email, 'Your Guts&Bolts login code',
