@@ -10,7 +10,7 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'who-let-us-cook', name: 'Who Let Us Cook?', version: '', time: 1790850600, tag: 'Engine',
+    id: 'who-let-us-cook', name: 'Who Let Us Cook?', version: '0.7.0', time: 1790850600, tag: 'Engine',
     summary: 'NPCs that find their own way, gear in the catalog, 2011-style moves, safer accounts and a whole lot more for creators.',
     items: [
       'Navmesh and pathfinding: Studio bakes every floor characters can walk on, and NPCs walk around walls, jump up ledges, drop down and leap gaps by themselves (PathfindingService, humanoid:PathfindTo)',
@@ -30,7 +30,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'take-a-seat', name: 'Take a Seat', version: '', time: 1790823545, tag: 'Engine',
+    id: 'take-a-seat', name: 'Take a Seat', version: '0.7.0', time: 1790823545, tag: 'Engine',
     summary: 'Sit on seats, jump as high as a real Roblox character, and the camera stops peeking through walls.',
     items: [
       'Seats: walk into one and you sit down (like Roblox), riding along if it moves; jump to get up. Insert one from Insert Object, and Roblox Seats come in working',
@@ -42,7 +42,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'dress-code', name: 'Dress Code', version: '', time: 1790812100, tag: 'Player',
+    id: 'dress-code', name: 'Dress Code', version: '0.7.0', time: 1790812100, tag: 'Player',
     summary: 'Get dressed right on the Avatar page, and your character finally wears its clothes everywhere.',
     items: [
       'New Wardrobe on the app\'s Avatar page: everything you own, sorted into Shirts, Pants, T-Shirts, Faces, Hats, Hair and Accessories',
