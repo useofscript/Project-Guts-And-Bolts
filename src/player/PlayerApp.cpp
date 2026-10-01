@@ -690,6 +690,7 @@ void PlayerApp::frame(float dt) {
     drawOnlineGameDialog();
     drawNotice();
     if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
+    drawModeration();   // last: the ban screen covers everything
 }
 
 void PlayerApp::drawJoinDialog() {

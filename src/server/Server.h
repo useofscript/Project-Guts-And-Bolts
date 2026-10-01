@@ -46,6 +46,8 @@ private:
         std::string playDay;   long long playEarned = 0, lastPlay = 0;
         bool        banned = false;
         std::string banReason, banNote;   // Online::kBanReasons key, and staff's note
+        long long   bannedAt = 0, bannedUntil = 0;   // bannedUntil 0 = for good
+        nlohmann::json warnings = nlohmann::json::array();   // staff warnings: {id, reason, note, at, seen}
         std::set<std::string> friends, friendIn, friendOut;   // friends; requests to me; requests I sent
         // Signing up: a username and user number (both never reused), plus the
         // password-locked backup of their key so they can log in on other devices.

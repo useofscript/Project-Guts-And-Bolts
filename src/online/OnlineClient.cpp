@@ -329,6 +329,10 @@ void update() {
     for (Done& d : ready) {
         // A reply saying our account changed (Bolts, badges...) keeps me() fresh for everyone.
         if (d.reply.value("ok", false)) takeMe(d.reply);
+        // Banned while the app is open: say hello again, so me() has the ban (the ban screen shows).
+        else if (d.reply.value("error", std::string()).rfind("This account has been banned", 0) == 0 &&
+                 !(S().me.contains("ban") && S().me["ban"].is_object()))
+            connect();
         if (d.callback) d.callback(d.reply);
     }
     if (configured() && S().status == Status::Off) connect();

@@ -121,6 +121,12 @@ json GbServer::checkRequest(const json& req, User*& out) {
 
     User& me = user(account);
     me.lastSeen = now;
+    if (me.banned && me.bannedUntil > 0 && now >= me.bannedUntil) {   // a timed ban is over
+        me.banned = false;
+        me.banReason.clear(); me.banNote.clear();
+        me.bannedAt = me.bannedUntil = 0;
+        saveUsers();
+    }
     if (me.banned && opName != "hello") return fail(Online::banMessage(me.banReason, me.banNote));
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
@@ -213,6 +219,26 @@ json GbServer::meJson(const User& u) const {
                      : Online::kDailyUploadsUnverified - (u.uploadDay == today ? u.uploadsToday : 0);
     j["owned"] = json(u.owned);
     j["avatar"] = u.avatar;
+    // Banned: what for and until when (the app and the site show a ban screen).
+    if (u.banned) {
+        const char* title = Online::banReasonTitle(u.banReason);
+        j["ban"] = {{"reason", u.banReason}, {"title", title ? title : "Breaking the rules"}, {"note", u.banNote},
+                    {"at", u.bannedAt}, {"until", u.bannedUntil}};
+    } else {
+        j["ban"] = nullptr;
+    }
+    // Staff warnings not seen yet (shown once, until "I understand").
+    json warn = json::array();
+    if (u.warnings.is_array())
+        for (const json& w : u.warnings) {
+            if (!w.is_object() || w.value("seen", false)) continue;
+            const char* title = Online::banReasonTitle(w.value("reason", std::string()));
+            warn.push_back({{"id", w.value("id", std::string())}, {"reason", w.value("reason", std::string())},
+                            {"title", title ? title : "Breaking the rules"}, {"note", w.value("note", std::string())},
+                            {"at", w.value("at", 0LL)}});
+        }
+    j["warnings"] = warn;
+    j["warningCount"] = u.warnings.is_array() ? u.warnings.size() : 0;
     return j;
 }
 
@@ -356,7 +382,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
     if (name.rfind("friends.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
-    if (name == "ping") return okay();   // "I'm still here" (for friends' online dots)
+    if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
 
     // --- Your look, and pictures of games --------------------------------------
     if (name == "avatar.set") {
@@ -511,12 +539,28 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 if (!Online::banReasonTitle(reason)) return fail("Pick a reason for the ban.");
                 to->banReason = reason;
                 to->banNote = Online::cleanText(str("note"), 200);
+                to->bannedAt = Online::unixNow();
+                const long long days = std::clamp(num("days"), 0LL, 3650LL);   // 0 = for good
+                to->bannedUntil = days > 0 ? to->bannedAt + days * 86400 : 0;
             } else {
                 to->banReason.clear();
                 to->banNote.clear();
+                to->bannedAt = to->bannedUntil = 0;
             }
             to->banned = on;
             log(me.name + (on ? " banned " + to->name + " (" + to->banReason + ")" : " unbanned " + to->name));
+            saveUsers();
+            json r = okay(); r["user"] = publicUser(*to); return r;
+        }
+        if (name == "admin.warn") {
+            // A warning: they see it (with the reason) next time they open the app or the site.
+            std::string reason = str("reason");
+            if (!Online::banReasonTitle(reason)) return fail("Pick a reason for the warning.");
+            if (!to->warnings.is_array()) to->warnings = json::array();
+            to->warnings.push_back({{"id", Account::randomHex(4)}, {"reason", reason},
+                                    {"note", Online::cleanText(str("note"), 200)}, {"at", Online::unixNow()}, {"seen", false}});
+            while (to->warnings.size() > 30) to->warnings.erase(to->warnings.begin());
+            log(me.name + " warned " + to->name + " (" + reason + ")");
             saveUsers();
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
@@ -798,7 +842,8 @@ void GbServer::saveUsers() {
         all[id] = {{"name", u.name}, {"created", u.created}, {"lastSeen", u.lastSeen}, {"ledger", ledger},
                    {"grants", u.grants}, {"owned", u.owned}, {"uploadDay", u.uploadDay}, {"uploadsToday", u.uploadsToday},
                    {"playDay", u.playDay}, {"playEarned", u.playEarned}, {"lastPlay", u.lastPlay}, {"banned", u.banned},
-                   {"banReason", u.banReason}, {"banNote", u.banNote},
+                   {"banReason", u.banReason}, {"banNote", u.banNote}, {"bannedAt", u.bannedAt},
+                   {"bannedUntil", u.bannedUntil}, {"warnings", u.warnings},
                    {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut},
                    {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
@@ -842,6 +887,9 @@ void GbServer::load() {
                 u.banned = j.value("banned", false);
                 u.banReason = j.value("banReason", std::string());
                 u.banNote = j.value("banNote", std::string());
+                u.bannedAt = j.value("bannedAt", 0LL);
+                u.bannedUntil = j.value("bannedUntil", 0LL);
+                if (j.contains("warnings") && j["warnings"].is_array()) u.warnings = j["warnings"];
                 u.username = j.value("username", std::string());
                 u.userId = j.value("userId", 0LL);
                 u.pwSalt = j.value("pwSalt", std::string());

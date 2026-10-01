@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <cstdint>
 #include <set>
 #include <utility>
@@ -73,6 +74,9 @@ public:
     // First visible part hit by a ray (skipping `ignore` and everything inside it).
     static SceneNode* raycast(Scene& scene, const glm::vec3& origin, const glm::vec3& dir,
                               float* distance = nullptr, const SceneNode* ignore = nullptr);
+    // The same, but only parts `counts` says yes to (and not the ones inside a skipped model).
+    static SceneNode* raycastIf(Scene& scene, const glm::vec3& origin, const glm::vec3& dir, float* distance,
+                                const std::function<bool(const SceneNode*)>& counts);
     static AABB characterBox(const glm::vec3& feet);
 
     void reset();                       // forget touch state (on Play / Stop)

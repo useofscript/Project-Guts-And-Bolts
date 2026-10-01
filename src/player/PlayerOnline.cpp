@@ -14,6 +14,7 @@
 #include "ShirtTemplate.h"   // generated: the clothing templates
 #include "PantsTemplate.h"
 #include "../renderer/Framebuffer.h"
+#include "../core/AppWindow.h"
 #include "../renderer/Textures.h"
 #include "../scene/Scene.h"
 
@@ -1067,28 +1068,43 @@ void PlayerApp::drawOnlineStaff() {
                     Online::request("admin.giveBolts", {{"to", id}, {"amount", m_giveServerBolts}}, updateRow);
                 ImGui::SameLine();
                 bool banned = u.value("banned", false);
+                auto openFor = [&](bool warn) {   // pick why first (they'll see the reason)
+                    m_banTarget = id;
+                    m_banTargetName = u.value("name", std::string());
+                    m_banReason = 0;
+                    m_banNote.clear();
+                    m_warnMode = warn;
+                    ImGui::OpenPopup("Ban account");
+                };
+                if (ImGui::SmallButton("Warn")) openFor(true);
+                ImGui::SameLine();
                 if (ImGui::SmallButton(banned ? "Unban" : "Ban")) {
                     if (banned) Online::request("admin.ban", {{"to", id}, {"on", false}}, updateRow);
-                    else {   // pick why first (they'll see the reason)
-                        m_banTarget = id;
-                        m_banTargetName = u.value("name", std::string());
-                        m_banReason = 0;
-                        m_banNote.clear();
-                        ImGui::OpenPopup("Ban account");
-                    }
+                    else openFor(false);
                 }
                 if (ImGui::BeginPopupModal("Ban account", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     if (tappedOutside()) ImGui::CloseCurrentPopup();
-                    ImGui::Text("Ban %s?", m_banTargetName.c_str());
+                    ImGui::Text(m_warnMode ? "Warn %s" : "Ban %s?", m_banTargetName.c_str());
                     ImGui::TextDisabled("Pick why. They'll see this reason.");
                     for (int i = 0; i < (int)std::size(Online::kBanReasons); ++i)
                         ImGui::RadioButton(Online::kBanReasons[i].title, &m_banReason, i);
                     ImGui::SetNextItemWidth(320);
                     ImGui::InputTextWithHint("##banNote", "Note for them (optional)", &m_banNote);
-                    if (Classic::button("Ban", ImVec4(0.75f, 0.25f, 0.25f, 1))) {
-                        Online::request("admin.ban", {{"to", m_banTarget}, {"on", true},
-                                                      {"reason", Online::kBanReasons[m_banReason].key},
-                                                      {"note", m_banNote}}, updateRow);
+                    static const char* kLengths[] = {"1 day", "3 days", "7 days", "30 days", "Forever"};
+                    static const int kDays[] = {1, 3, 7, 30, 0};
+                    if (!m_warnMode) {
+                        ImGui::SetNextItemWidth(160);
+                        ImGui::Combo("How long", &m_banDays, kLengths, 5);
+                    }
+                    if (Classic::button(m_warnMode ? "Send warning" : "Ban",
+                                        m_warnMode ? Classic::kBlue : ImVec4(0.75f, 0.25f, 0.25f, 1))) {
+                        if (m_warnMode)
+                            Online::request("admin.warn", {{"to", m_banTarget}, {"reason", Online::kBanReasons[m_banReason].key},
+                                                           {"note", m_banNote}}, updateRow);
+                        else
+                            Online::request("admin.ban", {{"to", m_banTarget}, {"on", true},
+                                                          {"reason", Online::kBanReasons[m_banReason].key},
+                                                          {"note", m_banNote}, {"days", kDays[std::clamp(m_banDays, 0, 4)]}}, updateRow);
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::SameLine();
@@ -1235,4 +1251,109 @@ void PlayerApp::drawWardrobe() {
     ImGui::TextDisabled("Want more?");
     ImGui::SameLine();
     if (Classic::button("Shop the Catalog", Classic::kPlay, ImVec2(160, 26))) { m_page = Page::Catalog; m_itemType = -1; }
+}
+
+// ---------------------------------------------------------------------------
+// Moderation: a banned account sees only the ban screen; staff warnings pop up
+// once, until you say you understand.
+// ---------------------------------------------------------------------------
+
+void PlayerApp::drawModeration() {
+    const json& me = Online::me();
+    auto dateText = [](long long t) {
+        std::time_t tt = (std::time_t)t;
+        char buf[64] = "";
+        if (std::tm* tm = std::localtime(&tt)) std::strftime(buf, sizeof(buf), "%B %d, %Y at %H:%M", tm);
+        return std::string(buf);
+    };
+    if (me.contains("ban") && me["ban"].is_object()) {
+        const json& b = me["ban"];
+        if (m_page == Page::Game) leaveGame();   // out of the game you were in
+        ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(vp->Pos);
+        ImGui::SetNextWindowSize(vp->Size);
+        ImGui::SetNextWindowFocus();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.13f, 0.16f, 0.97f));
+        ImGui::Begin("##banned", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+        const float w = std::min(560.0f, vp->Size.x - 40.0f);
+        ImGui::SetCursorPos(ImVec2((vp->Size.x - w) * 0.5f, std::max(20.0f, vp->Size.y * 0.18f)));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1, 1, 1, 1));
+        ImGui::BeginChild("##banbox", ImVec2(w, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+        Classic::pushLight();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 p = ImGui::GetWindowPos();
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + 6), IM_COL32(200, 40, 40, 255));
+        ImGui::Dummy(ImVec2(0, 6));
+        const long long at = b.value("at", 0LL), until = b.value("until", 0LL);
+        ImGui::SetWindowFontScale(1.6f);
+        if (until > 0) {
+            long long days = std::max(1LL, (until - at + 43200) / 86400);
+            ImGui::TextColored(ImVec4(0.75f, 0.12f, 0.12f, 1), "Banned for %lld day%s", days, days == 1 ? "" : "s");
+        } else {
+            ImGui::TextColored(ImVec4(0.75f, 0.12f, 0.12f, 1), "Account Banned");
+        }
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextWrapped("Our moderators have found that your account broke the Guts&Bolts rules.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("Reason");
+        ImGui::SetWindowFontScale(1.2f);
+        ImGui::TextWrapped("%s", b.value("title", std::string("Breaking the rules")).c_str());
+        ImGui::SetWindowFontScale(1.0f);
+        if (std::string note = b.value("note", std::string()); !note.empty()) {
+            ImGui::TextDisabled("Note from staff");
+            ImGui::TextWrapped("%s", note.c_str());
+        }
+        if (at > 0) { ImGui::TextDisabled("Banned on"); ImGui::TextUnformatted(dateText(at).c_str()); }
+        ImGui::TextDisabled("Can play again");
+        ImGui::TextWrapped("%s", until > 0 ? dateText(until).c_str() : "Never: this ban is for good.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Please keep Guts&Bolts a fun, safe place for everyone.");
+        ImGui::Spacing();
+        if (until > 0 && Classic::button("Check again", Classic::kBlue, ImVec2(140, 32))) Online::connect();
+        if (until > 0) ImGui::SameLine();
+        if (Online::me().value("hasPassword", false) && Classic::button("Log out", Classic::kBlue, ImVec2(120, 32))) logOut();
+        ImGui::SameLine();
+        if (ImGui::Button("Quit", ImVec2(100, 32))) m_window->close();
+        Classic::popLight();
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::End();
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    // A warning from staff (the oldest one not seen yet).
+    if (!me.contains("warnings") || !me["warnings"].is_array() || me["warnings"].empty()) return;
+    const json w = me["warnings"][0];
+    const std::string id = w.value("id", std::string());
+    if (id.empty() || id == m_warnAcking) return;
+    if (!ImGui::IsPopupOpen("Warning##staff")) ImGui::OpenPopup("Warning##staff");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(460.0f, ImGui::GetMainViewport()->Size.x - 30.0f), 0));
+    Classic::pushLight();
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));   // a white box, like the rest of the site
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.78f, 0.16f, 0.16f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
+    if (ImGui::BeginPopupModal("Warning##staff", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) {
+        ImGui::SetWindowFontScale(1.5f);
+        ImGui::TextColored(ImVec4(0.75f, 0.12f, 0.12f, 1), "Warning");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextWrapped("A moderator has warned your account for:");
+        ImGui::SetWindowFontScale(1.2f);
+        ImGui::TextWrapped("%s", w.value("title", std::string("Breaking the rules")).c_str());
+        ImGui::SetWindowFontScale(1.0f);
+        if (std::string note = w.value("note", std::string()); !note.empty()) ImGui::TextWrapped("\"%s\"", note.c_str());
+        ImGui::TextDisabled("%s", dateText(w.value("at", 0LL)).c_str());
+        ImGui::TextWrapped("More breaks of the rules can get your account banned.");
+        ImGui::Spacing();
+        if (Classic::button("I understand", Classic::kBlue, ImVec2(160, 32))) {
+            m_warnAcking = id;   // (the answer brings a fresh me() without it)
+            Online::request("account.ackWarning", {{"id", id}});
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    Classic::popLight();
 }

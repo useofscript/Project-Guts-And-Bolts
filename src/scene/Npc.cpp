@@ -204,7 +204,7 @@ void NpcSystem::step(Npc& n, SceneNode* r, float dt, Scene& scene, Physics& phys
 
     // Jumping: asked to (Humanoid.Jump), or stuck against something while walking.
     if (n.grounded && (n.jump || n.stuckTime > 0.25f)) {
-        n.velocity.y = h.jumpPower;
+        n.velocity.y = h.launchSpeed(scene.world().gravity);
         n.grounded = false;
         n.stuckTime = 0.0f;
     }

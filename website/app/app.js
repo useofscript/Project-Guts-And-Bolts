@@ -376,6 +376,47 @@ function setMe(m) {
   } else {
     box.innerHTML = html`<a href="#/signup">Sign Up</a> | <a href="#/login">Login</a>`.s;
   }
+  showWarning();
+}
+
+// --- Moderation: bans and staff warnings ---------------------------------------------
+
+const banned = () => !!(me && me.ban);
+const dateText = (t) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+// A banned account sees only this (like Roblox's "Banned" page): why, the note from
+// staff, when, and when it ends.
+function banPage() {
+  const b = me.ban;
+  show(html`<div class="box ban-box">
+      <h1>${b.until ? 'Banned for ' + Math.max(1, Math.round((b.until - b.at) / 86400)) + ' day' + (Math.round((b.until - b.at) / 86400) === 1 ? '' : 's') : 'Account Banned'}</h1>
+      <p>Our moderators have found that your account broke the Guts&amp;Bolts rules.</p>
+      <table class="ban-table">
+        <tr><th>Reason</th><td><b>${b.title}</b></td></tr>
+        ${b.note ? html`<tr><th>Note from staff</th><td>${b.note}</td></tr>` : ''}
+        ${b.at ? html`<tr><th>Banned on</th><td>${dateText(b.at)}</td></tr>` : ''}
+        <tr><th>Can play again</th><td>${b.until ? dateText(b.until) : 'Never: this ban is for good.'}</td></tr>
+      </table>
+      <p class="small muted">${b.until ? 'When the ban ends, just come back and log in again.' : ''}
+        Please keep Guts&amp;Bolts a fun, safe place for everyone.</p>
+      <p><button class="btn" data-act="logout">Log out</button></p></div>`);
+}
+
+// A staff warning, shown once until you say you understand.
+let warningShown = '';
+function showWarning() {
+  if (!signedIn() || banned() || !me.warnings || !me.warnings.length) return;
+  const w = me.warnings[0];
+  if (warningShown === w.id) return;
+  warningShown = w.id;
+  const box = popup(html`<div class="popup-title" style="color:#c0392b">Warning</div>
+    <p>A moderator has warned your account for:</p>
+    <p style="font-size:18px"><b>${w.title}</b></p>
+    ${w.note ? html`<p>"${w.note}"</p>` : ''}
+    <p class="small muted">${dateText(w.at)}. More breaks of the rules can get your account banned.</p>
+    <div class="popup-buttons"><button class="btn blue" data-act="ackWarning" data-id="${w.id}">I understand</button></div>`, 'warning');
+  box.querySelector('.popup-x').remove();   // no sneaking past it
+  box.onclick = null;
 }
 
 // How many friend requests are waiting (shown on the Friends link).
@@ -388,6 +429,16 @@ async function checkRequests() {
     if (r.ok) n = r.incoming.length;
   }
   link.innerHTML = 'Friends' + (n ? ` <span class="badge">${n}</span>` : '');
+}
+
+// Once a minute: has anything happened to the account (a warning, a ban)?
+async function keepFresh() {
+  if (!signedIn()) return;
+  const wasBanned = banned();
+  const r = await gb.call('ping', {});
+  if (r.ok && r.me) setMe(r.me);
+  else if (!r.ok && /^This account has been banned/.test(r.error || '')) await hello();
+  if (banned() !== wasBanned) render();
 }
 
 async function hello() {
@@ -1176,6 +1227,7 @@ pages.staff = async () => {
           ${u.staff ? html`<button class="btn small" data-act="staff" data-op="revoke" data-key="staff" data-id="${u.id}">Remove staff</button>`
             : html`<button class="btn small" data-act="staff" data-op="grant" data-key="staff" data-id="${u.id}">Make staff</button>`}
           <button class="btn small" data-act="staff" data-op="bolts" data-id="${u.id}" data-name="${u.username || u.name}">Give Bolts</button>
+          <button class="btn small" data-act="staff" data-op="warn" data-id="${u.id}">Warn</button>
           <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
       </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
 };
@@ -1378,6 +1430,11 @@ const actions = {
     render();
   },
   closeModal(d, el) { el.closest('.modal').remove(); },
+  async ackWarning(d, el) {
+    const r = await call('account.ackWarning', { id: d.id });
+    el.closest('.modal').remove();
+    if (r.ok && r.me) setMe(r.me);
+  },
   async buy(d) {
     const r = await call('buy', { id: d.id });
     toast(r.ok ? 'It\'s yours! Wear it from the Avatar page in the app.' : r.error);
@@ -1453,11 +1510,21 @@ const actions = {
           <p>Why are they being banned? They'll see this reason.</p>
           <p><select id="banReason">${BAN_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
           <p><input id="banNote" maxlength="200" placeholder="Note for them (optional)"></p>
+          <p>For how long? <select id="banDays"><option value="1">1 day</option><option value="3">3 days</option>
+            <option value="7">7 days</option><option value="30">30 days</option><option value="0" selected>Forever</option></select></p>
           <p><button class="btn red" data-act="doBan" data-id="${d.id}">Ban</button>
              <button class="btn" data-act="closeModal">Cancel</button></p>`);
         return;
       }
       r = await call('admin.ban', { to: d.id, on: false });
+    } else if (d.op === 'warn') {   // a warning they see next time they come (and must say they understand)
+      popup(html`<h1 class="popup-title">Warn this account</h1>
+        <p>What did they do? They'll see this.</p>
+        <p><select id="warnReason">${BAN_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
+        <p><input id="warnNote" maxlength="200" placeholder="Note for them (optional)"></p>
+        <p><button class="btn blue" data-act="doWarn" data-id="${d.id}">Send warning</button>
+           <button class="btn" data-act="closeModal">Cancel</button></p>`);
+      return;
     }
     toast(r && r.ok ? 'Done.' : (r && r.error) || 'That didn\'t work.');
     render();
@@ -1465,10 +1532,18 @@ const actions = {
   async doBan(d) {
     const reason = document.getElementById('banReason').value;
     const note = document.getElementById('banNote').value;
-    const r = await call('admin.ban', { to: d.id, on: true, reason, note });
+    const days = parseInt(document.getElementById('banDays').value, 10) || 0;
+    const r = await call('admin.ban', { to: d.id, on: true, reason, note, days });
     document.querySelectorAll('.modal').forEach((m) => m.remove());
     toast(r && r.ok ? 'Banned.' : (r && r.error) || 'That didn\'t work.');
     render();
+  },
+  async doWarn(d) {
+    const reason = document.getElementById('warnReason').value;
+    const note = document.getElementById('warnNote').value;
+    const r = await call('admin.warn', { to: d.id, reason, note });
+    document.querySelectorAll('.modal').forEach((m) => m.remove());
+    toast(r && r.ok ? 'Warning sent. They\'ll see it next time they come.' : (r && r.error) || 'That didn\'t work.');
   },
   async friend(d) {
     const r = await call(d.op, { user: d.user });
@@ -1749,6 +1824,7 @@ async function render() {
       <p><button class="btn blue" data-act="retry">Try again</button></p>`);
     return;
   }
+  if (banned()) { banPage(); return; }
   try {
     await pages[name](...path.slice(1).map(decodeURIComponent));
   } catch (err) {
@@ -1768,5 +1844,5 @@ window.addEventListener('hashchange', () => {
   render();
   checkRequests();
   checkUpdates();
-  setInterval(() => { if (document.visibilityState === 'visible') { checkRequests(); checkUpdates(); } }, 60000);
+  setInterval(() => { if (document.visibilityState === 'visible') { checkRequests(); checkUpdates(); keepFresh(); } }, 60000);
 })();

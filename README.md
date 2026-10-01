@@ -1167,6 +1167,15 @@ Create page (**T-Shirts**), then wear it from the Avatar page. Anyone with an
 account can make them (10 Bolts, free for Verified creators). Square pictures
 fit best; see-through bits show the shirt underneath.
 
+### Seats
+
+A **Seat** (Insert Object > Seat, or any part called Seat / VehicleSeat or
+tagged "Seat") works like Roblox's: walk into it and you sit down, facing the
+seat's front, and ride along if it moves. Jump to get up. Give it a Disabled
+attribute set to true to switch it off. Scripts can use `Humanoid.Sit`
+(`false` gets up), `Humanoid.SeatPart`, `seat.Occupant`, `seat.Disabled` and
+`seat:Sit(humanoid)`.
+
 ### Getting dressed (the Avatar page)
 
 In the app, the Avatar page's **Wardrobe** tab shows everything you own,

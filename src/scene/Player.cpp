@@ -417,6 +417,7 @@ bool findSpawnLocation(SceneNode* node, glm::vec3& out) {
 } // namespace
 
 void Player::beginPlay() {
+    m_seatId = 0;   // (off any seat)
     m_checkpoint = 0;
     m_rest.clear();
     m_debris.clear();
@@ -438,6 +439,7 @@ void Player::endPlay() {
 }
 
 void Player::respawn(bool firstSpawn) {
+    m_seatId = 0;   // (off any seat)
     SceneNode* r = root();
     if (!r) return;
     for (auto& c : r->children) {
@@ -683,6 +685,65 @@ bool insideBox(const AABB& b, const glm::vec3& p, float pad = 0.0f) {
 bool Player::isClimbable(const SceneNode* n) {
     return n->isPart() && n->canCollide && (nameHas(n, "Truss") || nameHas(n, "Ladder") || flagged(n, "Climbable"));
 }
+bool Player::isSeat(const SceneNode* n) {
+    return n->isPart() && (n->name == "Seat" || n->name == "VehicleSeat" || flagged(n, "Seat"));
+}
+bool Player::seatDisabled(const SceneNode* n) {
+    const Attribute* a = n->findAttribute("Disabled");
+    return a && a->type == Attribute::Bool && a->b;
+}
+
+// The top middle of a seat, and which way its front faces (flat).
+static void seatFrame(const SceneNode* seat, glm::vec3& top, float& yawDeg) {
+    const glm::mat4 m = seat->worldMatrix();
+    top = glm::vec3(m * glm::vec4(0.0f, 0.5f, 0.0f, 1.0f));
+    glm::vec3 front = -glm::vec3(m[2]);   // like Roblox: a seat faces its Front (-Z)
+    front.y = 0.0f;
+    yawDeg = glm::length(front) > 1e-4f ? glm::degrees(std::atan2(front.x, front.z)) : 0.0f;
+}
+
+void Player::sit(SceneNode* seat) {
+    if (!seat || m_dead || !isSeat(seat) || seatDisabled(seat)) return;
+    m_seatId = seat->id;
+    m_velocity = glm::vec3(0.0f);
+    m_climbing = m_swimming = false;
+    footsteps(false, glm::vec3(0.0f));
+}
+
+void Player::standUp(bool jumpOff) {
+    if (!m_seatId) return;
+    SceneNode* r = root();
+    SceneNode* seat = m_scene->findById(m_seatId);
+    m_seatId = 0;
+    m_seatCooldown = 1.0f;   // (or you'd sit straight back down)
+    if (r && seat) {
+        glm::vec3 top; float yaw;
+        seatFrame(seat, top, yaw);
+        r->transform.position = top + glm::vec3(0.0f, 0.05f, 0.0f);   // up on top of the seat
+    }
+    m_grounded = false;
+    m_groundId = 0;
+    if (jumpOff) m_velocity.y = m_humanoid.launchSpeed(m_scene->world().gravity);
+}
+
+void Player::sitStep(float dt, bool jump) {
+    SceneNode* r = root();
+    SceneNode* seat = m_scene->findById(m_seatId);
+    if (!r || !seat || jump || seatDisabled(seat)) { standUp(jump); return; }
+    glm::vec3 top; float yaw;
+    seatFrame(seat, top, yaw);
+    // The hips on the seat (the root is at the feet; standing, the hips are 1 up),
+    // a little sunk in, facing the seat's front. The seat carries us if it moves.
+    r->transform.position = top - glm::vec3(0.0f, 0.75f, 0.0f);
+    r->transform.rotation.y = yaw;
+    m_velocity = glm::vec3(0.0f);
+    m_grounded = true;
+    m_groundSpeed = 0.0f;
+    animate(dt, 0.0f, true);
+    footsteps(false, glm::vec3(0.0f));
+    updateGrip();
+}
+
 bool Player::isWater(const SceneNode* n) {
     return n->isPart() && !n->canCollide && (n->name == "Water" || nameHas(n, "Water") || flagged(n, "Water"));
 }
@@ -744,6 +805,10 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     }
     m_lastHealth = m_humanoid.health;
     if (m_humanoid.health <= 0.0f) { startDeath(); return; }
+
+    // Sitting: stay on the seat until you jump.
+    m_seatCooldown = std::max(0.0f, m_seatCooldown - dt);
+    if (m_seatId) { sitStep(dt, jump); if (m_seatId) return; }
 
     glm::vec3 pos = r->transform.position;
 
@@ -831,7 +896,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
         if (jump && wasClimbing && !m_grounded) {   // leap off backwards
             m_climbing = false;
             m_climbCooldown = 0.35f;
-            m_velocity = -ahead * 10.0f + glm::vec3(0.0f, m_humanoid.jumpPower * 0.7f, 0.0f);
+            m_velocity = -ahead * 10.0f + glm::vec3(0.0f, m_humanoid.launchSpeed(m_scene->world().gravity) * 0.7f, 0.0f);
         } else {
             m_velocity.y = moving ? m_humanoid.walkSpeed * 0.9f : 0.0f;   // stop pushing = hang on
             m_climbPhase += dt * (moving ? 9.0f : 0.0f);
@@ -851,7 +916,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             const float target = want * m_humanoid.walkSpeed * 0.7f;
             m_velocity.y += (target - m_velocity.y) * std::min(1.0f, 4.0f * dt);
             // At the surface, Space hops out (onto the side of a pool).
-            if (jump && depth < 0.4f) m_velocity.y = std::max(m_velocity.y, m_humanoid.jumpPower * 0.8f);
+            if (jump && depth < 0.4f) m_velocity.y = std::max(m_velocity.y, m_humanoid.launchSpeed(m_scene->world().gravity) * 0.8f);
         } else {
             // Floating: people are a bit lighter than water, so we bob up to the surface
             // and float there with the head out, rising and falling with the waves.
@@ -868,7 +933,7 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
             // Jumping off something moving keeps its speed (off a train, you fly forward).
             m_velocity.x += m_platformVel.x;
             m_velocity.z += m_platformVel.z;
-            m_velocity.y = m_humanoid.jumpPower + std::max(0.0f, m_platformVel.y);
+            m_velocity.y = m_humanoid.launchSpeed(m_scene->world().gravity) + std::max(0.0f, m_platformVel.y);
             m_grounded = false;
             glm::vec3 at = pos + glm::vec3(0, 1, 0);
             Audio::play("jump", 0.35f, 1.0f, false, &at);
@@ -975,6 +1040,21 @@ void Player::update(float dt, const glm::vec3& moveDir, bool jump, Physics& phys
     // Fell off the world.
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
+    // Bumped into a free seat (walked into it or landed on it): sit down, like Roblox.
+    if (m_seatCooldown <= 0.0f && !m_swimming && !m_climbing && !jump) {
+        const AABB body = Physics::characterBox(res.position);
+        SceneNode* found = nullptr;
+        m_scene->forEach([&](SceneNode* n) {
+            if (found || !isSeat(n) || seatDisabled(n) || m_scene->isCharacterPart(n)) return;
+            AABB b = Physics::worldBounds(n);
+            const float pad = 0.08f;
+            if (body.max.x > b.min.x - pad && body.min.x < b.max.x + pad && body.max.y > b.min.y - pad &&
+                body.min.y < b.max.y + pad && body.max.z > b.min.z - pad && body.min.z < b.max.z + pad)
+                found = n;
+        });
+        if (found) sit(found);
+    }
+
     // How fast we really moved (not how hard the keys are pushed): walking into a
     // wall doesn't run on the spot, and a slower WalkSpeed takes slower steps.
     const float moved = dt > 0.0f ? glm::length(glm::vec2(res.position.x - pos.x, res.position.z - pos.z)) / dt : 0.0f;
@@ -1043,6 +1123,10 @@ void Player::animate(float dt, float groundSpeed, bool grounded) {
                            -20.0f * std::sin(m_climbPhase * 2.0f)};
     for (int i = 0; i < 4; ++i)
         angles[i] = angles[i] * (1.0f - m_climbBlend - m_swimBlend) + climb[i] * m_climbBlend + swim[i] * m_swimBlend;
+    // Sitting: legs straight out in front, arms resting forward (the classic sit).
+    m_sitBlend = approach(m_sitBlend, m_seatId ? 1.0f : 0.0f, 14.0f, dt);
+    const float sitPose[4] = {-45.0f, m_holdBlend > 0.5f ? angles[1] : -45.0f, -90.0f, -90.0f};
+    for (int i = 0; i < 4; ++i) angles[i] = angles[i] * (1.0f - m_sitBlend) + sitPose[i] * m_sitBlend;
 
     for (int i = 0; i < 4; ++i) {
         SceneNode* limb = part(kLimbs[i]);
@@ -1061,6 +1145,7 @@ void Player::animate(float dt, float groundSpeed, bool grounded) {
 }
 
 void Player::startDeath() {
+    m_seatId = 0;   // (off any seat)
     SceneNode* r = root();
     if (!r) return;
     equip(0);   // the tool goes back in the backpack (it'd get in the ragdoll's way)

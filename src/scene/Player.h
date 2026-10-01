@@ -1,6 +1,7 @@
 #pragma once
 #include <map>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <cstdint>
 #include <string>
@@ -16,7 +17,16 @@ class Physics;
 // Roblox-style Humanoid: the tunable properties of a character.
 struct Humanoid {
     float walkSpeed  = 6.0f;    // units / second
-    float jumpPower  = 8.5f;    // launch velocity
+    // Jumping, like Roblox: by default you say how HIGH to jump (JumpHeight);
+    // with useJumpPower on, how FAST you leave the ground (JumpPower) instead.
+    // The defaults jump about 1.4 times your own height, like a Roblox character.
+    float jumpHeight   = 3.6f;  // units (Roblox's 7.2 studs at our half size)
+    float jumpPower    = 12.6f; // launch velocity, units / second
+    bool  useJumpPower = false;
+    // How fast to leave the ground to reach that height under `gravity`.
+    float launchSpeed(float gravity) const {
+        return useJumpPower ? jumpPower : std::sqrt(2.0f * std::max(0.0f, gravity) * std::max(0.0f, jumpHeight));
+    }
     float health     = 100.0f;
     float maxHealth  = 100.0f;
     bool  autoRotate = true;    // face the direction of travel
@@ -47,6 +57,7 @@ struct CharacterPose {
 class Player {
 public:
     explicit Player(Scene* scene) : m_scene(scene) {}
+    Scene* scene() const { return m_scene; }
 
     void build();                     // create a fresh rig at the spawn point
     void resetSettings();             // default Humanoid values
@@ -184,6 +195,15 @@ public:
     // and swim in (called Water, or tagged / attributed "Water").
     static bool isClimbable(const SceneNode* n);
     static bool isWater(const SceneNode* n);
+    // Seats, like Roblox's: touch one and you sit on it (facing its Front), riding
+    // along if it moves; jump to get up. A part is a seat when it's called Seat /
+    // VehicleSeat or tagged "Seat"; an attribute Disabled = true switches it off.
+    static bool isSeat(const SceneNode* n);
+    static bool seatDisabled(const SceneNode* n);
+    bool        sitting() const { return m_seatId != 0; }
+    uint64_t    seatId() const { return m_seatId; }
+    void        sit(SceneNode* seat);        // (scripts: Seat:Sit(humanoid))
+    void        standUp(bool jumpOff = false);
 private:
     bool     m_respawnedFlag = false;
     Scene*   m_scene  = nullptr;
@@ -219,6 +239,10 @@ private:
     float m_climbBlend = 0.0f, m_swimBlend = 0.0f;
     float m_climbPhase = 0.0f;
     float m_climbCooldown = 0.0f;   // just jumped off: don't grab straight back on
+    uint64_t m_seatId = 0;          // the seat we're sitting on (0 = standing)
+    float m_seatCooldown = 0.0f;    // just got up: don't sit straight back down
+    float m_sitBlend = 0.0f;        // 0 standing .. 1 sitting (the pose)
+    void  sitStep(float dt, bool jump);   // while sitting: stay on the seat
     float m_wet = 0.0f;              // seconds you stay slippery after leaving a stream of liquid (a wet slide)
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 

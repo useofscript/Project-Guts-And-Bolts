@@ -116,7 +116,8 @@ private:
     void drawServerCards(const std::string& gameKey, const std::string& title);   // game page: who's playing where   // not connected: "Connecting..." / "Can't reach Guts&Bolts"
     bool testMode() const { return !m_opts.screenshot.empty() && m_opts.page != "noserver"; }   // automated tests may play offline
     void drawOnlineCatalog();
-    void drawWardrobe();                            // Avatar page: what you own, click to wear (PlayerOnline.cpp)
+    void drawWardrobe();
+    void drawModeration();                          // the ban screen and staff warnings (PlayerOnline.cpp)                            // Avatar page: what you own, click to wear (PlayerOnline.cpp)
     void wardrobeToggle(const Catalog::Item& it);
     void drawOnlineItemDialog();
     void drawCreate();
@@ -266,6 +267,9 @@ private:
     std::string    m_onlineMsg, m_createMsg, m_staffMsg, m_findQuery;
     std::string    m_banTarget, m_banTargetName, m_banNote;   // the "Ban account" popup
     int            m_banReason = 0;                           // index into Online::kBanReasons
+    int            m_banDays = 4;                             // index into the ban lengths (last = forever)
+    bool           m_warnMode = false;                        // the popup sends a warning, not a ban
+    std::string    m_warnAcking;                              // the warning we said "I understand" to
     int            m_createKind = 0, m_createStyle = 2, m_createPrice = 0, m_giveServerBolts = 100;
     std::string    m_createName, m_createDesc, m_createPath;
     glm::vec3      m_createColor{0.9f, 0.2f, 0.2f};

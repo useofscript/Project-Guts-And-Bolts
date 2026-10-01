@@ -617,6 +617,17 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
     return false;
 }
 
+// seat:Sit(humanoid): put that character on the seat (our own character only;
+// other players sit by touching it themselves).
+int seat_sit(lua_State* L) {
+    SceneNode* seat = LuaApi::checkNode(L, 1);
+    uint64_t who = 0;
+    if (auto* h = static_cast<uint64_t*>(luaL_testudata(L, 2, kHum))) who = *h;
+    Player* p = E(L)->scene()->player();
+    if (p && who && p->rootId() == who) p->sit(seat);
+    return 0;
+}
+
 int inst_index(lua_State* L) {
     auto* ref = static_cast<InstRef*>(luaL_checkudata(L, 1, kInst));
     const char* k = luaL_checkstring(L, 2);
@@ -671,6 +682,15 @@ int inst_index(lua_State* L) {
         return 1;
     }
 
+    if (part && Player::isSeat(n)) {   // Seat / VehicleSeat
+        if (is(k, "Occupant")) {   // the Humanoid sitting on it, or nil
+            Player* p = E(L)->scene()->player();
+            if (p && p->seatId() == n->id) LuaApi::pushHumanoid(L, p->rootId()); else lua_pushnil(L);
+            return 1;
+        }
+        if (is(k, "Disabled")) { lua_pushboolean(L, Player::seatDisabled(n)); return 1; }
+        if (is(k, "Sit")) { lua_pushcfunction(L, seat_sit); return 1; }
+    }
     if (part) {
         if (is(k, "Color"))        { LuaApi::pushColor3(L, n->color); return 1; }
         if (is(k, "Transparency")) { lua_pushnumber(L, n->transparency); return 1; }
@@ -859,6 +879,14 @@ int inst_newindex(lua_State* L) {
                                                    [](const Attribute& a) { return a.name == "Waves"; }), n->attributes.end());
                 return 0;
             }
+        }
+        if (is(k, "Disabled") && Player::isSeat(n)) {   // switch a seat off (whoever's on it gets up)
+            Attribute* a = nullptr;
+            for (auto& x : n->attributes) if (x.name == "Disabled") a = &x;
+            if (!a) { n->attributes.push_back(Attribute{}); a = &n->attributes.back(); a->name = "Disabled"; }
+            a->type = Attribute::Bool;
+            a->b = lua_toboolean(L, 3);
+            return 0;
         }
         if (is(k, "Anchored"))     { n->anchored = lua_toboolean(L, 3); if (n->anchored) n->velocity = glm::vec3(0.0f); return 0; }
         if (is(k, "CanCollide"))   { n->canCollide = lua_toboolean(L, 3); return 0; }
@@ -1395,6 +1423,16 @@ int hum_index(lua_State* L) {
     if (is(k, "MaxHealth"))  { lua_pushnumber(L, h.maxHealth);  return 1; }
     if (is(k, "WalkSpeed"))  { lua_pushnumber(L, h.walkSpeed);  return 1; }
     if (is(k, "JumpPower"))  { lua_pushnumber(L, h.jumpPower);  return 1; }
+    if (is(k, "JumpHeight")) { lua_pushnumber(L, h.jumpHeight); return 1; }
+    if (is(k, "Sit") || is(k, "SeatPart")) {   // sitting on a Seat (our own character)
+        Player* p = E(L)->scene()->player();
+        const bool mine = p && p->rootId() == humRoot(L);
+        if (is(k, "Sit")) lua_pushboolean(L, mine && p->sitting());
+        else if (mine && p->sitting()) LuaApi::pushInstance(L, p->seatId());
+        else lua_pushnil(L);
+        return 1;
+    }
+    if (is(k, "UseJumpPower")) { lua_pushboolean(L, h.useJumpPower); return 1; }
     if (is(k, "AutoRotate")) { lua_pushboolean(L, h.autoRotate); return 1; }
     if (is(k, "Name") || is(k, "ClassName")) { lua_pushstring(L, "Humanoid"); return 1; }
     if (is(k, "Parent"))     { LuaApi::pushInstance(L, humRoot(L)); return 1; }
@@ -1432,7 +1470,13 @@ int hum_newindex(lua_State* L) {
     else if (is(k, "MaxHealth")) { h.maxHealth = std::max(1.0f, (float)luaL_checknumber(L, 3));
                                    h.health = std::min(h.health, h.maxHealth); }
     else if (is(k, "WalkSpeed"))  h.walkSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3));
-    else if (is(k, "JumpPower"))  h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3));
+    else if (is(k, "JumpPower"))  { h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3)); h.useJumpPower = true; }
+    else if (is(k, "JumpHeight")) { h.jumpHeight = std::max(0.0f, (float)luaL_checknumber(L, 3)); h.useJumpPower = false; }
+    else if (is(k, "UseJumpPower")) h.useJumpPower = lua_toboolean(L, 3);
+    else if (is(k, "Sit")) {   // humanoid.Sit = false gets up off the seat
+        Player* p = E(L)->scene()->player();
+        if (p && p->rootId() == humRoot(L) && !lua_toboolean(L, 3)) p->standUp();
+    }
     else if (is(k, "AutoRotate")) h.autoRotate = lua_toboolean(L, 3);
     else if (is(k, "Jump")) {
         if (Npc* n = npcOf(L)) n->jump = lua_toboolean(L, 3);

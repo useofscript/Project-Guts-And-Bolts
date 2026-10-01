@@ -69,6 +69,7 @@ const BAN_REASONS = {
 };
 const banMessage = (u) => 'This account has been banned' + (u.banReason && BAN_REASONS[u.banReason]
   ? ' for: ' + BAN_REASONS[u.banReason] + '.' : '.') + (u.banNote ? ' Note from staff: ' + u.banNote : '');
+const kMaxWarnings = 30;   // kept per account (oldest dropped)
 const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
@@ -399,6 +400,13 @@ export class GbServerObject extends DurableObject {
       avatar: u.avatar || null,
       email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
       twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail,
+      // Banned: what for and until when (the app and the site show a ban screen).
+      ban: u.banned ? { reason: u.banReason || '', title: BAN_REASONS[u.banReason] || 'Breaking the rules',
+        note: u.banNote || '', at: u.bannedAt || 0, until: u.bannedUntil || 0 } : null,
+      // Staff warnings not seen yet (shown once, until "I understand").
+      warnings: (u.warnings || []).filter((w) => !w.seen)
+        .map((w) => ({ id: w.id, reason: w.reason, title: BAN_REASONS[w.reason] || 'Breaking the rules', note: w.note, at: w.at })),
+      warningCount: (u.warnings || []).length,
     });
   }
 
@@ -545,6 +553,11 @@ export class GbServerObject extends DurableObject {
       return { bad: fail('This device was logged out because the account\'s password was reset. Log in again with the new password.') };
     me.lastSeen = t;
     this.saveUser(me);
+    if (me.banned && me.bannedUntil && t >= me.bannedUntil) {   // a timed ban is over
+      me.banned = false;
+      delete me.banReason; delete me.banNote; delete me.bannedAt; delete me.bannedUntil;
+      this.saveUser(me);
+    }
     if (me.banned && opName !== 'hello') return { bad: fail(banMessage(me)) };
     if (me.userId === 0 && opName !== 'hello' && opName !== 'ping' && !opName.startsWith('account.') && !GUEST_OK.has(opName))
       return { bad: fail('Sign up or log in first.') };
@@ -625,7 +638,9 @@ export class GbServerObject extends DurableObject {
     if (name.startsWith('friends.')) return this.friendOp(name, me, args);
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
     if (name.startsWith('updates.')) return this.updateOp(name, me, args);
-    if (name === 'ping') return okay();
+    // "I'm still here" (for friends' online dots); the answer keeps your account fresh
+    // (a new warning, or Bolts someone sent you, shows up within a minute).
+    if (name === 'ping') return okay({ me: this.meJson(me) });
 
     if (name === 'avatar.set') {
       // Your look, shared by the website and the apps. Colours are 0-255 whole numbers.
@@ -813,10 +828,22 @@ export class GbServerObject extends DurableObject {
           to.banReason = reason;
           to.banNote = cleanText(str(args, 'note'), 200);
           to.bannedAt = now();
+          const days = clamp(num(args, 'days'), 0, 3650);   // 0 = for good
+          if (days > 0) to.bannedUntil = to.bannedAt + days * 86400; else delete to.bannedUntil;
         } else {
-          delete to.banReason; delete to.banNote; delete to.bannedAt;
+          delete to.banReason; delete to.banNote; delete to.bannedAt; delete to.bannedUntil;
         }
         to.banned = on;
+        this.saveUser(to);
+        return okay({ user: this.publicUser(to) });
+      }
+      if (name === 'admin.warn') {
+        // A warning: they see it (with the reason) next time they open the app or the site.
+        const reason = str(args, 'reason');
+        if (!BAN_REASONS[reason]) return fail('Pick a reason for the warning.');
+        to.warnings = to.warnings || [];
+        to.warnings.push({ id: randomHex(4), reason, note: cleanText(str(args, 'note'), 200), at: now(), seen: false });
+        if (to.warnings.length > kMaxWarnings) to.warnings.splice(0, to.warnings.length - kMaxWarnings);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1213,6 +1240,13 @@ export class GbServerObject extends DurableObject {
 
   accountOp(name, me, args) {
     const username = cleanText(str(args, 'username'), 30);
+    if (name === 'account.ackWarning') {   // "I understand" on a staff warning
+      const w = (me.warnings || []).find((x) => x.id === str(args, 'id'));
+      if (!w) return fail('That warning is gone.');
+      w.seen = true;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
     if (name === 'account.check') {
       let problem = usernameProblem(username, this.isOfficial(me));
       if (!problem && this.takenNames.has(lower(username)) && !(this.isOfficial(me) && lower(username) === 'guts'))

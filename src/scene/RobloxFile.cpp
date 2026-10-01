@@ -698,6 +698,13 @@ struct Converter {
                 else if (shape == 3 || shape == 4) note("Wedges come in as blocks.");
             }
             if (c == "WedgePart" || c == "CornerWedgePart") note("Wedges come in as blocks.");
+            if (c == "Seat" || c == "VehicleSeat") {   // you sit on it (whatever it's called)
+                node->tags.push_back("Seat");
+                if (in.flag("Disabled", false)) {
+                    Attribute a; a.name = "Disabled"; a.type = Attribute::Bool; a.b = true;
+                    node->attributes.push_back(a);
+                }
+            }
             if (c == "MeshPart" || c.find("Operation") != std::string::npos)
                 note("Meshes and unions come in as blocks of the same size.");
             node->primitiveType = prim;

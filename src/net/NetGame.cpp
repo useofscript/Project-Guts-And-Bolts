@@ -114,13 +114,15 @@ CharacterPose lerpPose(const CharacterPose& a, const CharacterPose& b, float t) 
 
 json humanoidJson(const Humanoid& h) {
     return {{"health", h.health}, {"maxHealth", h.maxHealth}, {"walkSpeed", h.walkSpeed},
-            {"jumpPower", h.jumpPower}};
+            {"jumpPower", h.jumpPower}, {"jumpHeight", h.jumpHeight}, {"useJumpPower", h.useJumpPower}};
 }
 void humanoidFrom(Humanoid& h, const json& j) {
     h.maxHealth = j.value("maxHealth", h.maxHealth);
     h.health    = j.value("health", h.health);
     h.walkSpeed = j.value("walkSpeed", h.walkSpeed);
     h.jumpPower = j.value("jumpPower", h.jumpPower);
+    h.jumpHeight = j.value("jumpHeight", h.jumpHeight);
+    h.useJumpPower = j.value("useJumpPower", h.useJumpPower);
 }
 
 json avatarJson(const Profile& p) {

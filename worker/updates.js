@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'take-a-seat', name: 'Take a Seat', version: '', time: 1790823545, tag: 'Engine',
+    summary: 'Sit on seats, jump as high as a real Roblox character, and the camera stops peeking through walls.',
+    items: [
+      'Seats: walk into one and you sit down (like Roblox), riding along if it moves; jump to get up. Insert one from Insert Object, and Roblox Seats come in working',
+      'Scripts: Humanoid.Sit, Humanoid.SeatPart, seat.Occupant, seat.Disabled and seat:Sit(humanoid)',
+      'Jumps are higher: about 1.4 times your height, like Roblox. New JumpHeight and UseJumpPower settings',
+      'The camera comes in front of walls instead of going through them',
+      'Phones: the thumbstick stays put in the corner instead of jumping to your thumb',
+      'Bans now show a ban screen (why, staff\'s note, and when it ends), bans can last 1, 3, 7 or 30 days, and staff can send warnings you have to read',
+    ],
+  },
+  {
     id: 'dress-code', name: 'Dress Code', version: '', time: 1790812100, tag: 'Player',
     summary: 'Get dressed right on the Avatar page, and your character finally wears its clothes everywhere.',
     items: [

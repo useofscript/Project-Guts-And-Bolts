@@ -60,7 +60,7 @@ public:
                                  bool sliding);
 
     // While a session is set, the viewport is in Play mode.
-    void setSession(GameSession* session) { m_session = session; }
+    void setSession(GameSession* session) { m_session = session; if (!session) m_camera.clip = -1.0f; }
     void focus() { m_wantFocus = true; }
     void setTeam(TeamCreate* t) { m_team = t; }
     // Called when the connect tool has picked two parts (and the clicked points).

@@ -74,6 +74,17 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
     auto str = [&](const char* k) { return args.contains(k) && args[k].is_string() ? args[k].get<std::string>() : std::string(); };
     std::string username = Online::cleanText(str("username"), 30);
 
+    if (name == "account.ackWarning") {   // "I understand" on a staff warning
+        std::string id = str("id");
+        if (me.warnings.is_array())
+            for (json& w : me.warnings)
+                if (w.is_object() && w.value("id", std::string()) == id) {
+                    w["seen"] = true;
+                    saveUsers();
+                    json r = okay(); r["me"] = meJson(me); return r;
+                }
+        return fail("That warning is gone.");
+    }
     if (name == "account.check") {   // is this username free? (for the sign-up page, as you type)
         json r = okay();
         std::string problem = Online::usernameProblem(username, isOfficial(me));

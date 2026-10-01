@@ -943,6 +943,13 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         t->color = {0.6f, 0.62f, 0.66f};
         t->material = Material::Metal;
     }
+    else if (what == "Seat") {   // walk into it to sit down (jump to get up), like Roblox's
+        SceneNode* t = part("Seat", PrimitiveType::Cube);
+        t->transform.scale = {1.0f, 0.2f, 1.0f};
+        t->transform.position.y -= 0.35f;
+        t->color = {0.64f, 0.64f, 0.64f};
+        t->tags.push_back("Seat");
+    }
     else if (what == "Water") {   // swim in it
         SceneNode* w = part("Water", PrimitiveType::Cube);
         w->transform.scale = {16, 6, 16};
@@ -1097,7 +1104,7 @@ void Editor::renderInsertObject() {
     struct O { const char* name; Icons::Id icon; };
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
-        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
+        {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},

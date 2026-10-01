@@ -1,12 +1,25 @@
 # Next version (not released yet): Dress Code
 
 ## New
+- **Seats** (like Roblox): walk into a Seat and you sit on it, facing its front,
+  riding along if it moves; jump to get up. Insert one from Insert Object (or
+  tag any part "Seat"); Roblox Seats and VehicleSeats import working. Scripts:
+  `Humanoid.Sit`, `Humanoid.SeatPart`, `seat.Occupant`, `seat.Disabled`,
+  `seat:Sit(humanoid)`.
+- **Moderation that works**: a banned account sees a ban screen (in the app
+  and on the website) with the reason, staff's note and when it ends; bans can
+  last 1, 3, 7 or 30 days or forever, and end by themselves. Staff can also send
+  **warnings**, shown once until the player says they understand.
 - The app's Avatar page has a **Wardrobe**: everything you own, by kind
   (Shirts, Pants, T-Shirts, Faces, Hats, Hair, Accessories). Click to wear,
   click again to take off, or take everything off. No trip to the Catalog
   needed. Colours and the classic hats are on the **Body & Colours** tab.
 
 ## Fixed
+- Jumps were too low (about half your height). Now about 1.4 times your height,
+  like Roblox; `Humanoid.JumpHeight` and `UseJumpPower` work like Roblox's.
+- The play camera no longer goes through walls: it comes in front of them.
+- Phones: the thumbstick stays in its corner instead of moving to your thumb.
 - Your character on the home screen (the app's banner and the website's home
   page) showed up wearing nothing: shirts and pants are now downloaded and
   worn there too.

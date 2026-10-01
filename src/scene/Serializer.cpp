@@ -473,6 +473,7 @@ json settingsJson(Scene& scene) {
         j["player"] = {
             {"rootId", p->rootId()}, {"spawn", vec(p->spawn())}, {"hat", (int)p->hat()},
             {"humanoid", {{"walkSpeed", h.walkSpeed}, {"jumpPower", h.jumpPower},
+                          {"jumpHeight", h.jumpHeight}, {"useJumpPower", h.useJumpPower},
                           {"health", h.health}, {"maxHealth", h.maxHealth},
                           {"autoRotate", h.autoRotate}}},
         };
@@ -539,6 +540,14 @@ void applySettings(Scene& scene, const json& j) {
                 Humanoid& h  = p->humanoid();
                 h.walkSpeed  = get<float>(hj, "walkSpeed", h.walkSpeed);
                 h.jumpPower  = get<float>(hj, "jumpPower", h.jumpPower);
+                if (hj.contains("useJumpPower")) {
+                    h.useJumpPower = get<bool>(hj, "useJumpPower", false);
+                    h.jumpHeight   = get<float>(hj, "jumpHeight", h.jumpHeight);
+                } else if (std::abs(h.jumpPower - 8.5f) < 0.01f) {
+                    h.jumpPower = Humanoid{}.jumpPower;   // games saved with the old, too-low default: jump properly now
+                } else {
+                    h.useJumpPower = true;   // the game picked its own Jump Power: keep it
+                }
                 h.maxHealth  = get<float>(hj, "maxHealth", h.maxHealth);
                 h.health     = get<float>(hj, "health", h.maxHealth);
                 h.autoRotate = get<bool>(hj, "autoRotate", h.autoRotate);

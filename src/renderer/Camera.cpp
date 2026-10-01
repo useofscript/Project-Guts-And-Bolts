@@ -44,10 +44,11 @@ void Camera::resize(int w, int h) { m_w = w; m_h = h; }
 glm::vec3 Camera::position() const {
     float yr = glm::radians(yaw);
     float pr = glm::radians(pitch);
+    const float d = shownDistance();
     return pivot + glm::vec3(
-        distance * std::cos(pr) * std::cos(yr),
-        distance * std::sin(pr),
-        distance * std::cos(pr) * std::sin(yr)
+        d * std::cos(pr) * std::cos(yr),
+        d * std::sin(pr),
+        d * std::cos(pr) * std::sin(yr)
     );
 }
 

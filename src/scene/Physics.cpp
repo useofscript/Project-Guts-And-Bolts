@@ -63,13 +63,18 @@ AABB Physics::worldBounds(const SceneNode* node) {
 
 SceneNode* Physics::raycast(Scene& scene, const glm::vec3& ro, const glm::vec3& rd,
                             float* distance, const SceneNode* ignore) {
+    return raycastIf(scene, ro, rd, distance, [ignore](const SceneNode* n) { return n != ignore; });
+}
+
+SceneNode* Physics::raycastIf(Scene& scene, const glm::vec3& ro, const glm::vec3& rd, float* distance,
+                              const std::function<bool(const SceneNode*)>& counts) {
     SceneNode* best = nullptr;
     float bestDist = 1e30f;
     std::vector<SceneNode*> stack{scene.root()};
     while (!stack.empty()) {
         SceneNode* node = stack.back();
         stack.pop_back();
-        if (!node->visible || node == ignore) continue;
+        if (!node->visible || !counts(node)) continue;
         for (auto& c : node->children) stack.push_back(c.get());
         if (!node->isPart() || node->internal) continue;
 
