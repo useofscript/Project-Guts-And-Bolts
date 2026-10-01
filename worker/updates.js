@@ -10,6 +10,32 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'gutstober-has-risen', name: 'Gutstober Has Risen', time: 1790869400, tag: 'Website',
+    summary: 'October is Gutstober: the website dresses up for Halloween, and Gutstober items are only for sale for a limited time.',
+    items: [
+      'Gutstober theme on the website for all of October: orange and purple, a pumpkin and some bats',
+      'Don\'t like it? Turn it off (or back on) in Settings > Site theme',
+      'Timed items: an item can go off sale at a set time. You\'ll see "Off sale in 30 days" on it, then "Off sale" once it\'s over',
+      'The Pumpkin hat is a Gutstober item: get it before November 1st, because then it goes off sale for good',
+    ],
+  },
+  {
+    id: 'liquid-assets-explosive-results', name: 'Liquid Assets & Explosive Results', time: 1790868800, tag: 'Engine',
+    summary: 'Explosions with real shockwaves, fire, smoke and mushroom clouds, bombs that blow holes in the water and send out tsunamis, real item pictures and friends lists you can browse.',
+    items: [
+      'Explosions have a shockwave that races outwards: it breaks joints, flings loose parts (light ones further), knocks people over and shakes the camera as it passes',
+      'Fireballs roll up into thick smoke, fires keep burning on the ground, and big blasts make a mushroom cloud with a ring of dust rushing along the ground',
+      'Bombs in or near water blow a crater in the surface, throw up a tall column of spray and send out rings of waves',
+      'Big bombs in big water make a tsunami: a wall of water that rolls outwards, lifts boats, sweeps players and parts along and runs up onto the shore',
+      'Scripts: Explode(position, radius, power, options) with Smoke, Fire, MushroomCloud, Destroy and more, and Instance.new("Explosion") works like Roblox (BlastRadius, BlastPressure, Hit)',
+      'New premades in Studio: Time Bomb, Nuke and Depth Charge',
+      'Item pictures are real renders now, never drawn icons: faces, shirts, pants, hats, hair and accessories are shown on a character, and gear on its own',
+      'Hats and accessories show up properly on characters on the website and on profiles in the Player',
+      'You can look at anyone\'s Friends, Following and Followers lists, and every name is a blue link to their profile',
+      'Walking up a slightly taller part is smooth now instead of snapping up in one go',
+    ],
+  },
+  {
     id: 'who-let-us-cook', name: 'Who Let Us Cook?', version: '0.6.3', time: 1790850600, tag: 'Engine',
     summary: 'NPCs that find their own way, gear in the catalog, 2011-style moves, safer accounts and a whole lot more for creators.',
     items: [

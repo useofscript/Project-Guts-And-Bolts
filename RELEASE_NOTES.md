@@ -1,3 +1,35 @@
+# Next version: Liquid Assets & Explosive Results (not released yet)
+
+## New
+- **Explosions with a shockwave** that races outwards: it breaks joints, flings
+  loose parts (light ones further), knocks people over, hurts less with distance
+  and shakes the camera as it passes.
+- **Fire, smoke and mushroom clouds**: fireballs roll up into billowing smoke,
+  ground fires keep burning, and big blasts make a mushroom cloud with a dust ring.
+- **Bombs and water**: a crater in the surface, a column of spray and rings of
+  waves. Big bombs in big water make a **tsunami** that lifts boats, sweeps
+  players and parts along and runs up onto the shore.
+- **Scripts**: `Explode(position, radius, power, options)` (Smoke, Fire,
+  MushroomCloud, Destroy, JointBreak, Visible, Hurts) gives back what it hit, and
+  `Instance.new("Explosion")` works like Roblox's (BlastRadius, BlastPressure,
+  DestroyJointRadiusPercent, Hit).
+- **Premades**: Time Bomb, Nuke and Depth Charge.
+- **Real item pictures**: catalog and inventory pictures are renders of the item
+  on a character (gear on its own), never drawn icons, in the Player and on the
+  website. Hats and accessories now show up on characters on the website and on
+  profiles in the Player.
+- **Gutstober** (website): a Halloween theme for all of October (orange and
+  purple, a pumpkin and bats), which you can turn off in *Settings > Site theme*.
+- **Timed items**: an item can go off sale at a set time ("Off sale in 30 days",
+  then "Off sale"); its creator or staff set the date on the item's page. Pumpkin
+  items are Gutstober items and go off sale on November 1st.
+- **Friends, Following and Followers lists** on everyone's profile, with blue
+  links to each person's profile (website and Player).
+
+## Fixed
+- Walking up a slightly taller part is smooth instead of snapping up in one go.
+- The Verified Hat didn't show up on the website's 3D characters.
+
 # Guts&Bolts 0.6.3: Who Let Us Cook? (October 1, 2026)
 
 ## New
