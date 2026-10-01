@@ -28,14 +28,14 @@ function show(content) { view.innerHTML = content.s; }
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
   hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
-  tshirt: 'T-Shirt' };
+  tshirt: 'T-Shirt', gear: 'Gear' };
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
 const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
 // Only Guts' own accessories and faces can be Limited.
 const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
 // Items with a real picture (Studio accessories, faces) show that instead of a drawing.
-const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || a.kind === 'tshirt' || (a.meta && a.meta.model));
+const hasPicture = (a) => !!a.thumb && (a.kind === 'face' || a.kind === 'tshirt' || a.kind === 'gear' || (a.meta && a.meta.model));
 const FEES = { decal: 5, hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
 
 let me = null;          // our account on the server (from "hello")
@@ -95,6 +95,9 @@ function itemIcon(a) {
   } else if (k === 'tshirt') {   // (no picture yet)
     shape = `<path d="M34 20 L18 30 L24 46 L32 42 L32 82 L68 82 L68 42 L76 46 L82 30 L66 20 Q50 30 34 20 Z" fill="#fff" stroke="#999" stroke-width="2"/>
       <rect x="38" y="40" width="24" height="24" rx="3" fill="#ddd"/>`;
+  } else if (k === 'gear') {   // a little sword (until Studio's picture of it loads)
+    shape = `<path d="M78 16 L84 22 L44 62 L38 56 Z" fill="#ccd0d8" stroke="#555" stroke-width="2"/><path d="M30 50 L50 70" stroke="#e6b428" stroke-width="7" stroke-linecap="round"/>
+      <path d="M38 62 L20 80" stroke="#7a5028" stroke-width="7" stroke-linecap="round"/><circle cx="18" cy="82" r="5" fill="#e6b428"/>`;
   } else if (k === 'face') {
     shape = `<rect x="18" y="18" width="64" height="64" rx="12" fill="#f5d33b" stroke="rgba(0,0,0,.25)"/><ellipse cx="40" cy="42" rx="4" ry="7" fill="#111"/>
       <ellipse cx="60" cy="42" rx="4" ry="7" fill="#111"/><path d="M34 58 Q50 74 66 58" stroke="#111" stroke-width="4" fill="none" stroke-linecap="round"/>`;
@@ -735,7 +738,7 @@ pages.catalog = async () => {
   const tab = (k, label) => html`<a class="btn ${kind === k ? 'blue' : ''}" href="#/catalog?kind=${k}">${label}</a>`;
   show(html`<h1>Catalog</h1>
     <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('hair', 'Hair')}${tab('face', 'Faces')}${tab('faceacc', 'Face Accessories')}${tab('neck', 'Neck')}
-      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('tshirt', 'T-Shirts')}${tab('pants', 'Pants')}</div>
+      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('tshirt', 'T-Shirts')}${tab('pants', 'Pants')}${tab('gear', 'Gear')}</div>
     <form class="row" data-form="catalogSearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the catalog" value="${query}" style="max-width:280px">
       <button class="btn blue">Search</button></form><br>
@@ -749,6 +752,7 @@ pages.item = async (id) => {
   const a = r.ok && r.assets.find((x) => x.id === id);
   if (!a) { show(html`<h1>Item not found</h1>`); return; }
   const owned = signedIn() && (me.owned || []).includes(a.id);
+  const gearOn = a.kind === 'gear' && signedIn() && (me.gear || []).includes(a.id);
   const canEdit = signedIn() && (a.creator === me.id || me.staff);
   const L = a.limited;
   const copies = L ? ((await pageCall('item.copies', { id: a.id })).copies || []) : [];
@@ -763,7 +767,10 @@ pages.item = async (id) => {
         <p>${a.price > 0 ? bolts(a.price) : 'Free'} · <span class="muted">${a.sales || 0} sold</span></p>
         ${L ? html`<p class="limited-line">${soldOut ? html`<b class="error">Sold out</b>` : html`<b>${L.left}</b> of ${L.stock} left`}
           ${L.resellers ? html` · ${L.resellers} for resale from ${bolts(L.lowest)}` : ''}</p>` : ''}
-        ${owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
+        ${owned && a.kind === 'gear' ? html`<p class="ok"><b>You own this.</b></p>
+            <button class="btn ${gearOn ? '' : 'green'} big" data-act="gearEquip" data-id="${a.id}" data-on="${gearOn ? '' : '1'}">${gearOn ? 'Unequip' : 'Equip'}</button>
+            <p class="small muted">Equipped gear goes in your backpack in games that allow gear (up to 4 at once).</p>`
+          : owned ? html`<p class="ok"><b>You own this${mineCopies.length ? ' (#' + mineCopies.map((c) => c.serial).join(', #') + ')' : ''}.</b></p><p class="small muted">Wear it from the Avatar page in the Guts&amp;Bolts app.</p>`
           : soldOut ? html`<button class="btn big" disabled>Sold out</button>`
           : html`<button class="btn green big" data-act="buy" data-id="${a.id}">${a.price > 0 ? 'Buy' : 'Get it'}</button>`}
         ${canEdit ? html` <button class="btn" data-act="toggle" data-target="#itemEdit">Edit item</button>` : ''}
@@ -776,6 +783,7 @@ pages.item = async (id) => {
         ${drawable3d(a) ? html`<label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">` : ''}
         ${a.kind === 'face' ? html`<label>New picture <span class="muted small">(optional, a .png face)</span></label><input type="file" name="picture" accept="image/png">`
           : a.kind === 'tshirt' ? html`<label>New picture <span class="muted small">(optional, a .png or .jpg)</span></label><input type="file" name="picture" accept="image/png,image/jpeg">`
+          : a.kind === 'gear' ? html`<p class="small muted">To change the tool itself, publish it again from Studio.</p>`
           : !drawable3d(a) ? html`<p class="small muted">To change how it looks or where it sits, open it in Studio's Accessory window and upload it again.</p>`
           : a.kind === 'hat' ? html`<label>Shape</label><select name="style">${[[1, 'Top Hat'], [2, 'Cap'], [3, 'Crown']].map(([v, l]) => html`<option value="${v}" ${Number(a.meta && a.meta.style) === v ? 'selected' : ''}>${l}</option>`)}</select>`
           : html`<label>New picture <span class="muted small">(optional, from the <a href="templates/${a.kind}_template.png" download>template</a>)</span></label><input type="file" name="picture" accept="image/png">`}
@@ -903,7 +911,8 @@ pages.configure = async (id) => {
       <div class="box"><h2 class="boxhead">Genres and players</h2>
         <p class="small muted">Pick up to 3 genres so people can find your game.</p>
         <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
-        <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px"></div>
+        <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px">
+        <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label></div>
       <div class="box"><h2 class="boxhead">Who can play</h2>
         ${choice('public', 'Public', 'Everyone can find and play it.')}
         ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
@@ -1545,7 +1554,13 @@ const actions = {
   },
   async buy(d) {
     const r = await call('buy', { id: d.id });
-    toast(r.ok ? 'It\'s yours! Wear it from the Avatar page in the app.' : r.error);
+    toast(r.ok ? 'It\'s yours! Wear (or equip) it from the Avatar page.' : r.error);
+    render();
+  },
+  async gearEquip(d) {
+    const r = await call('gear.equip', { id: d.id, on: !!d.on });
+    if (r.ok) me = r.me;
+    toast(r.ok ? (d.on ? 'Equipped! You\'ll have it in games that allow gear.' : 'Unequipped.') : r.error);
     render();
   },
   async copyId(d) {
@@ -1781,7 +1796,7 @@ const forms = {
       const genres = [...f.querySelectorAll('input[name=genre]:checked')].map((x) => x.value);
       if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
       let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
-        genres, maxPlayers: Number(f.maxPlayers.value) || 12 });
+        genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
         r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });

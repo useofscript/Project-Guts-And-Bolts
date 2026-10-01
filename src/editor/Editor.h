@@ -162,6 +162,8 @@ private:
     bool        m_marketLoaded = false, m_onlineBusy = false;
     // Library: publishing a model (public or private) and browsing everyone's public ones.
     bool        m_openPublishModel = false, m_modelPublic = true, m_libraryLoaded = false;
+    bool        m_modelAsGear = false;   // staff: sell a Tool in the catalog as Gear
+    int         m_gearPrice = 0;
     std::string m_modelName, m_modelDesc, m_modelMsg, m_libraryQuery, m_libraryMsg;
     int         m_libraryKind = 0;   // 0 models, 1 decals, 2 audio
     bool        m_showAccessory = false;

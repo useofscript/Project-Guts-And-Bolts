@@ -213,6 +213,9 @@ json GbServer::meJson(const User& u) const {
     j["hasPassword"] = !u.keyBlob.empty();   // can log in on other devices
     j["authApp"] = !u.totpSecret.empty();    // logging in needs an authenticator-app code
     j["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}};
+    json gear = json::array();
+    for (const auto& g : u.gear) if (u.owned.count(g)) gear.push_back(g);
+    j["gear"] = gear;
     json g = json::array();
     for (const auto& [k, s] : u.grants) g.push_back({k, s});
     j["grants"] = g;
@@ -250,7 +253,7 @@ json GbServer::publicAsset(const Asset& a) const {
     json j = {{"id", a.id}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
               {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
-    if (a.kind == "game") j["badges"] = a.badges;
+    if (a.kind == "game") { j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); }
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
@@ -591,6 +594,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (title.empty()) return fail("Give it a name.");
         std::string desc = Online::cleanText(str("description"), 1000, true);
         const bool verified = isVerified(me);
+        if (kind == "gear" && !isStaff(me)) return fail("Only Guts&Bolts staff can make gear.");
         if (Online::isAccessory(kind) && !verified && !isStaff(me))
             return fail("Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!");
         long long price = std::clamp(num("price"), 0LL, 1000000LL);
@@ -610,6 +614,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (meta.dump().size() > 4096) return fail("Too much extra information.");
         meta.erase("image");
         meta.erase("model");
+        meta.erase("allowGear");
+        if (kind == "gear")
+            if (std::string problem = Online::gearProblem(data); !problem.empty()) return fail(problem);
         if (Online::isAccessory(kind) && !data.empty()) {   // made in Studio's Accessory window
             json acc = json::parse(data, nullptr, false);
             if (!acc.is_object() || acc.value("format", std::string()) != "gbaccessory")
@@ -747,6 +754,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (!Online::base64Decode(str("data"), data)) return fail("The upload got scrambled. Try again.");
         if (data.size() > Online::maxSize(a.kind)) return fail("That's too big.");
         if (a.kind == "game" && !json::accept(data)) return fail("That isn't a Guts&Bolts game file.");
+        if (a.kind == "gear")
+            if (std::string problem = Online::gearProblem(data); !problem.empty()) return fail(problem);
         if (!Online::isClothing(a.kind) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
         std::string title = Online::cleanText(str("name"), 50);
         if (!title.empty()) a.name = title;
@@ -767,7 +776,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         const bool ownedOnly = args.value("owned", false);   // your inventory (the Avatar page)
         std::vector<const Asset*> found;
         for (const auto& [id, a] : m_assets) {
-            if (!kind.empty() && a.kind != kind && !(kind == "clothing" && Online::isClothing(a.kind))) continue;
+            if (!kind.empty() && a.kind != kind && !(kind == "clothing" && Online::isCatalogItem(a.kind))) continue;
             if (ownedOnly && !me.owned.count(a.id)) continue;
             if (!creator.empty() && a.creator != creator) continue;
             if (!q.empty() && lower(a.name).find(q) == std::string::npos) continue;
@@ -784,12 +793,38 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             list.push_back(publicAsset(*found[i]));
         json r = okay(); r["assets"] = list; r["total"] = found.size(); return r;
     }
+    if (name == "gear.equip") {   // gear you own, in your backpack for games (worker/server.js)
+        const std::string id = str("id");
+        const bool on = args.value("on", true);
+        std::vector<std::string> keep;
+        for (const auto& g : me.gear) if (g != id && me.owned.count(g)) keep.push_back(g);
+        me.gear = keep;
+        if (on) {
+            auto it = m_assets.find(id);
+            if (it == m_assets.end() || it->second.kind != "gear") return fail("That gear doesn't exist (any more).");
+            if (!me.owned.count(id)) return fail("Get it from the catalog first.");
+            if ((int)me.gear.size() >= Online::kMostGear)
+                return fail("You can have " + std::to_string(Online::kMostGear) + " gear equipped at once. Take one off first.");
+            me.gear.push_back(id);
+        }
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    if (name == "game.settings") {   // (the website's game settings; here just "Allow gear")
+        auto it = m_assets.find(str("id"));
+        if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
+        Asset& a = it->second;
+        if (a.creator != me.id && !isStaff(me)) return fail("You can only change your own games.");
+        if (args.contains("allowGear")) a.meta["allowGear"] = args["allowGear"] == true;
+        saveAssets();
+        json r = okay(); r["asset"] = publicAsset(a); return r;
+    }
     if (name == "get") {
         auto it = m_assets.find(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         const bool mine = me.owned.count(a.id) || a.creator == me.id;
-        if (a.price > 0 && !mine && !isStaff(me) && (a.kind == "plugin" || a.kind == "audio"))
+        if (a.price > 0 && !mine && !isStaff(me) && (a.kind == "plugin" || a.kind == "audio" || a.kind == "gear"))
             return fail("Buy it first.");
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
@@ -869,6 +904,7 @@ void GbServer::saveUsers() {
         if (!u.totpSecret.empty()) { all[id]["totpSecret"] = u.totpSecret; all[id]["totpLast"] = u.totpLast; }
         if (!u.totpPending.empty()) all[id]["totpPending"] = u.totpPending;
         all[id]["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}};
+        all[id]["gear"] = u.gear;
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -953,6 +989,8 @@ void GbServer::load() {
                     u.privacyStatus = ok(st) ? st : "everyone";
                     u.privacyJoin = ok(jn) ? jn : "everyone";
                 }
+                if (j.contains("gear") && j["gear"].is_array())
+                    for (const auto& g : j["gear"]) if (g.is_string()) u.gear.push_back(g.get<std::string>());
                 u.totpSecret = j.value("totpSecret", std::string());
                 u.totpPending = j.value("totpPending", std::string());
                 u.totpLast = j.value("totpLast", -1LL);

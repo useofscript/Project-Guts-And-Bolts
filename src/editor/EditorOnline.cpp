@@ -360,10 +360,23 @@ void Editor::renderPublishModelDialog() {
         ImGui::InputText("Name", &m_modelName);
         ImGui::InputTextMultiline("Description", &m_modelDesc, ImVec2(-90, 60));
         ImGui::Spacing();
+        const bool canGear = items.size() == 1 && items[0]->isTool() && Online::staff();
+        if (!canGear) m_modelAsGear = false;
+        if (canGear) {   // like Roblox's old gear: a Tool people buy and bring into games that allow gear
+            ImGui::Checkbox("Sell it in the catalog as Gear", &m_modelAsGear);
+            if (m_modelAsGear) {
+                ImGui::SetNextItemWidth(120);
+                ImGui::InputInt("Price in Bolts (0 = free)", &m_gearPrice, 10, 100);
+                m_gearPrice = std::clamp(m_gearPrice, 0, 1000000);
+                ImGui::TextDisabled("People equip it on their Avatar page and get it in games that allow gear.");
+            }
+        }
+        if (!m_modelAsGear) {
         ImGui::TextUnformatted("Who can find it?");
         if (ImGui::RadioButton("Public: everyone can find and use it", m_modelPublic)) m_modelPublic = true;
         if (ImGui::RadioButton("Private: only you", !m_modelPublic)) m_modelPublic = false;
-        int left = Online::me().value("publicModelsLeft", -1);
+        }
+        int left = m_modelAsGear ? -1 : Online::me().value("publicModelsLeft", -1);
         if (left >= 0)
             ImGui::TextDisabled("You can make %d more model%s public this week (Verified creators have no limit).",
                                 left, left == 1 ? "" : "s");
@@ -378,14 +391,16 @@ void Editor::renderPublishModelDialog() {
             json model = {{"format", "gbmodel"}, {"version", 1}, {"nodes", nodes}};
             json args = {{"kind", "model"}, {"name", m_modelName}, {"description", m_modelDesc},
                          {"access", m_modelPublic ? "public" : "private"}, {"data", Online::base64Encode(model.dump())}};
+            const bool gear = m_modelAsGear;
+            if (gear) { args["kind"] = "gear"; args["price"] = m_gearPrice; args.erase("access"); }
             m_onlineBusy = true;
             m_modelMsg = "Publishing...";
-            Online::request("upload", args, [this, picture](const json& r) {
+            Online::request("upload", args, [this, picture, gear](const json& r) {
                 m_onlineBusy = false;
                 if (!r.value("ok", false)) { m_modelMsg = r.value("error", std::string("Publishing didn't work.")); return; }
                 std::string id = r["asset"].value("id", std::string());
                 if (!picture.empty()) Online::request("thumb.set", {{"id", id}, {"data", Online::base64Encode(picture)}}, nullptr, 60);
-                m_modelMsg = "Published! Find it in the Toolbox's Library.";
+                m_modelMsg = gear ? "Published! It's in the catalog under Gear." : "Published! Find it in the Toolbox's Library.";
                 m_libraryLoaded = false;
                 Online::connect();   // refresh "public models left"
             }, 120);

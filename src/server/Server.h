@@ -53,6 +53,7 @@ private:
         // Privacy: who sees you online / what you play, and who can join you there:
         // "everyone", "friends" or "nobody" (worker/server.js privacyOf).
         std::string privacyStatus = "everyone", privacyJoin = "everyone";
+        std::vector<std::string> gear;   // equipped gear (worker/server.js me.gear)
         // Signing up: a username and user number (both never reused), plus the
         // password-locked backup of their key so they can log in on other devices.
         std::string username;

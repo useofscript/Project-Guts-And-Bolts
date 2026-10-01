@@ -119,6 +119,8 @@ private:
     void drawWardrobe();
     void drawModeration();                          // the ban screen and staff warnings (PlayerOnline.cpp)                            // Avatar page: what you own, click to wear (PlayerOnline.cpp)
     void wardrobeToggle(const Catalog::Item& it);
+    bool itemOn(const Catalog::Item& it) const;   // worn, or (gear) equipped
+    void toggleGear(const std::string& id, bool on);
     void drawOnlineItemDialog();
     void drawCreate();
     void drawMyGames();
@@ -170,6 +172,7 @@ private:
     void joinRelay(const std::string& session, const std::string& code, const std::string& title);
     Starter localStarter(const std::filesystem::path& path);
     Starter onlineStarter(const std::string& assetId);
+    void giveGear(const std::string& gameKey);   // your equipped catalog gear, in games that allow it
 
     void refreshGames();
     void joinGame(const std::filesystem::path& path, HostMode mode = HostMode::Solo, const std::string& gameKey = "");

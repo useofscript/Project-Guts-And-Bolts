@@ -211,6 +211,19 @@ inline void drawItemIcon(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item&
         dl->AddRect(r0, r1, line, 0, 0, t);
         break;
     }
+    case Catalog::Type::Gear: {   // a little sword, tilted
+        const ImU32 blade = IM_COL32(200, 205, 215, 255), hilt = IM_COL32(120, 80, 40, 255), guard = IM_COL32(230, 180, 40, 255);
+        ImVec2 tip(c.x + s * 0.3f, c.y - s * 0.3f), base(c.x - s * 0.12f, c.y + s * 0.12f);
+        const float bw = s * 0.06f;
+        ImVec2 q[] = {{tip.x, tip.y}, {base.x + bw, base.y + bw}, {base.x - bw, base.y - bw}};
+        ImVec2 blade4[] = {{tip.x, tip.y}, {base.x + bw, base.y + bw * 0.2f}, {base.x - bw * 0.2f, base.y - bw}};
+        dl->AddTriangleFilled(q[0], q[1], q[2], blade);
+        dl->AddPolyline(blade4, 3, line, ImDrawFlags_Closed, t);
+        dl->AddLine(ImVec2(base.x - s * 0.13f, base.y - s * 0.01f), ImVec2(base.x + s * 0.01f, base.y + s * 0.13f), guard, s * 0.06f);
+        dl->AddLine(ImVec2(base.x - s * 0.02f, base.y + s * 0.02f), ImVec2(base.x - s * 0.18f, base.y + s * 0.18f), hilt, s * 0.06f);
+        dl->AddCircleFilled(ImVec2(base.x - s * 0.2f, base.y + s * 0.2f), s * 0.045f, guard);
+        break;
+    }
     case Catalog::Type::TShirt: {   // a white tee with its picture on the front
         ImVec2 pts[] = {{c.x - s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.18f, c.y - s * 0.32f}, {c.x + s * 0.4f, c.y - s * 0.12f},
                         {c.x + s * 0.3f, c.y + s * 0.0f}, {c.x + s * 0.22f, c.y - s * 0.06f}, {c.x + s * 0.22f, c.y + s * 0.34f},

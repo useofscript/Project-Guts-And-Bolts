@@ -30,9 +30,9 @@ const EXAMPLE_GAMES = [
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
-const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt'];
+const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt', 'gear'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
-  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10 };
+  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10, gear: 0 };
 // Accessories: things worn on the body, made (and placed on a mannequin) in Studio's
 // Accessory window. Verified creators only. Faces are pictures, and only Guts makes them.
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
@@ -44,7 +44,19 @@ const canBeLimited = (k) => isAccessory(k) || k === 'face';
 const kPublicModelsPerWeek = 5;
 const weekOf = (t) => Math.floor(t / (7 * 86400));
 const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20,
-  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20 };
+  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20, gear: 4 << 20 };
+// Gear: a Tool (made in Studio) sold in the catalog, like Roblox's old gear. Only staff
+// make gear. You can have up to kMostGear equipped, and you get them in games whose
+// creator ticked "Allow gear". (src/server has the same rules.)
+const kMostGear = 4;
+const isCatalogItem = (k) => isClothing(k) || k === 'gear';   // sold in the catalog
+function gearProblem(data) {
+  let m = null;
+  try { m = JSON.parse(new TextDecoder().decode(data)); } catch { m = null; }
+  if (!m || m.format !== 'gbmodel' || !Array.isArray(m.nodes) || m.nodes.length !== 1) return 'Gear must be one Tool published from Studio.';
+  if (!m.nodes[0] || m.nodes[0].kind !== 'Tool') return 'Gear must be a Tool (with a Handle part inside).';
+  return '';
+}
 // Shirts and pants can have a picture: a PNG laid out like the clothing template.
 const kTemplateW = 585, kTemplateH = 559;
 const pngSize = (d) => (d.length > 24 && [0x89, 0x50, 0x4e, 0x47].every((v, i) => d[i] === v)
@@ -544,6 +556,7 @@ export class GbServerObject extends DurableObject {
       avatar: u.avatar || null,
       email: maskEmail(u.emailVerified ? u.email : ''), emailPending: maskEmail(u.pendingEmail || ''),
       twoStep: !!(u.twoStep && u.emailVerified), canMail: this.canMail, authApp: !!u.totpSecret, privacy: this.privacyOf(u),
+      gear: (u.gear || []).filter((g) => u.owned.includes(g)),
       // Banned: what for and until when (the app and the site show a ban screen).
       ban: u.banned ? { reason: u.banReason || '', title: BAN_REASONS[u.banReason] || 'Breaking the rules',
         note: u.banNote || '', at: u.bannedAt || 0, until: u.bannedUntil || 0 } : null,
@@ -666,7 +679,7 @@ export class GbServerObject extends DurableObject {
       creatorName: c ? c.name : (a.builtin ? 'Guts' : '?'), creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
       icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
       badges: a.kind === 'game' ? (a.badges || []) : undefined,
-      genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
+      genres: a.kind === 'game' ? (a.genres || []) : undefined, allowGear: a.kind === 'game' ? !!a.allowGear : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a) };
@@ -853,6 +866,19 @@ export class GbServerObject extends DurableObject {
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
     }
+    if (name === 'gear.equip') {   // put gear you own in (or take it out of) your backpack for games
+      const id = str(args, 'id'), on = args.on !== false;
+      const a = this.assets.get(id);
+      me.gear = (me.gear || []).filter((g) => g !== id && me.owned.includes(g));
+      if (on) {
+        if (!a || a.kind !== 'gear') return fail('That gear doesn\'t exist (any more).');
+        if (!me.owned.includes(id)) return fail('Get it from the catalog first.');
+        if (me.gear.length >= kMostGear) return fail('You can have ' + kMostGear + ' gear equipped at once. Take one off first.');
+        me.gear.push(id);
+      }
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
     if (name === 'thumb.set') {
       // A picture of a game (Studio sends one when publishing): a PNG or JPG, up to 400 KB.
       const a = this.assets.get(str(args, 'id'));
@@ -908,6 +934,7 @@ export class GbServerObject extends DurableObject {
         a.genres = picked;
       }
       if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
+      if ('allowGear' in args) a.allowGear = args.allowGear === true;
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
@@ -1050,6 +1077,7 @@ export class GbServerObject extends DurableObject {
       const verified = this.isVerified(me);
       if (isAccessory(kind) && !verified && !this.isStaff(me)) return fail('Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!');
       if (kind === 'face' && !this.isOfficial(me)) return fail('Only Guts can make faces.');
+      if (kind === 'gear' && !this.isStaff(me)) return fail('Only Guts&Bolts staff can make gear.');
       let price = clamp(num(args, 'price'), 0, 1000000);
       if (kind === 'game' || alwaysFree(kind)) price = 0;
       if (price > 0 && !verified) return fail('Only Verified creators can sell things. Upload it for free, or get Verified!');
@@ -1076,6 +1104,7 @@ export class GbServerObject extends DurableObject {
       }
       if (kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
       if (kind === 'plugin' && !data.length) return fail('That plugin is empty.');
+      if (kind === 'gear') { const problem = gearProblem(data); if (problem) return fail(problem); }
       let access;
       if (kind === 'model') {
         if (!isJson(data)) return fail('That isn\'t a Guts&Bolts model.');
@@ -1186,6 +1215,7 @@ export class GbServerObject extends DurableObject {
       try { data = b64ToBytes(str(args, 'data')); } catch { return fail('The upload got scrambled. Try again.'); }
       if (data.length > maxSize(a.kind)) return fail('That\'s too big.');
       if (a.kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
+      if (a.kind === 'gear') { const problem = gearProblem(data); if (problem) return fail(problem); }
       if (!isClothing(a.kind)) this.writeFile(a.id, data);
       const title = cleanText(str(args, 'name'), 50);
       if (title) a.name = title;
@@ -1205,7 +1235,7 @@ export class GbServerObject extends DurableObject {
       const sort = str(args, 'sort'), genre = str(args, 'genre');
       const ownedOnly = args.owned === true;   // your inventory (the Avatar page)
       const found = [...this.assets.values()].filter((a) =>
-        (!kind || a.kind === kind || (kind === 'clothing' && isClothing(a.kind))) &&
+        (!kind || a.kind === kind || (kind === 'clothing' && isCatalogItem(a.kind))) &&
         (!ownedOnly || me.owned.includes(a.id)) &&
         (!creator || a.creator === creator) && this.canPlay(a, me) &&
         (!genre || (a.genres || []).includes(genre)) &&
@@ -1226,7 +1256,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       const mine = me.owned.includes(a.id) || a.creator === me.id;
-      if (a.price > 0 && !mine && !this.isStaff(me) && (a.kind === 'plugin' || a.kind === 'audio')) return fail('Buy it first.');
+      if (a.price > 0 && !mine && !this.isStaff(me) && (a.kind === 'plugin' || a.kind === 'audio' || a.kind === 'gear')) return fail('Buy it first.');
       if (!this.canPlay(a, me)) return fail(this.noPlay(a));
       const data = this.readFile(a.id);
       if (!data) return fail('The server lost that file.');
@@ -1276,7 +1306,7 @@ export class GbServerObject extends DurableObject {
     // --- Editing items (their creator or staff) ---
     if (name === 'item.edit') {
       const a = this.assets.get(str(args, 'id'));
-      if (!a || !isClothing(a.kind)) return fail('That item doesn\'t exist (any more).');
+      if (!a || !isCatalogItem(a.kind)) return fail('That item doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('Only the item\'s creator or staff can change it.');
       if ('name' in args) {
         const title = cleanText(str(args, 'name'), 50);
