@@ -339,7 +339,7 @@ function loginPopup(what) {
 // Which clicks and forms need an account, and what to say.
 const NEEDS_ACCOUNT = {
   buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
-  friend: 'add friends', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
+  friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
 };
 
@@ -1009,6 +1009,10 @@ pages.user = async (id) => {
       : f === 'sent' ? html`<button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${u.id}">Cancel request</button>`
         : f === 'received' ? html`<button class="btn green small" data-act="friend" data-op="friends.accept" data-user="${u.id}">Accept friend request</button>`
           : html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`;
+  // Following: one way, no asking (older servers don't know it: no button then).
+  const followBtn = f === 'self' || r.followerCount === undefined ? ''
+    : r.isFollowing ? html` <button class="btn small" data-act="follow" data-op="follow.remove" data-user="${u.id}">Unfollow</button>`
+      : html` <button class="btn blue small" data-act="follow" data-op="follow.add" data-user="${u.id}">Follow</button>`;
   const games = r.creations.filter((a) => a.kind === 'game'), items = r.creations.filter((a) => WEARABLE.includes(a.kind));
   // What they wear (older servers don't say: look it up in the catalog).
   let worn = r.wearing;
@@ -1022,7 +1026,7 @@ pages.user = async (id) => {
   show(html`<div class="profile-head">
       <h1>${u.username}${verified(u.verified)}</h1>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
-      <span class="grow"></span>${friendBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
+      <span class="grow"></span>${friendBtn}${followBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
         : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
     ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
@@ -1037,6 +1041,8 @@ pages.user = async (id) => {
           <table class="stats"><tr><td>Joined</td><td>${new Date(u.created * 1000).toLocaleDateString()} (${ago(u.created)})</td></tr>
             <tr><td>User number</td><td>#${u.userId}</td></tr>
             <tr><td>Friends</td><td>${r.friendCount}</td></tr>
+            ${r.followerCount === undefined ? '' : html`<tr><td>Followers</td><td>${r.followerCount}</td></tr>
+            <tr><td>Following</td><td>${r.followingCount}</td></tr>`}
             ${r.placeVisits !== undefined ? html`<tr><td>Place visits</td><td>${r.placeVisits}</td></tr>` : ''}
             <tr><td>Games made</td><td>${games.length}</td></tr></table>
           ${u.official ? html`<p><b>Guts&amp;Bolts staff</b></p>` : ''}${u.banned ? html`<p class="error">Banned${u.banReason ? ': ' + (BAN_REASONS.find((r) => r[0] === u.banReason) || ['', ''])[1] : ''}</p>` : ''}</div>
@@ -1548,6 +1554,11 @@ const actions = {
   async friend(d) {
     const r = await call(d.op, { user: d.user });
     toast(r.ok ? ({ friends: 'You\'re friends now!', sent: 'Friend request sent.', none: 'Done.' }[r.status] || 'Done.') : r.error);
+    render();
+  },
+  async follow(d) {
+    const r = await call(d.op, { user: d.user });
+    toast(r.ok ? (r.following ? 'You\'re following them now.' : 'Unfollowed.') : r.error);
     render();
   },
   async group(d) {

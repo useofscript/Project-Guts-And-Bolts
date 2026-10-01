@@ -289,7 +289,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name == "profile") {
         std::string want = str("id");
         User* u = !want.empty() && want.size() < 12 && std::all_of(want.begin(), want.end(), ::isdigit)
-                      ? findUserId(std::atoll(want.c_str())) : findUser(want);   // user number or account key
+                      ? findUserId(std::atoll(want.c_str())) : findPerson(want);   // user number, account key or name
         if (!u || u->userId == 0) return fail("There's no account with that ID on this server.");
         json r = okay();
         r["user"] = publicUser(*u);
@@ -306,6 +306,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         r["groups"] = groups;
         r["friendCount"] = u->friends.size();
+        r["followerCount"] = u->followers.size();
+        r["followingCount"] = u->following.size();
+        r["isFollowing"] = me.following.count(u->id) > 0;
         r["friendship"] = u->id == me.id ? "self" : me.friends.count(u->id) ? "friends"
                         : me.friendOut.count(u->id) ? "sent" : me.friendIn.count(u->id) ? "received" : "none";
         // Like a Roblox profile: what they're wearing, some friends, visits to their games.
@@ -382,7 +385,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     }
     if (name.rfind("account.", 0) == 0) return accountOp(name, me, args);
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
-    if (name.rfind("friends.", 0) == 0) return friendOp(name, me, args);
+    if (name.rfind("friends.", 0) == 0 || name.rfind("follow.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
         json r = okay(); r["me"] = meJson(me); return r;
@@ -847,6 +850,7 @@ void GbServer::saveUsers() {
                    {"banReason", u.banReason}, {"banNote", u.banNote}, {"bannedAt", u.bannedAt},
                    {"bannedUntil", u.bannedUntil}, {"warnings", u.warnings},
                    {"friends", u.friends}, {"friendIn", u.friendIn}, {"friendOut", u.friendOut},
+                   {"following", u.following}, {"followers", u.followers},
                    {"username", u.username}, {"userId", u.userId}, {"pwSalt", u.pwSalt}, {"pwHash", u.pwHash},
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
     }
@@ -929,8 +933,10 @@ void GbServer::load() {
                 u.keyBlob = j.value("keyBlob", std::string());
                 if (j.contains("avatar") && j["avatar"].is_object()) u.avatar = j["avatar"];
                 if (j.contains("gameBadges") && j["gameBadges"].is_array()) u.gameBadges = j["gameBadges"];
-                for (const char* k : {"friends", "friendIn", "friendOut"}) {
-                    std::set<std::string>& set = std::string(k) == "friends" ? u.friends : std::string(k) == "friendIn" ? u.friendIn : u.friendOut;
+                for (const char* k : {"friends", "friendIn", "friendOut", "following", "followers"}) {
+                    const std::string key = k;
+                    std::set<std::string>& set = key == "friends" ? u.friends : key == "friendIn" ? u.friendIn
+                                               : key == "friendOut" ? u.friendOut : key == "following" ? u.following : u.followers;
                     if (j.contains(k) && j[k].is_array())
                         for (const auto& f : j[k]) if (f.is_string()) set.insert(f.get<std::string>());
                 }

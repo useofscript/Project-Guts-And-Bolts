@@ -84,6 +84,7 @@ const banMessage = (u) => 'This account has been banned' + (u.banReason && BAN_R
 const kMaxWarnings = 30;   // kept per account (oldest dropped)
 const kOnlineFor = 150;                       // ServerFriends.cpp
 const kMaxFriends = 200, kMaxRequests = 100;
+const kMaxFollowing = 2000;                   // ServerFriends.cpp
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
@@ -362,7 +363,7 @@ export class GbServerObject extends DurableObject {
     let u = this.users.get(id);
     if (u) return u;
     u = { id, name: 'Player', created: now(), lastSeen: 0, ledger: [], grants: {}, owned: [], uploadDay: '', uploadsToday: 0,
-      playDay: '', playEarned: 0, lastPlay: 0, banned: false, friends: [], friendIn: [], friendOut: [],
+      playDay: '', playEarned: 0, lastPlay: 0, banned: false, friends: [], friendIn: [], friendOut: [], following: [], followers: [],
       username: '', userId: 0, pwSalt: '', pwHash: '', keyBlob: '' };
     this.users.set(id, u);
     this.claimOfficial(u);
@@ -376,6 +377,15 @@ export class GbServerObject extends DurableObject {
     return null;
   }
   findUserId(n) { if (n <= 0) return null; for (const u of this.users.values()) if (u.userId === n) return u; return null; }
+  // An account key, or "@name" / a name as shown in games (the in-game player list).
+  findPerson(s) {
+    s = String(s || '');
+    const u = this.findUser(s) || this.findUsername(s.replace(/^@/, ''));
+    if (u) return u;
+    const want = lower(s);
+    for (const v of this.users.values()) if (v.userId > 0 && lower(v.name) === want) return v;
+    return null;
+  }
   balance(u) { return u.ledger.reduce((s, e) => s + e[0], 0); }
   hasRef(u, ref) { return u.ledger.some((e) => e[3] === ref); }
   add(u, amount, reason, ref) {
@@ -630,7 +640,7 @@ export class GbServerObject extends DurableObject {
     }
     if (name === 'profile') {
       const want = str(args, 'id');
-      const u = want && want.length < 12 && /^[0-9]+$/.test(want) ? this.findUserId(Number(want)) : this.findUser(want);
+      const u = want && want.length < 12 && /^[0-9]+$/.test(want) ? this.findUserId(Number(want)) : this.findPerson(want);
       if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
       const user = Object.assign(this.publicUser(u), { badges: this.badgesOf(u), avatar: u.avatar || null });
       const creations = [...this.assets.values()].filter((a) => a.creator === u.id && this.canPlay(a, me)).map((a) => this.publicAsset(a));
@@ -649,6 +659,8 @@ export class GbServerObject extends DurableObject {
         return b ? { id: b.id, name: b.name, description: b.description, color: b.color, game: gid, gameName: g.name, earned: when } : null;
       }).filter(Boolean).reverse();
       return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
+        followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
+        isFollowing: (me.following || []).includes(u.id),
         online: this.isOnline(u), placeVisits, gameBadges });
     }
     if (name === 'users.search') {
@@ -669,7 +681,7 @@ export class GbServerObject extends DurableObject {
     }
     if (name.startsWith('account.')) return this.accountOp(name, me, args);
     if (name.startsWith('groups.')) return this.groupOp(name, me, args);
-    if (name.startsWith('friends.')) return this.friendOp(name, me, args);
+    if (name.startsWith('friends.') || name.startsWith('follow.')) return this.friendOp(name, me, args);
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
     if (name.startsWith('updates.')) return this.updateOp(name, me, args);
     // "I'm still here" (for friends' online dots); the answer keeps your account fresh
@@ -1477,8 +1489,32 @@ export class GbServerObject extends DurableObject {
       return okay({ friends, incoming: me.friendIn.map((id) => this.findUser(id)).filter(Boolean).map(person),
         outgoing: me.friendOut.map((id) => this.findUser(id)).filter(Boolean).map(person) });
     }
-    const them = this.findUser(str(args, 'user'));
-    if (!them) return fail('There\'s no account with that ID on this server.');
+    const them = this.findPerson(str(args, 'user'));
+    if (!them || them.userId === 0) return fail('There\'s no account with that ID on this server.');
+    const following = me.following || (me.following = []), followers = them.followers || (them.followers = []);
+    // Where you stand with someone (the in-game player list asks before showing its menu).
+    if (name === 'friends.relation') {
+      const friendship = them.id === me.id ? 'self' : me.friends.includes(them.id) ? 'friends'
+        : me.friendOut.includes(them.id) ? 'sent' : me.friendIn.includes(them.id) ? 'received' : 'none';
+      return okay({ id: them.id, name: them.name, friendship, following: following.includes(them.id),
+        followers: followers.length });
+    }
+    // Following: one way, no asking (like Roblox). You see what they're up to.
+    if (name === 'follow.add' || name === 'follow.remove') {
+      if (them.id === me.id) return fail('You can\'t follow yourself.');
+      const i = following.indexOf(them.id), j = followers.indexOf(me.id);
+      if (name === 'follow.add') {
+        if (them.banned) return fail('You can\'t follow that account.');
+        if (i < 0 && following.length >= kMaxFollowing) return fail('You already follow ' + kMaxFollowing + ' people.');
+        if (i < 0) following.push(them.id);
+        if (j < 0) followers.push(me.id);
+      } else {
+        if (i >= 0) following.splice(i, 1);
+        if (j >= 0) followers.splice(j, 1);
+      }
+      this.saveUser(me, them);
+      return okay({ following: name === 'follow.add', followers: followers.length });
+    }
     if (them.id === me.id) return fail('You can\'t be friends with yourself (but we like you).');
     const drop = (list, id) => { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); };
     const addTo = (list, id) => { if (!list.includes(id)) list.push(id); };

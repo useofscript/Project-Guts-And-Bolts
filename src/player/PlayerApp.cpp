@@ -1522,7 +1522,24 @@ void PlayerApp::drawGame(float dt) {
         m_session->selectToolSlot(slot);
     Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
-    Hud::drawPlayerList(dl, pos, max, currentPlayers());
+    // Tab folds the leaderboard away (and back), like old Roblox.
+    if (acceptInput && !m_chatOpen && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Tab, false))
+        m_listOpen = !m_listOpen;
+    {
+        ImVec2 at;
+        std::string who = Hud::drawPlayerList(dl, pos, max, currentPlayers(), m_listOpen, &at, tapped ? &tapAt : nullptr);
+        if (!who.empty() && who != Online::playerName()) {
+            m_listMenu = who;
+            m_listMenuAt = at;
+            m_listRel = nlohmann::json();
+            m_listMsg.clear();
+            if (!Online::isGuest())
+                Online::request("friends.relation", {{"user", who}}, [this, who](const nlohmann::json& r) {
+                    if (m_listMenu == who) m_listRel = r;
+                });
+        }
+    }
+    drawPlayerMenu();
     if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
 
     // "+5 Bolts for playing!" popup, top middle.
@@ -2571,4 +2588,65 @@ void PlayerApp::touchScroll() {
     if (!w || w->ScrollMax.y <= 0.0f) return;
     ImGui::SetScrollY(w, std::clamp(w->Scroll.y - io.MouseDelta.y, 0.0f, w->ScrollMax.y));
     if (g.ActiveId != 0) ImGui::ClearActiveID();   // a swipe isn't a tap on whatever it started on
+}
+
+// The menu under a name on the leaderboard: friend them, or follow them.
+void PlayerApp::drawPlayerMenu() {
+    if (m_listMenu.empty()) return;
+    const std::string who = m_listMenu;
+    ImGui::SetNextWindowPos(m_listMenuAt);
+    ImGui::SetNextWindowSize(ImVec2(190, 0));
+    Classic::pushLight();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    bool keep = true;
+    ImGui::Begin("##playermenu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextUnformatted(who.c_str());
+    ImGui::Separator();
+    auto send = [this, who](const char* op, const char* done) {
+        std::string doneMsg = done;
+        Online::request(op, {{"user", who}}, [this, who, doneMsg](const nlohmann::json& r) {
+            if (m_listMenu != who) return;
+            m_listMsg = r.value("ok", false) ? doneMsg : r.value("error", std::string("That didn't work."));
+            Online::request("friends.relation", {{"user", who}}, [this, who](const nlohmann::json& rel) {
+                if (m_listMenu == who) m_listRel = rel;
+            });
+        });
+    };
+    const ImVec2 full(-1, 26);
+    if (Online::isGuest()) {
+        ImGui::TextWrapped("Sign up to add friends and follow people.");
+    } else if (m_listRel.is_null()) {
+        ImGui::TextDisabled("...");
+    } else if (!m_listRel.value("ok", false)) {
+        ImGui::TextWrapped("%s is playing as a guest.", who.c_str());
+    } else {
+        const std::string f = m_listRel.value("friendship", std::string("none"));
+        if (f == "none") {
+            if (Classic::button("Add Friend", Classic::kBlue, full)) send("friends.add", "Friend request sent!");
+        } else if (f == "sent") {
+            ImGui::BeginDisabled(); ImGui::Button("Friend request sent", full); ImGui::EndDisabled();
+        } else if (f == "received") {
+            if (Classic::button("Accept Friend Request", Classic::kPlay, full)) send("friends.accept", "You're friends now!");
+        } else if (f == "friends") {
+            ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Friends");
+        }
+        const bool following = m_listRel.value("following", false);
+        if (following) {
+            if (ImGui::Button("Unfollow", full)) send("follow.remove", "Unfollowed.");
+        } else if (Classic::button("Follow", Classic::kPlay, full)) {
+            send("follow.add", "You're following them now.");
+        }
+        ImGui::TextDisabled("%d follower%s", m_listRel.value("followers", 0), m_listRel.value("followers", 0) == 1 ? "" : "s");
+    }
+    if (!m_listMsg.empty()) ImGui::TextWrapped("%s", m_listMsg.c_str());
+    if (ImGui::Button("Close", full)) keep = false;
+    // A click anywhere else closes it too.
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+        ImGui::GetIO().MousePos.y > m_listMenuAt.y + 2)
+        keep = false;
+    ImGui::End();
+    ImGui::PopStyleVar();
+    Classic::popLight();
+    if (!keep || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) m_listMenu.clear();
 }

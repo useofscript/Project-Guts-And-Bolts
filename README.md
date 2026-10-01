@@ -496,6 +496,11 @@ animation that moves the arms takes over the arms, and the legs keep walking.
 
 ## Leaderboard, checkpoints and saved data
 
+The player list folds away like old Roblox's: press **Tab**, or click the little
+arrow on its title bar. Click someone's name on it to **Add Friend** or
+**Follow** them right there in the game (following is one way, no asking; your
+followers show on your profile).
+
 **Leaderstats**, the Roblox way: put a folder called `leaderstats` inside a
 player, with IntValues (or other values) in it, and they show as columns on
 the player list, for everyone in an online game too.

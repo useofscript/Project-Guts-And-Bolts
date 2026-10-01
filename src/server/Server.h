@@ -49,6 +49,7 @@ private:
         long long   bannedAt = 0, bannedUntil = 0;   // bannedUntil 0 = for good
         nlohmann::json warnings = nlohmann::json::array();   // staff warnings: {id, reason, note, at, seen}
         std::set<std::string> friends, friendIn, friendOut;   // friends; requests to me; requests I sent
+        std::set<std::string> following, followers;           // one-way follows (no asking)
         // Signing up: a username and user number (both never reused), plus the
         // password-locked backup of their key so they can log in on other devices.
         std::string username;
@@ -106,6 +107,8 @@ private:
     nlohmann::json accountOp(const std::string& name, User& me, const nlohmann::json& args);  // ServerAccounts.cpp
     void  claimOfficial(User& u);                  // the staff account is user 1, "Guts"
     User* findUsername(const std::string& username);
+    // An account key, "@username", or a name as shown in games.
+    User* findPerson(const std::string& s);
     User* findUserId(long long userId);
     void  saveIds();
     void  loadIds();

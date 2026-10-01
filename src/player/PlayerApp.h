@@ -227,6 +227,14 @@ private:
     std::unique_ptr<ChatLog>       m_soloChat;     // chat when playing alone
     std::string m_chatInput;
     bool        m_chatOpen = false;
+    // The leaderboard: folded away or not (Tab), and the little menu you get by
+    // clicking someone's name (Add Friend / Follow).
+    bool        m_listOpen = true;
+    std::string m_listMenu;          // whose menu is open ("" = none)
+    ImVec2      m_listMenuAt{0, 0};
+    nlohmann::json m_listRel;        // where you stand with them (friends.relation)
+    std::string m_listMsg;           // "Friend request sent!" and such
+    void        drawPlayerMenu();
     bool        m_showJoin = false;
     std::string m_joinAddress;
 

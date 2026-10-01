@@ -216,8 +216,10 @@ int drawHotbar(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const ImVec
     return clicked;
 }
 
-void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players) {
-    if (players.empty()) return;
+std::string drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<PlayerEntry>& players,
+                           bool& open, ImVec2* clickedAt, const ImVec2* tap) {
+    std::string picked;
+    if (players.empty()) return picked;
     // leaderstats columns (like Roblox's leaderboard): every stat name anyone has, in order.
     std::vector<std::string> cols;
     for (const auto& p : players)
@@ -227,9 +229,37 @@ void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<Pl
     const float w = nameW + colW * (float)cols.size() + (cols.empty() ? 30.0f : 0.0f);
     float y = min.y + 50;
     float x = max.x - w - 16;
-    dl->AddRectFilled(ImVec2(x - 4, y - 4), ImVec2(x + w + 4, y + 24 + players.size() * rowH),
-                      IM_COL32(0, 0, 0, 120), 6.0f);
-    dl->AddText(ImVec2(x + 4, y), IM_COL32(255, 200, 120, 255), "Players");
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    auto inside = [&](ImVec2 a, ImVec2 b) {
+        bool m = mouse.x >= a.x && mouse.x < b.x && mouse.y >= a.y && mouse.y < b.y;
+        bool t = tap && tap->x >= a.x && tap->x < b.x && tap->y >= a.y && tap->y < b.y;
+        return std::make_pair(m, t || (m && ImGui::IsMouseClicked(ImGuiMouseButton_Left)));
+    };
+
+    // The title bar, with the fold arrow on its left. Folded, only a small tab shows.
+    const float headW = open ? w + 8 : 92.0f;
+    const ImVec2 h0(max.x - headW - 12, y - 4), h1(max.x - 12, y + 20);
+    auto [headHover, headClick] = inside(h0, h1);
+    dl->AddRectFilled(h0, h1, IM_COL32(0, 0, 0, headHover ? 165 : 130), 6.0f,
+                      open ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
+    {   // the arrow: pointing down when open, left when folded away
+        const ImVec2 c(h0.x + 11, y + 8);
+        const ImU32 ac = IM_COL32(255, 200, 120, 255);
+        if (open) dl->AddTriangleFilled(ImVec2(c.x - 5, c.y - 3), ImVec2(c.x + 5, c.y - 3), ImVec2(c.x, c.y + 4), ac);
+        else dl->AddTriangleFilled(ImVec2(c.x + 3, c.y - 5), ImVec2(c.x + 3, c.y + 5), ImVec2(c.x - 4, c.y), ac);
+    }
+    dl->AddText(ImVec2(h0.x + 22, y), IM_COL32(255, 200, 120, 255), "Players");
+    if (headHover) {
+        const char* tip = open ? "Hide (Tab)" : "Show players (Tab)";
+        ImVec2 ts = ImGui::CalcTextSize(tip);
+        dl->AddRectFilled(ImVec2(h1.x - ts.x - 12, h1.y + 4), ImVec2(h1.x, h1.y + ts.y + 10), IM_COL32(20, 22, 28, 220), 4.0f);
+        dl->AddText(ImVec2(h1.x - ts.x - 6, h1.y + 7), IM_COL32(255, 255, 255, 255), tip);
+    }
+    if (headClick) open = !open;
+    if (!open) return picked;
+
+    dl->AddRectFilled(ImVec2(x - 4, y + 20), ImVec2(x + w + 4, y + 24 + players.size() * rowH),
+                      IM_COL32(0, 0, 0, 120), 6.0f, ImDrawFlags_RoundCornersBottom);
     auto rightText = [&](float colRight, float ty, const std::string& text, ImU32 col) {
         std::string t = text;
         while (t.size() > 1 && ImGui::CalcTextSize(t.c_str()).x > colW - 6) t.pop_back();
@@ -241,6 +271,10 @@ void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<Pl
     float t = (float)ImGui::GetTime();
     for (size_t i = 0; i < players.size(); ++i) {
         const PlayerEntry& p = players[i];
+        // The whole row is a button: click someone's name to friend or follow them.
+        auto [hover, click] = inside(ImVec2(x - 4, y - 1), ImVec2(x + w + 4, y + rowH - 1));
+        if (hover) dl->AddRectFilled(ImVec2(x - 2, y - 1), ImVec2(x + w + 2, y + rowH - 2), IM_COL32(255, 255, 255, 40), 4.0f);
+        if (click) { picked = p.name; if (clickedAt) *clickedAt = ImVec2(x - 4, y + rowH); }
         float tx = x + 4;
         if (p.admin) {
             // The Administrator badge bobs gently next to the name.
@@ -261,6 +295,7 @@ void drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::vector<Pl
                 if (k == cols[c]) rightText(x + nameW + colW * (float)(c + 1), y, v, IM_COL32(255, 255, 255, 230));
         y += rowH;
     }
+    return picked;
 }
 
 } // namespace Hud

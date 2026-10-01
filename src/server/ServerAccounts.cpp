@@ -10,6 +10,7 @@
 // server, locked with a key made from your password (see Account::passwordKeys).
 // We only ever see a login token made from the password, never the password,
 // and can't unlock the copy ourselves.
+#include <cctype>
 #include "Server.h"
 #include "ServerUtil.h"
 #include "../core/Account.h"
@@ -30,6 +31,20 @@ void GbServer::claimOfficial(User& u) {
     u.userId = 1;
     u.username = Account::kStaffName;
     m_takenNames.insert(lower(u.username));
+}
+
+GbServer::User* GbServer::findPerson(const std::string& s) {
+    if (User* u = findUser(s)) return u;
+    if (User* u = findUsername(!s.empty() && s[0] == '@' ? s.substr(1) : s)) return u;
+    std::string want = s;
+    for (char& c : want) c = (char)std::tolower((unsigned char)c);
+    for (auto& [id, u] : m_users) {
+        if (u.userId <= 0) continue;
+        std::string n = u.name;
+        for (char& c : n) c = (char)std::tolower((unsigned char)c);
+        if (n == want) return &u;
+    }
+    return nullptr;
 }
 
 GbServer::User* GbServer::findUsername(const std::string& username) {
