@@ -82,10 +82,47 @@ function Players:FindFirstChild(name)
     for _, p in ipairs(playerList) do if p.Name == name then return p end end
     return nil
 end
+-- Teams, like Roblox's Teams service: Team objects (Insert Object > Team) in a
+-- folder called Teams, each with a TeamColor. Players join the AutoAssignable team
+-- with the fewest people; set player.Team to move them.
+Teams = { ClassName = "Teams", Name = "Teams" }
+function Teams:GetTeams()
+    local t, f = {}, workspace:FindFirstChild("Teams")
+    if f then
+        for _, c in ipairs(f:GetChildren()) do
+            if c:GetAttribute("RobloxClass") == "Team" then t[#t + 1] = c end
+        end
+    end
+    return t
+end
+function Teams:GetPlayersOnTeam(team)
+    local t = {}
+    for _, p in ipairs(playerList) do if rawget(p, "Team") == team then t[#t + 1] = p end end
+    return t
+end
+local function autoTeam(p)
+    local best, fewest = nil, math.huge
+    for _, team in ipairs(Teams:GetTeams()) do
+        if team:GetAttribute("AutoAssignable") ~= false then
+            local n = #Teams:GetPlayersOnTeam(team)
+            if n < fewest then best, fewest = team, n end
+        end
+    end
+    if best then
+        rawset(p, "Team", best)
+        rawset(p, "TeamColor", best:GetAttribute("TeamColor"))
+        rawset(p, "Neutral", false)
+    else
+        rawset(p, "Neutral", true)
+    end
+end
+autoTeam(LocalPlayer)
+
 -- Used by the engine when people join / leave a multiplayer game.
 function __gb_addPlayer(name, character, id)
     local p = makePlayer(name, character, id)
     table.insert(playerList, p)
+    autoTeam(p)
     return p
 end
 function __gb_removePlayer(name)
@@ -335,7 +372,7 @@ function Debris:AddItem(obj, lifetime)
 end
 Debris.addItem = Debris.AddItem
 
-local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Players = Players, Lighting = Lighting,
+local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Teams = Teams, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService }
 game = setmetatable({}, { __index = function(_, name)

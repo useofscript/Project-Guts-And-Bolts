@@ -159,6 +159,10 @@ void OutlinerPanel::drawNode(SceneNode* node) {
             m_dragNodes = {node};
             m_dropTarget = m_scene->root();
         }
+        if (!locked && !node->isScript() && onInsertNamed && ImGui::BeginMenu("Insert Object")) {
+            insertMenu(node);
+            ImGui::EndMenu();
+        }
         if (contextMenuExtras) contextMenuExtras();
         ImGui::Separator();
         if (ImGui::MenuItem("Delete", "Del", false, !m_scene->isProtected(node)))
@@ -180,12 +184,53 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     }
 
     if (open) {
+        // The character lives under StarterPlayer while you build (see render()).
+        const bool hideCharacter = node == m_scene->root() && !(playing && playing());
         for (auto& child : node->children)
-            drawNode(child.get());
+            if (!(hideCharacter && m_scene->isCharacterRoot(child->id))) drawNode(child.get());
         ImGui::TreePop();
     }
 
     ImGui::PopID();
+}
+
+// Insert Object, like Roblox's: everything Studio can make, in groups.
+void OutlinerPanel::insertMenu(SceneNode* parent) {
+    struct Group { const char* title; std::vector<const char*> items; };
+    static const Group groups[] = {
+        {"Parts", {"Part", "Sphere", "Cylinder", "MeshPart", "TrussPart", "SpawnLocation", "Seat"}},
+        {"Scripts", {"Script", "LocalScript", "ModuleScript"}},
+        {"Characters & Tools", {"Tool", "Rig", "Animation", "Team"}},
+        {"Containers", {"Model", "Folder"}},
+        {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal"}},
+        {"Water", {"Water", "WaterSource", "FluidVolume", "FluidSystem", "FluidEmitter"}},
+        {"Constraints", {"Attachment"}},
+        {"User Interface", {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke"}},
+        {"Values", {"IntValue", "NumberValue", "StringValue", "BoolValue"}},
+    };
+    for (const Group& g : groups) {
+        ImGui::TextDisabled("%s", g.title);
+        for (const char* what : g.items)
+            if (ImGui::MenuItem(what)) {
+                const std::string w = what;
+                onInsertNamed(w, parent);
+            }
+    }
+    ImGui::Separator();
+    if (onInsert && ImGui::MenuItem("More (search)...")) onInsert(parent);
+}
+
+bool OutlinerPanel::serviceRow(const char* name, int icon, bool hasKids, bool selected) {
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (!hasKids) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (selected) flags |= ImGuiTreeNodeFlags_Selected;
+    const float iconW = ImGui::GetTextLineHeight() + 4;
+    bool open = ImGui::TreeNodeEx(name, flags, "%*s%s", (int)(iconW / ImGui::CalcTextSize(" ").x) + 1, "", name);
+    ImVec2 mn = ImGui::GetItemRectMin();
+    float h = ImGui::GetTextLineHeight();
+    float x = mn.x + ImGui::GetTreeNodeToLabelSpacing() + h * 0.5f;
+    Icons::draw(ImGui::GetWindowDrawList(), ImVec2(x, mn.y + ImGui::GetStyle().FramePadding.y + h * 0.5f), h, (Icons::Id)icon);
+    return open;
 }
 
 void OutlinerPanel::render() {
@@ -213,6 +258,32 @@ void OutlinerPanel::render() {
 
     if (SceneNode* root = m_scene->root())
         drawNode(root);
+
+    // The other services, like Roblox's Explorer. Lighting: the sky, sun and fog
+    // settings. StarterPlayer: the character everyone spawns as (it goes into the
+    // Workspace when the game runs).
+    if (m_filter.empty()) {
+        if (serviceRow("Lighting", (int)Icons::Id::Lighting, false, false)) ImGui::TreePop();
+        if (ImGui::IsItemClicked() && onLighting) onLighting();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sky, sun, fog and colours (opens the Lighting settings)");
+        SceneNode* character = nullptr;
+        for (auto& c : m_scene->root()->children)
+            if (m_scene->isCharacterRoot(c->id)) character = c.get();
+        const bool inWorkspace = playing && playing();
+        if (serviceRow("StarterPlayer", (int)Icons::Id::Player, character && !inWorkspace, false)) {
+            if (character && !inWorkspace) drawNode(character);
+            ImGui::TreePop();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(inWorkspace ? "The character is in the Workspace while the game runs."
+                                          : "The character everyone spawns as. Dress it, add scripts to it (its Animate script plays its animations).");
+    }
+
+    // Right-click empty space: Insert Object into the Workspace.
+    if (onInsertNamed && ImGui::BeginPopupContextWindow("##explorerEmpty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        if (ImGui::BeginMenu("Insert Object")) { insertMenu(nullptr); ImGui::EndMenu(); }
+        ImGui::EndPopup();
+    }
 
     // Click on empty space to clear the selection.
     if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&

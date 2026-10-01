@@ -64,6 +64,11 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
     m_outliner = std::make_unique<OutlinerPanel>(scene, open, [this](SceneNode* n) { addScript(n); });
     EditorTheme::applyStudio();
     m_outliner->onInsert = [this](SceneNode* parent) { m_insertParent = parent; m_openInsert = true; };
+    m_outliner->onInsertNamed = [this](const std::string& what, SceneNode* parent) {
+        m_deferred = [this, what, parent] { insertObject(what, parent); };   // (not while the Explorer is drawing)
+    };
+    m_outliner->onLighting = [] { ImGui::SetWindowFocus("Lighting"); };
+    m_outliner->playing = [this] { return m_playing; };
     m_viewport->onMode = [this](StudioMode mode) { setMode(mode); };
     m_outliner->contextMenuExtras = [this] {
         ImGui::Separator();
@@ -993,6 +998,22 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         sp->color = {0.25f, 0.6f, 1.0f};
     }
     else if (what == "Model" || what == "Folder") put(std::make_unique<SceneNode>(what, NodeKind::Model));
+    else if (what == "Team") {
+        // Teams live in a folder called Teams (Roblox's Teams service). A Team has a
+        // colour; players join the AutoAssignable ones and spawn on SpawnLocations
+        // with the same TeamColor attribute.
+        SceneNode* folder = nullptr;
+        for (auto& c : m_scene->root()->children) if (c->name == "Teams" && c->kind == NodeKind::Model) folder = c.get();
+        if (!folder) folder = m_scene->insert(std::make_unique<SceneNode>("Teams", NodeKind::Model), nullptr);
+        static const glm::vec3 colors[] = {{0.77f, 0.16f, 0.11f}, {0.05f, 0.41f, 0.67f}, {0.16f, 0.5f, 0.27f}, {0.96f, 0.8f, 0.19f}};
+        auto t = std::make_unique<SceneNode>(std::string("Team ") + std::to_string(folder->children.size() + 1), NodeKind::Model);
+        Attribute cls; cls.name = "RobloxClass"; cls.type = Attribute::String; cls.s = "Team";
+        Attribute col; col.name = "TeamColor"; col.type = Attribute::Color3; col.v = colors[folder->children.size() % 4];
+        Attribute aa; aa.name = "AutoAssignable"; aa.type = Attribute::Bool; aa.b = true;
+        t->attributes = {cls, col, aa};
+        parent = folder;
+        put(std::move(t));
+    }
     else if (what == "Script" || what == "LocalScript") { addScript(parent); }
     else if (what == "ModuleScript") {
         auto n = std::make_unique<SceneNode>("ModuleScript", NodeKind::Script);
