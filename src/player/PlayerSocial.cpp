@@ -174,15 +174,13 @@ void PlayerApp::buildProfileStage(const json& av, const json& wearing) {
     HatStyle hat = av.is_object() ? (HatStyle)std::clamp(av.value("hat", 0), 0, kHatStyleCount - 1) : HatStyle::None;
     glm::vec3 hatTint(-1.0f);
     color("hatColor", hatTint);
+    // Everything they wear, the way a game shows it: shirt / pants / T-shirt pictures,
+    // their face, and Studio-made hats, hair and accessories (downloaded if needed).
+    std::vector<Catalog::Item> items;
     if (wearing.is_array())
-        for (const auto& a : wearing) {
-            Catalog::Item it = Catalog::fromServer(a);
-            if (it.type == Catalog::Type::Shirt) bc.torso = bc.leftArm = bc.rightArm = it.color;
-            else if (it.type == Catalog::Type::Pants) bc.leftLeg = bc.rightLeg = it.color;
-            else if (it.type == Catalog::Type::Hat) { hat = it.hat; hatTint = it.color; }
-        }
-    p->setBodyColors(bc);
-    p->setHat(hat, hatTint);
+        for (const auto& a : wearing) items.push_back(Catalog::fromServer(a));
+    m_profileRetryAt = dressPlayer(*p, bc, hat, hatTint, items) ? 0.0 : ImGui::GetTime() + 1.0;   // try again once they've downloaded
+    Online::fetchSounds(*m_profileScene);
     Environment& e = m_profileScene->environment();
     e.fogEnabled = false;
     e.sunAzimuth = 70.0f;
@@ -257,7 +255,10 @@ void PlayerApp::drawProfile() {
 
     // The avatar in 3D (drag to turn).
     std::string key = id + avatar.dump() + wearing.dump();
-    if (m_profileSceneFor != key || !m_profileScene) { buildProfileStage(avatar, wearing); m_profileSceneFor = key; }
+    if (m_profileSceneFor != key || !m_profileScene || (m_profileRetryAt > 0 && ImGui::GetTime() > m_profileRetryAt)) {
+        buildProfileStage(avatar, wearing);
+        m_profileSceneFor = key;
+    }
     {
         ImVec2 size(ImGui::GetContentRegionAvail().x, tall ? 240.0f : 330.0f);
         const float fb = ImGui::GetIO().DisplayFramebufferScale.x;
@@ -283,7 +284,7 @@ void PlayerApp::drawProfile() {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
             dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(170, 175, 185, 255));
-            drawItemIcon(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+            itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
             ImGui::Dummy(ImVec2(tile, tile));
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
             ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());

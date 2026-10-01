@@ -2,6 +2,7 @@
 #include "../game/GameGui.h"
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -146,6 +147,18 @@ private:
     // People and groups — PlayerSocial.cpp
     void drawPeople();
     void drawProfile();
+    // Item pictures: real renders of a mannequin wearing each item (ItemRenders.cpp).
+    struct ItemRender {
+        std::unique_ptr<Catalog::Item> item;
+        std::unique_ptr<Framebuffer>   fb;
+        bool   done = false;
+        double lastUsed = 0, retryAt = 0, firstTry = 0;
+    };
+    std::map<std::string, ItemRender> m_itemRenders;
+    void itemPicture(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it);
+    void updateItemRenders();
+    bool renderItem(ItemRender& e);
+    static bool dressPlayer(Player& p, BodyColors bc, HatStyle hat, glm::vec3 hatTint, const std::vector<Catalog::Item>& items);
     // Someone's friends / following / followers (a popup over their profile).
     void openPeople(const std::string& user, const std::string& which, int page = 0);
     void drawPeopleDialog();
@@ -202,6 +215,7 @@ private:
     std::unique_ptr<Scene>         m_avatarScene;  // preview on the Avatar page
     std::unique_ptr<Scene>         m_profileScene; // the avatar on the Profile page
     std::string                    m_profileSceneFor;
+    double                         m_profileRetryAt = 0;   // rebuild once their clothes have downloaded
     Camera                         m_profileCam;
     Framebuffer                    m_profileView;
     // "Choose Your Character" (guests): a boy and a girl to play as.
