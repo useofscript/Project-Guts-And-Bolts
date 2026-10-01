@@ -10,6 +10,7 @@
 #include "../../renderer/Framebuffer.h"
 #include "../../renderer/SceneRenderer.h"
 #include "../EditorState.h"
+#include "../../scene/Physics.h"
 #include <imgui.h>
 
 struct GLFWwindow;
@@ -69,6 +70,13 @@ public:
     std::function<void(StudioMode)> onMode;
 
 private:
+    // The navmesh view: its own look at the parts, rebaked when they change.
+    void updateNavOverlay();
+    Physics  m_navPhysics;
+    uint32_t m_navDrawn = 0;
+    double   m_navGather = 0.0;
+    bool     m_navShown = false;
+
     void handleInput(float dt);
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);

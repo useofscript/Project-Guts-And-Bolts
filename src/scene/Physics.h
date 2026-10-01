@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 #include <glm/glm.hpp>
+#include "NavMesh.h"
 
 class Scene;
 class SceneNode;
@@ -38,11 +39,6 @@ struct TouchEvent {
     uint64_t otherId;
 };
 
-// A point on a walking route (PathfindingService).
-struct PathPoint {
-    glm::vec3 pos;    // where the feet go
-    bool      jump;   // jump to get here
-};
 
 // Very small physics world used in Play mode:
 //  * the character is a box that walks, climbs small steps and lands on parts
@@ -112,15 +108,16 @@ public:
     template <typename F> void forEachCollider(F&& f) const {
         for (const auto& c : m_colliders) f(c.node, c.box, c.dynamic);
     }
-    // A walking route for a character from `start` to `goal` (feet positions): around
-    // walls, up steps, and up ledges no higher than `jumpHeight` (jumping). The first
-    // point is the start. False if there's no way there (or it's too far to search).
-    bool findPath(const glm::vec3& start, const glm::vec3& goal, float jumpHeight,
-                  std::vector<PathPoint>& out) const;
+    // The navigation mesh (PathfindingService). Baked the first time it's asked for,
+    // and again (at most about once a second) after anchored parts move or change.
+    const NavMesh& navMesh() const;
+    void setNavSettings(const NavMesh::Settings& s) const { m_navSettings = s; m_navHash = ~0ull; }
+    void rebakeNavMesh() const;   // right now (Studio's Bake button, scripts)
     // New touches since the last call (parts vs character, unanchored vs others).
     void collectTouches(Scene& scene, std::vector<TouchEvent>& out);
 
 private:
+    friend class NavMesh;
     struct Collider {
         SceneNode* node;
         AABB       box;
@@ -134,4 +131,9 @@ private:
     std::vector<Collider>                  m_colliders;
     std::vector<Collider>                  m_bodies;   // characters' body boxes (players bumping into players)
     std::set<std::pair<uint64_t, uint64_t>> m_touching;
+    uint64_t                               m_staticHash = 0;     // the anchored solid parts, as a number
+    mutable NavMesh::Settings              m_navSettings;
+    mutable NavMesh                        m_nav;
+    mutable uint64_t                       m_navHash = ~0ull;    // m_staticHash when it was baked
+    mutable double                         m_navTime = -1e9;
 };

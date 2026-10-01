@@ -303,7 +303,7 @@ add_library(gb_engine STATIC
     src/scene/Scene.cpp
     src/scene/Player.cpp
     src/scene/Physics.cpp
-    src/scene/Pathfinding.cpp
+    src/scene/NavMesh.cpp
     src/scene/Npc.cpp
     src/scene/Water.cpp
     src/scene/Liquid.cpp

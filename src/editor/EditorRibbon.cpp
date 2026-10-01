@@ -333,6 +333,19 @@ void Editor::renderToolbar() {
                 setMode(StudioMode::Modeling);
         }
         {
+            Group g("Navigation");
+            if (bigButton("Navmesh", Icons::Id::NavMesh, m_state.showNavMesh, true,
+                          "Show the navigation mesh: the blue floor is where characters can walk; yellow arcs are "
+                          "jumps, orange lines are drops. PathfindingService uses it."))
+                m_state.showNavMesh = !m_state.showNavMesh;
+            std::string tip = "Bake the navigation mesh again now (it also rebakes by itself when parts change)";
+            if (!m_state.navInfo.empty()) tip += "\n" + m_state.navInfo;
+            if (bigButton("Bake", Icons::Id::Bake, false, true, tip.c_str())) {
+                m_state.bakeNavMesh = 1;
+                m_state.showNavMesh = true;
+            }
+        }
+        {
             Group g("Constraints");
             const char* names[] = {"Rope", "Rod", "Spring", "Weld", "Hinge", "Motor"};
             for (int col = 0; col < 2; ++col) {

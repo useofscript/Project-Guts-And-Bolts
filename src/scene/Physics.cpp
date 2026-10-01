@@ -4,6 +4,8 @@
 #include "Player.h"
 
 #include <algorithm>
+#include <cstring>
+#include <chrono>
 #include <cmath>
 
 namespace {
@@ -220,6 +222,7 @@ void Physics::reset() {
 
 void Physics::gather(Scene& scene) {
     m_colliders.clear();
+    uint64_t hash = 1469598103934665603ull;
     // Manual walk so whole subtrees (hidden models, the character) can be skipped.
     std::vector<SceneNode*> stack{scene.root()};
     while (!stack.empty()) {
@@ -234,9 +237,16 @@ void Physics::gather(Scene& scene) {
             m_colliders.push_back({n, worldBounds(n), n->canCollide,
                                    !n->anchored && !hasDynamicAncestor(n), rot,
                                    rot ? worldOBB(n) : OBB{}});
+            const Collider& c = m_colliders.back();
+            if (c.solid && !c.dynamic) {   // the navmesh only cares about these
+                auto mix = [&](float f) { uint32_t u; std::memcpy(&u, &f, 4); hash = (hash ^ u) * 1099511628211ull; };
+                mix(c.box.min.x); mix(c.box.min.y); mix(c.box.min.z); mix(c.box.max.x); mix(c.box.max.y); mix(c.box.max.z);
+                hash = (hash ^ n->id) * 1099511628211ull;
+            }
         }
         for (auto& c : n->children) stack.push_back(c.get());
     }
+    m_staticHash = hash;
 
     // Characters as solid bodies, so players (and NPCs) bump into each other
     // instead of walking through. Only the character movement uses these.
@@ -530,4 +540,20 @@ void Physics::collectTouches(Scene& scene, std::vector<TouchEvent>& out) {
     }
 
     m_touching.swap(now);
+}
+
+const NavMesh& Physics::navMesh() const {
+    using namespace std::chrono;
+    const double now = duration<double>(steady_clock::now().time_since_epoch()).count();
+    // Rebuilt when the anchored parts changed - but not more than about once a second,
+    // so moving platforms don't make every path search rebake the whole world.
+    if (!m_nav.baked() || (m_navHash != m_staticHash && now - m_navTime > 1.0)) rebakeNavMesh();
+    return m_nav;
+}
+
+void Physics::rebakeNavMesh() const {
+    using namespace std::chrono;
+    m_nav.bake(*this, m_navSettings);
+    m_navHash = m_staticHash;
+    m_navTime = duration<double>(steady_clock::now().time_since_epoch()).count();
 }

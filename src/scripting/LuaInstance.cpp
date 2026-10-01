@@ -1407,12 +1407,31 @@ Npc* npcOf(lua_State* L) { return E(L)->scene()->npcs().find(*E(L)->scene(), hum
 int hum_moveTo(lua_State* L) {
     glm::vec3 p = LuaApi::checkVector3(L, 2);
     if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) p = worldPosition(LuaApi::checkNode(L, 3));   // follow a part
-    if (Npc* n = npcOf(L)) { n->target = p; n->hasTarget = true; n->targetTime = 0.0f; n->moveDir = glm::vec3(0.0f); }
+    if (Npc* n = npcOf(L)) {
+        n->target = p; n->hasTarget = true; n->targetTime = 0.0f; n->moveDir = glm::vec3(0.0f);
+        n->route.state = Npc::Route::Idle;   // a plain MoveTo takes over from PathfindTo
+    }
+    return 0;
+}
+// humanoid:PathfindStart(target [, params]): start walking a navmesh route (PathfindTo waits for it).
+int hum_pathfindStart(lua_State* L) {
+    Npc* n = npcOf(L);
+    if (!n) { lua_pushboolean(L, false); return 1; }
+    glm::vec3 goal(0.0f);
+    uint64_t follow = 0;
+    if (glm::vec3* v = LuaApi::toVector3(L, 2)) goal = *v;
+    else follow = LuaApi::checkNode(L, 2)->id;
+    NpcSystem::startRoute(*n, goal, follow, LuaApi::checkAgent(L, 3));
+    lua_pushboolean(L, true);
+    return 1;
+}
+int hum_stopPathfinding(lua_State* L) {
+    if (Npc* n = npcOf(L)) { n->route.state = Npc::Route::Idle; n->route.waypoints.clear(); }
     return 0;
 }
 int hum_move(lua_State* L) {
     glm::vec3 d = LuaApi::checkVector3(L, 2);
-    if (Npc* n = npcOf(L)) { n->moveDir = d; n->hasTarget = false; }
+    if (Npc* n = npcOf(L)) { n->moveDir = d; n->hasTarget = false; n->route.state = Npc::Route::Idle; }
     return 0;
 }
 
@@ -1445,6 +1464,15 @@ int hum_index(lua_State* L) {
     if (is(k, "LoadAnimation")) { lua_pushcfunction(L, hum_loadAnimation); return 1; }
     if (is(k, "GetState"))   { lua_pushcfunction(L, hum_getState); return 1; }
     if (is(k, "MoveTo"))     { lua_pushcfunction(L, hum_moveTo); return 1; }
+    if (is(k, "PathfindTo")) { lua_getglobal(L, "__gb_pathfindTo"); return 1; }
+    if (is(k, "PathfindStart")) { lua_pushcfunction(L, hum_pathfindStart); return 1; }
+    if (is(k, "StopPathfinding")) { lua_pushcfunction(L, hum_stopPathfinding); return 1; }
+    if (is(k, "PathfindStatus")) {   // "Idle", "Walking", "Arrived" or "Failed"
+        Npc* n = npcOf(L);
+        static const char* names[] = {"Idle", "Walking", "Arrived", "Failed"};
+        lua_pushstring(L, n ? names[n->route.state] : "Idle");
+        return 1;
+    }
     if (is(k, "Move"))       { lua_pushcfunction(L, hum_move); return 1; }
     if (is(k, "MoveToFinished")) { LuaApi::pushSignal(L, SignalKind::MoveToFinished, humRoot(L)); return 1; }
     if (is(k, "Jump"))       { Npc* n = npcOf(L); lua_pushboolean(L, n && n->jump); return 1; }

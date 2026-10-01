@@ -183,34 +183,126 @@ function DataStoreService:GetDataStore(name, scope)
 end
 DataStoreService.GetOrderedDataStore = DataStoreService.GetDataStore
 
--- PathfindingService: a walking route around walls (for NPCs).
---   local path = PathfindingService:CreatePath()
---   path:ComputeAsync(zombie.HumanoidRootPart.Position, target)
+-- PathfindingService: walking routes on the navigation mesh (every floor a character
+-- can stand on, baked from the parts; it re-bakes itself when anchored parts change).
+-- Works like Roblox's:
+--   local path = PathfindingService:CreatePath({ AgentRadius = 0.6, AgentCanJump = true,
+--                                                Costs = { Water = 10, Lava = math.huge } })
+--   path:ComputeAsync(npc.HumanoidRootPart.Position, target)
 --   if path.Status == Enum.PathStatus.Success then
---       for _, wp in ipairs(path:GetWaypoints()) do ... humanoid:MoveTo(wp.Position) ... end
+--       for _, wp in ipairs(path:GetWaypoints()) do
+--           if wp.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+--           humanoid:MoveTo(wp.Position)
+--           humanoid.MoveToFinished:Wait()
+--       end
 --   end
-local findPath = __gb_findPath
-PathfindingService = {}
+-- ...or let the engine do all of that: humanoid:PathfindTo(target) walks there by itself
+-- (jumping, finding a new way when blocked or stuck, keeping up with a moving target).
+-- Extras: PathfindingService:IsWalkable(pos), :FindClosestPoint(pos), :GetRandomPoint(near, radius),
+-- :CanWalkStraight(a, b), :Bake(), :SetBakeSettings({...}). Part attributes
+-- PathfindingLabel (a name for Costs) and PathfindingPassThrough (ignored) work like
+-- Roblox's PathfindingModifier.
+local navPath, navQuery = __gb_navPath, __gb_navQuery
+local function luaSignal()
+    local sig, list = {}, {}
+    function sig:Connect(fn)
+        local c = { Connected = true }
+        function c:Disconnect() self.Connected = false end
+        list[#list + 1] = { c, fn }
+        return c
+    end
+    sig.connect = sig.Connect
+    function sig:Wait()
+        local done, args = false, nil
+        local c
+        c = sig:Connect(function(...) args = { ... }; done = true; c:Disconnect() end)
+        while not done do task.wait() end
+        return table.unpack(args)
+    end
+    function sig:Fire(...)
+        for _, e in ipairs(list) do if e[1].Connected then task.spawn(e[2], ...) end end
+    end
+    return sig
+end
+local watched = setmetatable({}, { __mode = "k" })   -- paths that can be Blocked
+local watching = false
+local function startWatching()
+    if watching then return end
+    watching = true
+    task.spawn(function()
+        while true do
+            task.wait(0.25)
+            for path in pairs(watched) do
+                if path._ver ~= navQuery("version") then
+                    path._ver = navQuery("version")
+                    local idx = path:CheckOcclusionAsync(1)
+                    if idx > 0 and not path._blocked then path._blocked = true; path.Blocked:Fire(idx)
+                    elseif idx < 0 and path._blocked then path._blocked = false; path.Unblocked:Fire(1) end
+                end
+            end
+        end
+    end)
+end
+PathfindingService = { ClassName = "PathfindingService", Name = "PathfindingService" }
 function PathfindingService:CreatePath(params)
-    local jumpHeight = 1.6
-    if params and params.AgentCanJump == false then jumpHeight = 0.5 end
-    local path = { Status = "NoPath", points = {} }
+    local path = { ClassName = "Path", Status = "NoPath", _wps = {}, _params = params or {} }
+    path.Blocked, path.Unblocked = luaSignal(), luaSignal()
     function path:ComputeAsync(from, to)
-        local pts = findPath(from, to, jumpHeight)
-        self.points = pts or {}
-        self.Status = pts and "Success" or "NoPath"
+        local status, wps = navPath(from, to, self._params)
+        self.Status = status
+        self._wps = wps
+        self._ver = navQuery("version")
+        self._blocked = false
+        watched[self] = true
+        startWatching()
     end
     function path:GetWaypoints()
         local t = {}
-        for i, p in ipairs(self.points) do
-            t[i] = { Position = p[1], Action = p[2] and "Jump" or "Walk" }
+        for i, w in ipairs(self._wps) do
+            t[i] = { ClassName = "PathWaypoint", Position = w[1], Action = w[2], Label = w[3] }
         end
         return t
     end
-    local noop = { Connect = function() return { Disconnect = function() end } end }
-    path.Blocked, path.Unblocked = noop, noop
-    function path:Destroy() end
+    -- The first waypoint (from `start` on) whose way there is blocked now, or -1.
+    function path:CheckOcclusionAsync(start)
+        local w = self._wps
+        for i = math.max(2, start or 1), #w do
+            if w[i][2] == "Jump" then
+                if not navQuery("walkable", w[i][1], self._params) then return i end
+            elseif not navQuery("straight", w[i - 1][1], w[i][1], self._params) then
+                return i
+            end
+        end
+        return -1
+    end
+    function path:Destroy() watched[self] = nil; self._wps = {} end
     return path
+end
+function PathfindingService:FindPathAsync(from, to)
+    local p = self:CreatePath()
+    p:ComputeAsync(from, to)
+    return p
+end
+PathfindingService.ComputeRawPathAsync = PathfindingService.FindPathAsync
+PathfindingService.ComputeSmoothPathAsync = PathfindingService.FindPathAsync
+function PathfindingService:IsWalkable(pos, params) return navQuery("walkable", pos, params) end
+function PathfindingService:FindClosestPoint(pos, range, params) return navQuery("closest", pos, range or 10, params) end
+function PathfindingService:GetRandomPoint(near, radius, params) return navQuery("random", near, radius, params) end
+function PathfindingService:CanWalkStraight(a, b, params) return navQuery("straight", a, b, params) end
+function PathfindingService:Bake() return navQuery("bake") end
+function PathfindingService:SetBakeSettings(t) navQuery("settings", t) end
+function PathfindingService:GetService() return self end
+
+-- humanoid:PathfindTo(target [, params]): walk there by itself; waits until it gets
+-- there (true) or gives up (false). target: a Vector3, a part, or a model/character.
+function __gb_pathfindTo(hum, target, params)
+    if not hum:PathfindStart(target, params) then return false end
+    while true do
+        local st = hum.PathfindStatus
+        if st == "Arrived" then return true end
+        if st ~= "Walking" then return false end
+        task.wait(0.1)
+    end
 end
 
 -- BadgeService: give players the badges you made for your game on its page
@@ -278,7 +370,7 @@ end
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
-__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_findPath = nil, nil, nil, nil, nil
+__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil
 __gb_awardBadge, __gb_hasBadge = nil, nil
 )LUA";
 
@@ -531,20 +623,82 @@ int gui_clear(lua_State* L) {
 }
 
 // Explode(position, radius, power)
-// __gb_findPath(from, to, jumpHeight) -> { {position, jump}, ... } or nil (PathfindingService).
-int l_findPath(lua_State* L) {
+// __gb_navPath(from, to, params) -> status, { {position, action, label}, ... } (PathfindingService).
+int l_navPath(lua_State* L) {
     glm::vec3 from = LuaApi::checkVector3(L, 1), to = LuaApi::checkVector3(L, 2);
+    NavMesh::Agent agent = LuaApi::checkAgent(L, 3);
     const Physics* ph = LuaApi::engine(L)->physics();
-    std::vector<PathPoint> pts;
-    if (!ph || !ph->findPath(from, to, (float)luaL_optnumber(L, 3, 1.6), pts)) { lua_pushnil(L); return 1; }
-    lua_createtable(L, (int)pts.size(), 0);
-    for (size_t i = 0; i < pts.size(); ++i) {
-        lua_createtable(L, 2, 0);
-        LuaApi::pushVector3(L, pts[i].pos); lua_rawseti(L, -2, 1);
-        lua_pushboolean(L, pts[i].jump);    lua_rawseti(L, -2, 2);
+    if (!ph) { lua_pushstring(L, "NoPath"); lua_newtable(L); return 2; }
+    std::vector<NavMesh::Waypoint> wps;
+    NavMesh::Status st = ph->navMesh().findPath(from, to, agent, wps);
+    lua_pushstring(L, NavMesh::statusName(st));
+    lua_createtable(L, (int)wps.size(), 0);
+    for (size_t i = 0; i < wps.size(); ++i) {
+        lua_createtable(L, 3, 0);
+        LuaApi::pushVector3(L, wps[i].pos);  lua_rawseti(L, -2, 1);
+        lua_pushstring(L, wps[i].action == NavMesh::Action::Jump ? "Jump" : "Walk"); lua_rawseti(L, -2, 2);
+        lua_pushstring(L, wps[i].label.c_str()); lua_rawseti(L, -2, 3);
         lua_rawseti(L, -2, (int)i + 1);
     }
-    return 1;
+    return 2;
+}
+
+// __gb_navQuery(what, ...): the navmesh's other questions (see PathfindingService below).
+int l_navQuery(lua_State* L) {
+    const std::string what = luaL_checkstring(L, 1);
+    const Physics* ph = LuaApi::engine(L)->physics();
+    if (!ph) { lua_pushnil(L); return 1; }
+    if (what == "bake") {
+        ph->rebakeNavMesh();
+        lua_pushnumber(L, ph->navMesh().bakeMs());
+        lua_pushinteger(L, (lua_Integer)ph->navMesh().spanCount());
+        return 2;
+    }
+    if (what == "settings") {   // SetBakeSettings({CellSize=, MaxSlope=, JumpHeight=, JumpGap=, MaxDrop=, StepHeight=})
+        NavMesh::Settings st = ph->navMesh().settings();
+        luaL_checktype(L, 2, LUA_TTABLE);
+        auto num = [&](const char* k, float& out) {
+            lua_getfield(L, 2, k);
+            if (lua_isnumber(L, -1)) out = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+        };
+        num("CellSize", st.cell); num("MaxSlope", st.maxSlope); num("JumpHeight", st.jumpHeight);
+        num("JumpGap", st.jumpGap); num("MaxDrop", st.maxDrop); num("StepHeight", st.maxClimb);
+        st.cell = std::clamp(st.cell, 0.2f, 4.0f);
+        ph->setNavSettings(st);
+        return 0;
+    }
+    const NavMesh& nav = ph->navMesh();
+    if (what == "version") { lua_pushinteger(L, nav.version()); return 1; }
+    if (what == "walkable") {
+        lua_pushboolean(L, nav.walkable(LuaApi::checkVector3(L, 2), LuaApi::checkAgent(L, 3)));
+        return 1;
+    }
+    if (what == "closest") {
+        glm::vec3 out;
+        if (nav.closestPoint(LuaApi::checkVector3(L, 2), LuaApi::checkAgent(L, 4), (float)luaL_optnumber(L, 3, 10.0), out))
+            LuaApi::pushVector3(L, out);
+        else
+            lua_pushnil(L);
+        return 1;
+    }
+    if (what == "straight") {
+        glm::vec3 hit;
+        bool ok = nav.straightWalk(LuaApi::checkVector3(L, 2), LuaApi::checkVector3(L, 3), LuaApi::checkAgent(L, 4), &hit);
+        lua_pushboolean(L, ok);
+        if (ok) LuaApi::pushVector3(L, LuaApi::checkVector3(L, 3)); else LuaApi::pushVector3(L, hit);
+        return 2;
+    }
+    if (what == "random") {
+        glm::vec3 around = lua_isnoneornil(L, 2) ? glm::vec3(0.0f) : LuaApi::checkVector3(L, 2);
+        float radius = lua_isnoneornil(L, 2) ? 0.0f : (float)luaL_optnumber(L, 3, 20.0);
+        static uint32_t seed = 1;
+        glm::vec3 out;
+        if (nav.randomPoint(around, radius, LuaApi::checkAgent(L, 4), seed++, out)) LuaApi::pushVector3(L, out);
+        else lua_pushnil(L);
+        return 1;
+    }
+    return luaL_error(L, "unknown navmesh question '%s'", what.c_str());
 }
 
 int l_explode(lua_State* L) {
@@ -615,6 +769,42 @@ void timeoutHook(lua_State* L, lua_Debug*) { LuaApi::engine(L)->checkTimeout(L);
 
 namespace LuaApi {
 ScriptEngine* engine(lua_State* L) { return *static_cast<ScriptEngine**>(lua_getextraspace(L)); }
+
+NavMesh::Agent checkAgent(lua_State* L, int idx) {
+    NavMesh::Agent a;
+    if (lua_isnoneornil(L, idx) || !lua_istable(L, idx)) return a;
+    idx = lua_absindex(L, idx);
+    auto num = [&](const char* k, float& out) {
+        lua_getfield(L, idx, k);
+        if (lua_isnumber(L, -1)) out = (float)lua_tonumber(L, -1);
+        lua_pop(L, 1);
+    };
+    num("AgentRadius", a.radius);
+    num("AgentHeight", a.height);
+    num("WaypointSpacing", a.spacing);
+    // Copied from a Roblox game (AgentHeight 5, AgentRadius 2...)? Those are Roblox
+    // studs: characters here are half that size.
+    if (a.height >= 4.0f) { a.radius *= 0.5f; a.height *= 0.5f; a.spacing *= 0.5f; }
+    a.radius = std::clamp(a.radius, 0.1f, 20.0f);
+    a.height = std::clamp(a.height, 0.5f, 50.0f);
+    if (!std::isfinite(a.spacing) || a.spacing <= 0.0f) a.spacing = 0.0f;   // math.huge: corners only
+    lua_getfield(L, idx, "AgentCanJump");
+    if (lua_isboolean(L, -1)) a.canJump = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    lua_getfield(L, idx, "Costs");
+    if (lua_istable(L, -1)) {
+        lua_pushnil(L);
+        while (lua_next(L, -2)) {
+            if (lua_type(L, -2) == LUA_TSTRING && lua_isnumber(L, -1)) {
+                double v = lua_tonumber(L, -1);
+                a.costs[lua_tostring(L, -2)] = !std::isfinite(v) || v > 1e8 ? 1e9f : (float)std::max(0.01, v);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+    return a;
+}
 }
 
 ScriptEngine::ScriptEngine(Scene* scene) : m_scene(scene) {}
@@ -672,7 +862,8 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_setRespawn", l_setRespawn);
     lua_register(L, "__gb_dsGet", l_dsGet);
     lua_register(L, "__gb_dsSet", l_dsSet);
-    lua_register(L, "__gb_findPath", l_findPath);
+    lua_register(L, "__gb_navPath", l_navPath);
+    lua_register(L, "__gb_navQuery", l_navQuery);
     lua_register(L, "__gb_awardBadge", l_awardBadge);
     lua_register(L, "__gb_hasBadge", l_hasBadge);
 

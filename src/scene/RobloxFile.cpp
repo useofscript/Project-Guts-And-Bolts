@@ -955,6 +955,20 @@ struct Converter {
             node->visible = in.flag("Visible", c == "RopeConstraint" || c == "RodConstraint" || c == "SpringConstraint");
             node->color = {0.45f, 0.32f, 0.2f};
             ++report.constraints;
+        } else if (c == "PathfindingModifier") {
+            // Becomes attributes on its part, which the navmesh reads the same way.
+            if (parent) {
+                if (std::string label = in.str("Label"); !label.empty()) {
+                    Attribute a; a.name = "PathfindingLabel"; a.type = Attribute::String; a.s = label;
+                    parent->attributes.push_back(a);
+                }
+                if (in.flag("PassThrough", false)) {
+                    Attribute a; a.name = "PathfindingPassThrough"; a.type = Attribute::Bool; a.b = true;
+                    parent->attributes.push_back(a);
+                }
+            }
+            ++report.other;
+            return nullptr;
         } else if (c == "Humanoid" || c == "Decal" || c == "Texture" || c == "SpecialMesh" || c == "TouchTransmitter" ||
                    c.find("Value") != std::string::npos || c == "Camera" || c == "Terrain") {
             if (c == "Decal" || c == "Texture") note("Decals and textures aren't supported yet.");

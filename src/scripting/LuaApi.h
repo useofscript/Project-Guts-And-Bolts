@@ -7,6 +7,7 @@ extern "C" {
 }
 #include <cstdint>
 #include <glm/glm.hpp>
+#include "../scene/NavMesh.h"
 
 class ScriptEngine;
 class SceneNode;
@@ -63,6 +64,10 @@ glm::vec2  checkUDim  (lua_State* L, int idx);             // (scale, offset)
 void       pushVector2(lua_State* L, const glm::vec2& v);
 glm::vec2* toVector2  (lua_State* L, int idx);
 glm::vec2  checkVector2(lua_State* L, int idx);
+
+// PathfindingService settings: a CreatePath-style table at idx (or nil) -> what the
+// navmesh needs (ScriptEngine.cpp).
+NavMesh::Agent checkAgent(lua_State* L, int idx);
 
 // Objects (LuaInstance.cpp)
 void       registerInstance(lua_State* L);

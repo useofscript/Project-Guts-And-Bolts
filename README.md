@@ -742,13 +742,38 @@ humanoid.Jump = true                      -- hop once
 humanoid.Died:Connect(function() print("got him!") end)
 ```
 
-To walk around walls, ask **PathfindingService** for a route:
+### Navmesh and pathfinding
+
+The engine bakes a **navigation mesh**: every floor a character can stand on,
+which floors join up, and where you can jump up a ledge, drop off an edge or
+jump across a gap. It takes a few milliseconds and re-bakes by itself when
+anchored parts change. See it in Studio with **MODEL > Navigation > Navmesh**
+(blue = walkable, yellow arcs = jumps, orange lines = drops). **Bake** re-bakes
+it right now.
+
+The easy way: let the engine do the walking.
+
+```lua
+local ok = humanoid:PathfindTo(workspace.Treasure)   -- waits until it gets there (true) or gives up (false)
+humanoid:PathfindStart(player.Character)            -- or don't wait: it keeps following a moving target
+print(humanoid.PathfindStatus)                      -- "Walking", "Arrived", "Failed" or "Idle"
+humanoid:StopPathfinding()
+```
+
+It jumps where the route says, finds a new way when something blocks it or it
+gets stuck, and keeps up with a target that moves.
+
+The Roblox way works too:
 
 ```lua
 local PathfindingService = game:GetService("PathfindingService")
-local path = PathfindingService:CreatePath()
+local path = PathfindingService:CreatePath({
+    AgentRadius = 0.6, AgentHeight = 2.7, AgentCanJump = true, WaypointSpacing = 2,
+    Costs = { Water = 10, DangerZone = math.huge },   -- materials or PathfindingLabel names
+})
 path:ComputeAsync(npc.HumanoidRootPart.Position, target.Position)
 if path.Status == Enum.PathStatus.Success then
+    path.Blocked:Connect(function(index) print("something's in the way at waypoint", index) end)
     for _, point in ipairs(path:GetWaypoints()) do
         if point.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
         humanoid:MoveTo(point.Position)
@@ -756,6 +781,22 @@ if path.Status == Enum.PathStatus.Success then
     end
 end
 ```
+
+Sizes are in Guts&Bolts studs (characters are half Roblox's size). A table
+copied from a Roblox game (AgentHeight 5) is halved for you.
+
+| More from PathfindingService | |
+|---|---|
+| `:IsWalkable(pos)` | can someone stand here? |
+| `:FindClosestPoint(pos, range)` | the nearest walkable spot |
+| `:GetRandomPoint(near, radius)` | a random spot you can walk to (wandering NPCs) |
+| `:CanWalkStraight(a, b)` | true, or false and how far you'd get |
+| `:Bake()` | re-bake now; returns milliseconds and the number of floor cells |
+| `:SetBakeSettings({CellSize, MaxSlope, StepHeight, JumpHeight, JumpGap, MaxDrop})` | how it bakes |
+
+Part attributes work like Roblox's PathfindingModifier: **PathfindingLabel**
+(a name to use in `Costs`) and **PathfindingPassThrough** (true = paths ignore
+this part, e.g. a door that opens).
 
 Give the model a **WalkSpeed** or **MaxHealth** attribute to set those without
 a script. NPCs whose name has "Zombie" in it (or tagged `Zombie`) walk with

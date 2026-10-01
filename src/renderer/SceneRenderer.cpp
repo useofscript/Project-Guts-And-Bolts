@@ -116,6 +116,7 @@ SceneRenderer::SceneRenderer() {
     using namespace Shaders;
     m_lit       = std::make_unique<Shader>(litVert, litFrag);
     m_grid      = std::make_unique<Shader>(gridVert, gridFrag);
+    m_overlay   = std::make_unique<Shader>(overlayVert, overlayFrag);
     m_sky       = std::make_unique<Shader>(skyVert, skyFrag);
     m_depth     = std::make_unique<Shader>(depthVert, depthFrag);
     m_ssao      = std::make_unique<Shader>(fullscreenVert, ssaoFrag);
@@ -142,6 +143,8 @@ SceneRenderer::SceneRenderer() {
 SceneRenderer::~SceneRenderer() {
     Liquid::graphicsContext(-1);
     if (m_gridVbo)  glDeleteBuffers(1, &m_gridVbo);
+    if (m_overlayVbo) glDeleteBuffers(1, &m_overlayVbo);
+    if (m_overlayVao) glDeleteVertexArrays(1, &m_overlayVao);
     if (m_gridVao)  glDeleteVertexArrays(1, &m_gridVao);
     if (m_axisVbo)  glDeleteBuffers(1, &m_axisVbo);
     if (m_axisVao)  glDeleteVertexArrays(1, &m_axisVao);
@@ -153,6 +156,47 @@ SceneRenderer::~SceneRenderer() {
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
     for (auto& b : m_bloom) destroyTarget(b);
+}
+
+void SceneRenderer::setOverlay(const std::vector<OverlayVertex>& tris, const std::vector<OverlayVertex>& lines) {
+    m_overlayTris = (int)tris.size();
+    m_overlayLines = (int)lines.size();
+    if (!m_overlayTris && !m_overlayLines) return;
+    if (!m_overlayVao) {
+        glGenVertexArrays(1, &m_overlayVao);
+        glGenBuffers(1, &m_overlayVbo);
+        glBindVertexArray(m_overlayVao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_overlayVbo);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(OverlayVertex), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(OverlayVertex), (void*)sizeof(glm::vec3));
+    }
+    glBindVertexArray(m_overlayVao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_overlayVbo);
+    std::vector<OverlayVertex> all(tris);
+    all.insert(all.end(), lines.begin(), lines.end());
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(all.size() * sizeof(OverlayVertex)), all.data(), GL_DYNAMIC_DRAW);
+    glBindVertexArray(0);
+}
+
+void SceneRenderer::drawOverlay(const glm::mat4& view, const glm::mat4& proj) {
+    if (!m_overlayVao || (!m_overlayTris && !m_overlayLines)) return;
+    m_overlay->bind();
+    m_overlay->setMat4("uView", view);
+    m_overlay->setMat4("uProj", proj);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+    glBindVertexArray(m_overlayVao);
+    if (m_overlayTris) glDrawArrays(GL_TRIANGLES, 0, m_overlayTris);
+    if (m_overlayLines) glDrawArrays(GL_LINES, m_overlayTris, m_overlayLines);
+    glBindVertexArray(0);
+    glEnable(GL_CULL_FACE);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    m_lit->bind();
 }
 
 void SceneRenderer::setGridSpacing(float studs) {
@@ -437,6 +481,7 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     m_lit->setVec4Array("uLightDir", ld, count);
 
     drawGeometry(scene, camera, showGrid);
+    drawOverlay(view, proj);
     glBindVertexArray(0);
     renderLiquid(scene, camera);
 

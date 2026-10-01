@@ -26,6 +26,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 ViewportPanel::ViewportPanel(GLFWwindow* window, Scene* scene, EditorState* state)
     : m_window(window), m_scene(scene), m_state(state) {
@@ -385,6 +386,7 @@ void ViewportPanel::render(float dt) {
         }
         bool playing = m_session != nullptr;
         m_renderer.setGridSpacing(m_state->snapEnabled && m_state->snapTranslate >= 0.25f ? m_state->snapTranslate : 1.0f);
+        updateNavOverlay();
         m_renderer.render(*m_scene, m_camera, m_fbo, m_state->showGrid && (!playing || m_session->runOnly()));
         Audio::setListener(m_camera.position(), m_camera.forward());
 
@@ -746,4 +748,38 @@ std::string ViewportPanel::snapshotPng(int width, int height, bool fromView) {
         static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
     }, &png, width, height, 4, img.data(), (int)row);
     return png;
+}
+
+void ViewportPanel::updateNavOverlay() {
+    static bool testFlag = std::getenv("GB_TEST_NAVMESH") != nullptr;   // (tests: start with it showing)
+    if (testFlag) { m_state->showNavMesh = true; testFlag = false; }
+    if (!m_state->showNavMesh && !m_state->bakeNavMesh) {
+        if (m_navShown) { m_renderer.setOverlay({}, {}); m_navShown = false; }
+        return;
+    }
+    // Look at the parts again now and then (twice a second); the navmesh rebakes
+    // itself when they've changed.
+    const double now = ImGui::GetTime();
+    if (now - m_navGather > 0.5 || m_state->bakeNavMesh) {
+        m_navGather = now;
+        m_navPhysics.gather(*m_scene);
+        if (m_state->bakeNavMesh) { m_navPhysics.rebakeNavMesh(); m_state->bakeNavMesh = 0; }
+    }
+    const NavMesh& nav = m_navPhysics.navMesh();
+    char info[96];
+    std::snprintf(info, sizeof info, "%zu floor cells, baked in %.0f ms", nav.spanCount(), nav.bakeMs());
+    m_state->navInfo = info;
+    if (!m_state->showNavMesh) return;
+    if (m_navShown && m_navDrawn == nav.version()) return;
+    std::vector<NavMesh::DrawVertex> tris, lines;
+    nav.buildDrawing(tris, lines, NavMesh::Agent{});
+    auto conv = [](const std::vector<NavMesh::DrawVertex>& in) {
+        std::vector<SceneRenderer::OverlayVertex> out;
+        out.reserve(in.size());
+        for (const auto& v : in) out.push_back({v.pos, v.color});
+        return out;
+    };
+    m_renderer.setOverlay(conv(tris), conv(lines));
+    m_navDrawn = nav.version();
+    m_navShown = true;
 }

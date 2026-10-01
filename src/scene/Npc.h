@@ -8,6 +8,7 @@
 #include "SceneNode.h"
 #include "Player.h"
 #include "Ragdoll.h"
+#include "NavMesh.h"
 
 class Scene;
 class Physics;
@@ -30,6 +31,23 @@ struct Npc {
     glm::vec3 moveDir{0.0f};
     bool      jump = false;             // Humanoid.Jump: jumps once, then goes back to false
     float     stuckTime = 0.0f;         // walking into a wall: hop
+
+    // humanoid:PathfindTo(goal): walking a route on the navmesh, by itself. It jumps
+    // where the route says, finds a new route when the world changes or it gets
+    // stuck, and keeps up with a goal that moves (a part or a character).
+    struct Route {
+        enum State { Idle, Walking, Arrived, Failed } state = Idle;
+        glm::vec3 goal{0.0f};
+        uint64_t  goalNode = 0;         // following this object (0 = a fixed point)
+        NavMesh::Agent agent;
+        std::vector<NavMesh::Waypoint> waypoints;
+        size_t    next = 0;
+        bool      closest = false;      // the route only gets near the goal
+        uint32_t  navVersion = 0;
+        glm::vec3 plannedFor{0.0f};     // the goal when the route was worked out
+        float     replan = 0.0f, stuck = 0.0f, toJump = 0.0f, lost = 0.0f;
+        int       tries = 0;
+    } route;
 
     // Walk cycle, like the player's.
     std::unordered_map<uint64_t, Transform> rest;
@@ -56,6 +74,8 @@ public:
 
     // One step for every NPC. Died and MoveToFinished events pile up for the scripts.
     void update(float dt, Scene& scene, Physics& physics);
+    // Start (or stop, with state Idle) a PathfindTo walk.
+    static void startRoute(Npc& n, const glm::vec3& goal, uint64_t goalNode, const NavMesh::Agent& agent);
 
     // The NPC for this model. With `adopt`, a character-shaped Model that isn't
     // one yet (a script just made or cloned it) becomes one now.
@@ -74,6 +94,8 @@ public:
 private:
     Npc* adopt(Scene& scene, SceneNode* model);
     void step(Npc& npc, SceneNode* root, float dt, Scene& scene, Physics& physics);
+    // PathfindTo: which way to walk this frame (length up to 1), and when to jump.
+    glm::vec3 followRoute(Npc& npc, const glm::vec3& feet, float dt, Scene& scene, Physics& physics);
     void animate(Npc& npc, SceneNode* root, float dt, float groundSpeed);
     void startDeath(Npc& npc, SceneNode* root, Scene& scene);
     void updateDeath(Npc& npc, SceneNode* root, float dt, Scene& scene, Physics& physics);
