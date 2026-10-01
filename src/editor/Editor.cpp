@@ -185,7 +185,7 @@ void Editor::render(float dt) {
     }
     if (!m_showPanel[kPanelAnimation] && m_animEditor->editing()) m_animEditor->close();
     SettingsWindow::draw(&m_showSettings);
-    if (UpdateToast::draw("GutsAndBolts")) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+    if (UpdateToast::draw("GutsAndBolts", !m_dirty)) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
 
     trackChanges();
     updateTitle();

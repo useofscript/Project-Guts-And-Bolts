@@ -108,7 +108,7 @@ void draw(bool* open) {
     if (ImGui::Button("Reset to High")) s.applyPreset(GraphicsSettings::High);
 
     ImGui::SeparatorText("Updates");
-    ImGui::Checkbox("Check for updates when starting", &s.checkUpdates);
+    ImGui::TextDisabled("Guts&Bolts checks when it starts and updates itself if a new version is out.");
     ImGui::TextDisabled("Version %s", UpdateChecker::currentVersion());
     ImGui::SameLine();
     if (ImGui::SmallButton("Check now")) UpdateChecker::start();
