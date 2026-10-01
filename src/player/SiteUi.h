@@ -74,12 +74,22 @@ inline void pushLight() {
     ImGui::PushStyleColor(ImGuiCol_CheckMark, kBlue);
     ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0.9f, 0.91f, 0.93f, 1));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.7f, 0.72f, 0.76f, 1));
+    // Popups, dropdowns and tooltips opened on the light pages are light too (the
+    // dark default boxes with this dark text were unreadable).
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.86f, 0.91f, 0.98f, 1));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.80f, 0.88f, 0.98f, 1));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.72f, 0.83f, 0.97f, 1));
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.06f, 0.38f, 0.73f, 1));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.10f, 0.45f, 0.82f, 1));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, kBlue);
+    ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0, 0, 0, 0.45f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
 }
 inline void popLight() {
     ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(14);
+    ImGui::PopStyleColor(22);
 }
 
 inline bool button(const char* label, ImVec4 col, ImVec2 size = ImVec2(0, 0)) {

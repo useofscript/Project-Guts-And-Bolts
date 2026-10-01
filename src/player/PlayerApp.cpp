@@ -682,6 +682,8 @@ void PlayerApp::frame(float dt) {
         ImGui::PopStyleColor(8);
         Classic::popLight();
     }
+    // The site's dialogs: white boxes with dark text, like its pages.
+    Classic::pushLight();
     drawJoinDialog();
     drawServersDialog();
     drawItemDialog();
@@ -689,6 +691,7 @@ void PlayerApp::frame(float dt) {
     drawOnlineItemDialog();
     drawOnlineGameDialog();
     drawNotice();
+    Classic::popLight();
     if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
     drawModeration();   // last: the ban screen covers everything
 }
@@ -891,9 +894,7 @@ bool PlayerApp::drawTile(int index) {
     ImGui::Dummy(ImVec2(w, 0));
     ImGui::EndGroup();
     if (hover && !g.info.description.empty() && !m_window->hasTouchScreen()) {   // no hovering on phones
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));   // light text on the dark tooltip
         ImGui::SetTooltip("%s", g.info.description.c_str());
-        ImGui::PopStyleColor();
     }
     ImGui::PopID();
     if (clicked) { m_selected = index; m_page = Page::GameInfo; }
@@ -913,10 +914,14 @@ void PlayerApp::drawRow(const char* title, const std::vector<int>& games, const 
     }
     float avail = ImGui::GetContentRegionAvail().x;
     int fit = std::max(1, (int)((avail + 14) / (150 + 14)));
+    // (The same game can be in several rows: each row gets its own IDs, or hovering
+    // it shows "conflicting ID" errors.)
+    ImGui::PushID(title);
     for (int i = 0; i < (int)games.size() && i < fit; ++i) {
         if (i > 0) ImGui::SameLine(0, 14);
         drawTile(games[i]);
     }
+    ImGui::PopID();
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();

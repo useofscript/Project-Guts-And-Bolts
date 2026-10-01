@@ -226,7 +226,10 @@ void icon(Id id, float size) {
     ImGui::Dummy(ImVec2(size, size));
     drawIcon(ImGui::GetWindowDrawList(), ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size, id);
     if (ImGui::IsItemHovered()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));   // readable on the dark tooltip
+        // Readable on whatever the tooltip box is: dark text on a light box, white on a dark one.
+        const ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+        const bool lightBox = 0.3f * bg.x + 0.59f * bg.y + 0.11f * bg.z > 0.5f;
+        ImGui::PushStyleColor(ImGuiCol_Text, lightBox ? ImVec4(0.12f, 0.12f, 0.14f, 1) : ImVec4(1, 1, 1, 1));
         ImGui::SetTooltip("%s\n%s", info(id).name, info(id).description);
         ImGui::PopStyleColor();
     }

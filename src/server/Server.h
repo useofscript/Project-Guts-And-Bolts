@@ -138,6 +138,7 @@ private:
 
     // Files
     void load();
+    void addExampleGames();   // the games folder's example games, as the staff account's
     void saveUsers();
     void saveAssets();
     void saveGroups();

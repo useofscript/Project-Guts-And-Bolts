@@ -13,6 +13,18 @@
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../website/app/gbcrypto.wasm';
 import { BUILT_IN_UPDATES } from './updates.js';
+// The example games that come with Guts&Bolts: always on the server (as Guts's
+// games), so the website and the apps have something to play from day one.
+import demolitionYard from '../games/Demolition Yard.gbscene';
+import megaWaterSlide from '../games/Mega Water Slide.gbscene';
+import nightPlaza from '../games/Night Plaza.gbscene';
+import obbyOfDoom from '../games/Obby of Doom.gbscene';
+const EXAMPLE_GAMES = [
+  { id: 'game-demolition-yard', text: demolitionYard, genres: ['Destruction', 'Sandbox'] },
+  { id: 'game-mega-water-slide', text: megaWaterSlide, genres: ['Adventure', 'Showcase'] },
+  { id: 'game-night-plaza', text: nightPlaza, genres: ['Showcase', 'Town and City'] },
+  { id: 'game-obby-of-doom', text: obbyOfDoom, genres: ['Obby'] },
+];
 
 // --- rules (src/online/Protocol.h) ---------------------------------------------
 const kMaxClockSkew = 600;
@@ -246,6 +258,7 @@ export class GbServerObject extends DurableObject {
       if (u.userId > 0) { this.nextUserId = Math.max(this.nextUserId, u.userId + 1); this.takenNames.add(lower(u.username)); }
     }
     this.takenNames.add('guts');
+    this.addExampleGames();
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
     for (const u of this.users.values()) for (const k of u.keys || []) this.aliases.set(k, u.id);
@@ -465,6 +478,27 @@ export class GbServerObject extends DurableObject {
       }
     }
   }
+  // The example games (see EXAMPLE_GAMES): added once, kept up to date with the
+  // copies that come with the server, and owned by the staff account (Guts).
+  addExampleGames() {
+    if (!this.official) return;
+    for (const ex of EXAMPLE_GAMES) {
+      let info = {};
+      try { info = JSON.parse(ex.text).info || {}; } catch { continue; }
+      const data = new TextEncoder().encode(ex.text);
+      let a = this.assets.get(ex.id);
+      if (!a) {
+        a = { id: ex.id, kind: 'game', name: cleanText(info.title || 'Game', 50), creator: this.official, price: 0,
+          created: now(), sales: 0, plays: 0, size: 0, meta: {}, access: 'public', genres: ex.genres, maxPlayers: 12,
+          builtin: true, likes: 0, dislikes: 0 };
+        this.assets.set(a.id, a);
+      }
+      a.description = cleanText(info.description || '', 1000, true);
+      if (a.size !== data.length) { a.size = data.length; a.updated = now(); this.writeFile(a.id, data); }
+      this.saveAsset(a);
+    }
+  }
+
   // What someone is wearing (their avatar's items), as the catalog shows them.
   wornItems(u) {
     const ids = u && u.avatar && Array.isArray(u.avatar.wearing) ? u.avatar.wearing : [];
@@ -475,7 +509,7 @@ export class GbServerObject extends DurableObject {
     const c = this.users.get(a.creator);
     return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
-      creatorName: c ? c.name : '?', creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
+      creatorName: c ? c.name : (a.builtin ? 'Guts' : '?'), creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
       icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
       badges: a.kind === 'game' ? (a.badges || []) : undefined,
       genres: a.kind === 'game' ? (a.genres || []) : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,

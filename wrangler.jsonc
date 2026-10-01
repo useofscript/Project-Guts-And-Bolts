@@ -18,6 +18,9 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-09-01",
   "keep_vars": true,
+  // The example games (games/*.gbscene) are bundled into the server as text, so
+  // they're always on it (see addExampleGames in worker/server.js).
+  "rules": [{ "type": "Text", "globs": ["**/*.gbscene"], "fallthrough": true }],
   "vars": { "OFFICIAL": "78587146c5027463ff988ef3dd4da3830482f59d6ac0e16fd29548c4a2c84c45" },
   "assets": {
     "directory": "./website",

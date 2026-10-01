@@ -1,6 +1,7 @@
 #include "Server.h"
 #include "../online/Protocol.h"
 #include "../core/Account.h"
+#include "../core/Paths.h"
 #include "../net/Socket.h"
 #include "ServerUtil.h"
 
@@ -35,6 +36,7 @@ bool GbServer::start(std::string& error) {
     fs::create_directories(m_opts.data / "files", ec);
     if (ec) { error = "Couldn't make the data folder " + m_opts.data.string() + ": " + ec.message(); return false; }
     load();
+    addExampleGames();
     m_listener = std::make_unique<Net::Listener>();
     if (!m_listener->open(m_opts.port, error)) return false;
     m_running = true;
@@ -858,6 +860,36 @@ void GbServer::saveAssets() {
                    {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
                    {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}};
     writeFile(m_opts.data / "assets.json", all.dump(1));
+}
+
+// The example games that come with Guts&Bolts (the games folder): always on the
+// server as the staff account's games, kept up to date (the website's server does the same).
+void GbServer::addExampleGames() {
+    if (Account::officialId().empty()) return;
+    std::error_code ec;
+    static const std::pair<const char*, const char*> kGenres[] = {
+        {"Demolition Yard", "Destruction"}, {"Mega Water Slide", "Adventure"}, {"Night Plaza", "Showcase"}, {"Obby of Doom", "Obby"}};
+    bool changed = false;
+    for (const auto& [title, genre] : kGenres) {
+        fs::path file = Paths::gamesFolder() / (std::string(title) + ".gbscene");
+        std::string text;
+        if (!readFile(file, text)) continue;
+        json j = json::parse(text, nullptr, false);
+        if (!j.is_object()) continue;
+        std::string id = "game-";
+        for (char c : std::string(title)) id += c == ' ' ? '-' : (char)std::tolower((unsigned char)c);
+        Asset& a = m_assets[id];
+        if (a.id.empty()) {
+            a.id = id; a.kind = "game"; a.creator = Account::officialId(); a.created = Online::unixNow();
+            a.meta = {{"builtin", true}, {"genres", json::array({genre})}, {"access", "public"}};
+        }
+        const json& info = j.contains("info") ? j["info"] : json::object();
+        a.name = Online::cleanText(info.value("title", std::string(title)), 50);
+        a.description = Online::cleanText(info.value("description", std::string()), 1000);
+        if (a.size != text.size()) { a.size = text.size(); writeFile(blobPath(id), text); }
+        changed = true;
+    }
+    if (changed) saveAssets();
 }
 
 void GbServer::load() {
