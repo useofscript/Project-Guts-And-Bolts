@@ -1512,6 +1512,11 @@ back on in one click (things you no longer own are left off). Up to 30.
 **Favourites and Continue Playing.** The star on a game's page adds it to your
 favourites. The home page shows your favourites and the games you played last.
 
+All three work the same in the Player app: *Messages* in its menu bar, the
+*Outfits* tab on the Avatar page, and the Continue Playing and Favorites rows on
+its home page (open a game and press *Favorite*). In October the Player wears the
+Gutstober theme like the website; turn it off in *Settings > Gutstober theme*.
+
 **Join.** If someone's playing and lets you join, their profile (on the site
 and in the app) shows *Playing ...* with a **Join** button that puts you in the
 same server.

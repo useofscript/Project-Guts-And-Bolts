@@ -7,6 +7,11 @@
   one). Guests can't send or get messages; 40 messages a day each.
 - **Saved outfits** on the Avatar page: save your whole look (colours, hat and
   everything you wear) and wear it again in one click. Up to 30.
+- **In the Player app too**: a Messages page (with the unread count in the
+  menu and Send Message on profiles), an Outfits tab on the Avatar page, and
+  Continue Playing and Favorites rows on the home page.
+- **Gutstober in the Player**: orange and purple, a pumpkin and bats in October;
+  turn it off in Settings (*Gutstober theme*).
 - **Favourite games**: the star on a game's page. **Continue Playing**: the
   games you played last. Both are on the home page and at *Games > mine*.
 
