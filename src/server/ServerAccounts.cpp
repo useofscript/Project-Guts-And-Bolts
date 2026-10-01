@@ -33,7 +33,26 @@ void GbServer::claimOfficial(User& u) {
     m_takenNames.insert(lower(u.username));
 }
 
-GbServer::User* GbServer::findPerson(const std::string& s) {
+void GbServer::gutsFollows(User& u) {   // (worker/server.js gutsFollows)
+    User* g = findUserId(1);
+    if (!g || u.userId <= 1 || g->id == u.id) return;
+    if (g->following.count(u.id) && u.followers.count(g->id)) return;
+    g->following.insert(u.id);
+    u.followers.insert(g->id);
+    saveUsers();
+}
+
+// The user number (5 or "#5") is the main way to name someone; long account keys,
+// "@username" and names work too. (worker/server.js findPerson)
+GbServer::User* GbServer::findPerson(const std::string& raw) {
+    std::string s = raw;
+    while (!s.empty() && std::isspace((unsigned char)s.back())) s.pop_back();
+    while (!s.empty() && std::isspace((unsigned char)s.front())) s.erase(s.begin());
+    {
+        std::string digits = !s.empty() && s[0] == '#' ? s.substr(1) : s;
+        if (!digits.empty() && digits.size() <= 11 && std::all_of(digits.begin(), digits.end(), ::isdigit))
+            return findUserId(std::atoll(digits.c_str()));
+    }
     if (User* u = findUser(s)) return u;
     if (User* u = findUsername(!s.empty() && s[0] == '@' ? s.substr(1) : s)) return u;
     std::string want = s;
@@ -83,6 +102,7 @@ void GbServer::loadIds() {
     }
     m_takenNames.insert("guts");
     saveIds();
+    for (auto& [id, u] : m_users) gutsFollows(u);
 }
 
 json GbServer::accountOp(const std::string& name, User& me, const json& args) {
@@ -128,6 +148,7 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
             me.username = username;
             m_takenNames.insert(lower(username));
             me.name = username;
+            gutsFollows(me);
         }
         me.pwSalt = salt;
         me.pwHash = Account::hashHex(auth);

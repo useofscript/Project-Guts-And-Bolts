@@ -47,7 +47,8 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
         return r;
     }
 
-    User* them = findPerson(args.value("user", std::string()));
+    User* them = findPerson(args.contains("user") && args["user"].is_number_integer()
+                                ? std::to_string(args["user"].get<long long>()) : args.value("user", std::string()));
     if (!them || them->userId == 0) return fail("There's no account with that ID on this server.");
     // Where you stand with someone (the in-game player list asks before showing its menu).
     if (name == "friends.relation") {

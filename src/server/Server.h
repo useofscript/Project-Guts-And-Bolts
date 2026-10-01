@@ -109,6 +109,8 @@ private:
     User* findUsername(const std::string& username);
     // An account key, "@username", or a name as shown in games.
     User* findPerson(const std::string& s);
+    // The Guts account (#1) follows every signed-up player (like Builderman did).
+    void gutsFollows(User& u);
     User* findUserId(long long userId);
     void  saveIds();
     void  loadIds();

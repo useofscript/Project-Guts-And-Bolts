@@ -1004,6 +1004,8 @@ pages.user = async (id) => {
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
   const f = r.friendship;
+  // People are known by their user number: show #/user/5, not the long account key.
+  if (u.userId > 0 && String(id) !== String(u.userId)) history.replaceState(null, '', '#/user/' + u.userId);
   const friendBtn = f === 'self' ? '' : !signedIn() ? html`<button class="btn green small" data-act="friend" data-op="friends.add" data-user="${u.id}">Add friend</button>`
     : f === 'friends' ? html`<button class="btn small" data-act="friend" data-op="friends.remove" data-user="${u.id}">Unfriend</button>`
       : f === 'sent' ? html`<button class="btn small" data-act="friend" data-op="friends.cancel" data-user="${u.id}">Cancel request</button>`
@@ -1024,7 +1026,7 @@ pages.user = async (id) => {
   const badgeNames = { admin: 'Administrator', verified: 'Verified', staff: 'Staff', tester: 'Tester', bughunter: 'Bug Hunter', featured: 'Featured Creator' };
   const online = r.online === undefined ? null : r.online;
   show(html`<div class="profile-head">
-      <h1>${u.username}${verified(u.verified)}</h1>
+      <h1>${u.username}${verified(u.verified)}</h1><span class="small muted user-number">#${u.userId}</span>
       ${online === null ? '' : html`<span class="presence ${online ? 'on' : ''}">${online ? '[ Online ]' : '[ Offline ]'}</span>`}
       <span class="grow"></span>${friendBtn}${followBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
         : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
@@ -1221,7 +1223,7 @@ pages.staff = async () => {
   show(html`<h1>Staff</h1>
     <p class="muted">${me.official ? 'You\'re the official Guts account: you can verify people, make staff, give Bolts and ban.'
       : 'Staff can verify people and take Verified away.'}</p>
-    <form class="row" data-form="staffSearch"><input type="search" name="q" placeholder="Search by name or account ID" value="${query}" style="max-width:320px">
+    <form class="row" data-form="staffSearch"><input type="search" name="q" placeholder="Search by name or user number (#5)" value="${query}" style="max-width:320px">
       <button class="btn blue">Search</button></form>
     <div class="list">${r.ok ? r.users.map((u) => html`<div>
       <a class="grow" href="#/user/${u.id}"><b>${u.username || u.name}</b></a>${verified(u.verified)}

@@ -495,7 +495,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     // --- Staff ---------------------------------------------------------------
     if (name.rfind("admin.", 0) == 0) {
         if (!isStaff(me)) return fail("Only staff can do that.");
-        User* to = findUser(str("to"));
+        // (a number sent as a number works too)
+        std::string toArg = args.contains("to") && args["to"].is_number_integer() ? std::to_string(args["to"].get<long long>()) : str("to");
+        User* to = findPerson(toArg);
         // Staff can verify (or give Bolts to) someone who hasn't visited this server yet.
         if (!to && name != "admin.find" && isHex(lower(str("to")), 64, 64)) to = &user(lower(str("to")));
         if (name == "admin.find") {
@@ -503,7 +505,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             json list = json::array();
             for (const auto& [id, u] : m_users) {
                 if (list.size() >= 40) break;
-                if (q.empty() || lower(u.name).find(q) != std::string::npos || id.rfind(q, 0) == 0)
+                const std::string digits = !q.empty() && q[0] == '#' ? q.substr(1) : q;
+                const bool isNum = !digits.empty() && digits.size() <= 11 && std::all_of(digits.begin(), digits.end(), ::isdigit);
+                if (q.empty() || (isNum && u.userId == std::atoll(digits.c_str())) ||
+                    lower(u.name).find(q) != std::string::npos || id.rfind(q, 0) == 0)
                     list.push_back(publicUser(u));
             }
             json r = okay(); r["users"] = list; return r;

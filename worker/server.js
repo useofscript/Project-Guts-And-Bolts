@@ -259,6 +259,8 @@ export class GbServerObject extends DurableObject {
       if (u.userId > 0) { this.nextUserId = Math.max(this.nextUserId, u.userId + 1); this.takenNames.add(lower(u.username)); }
     }
     this.takenNames.add('guts');
+    // Guts follows everyone (like Builderman did on old Roblox).
+    for (const u of this.users.values()) this.gutsFollows(u);
     this.addExampleGames();
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
@@ -376,10 +378,24 @@ export class GbServerObject extends DurableObject {
     for (const u of this.users.values()) if (u.userId > 0 && lower(u.username) === want) return u;
     return null;
   }
+  // The Guts account (#1) follows every signed-up player. (ServerAccounts.cpp gutsFollows)
+  gutsFollows(u) {
+    const g = this.findUserId(1);
+    if (!g || u.userId <= 1 || g.id === u.id) return;
+    const following = g.following || (g.following = []), followers = u.followers || (u.followers = []);
+    if (following.includes(u.id) && followers.includes(g.id)) return;
+    if (!following.includes(u.id)) following.push(u.id);
+    if (!followers.includes(g.id)) followers.push(g.id);
+    this.saveUser(g, u);
+  }
   findUserId(n) { if (n <= 0) return null; for (const u of this.users.values()) if (u.userId === n) return u; return null; }
   // An account key, or "@name" / a name as shown in games (the in-game player list).
+  // The user number (5 or "#5") is the main way to name someone; long account keys,
+  // "@username" and names work too. (ServerAccounts.cpp findPerson)
   findPerson(s) {
-    s = String(s || '');
+    if (typeof s === 'number') return this.findUserId(Math.trunc(s));
+    s = String(s || '').trim();
+    if (/^#?[0-9]{1,11}$/.test(s)) return this.findUserId(Number(s.replace('#', '')));
     const u = this.findUser(s) || this.findUsername(s.replace(/^@/, ''));
     if (u) return u;
     const want = lower(s);
@@ -831,14 +847,15 @@ export class GbServerObject extends DurableObject {
 
     if (name.startsWith('admin.')) {
       if (!this.isStaff(me)) return fail('Only staff can do that.');
-      let to = this.findUser(str(args, 'to'));
+      let to = this.findPerson(args.to);
       if (!to && name !== 'admin.find' && isHex(lower(str(args, 'to')), 64, 64)) to = this.user(lower(str(args, 'to')));
       if (name === 'admin.find') {
         const q = lower(cleanText(str(args, 'query'), 64));
         const list = [];
         for (const u of this.users.values()) {
           if (list.length >= 40) break;
-          if (!q || lower(u.name).includes(q) || u.id.startsWith(q)) list.push(this.publicUser(u));
+          const num = /^#?[0-9]+$/.test(q) ? Number(q.replace('#', '')) : -1;
+          if (!q || u.userId === num || lower(u.name).includes(q) || u.id.startsWith(q)) list.push(this.publicUser(u));
         }
         return okay({ users: list });
       }
@@ -1222,12 +1239,12 @@ export class GbServerObject extends DurableObject {
     }
     // --- Trading limited copies ---
     if (name === 'trade.inventory') {
-      const u = this.findUser(str(args, 'user')) || this.findUserId(num(args, 'user'));
+      const u = this.findPerson(args.user);
       if (!u) return fail('There\'s no account with that ID on this server.');
       return okay({ user: this.publicUser(u), items: this.copiesOf(u) });
     }
     if (name === 'trade.send') {
-      const to = this.findUser(str(args, 'to'));
+      const to = this.findPerson(args.to);
       if (!to || to.userId === 0) return fail('There\'s no account with that ID on this server.');
       if (to.id === me.id) return fail('You can\'t trade with yourself.');
       const pick = (list) => (Array.isArray(list) ? list : []).slice(0, 4).map((x) => ({ id: String(x && x.id || ''), serial: Number(x && x.serial) | 0 }));
@@ -1316,6 +1333,7 @@ export class GbServerObject extends DurableObject {
         me.username = username;
         this.takenNames.add(lower(username));
         me.name = username;
+        this.gutsFollows(me);
       }
       me.pwSalt = salt; me.pwHash = hashHex(auth); me.keyBlob = blob;
       this.dirty.ids = true;
@@ -1489,7 +1507,7 @@ export class GbServerObject extends DurableObject {
       return okay({ friends, incoming: me.friendIn.map((id) => this.findUser(id)).filter(Boolean).map(person),
         outgoing: me.friendOut.map((id) => this.findUser(id)).filter(Boolean).map(person) });
     }
-    const them = this.findPerson(str(args, 'user'));
+    const them = this.findPerson(args.user);
     if (!them || them.userId === 0) return fail('There\'s no account with that ID on this server.');
     const following = me.following || (me.following = []), followers = them.followers || (them.followers = []);
     // Where you stand with someone (the in-game player list asks before showing its menu).

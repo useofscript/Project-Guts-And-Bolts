@@ -1003,7 +1003,7 @@ void PlayerApp::drawOnlineBolts() {
 void PlayerApp::drawOnlineStaff() {
     ImGui::SeparatorText("People on the server");
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Find someone by name (or the start of their account ID) and verify them right here - "
+    ImGui::TextDisabled("Find someone by name or user number (#5) and verify them right here - "
                         "no codes needed. They get the badge next time they open the site.");
     ImGui::PopTextWrapPos();
     const bool official = Account::iAmStaff();
