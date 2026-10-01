@@ -9,6 +9,7 @@
 #include "../core/Paths.h"
 #include "../renderer/MeshLibrary.h"
 #include "../scene/EditMesh.h"
+#include "../scene/Physics.h"
 #include "../scene/RobloxFile.h"
 #include "../scene/Scene.h"
 #include "../scripting/Luau.h"
@@ -133,6 +134,27 @@ void Editor::importFiles(const std::vector<std::string>& paths, ImVec2 mouse, bo
             std::string err;
             auto got = RobloxFile::importModel(*m_scene, nullptr, path, report, err);
             if (got.empty()) { Log::error("Couldn't import " + name + ": " + err); break; }
+            // Like Roblox Studio: the model lands sitting on whatever you dropped it on
+            // (or in front of the camera), not wherever it was in the place it came from.
+            AABB box{};
+            bool any = false;
+            std::vector<SceneNode*> stack(got.begin(), got.end());
+            while (!stack.empty()) {
+                SceneNode* k = stack.back(); stack.pop_back();
+                if (k->isPart()) {
+                    AABB b = Physics::worldBounds(k);
+                    if (!any) box = b; else { box.min = glm::min(box.min, b.min); box.max = glm::max(box.max, b.max); }
+                    any = true;
+                }
+                for (auto& c : k->children) stack.push_back(c.get());
+            }
+            if (any) {
+                glm::vec3 d = glm::vec3(at.x - 0.5f * (box.min.x + box.max.x), at.y - box.min.y + 0.01f,
+                                        at.z - 0.5f * (box.min.z + box.max.z)) + right * spread;
+                for (SceneNode* n : got)
+                    n->transform.position += n->parent ? glm::vec3(glm::inverse(n->parent->worldMatrix()) * glm::vec4(d, 0.0f)) : d;
+                spread += std::max(box.max.x - box.min.x, box.max.z - box.min.z) + 2.0f;
+            }
             added.insert(added.end(), got.begin(), got.end());
             Log::system("Inserted Roblox model " + name + ": " + report.summary());
             for (const std::string& n : report.notes) Log::warn("Roblox import: " + n);

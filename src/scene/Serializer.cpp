@@ -180,6 +180,16 @@ json toJson(const SceneNode& n) {
             for (const auto& p : n.editMesh->verts) { v.push_back(p.x); v.push_back(p.y); v.push_back(p.z); }
             for (const auto& face : n.editMesh->faces) f.push_back(face);
             j["mesh"] = {{"v", v}, {"f", f}, {"smooth", n.editMesh->smooth}};
+            // Texture coordinates (imported models): u,v for each corner of each face.
+            if (n.editMesh->uvs.size() == n.editMesh->faces.size()) {
+                json uv = json::array();
+                for (const auto& face : n.editMesh->uvs) {
+                    json c = json::array();
+                    for (const auto& t : face) { c.push_back(t.x); c.push_back(t.y); }
+                    uv.push_back(std::move(c));
+                }
+                j["mesh"]["uv"] = std::move(uv);
+            }
         }
         j["color"]        = vec(n.color);
         j["transparency"] = n.transparency;
@@ -301,11 +311,22 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
                 const json& v = (*it)["v"];
                 for (size_t i = 0; i + 2 < v.size(); i += 3)
                     m->verts.push_back({v[i].get<float>(), v[i + 1].get<float>(), v[i + 2].get<float>()});
+                const json* uv = it->contains("uv") && (*it)["uv"].is_array() ? &(*it)["uv"] : nullptr;
+                size_t fi = 0;
                 for (const auto& face : (*it)["f"]) {
                     std::vector<uint32_t> fv;
                     for (const auto& k : face) if (k.get<uint32_t>() < m->verts.size()) fv.push_back(k.get<uint32_t>());
-                    if (fv.size() >= 3) m->faces.push_back(std::move(fv));
+                    if (fv.size() >= 3) {
+                        if (uv && fi < uv->size() && (*uv)[fi].size() == fv.size() * 2 && m->uvs.size() == m->faces.size()) {
+                            std::vector<glm::vec2> c;
+                            for (size_t k = 0; k < fv.size(); ++k) c.push_back({(*uv)[fi][k * 2].get<float>(), (*uv)[fi][k * 2 + 1].get<float>()});
+                            m->uvs.push_back(std::move(c));
+                        }
+                        m->faces.push_back(std::move(fv));
+                    }
+                    ++fi;
                 }
+                if (m->uvs.size() != m->faces.size()) m->uvs.clear();
                 m->smooth = get<bool>(*it, "smooth", false);
             }
             if (m->faces.empty()) m = MeshEdit::fromPrimitive(PrimitiveType::Cube);

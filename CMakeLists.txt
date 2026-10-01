@@ -316,6 +316,7 @@ add_library(gb_engine STATIC
     src/scene/Effects.cpp
     src/scene/Serializer.cpp
     src/scene/RobloxFile.cpp
+    src/scene/RobloxMesh.cpp
     src/scene/EditMesh.cpp
     src/scripting/Luau.cpp
     src/scripting/ScriptEngine.cpp
