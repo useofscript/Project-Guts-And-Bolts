@@ -29,7 +29,7 @@ const char* const kWords[] = {
     "workspace", "game", "script", "Instance.new", "Vector3.new", "Color3.new", "Color3.fromRGB", "Color3.fromHSV",
     "CFrame.new", "CFrame.Angles", "CFrame.lookAt", "task.wait", "task.spawn", "task.delay", "wait", "spawn", "delay",
     "time", "tick", "Explode", "Effects", "Sounds", "Gui", "Lighting", "Enum",
-    "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService",
+    "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService", "TweenService", "TweenInfo", "HttpService", "JSONEncode", "JSONDecode", "Raycast", "RaycastParams", "FindPartOnRay", "GetPartBoundsInRadius", "BindableEvent", "BindableFunction", "ReplicatedStorage", "ServerStorage", "NextInteger", "NextNumber",
     "game:GetService", "Players.LocalPlayer", "RunService.Heartbeat", "UserInputService.InputBegan",
     // Members
     "Parent", "Name", "ClassName", "Position", "Orientation", "Size", "CFrame", "Color", "Transparency", "Material",

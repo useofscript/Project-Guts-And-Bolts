@@ -372,15 +372,400 @@ function Debris:AddItem(obj, lifetime)
 end
 Debris.addItem = Debris.AddItem
 
+
+-- ---------------------------------------------------------------------------
+-- More of Roblox's API (the "Who Let Us Cook?" update)
+-- ---------------------------------------------------------------------------
+local raycast, addMethod = __gb_raycast, __gb_addMethod
+
+-- workspace:Raycast(origin, direction [, params]) -> RaycastResult or nil
+--   local params = RaycastParams.new()
+--   params.FilterDescendantsInstances = { character }
+--   params.FilterType = Enum.RaycastFilterType.Exclude   -- or Include
+--   local hit = workspace:Raycast(gun.Position, gun.CFrame.LookVector * 300, params)
+--   if hit then print(hit.Instance.Name, hit.Position, hit.Normal, hit.Distance) end
+RaycastParams = {}
+function RaycastParams.new()
+    return { ClassName = "RaycastParams", FilterDescendantsInstances = {}, FilterType = "Exclude", IgnoreWater = false }
+end
+local function castWith(origin, direction, list, include)
+    local part, pos, normal, dist = raycast(origin, direction, list or {}, include)
+    if not part then return nil end
+    return { ClassName = "RaycastResult", Instance = part, Position = pos, Normal = normal, Distance = dist,
+             Material = part.Material }
+end
+addMethod("Raycast", function(_, origin, direction, params)
+    params = params or RaycastParams.new()
+    local ft = tostring(params.FilterType)
+    return castWith(origin, direction, params.FilterDescendantsInstances,
+                    ft == "Include" or ft == "Whitelist" or ft == "Enum.RaycastFilterType.Include")
+end)
+-- The old way: Ray.new(origin, direction) and workspace:FindPartOnRay(ray, ignore)
+Ray = {}
+function Ray.new(origin, direction)
+    local r = { ClassName = "Ray", Origin = origin, Direction = direction }
+    r.Unit = setmetatable({}, { __index = function(_, k)
+        if k == "Origin" then return origin elseif k == "Direction" then return direction.Unit end
+    end })
+    return r
+end
+local function findOnRay(ray, list, include)
+    local hit = castWith(ray.Origin, ray.Direction, list, include)
+    if not hit then return nil, ray.Origin + ray.Direction, Vector3.new(0, 0, 0), nil end
+    return hit.Instance, hit.Position, hit.Normal, hit.Material
+end
+addMethod("FindPartOnRay", function(_, ray, ignore) return findOnRay(ray, ignore and { ignore } or {}, false) end)
+addMethod("FindPartOnRayWithIgnoreList", function(_, ray, list) return findOnRay(ray, list, false) end)
+addMethod("FindPartOnRayWithWhitelist", function(_, ray, list) return findOnRay(ray, list, true) end)
+-- workspace:GetPartBoundsInRadius(position, radius): parts near a point.
+addMethod("GetPartBoundsInRadius", function(self, pos, radius)
+    local out = {}
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local s = d.Size
+            local reach = radius + math.max(s.X, s.Y, s.Z) * 0.5
+            if (d.Position - pos).Magnitude <= reach then out[#out + 1] = d end
+        end
+    end
+    return out
+end)
+
+-- TweenService: smoothly change properties over time.
+--   local info = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+--   TweenService:Create(door, info, { Position = door.Position + Vector3.new(0, 10, 0) }):Play()
+-- Works on numbers, Vector3, Color3, CFrame, UDim2 and Vector2 properties.
+TweenInfo = {}
+function TweenInfo.new(time, style, direction, repeatCount, reverses, delayTime)
+    return { ClassName = "TweenInfo", Time = time or 1, EasingStyle = tostring(style or "Quad"),
+             EasingDirection = tostring(direction or "Out"), RepeatCount = repeatCount or 0,
+             Reverses = reverses or false, DelayTime = delayTime or 0 }
+end
+local function bareName(s) return (tostring(s):match("([%w]+)$")) end
+local easeIn = {
+    Linear = function(t) return t end,
+    Quad = function(t) return t * t end,
+    Cubic = function(t) return t * t * t end,
+    Quart = function(t) return t ^ 4 end,
+    Quint = function(t) return t ^ 5 end,
+    Sine = function(t) return 1 - math.cos(t * math.pi / 2) end,
+    Exponential = function(t) return t == 0 and 0 or 2 ^ (10 * (t - 1)) end,
+    Circular = function(t) return 1 - math.sqrt(1 - t * t) end,
+    Back = function(t) local s = 1.70158; return t * t * ((s + 1) * t - s) end,
+    Elastic = function(t)
+        if t == 0 or t == 1 then return t end
+        return -(2 ^ (10 * (t - 1))) * math.sin((t - 1.075) * (2 * math.pi) / 0.3)
+    end,
+    Bounce = function(t)
+        t = 1 - t
+        local v
+        if t < 1 / 2.75 then v = 7.5625 * t * t
+        elseif t < 2 / 2.75 then t = t - 1.5 / 2.75; v = 7.5625 * t * t + 0.75
+        elseif t < 2.5 / 2.75 then t = t - 2.25 / 2.75; v = 7.5625 * t * t + 0.9375
+        else t = t - 2.625 / 2.75; v = 7.5625 * t * t + 0.984375 end
+        return 1 - v
+    end,
+}
+local function ease(style, dir, t)
+    local f = easeIn[bareName(style)] or easeIn.Quad
+    dir = bareName(dir)
+    if dir == "In" then return f(t) end
+    if dir == "InOut" then
+        if t < 0.5 then return f(t * 2) / 2 end
+        return 1 - f((1 - t) * 2) / 2
+    end
+    return 1 - f(1 - t)   -- Out
+end
+local function lerpValue(a, b, t)
+    if type(a) == "number" then return a + (b - a) * t end
+    if type(a) == "boolean" or type(a) == "string" then return t < 1 and a or b end
+    return a:Lerp(b, t)
+end
+TweenService = { ClassName = "TweenService", Name = "TweenService" }
+function TweenService:GetValue(alpha, style, direction) return ease(style, direction, math.clamp(alpha, 0, 1)) end
+function TweenService:Create(obj, info, goals)
+    info = info or TweenInfo.new()
+    local tw = { ClassName = "Tween", Instance = obj, TweenInfo = info, PlaybackState = "Begin" }
+    tw.Completed = luaSignal()
+    local run = 0   -- which Play is running (a new Play or Cancel stops the old one)
+    function tw:Play()
+        run = run + 1
+        local me = run
+        self.PlaybackState = "Playing"
+        task.spawn(function()
+            if info.DelayTime > 0 then task.wait(info.DelayTime) end
+            local loops = info.RepeatCount < 0 and math.huge or info.RepeatCount
+            local done = 0
+            while true do
+                local from = {}
+                for k in pairs(goals) do from[k] = obj[k] end
+                for pass = 1, info.Reverses and 2 or 1 do
+                    local start = time()
+                    while true do
+                        if run ~= me then return end
+                        local a = info.Time <= 0 and 1 or math.min(1, (time() - start) / info.Time)
+                        local e = ease(info.EasingStyle, info.EasingDirection, a)
+                        if pass == 2 then e = 1 - e end
+                        for k, goal in pairs(goals) do obj[k] = lerpValue(from[k], goal, e) end
+                        if a >= 1 then break end
+                        task.wait()
+                    end
+                end
+                done = done + 1
+                if done > loops then break end
+                if info.Reverses then
+                    -- (back where it started: go again)
+                else
+                    for k, v in pairs(from) do obj[k] = v end
+                end
+            end
+            if run == me then self.PlaybackState = "Completed"; self.Completed:Fire("Completed") end
+        end)
+    end
+    function tw:Pause() run = run + 1; self.PlaybackState = "Paused" end
+    function tw:Cancel()
+        run = run + 1
+        self.PlaybackState = "Cancelled"
+        self.Completed:Fire("Cancelled")
+    end
+    tw.Destroy = tw.Cancel
+    return tw
+end
+
+-- HttpService: JSON in and out, and unique ids. (Games can't reach other websites.)
+HttpService = { ClassName = "HttpService", Name = "HttpService", HttpEnabled = false }
+local function jsonString(s)
+    return '"' .. s:gsub('[%c"\\]', function(c)
+        local map = { ['"'] = '\\"', ['\\'] = '\\\\', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
+        return map[c] or string.format("\\u%04x", c:byte())
+    end) .. '"'
+end
+local function encode(v, depth)
+    depth = depth or 0
+    if depth > 100 then error("JSONEncode: that table goes too deep (or contains itself)", 0) end
+    local t = type(v)
+    if v == nil then return "null"
+    elseif t == "boolean" then return tostring(v)
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return "null" end
+        if math.type and math.type(v) == "integer" then return tostring(v) end
+        return string.format("%.14g", v)
+    elseif t == "string" then return jsonString(v)
+    elseif t == "table" then
+        local n = #v
+        local isArray = n > 0 or next(v) == nil
+        if isArray then for k in pairs(v) do if type(k) ~= "number" or k < 1 or k > n or k % 1 ~= 0 then isArray = false break end end end
+        local parts = {}
+        if isArray then
+            for i = 1, n do parts[i] = encode(v[i], depth + 1) end
+            return "[" .. table.concat(parts, ",") .. "]"
+        end
+        for k, val in pairs(v) do parts[#parts + 1] = jsonString(tostring(k)) .. ":" .. encode(val, depth + 1) end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    error("JSONEncode can't save a " .. t, 0)
+end
+function HttpService:JSONEncode(v) return encode(v) end
+function HttpService:JSONDecode(s)
+    local pos = 1
+    local function ws() pos = s:find("[^ \t\r\n]", pos) or #s + 1 end
+    local value
+    local function str()
+        local out = {}
+        pos = pos + 1
+        while true do
+            local c = s:sub(pos, pos)
+            if c == "" then error("JSONDecode: a string never ends", 0) end
+            if c == '"' then pos = pos + 1 break end
+            if c == "\\" then
+                local e = s:sub(pos + 1, pos + 1)
+                local map = { b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" }
+                if e == "u" then
+                    out[#out + 1] = utf8.char(tonumber(s:sub(pos + 2, pos + 5), 16) or 63)
+                    pos = pos + 6
+                else
+                    out[#out + 1] = map[e] or e
+                    pos = pos + 2
+                end
+            else
+                out[#out + 1] = c
+                pos = pos + 1
+            end
+        end
+        return table.concat(out)
+    end
+    value = function()
+        ws()
+        local c = s:sub(pos, pos)
+        if c == "{" then
+            local t = {}
+            pos = pos + 1; ws()
+            if s:sub(pos, pos) == "}" then pos = pos + 1 return t end
+            while true do
+                ws()
+                local k = str()
+                ws()
+                if s:sub(pos, pos) ~= ":" then error("JSONDecode: expected ':' at " .. pos, 0) end
+                pos = pos + 1
+                t[k] = value()
+                ws()
+                local d = s:sub(pos, pos); pos = pos + 1
+                if d == "}" then return t end
+                if d ~= "," then error("JSONDecode: expected ',' or '}' at " .. (pos - 1), 0) end
+            end
+        elseif c == "[" then
+            local t = {}
+            pos = pos + 1; ws()
+            if s:sub(pos, pos) == "]" then pos = pos + 1 return t end
+            while true do
+                t[#t + 1] = value()
+                ws()
+                local d = s:sub(pos, pos); pos = pos + 1
+                if d == "]" then return t end
+                if d ~= "," then error("JSONDecode: expected ',' or ']' at " .. (pos - 1), 0) end
+            end
+        elseif c == '"' then return str()
+        elseif s:sub(pos, pos + 3) == "true" then pos = pos + 4 return true
+        elseif s:sub(pos, pos + 4) == "false" then pos = pos + 5 return false
+        elseif s:sub(pos, pos + 3) == "null" then pos = pos + 4 return nil
+        end
+        local num = s:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
+        if not num or num == "" then error("JSONDecode: unexpected '" .. c .. "' at " .. pos, 0) end
+        pos = pos + #num
+        return tonumber(num)
+    end
+    local v = value()
+    ws()
+    if pos <= #s then error("JSONDecode: extra text at " .. pos, 0) end
+    return v
+end
+function HttpService:GenerateGUID(braces)
+    local g = string.gsub("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx", "[xy]", function(c)
+        local v = c == "x" and math.random(0, 15) or math.random(8, 11)
+        return string.format("%X", v)
+    end)
+    if braces == false then return g end
+    return "{" .. g .. "}"
+end
+function HttpService:UrlEncode(s)
+    return (tostring(s):gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+function HttpService:GetAsync() error("Games can't reach other websites from Guts&Bolts.", 2) end
+HttpService.PostAsync, HttpService.RequestAsync = HttpService.GetAsync, HttpService.GetAsync
+
+-- Random.new(seed): its own stream of random numbers (the same seed, the same numbers).
+Random = {}
+function Random.new(seed)
+    local state = math.floor(tonumber(seed) or (os.time() + math.random(1, 1000000))) % 2147483646 + 1
+    local r = { ClassName = "Random" }
+    local function step()
+        state = (state * 48271) % 2147483647
+        return (state - 1) / 2147483646
+    end
+    function r:NextNumber(lo, hi)
+        lo, hi = lo or 0, hi or 1
+        return lo + (hi - lo) * step()
+    end
+    function r:NextInteger(lo, hi)
+        if hi < lo then lo, hi = hi, lo end
+        return math.min(hi, lo + math.floor(step() * (hi - lo + 1)))
+    end
+    function r:NextUnitVector()
+        local z = r:NextNumber(-1, 1)
+        local a = r:NextNumber(0, math.pi * 2)
+        local s = math.sqrt(1 - z * z)
+        return Vector3.new(s * math.cos(a), s * math.sin(a), z)
+    end
+    function r:Shuffle(t)
+        for i = #t, 2, -1 do
+            local j = r:NextInteger(1, i)
+            t[i], t[j] = t[j], t[i]
+        end
+    end
+    function r:Clone()
+        local c = Random.new(1)
+        local saved = state
+        -- (copy the state by stepping a fresh one to the same place)
+        c._set(saved)
+        return c
+    end
+    function r._set(v) state = v end
+    return r
+end
+
+-- math.noise(x [, y, z]): smooth "Perlin" noise between about -1 and 1 (0 on whole numbers),
+-- for hills, wobbly lights, wind...
+do
+    local perm = {}
+    local base = Random.new(1234)
+    local p = {}
+    for i = 0, 255 do p[i] = i end
+    for i = 255, 1, -1 do local j = base:NextInteger(0, i); p[i], p[j] = p[j], p[i] end
+    for i = 0, 511 do perm[i] = p[i % 256] end
+    local function fade(t) return t * t * t * (t * (t * 6 - 15) + 10) end
+    local function grad(h, x, y, z)
+        h = h % 16
+        local u = h < 8 and x or y
+        local v = h < 4 and y or ((h == 12 or h == 14) and x or z)
+        return ((h % 2 == 0) and u or -u) + ((h % 4 < 2) and v or -v)
+    end
+    function math.noise(x, y, z)
+        x, y, z = x or 0, y or 0, z or 0
+        local X, Y, Z = math.floor(x) % 256, math.floor(y) % 256, math.floor(z) % 256
+        x, y, z = x - math.floor(x), y - math.floor(y), z - math.floor(z)
+        local u, v, w = fade(x), fade(y), fade(z)
+        local A, B = perm[X] + Y, perm[X + 1] + Y
+        local AA, AB, BA, BB = perm[A] + Z, perm[A + 1] + Z, perm[B] + Z, perm[B + 1] + Z
+        local function lerp(t, a, b) return a + t * (b - a) end
+        return lerp(w, lerp(v, lerp(u, grad(perm[AA], x, y, z), grad(perm[BA], x - 1, y, z)),
+                               lerp(u, grad(perm[AB], x, y - 1, z), grad(perm[BB], x - 1, y - 1, z))),
+                       lerp(v, lerp(u, grad(perm[AA + 1], x, y, z - 1), grad(perm[BA + 1], x - 1, y, z - 1)),
+                               lerp(u, grad(perm[AB + 1], x, y - 1, z - 1), grad(perm[BB + 1], x - 1, y - 1, z - 1))))
+    end
+end
+
+-- BindableEvent / BindableFunction: scripts talking to each other.
+--   local ev = Instance.new("BindableEvent")      ev.Event:Connect(print)    ev:Fire("hi")
+--   local fn = Instance.new("BindableFunction")   fn.OnInvoke = function(x) return x * 2 end   fn:Invoke(21)
+-- (They live in the script that made them: share them through a module or _G.)
+do
+    local rawNew = Instance.new
+    local function bindable(cls, parent)
+        local o = { ClassName = cls, Name = cls, Parent = parent }
+        function o:IsA(c) return c == cls or c == "Instance" end
+        function o:Destroy() self.Parent = nil; self._dead = true end
+        function o:GetFullName() return self.Name end
+        if cls == "BindableEvent" then
+            o.Event = luaSignal()
+            function o:Fire(...) if not self._dead then self.Event:Fire(...) end end
+        else
+            function o:Invoke(...)
+                if not self.OnInvoke then error("BindableFunction has no OnInvoke", 2) end
+                return self.OnInvoke(...)
+            end
+        end
+        return o
+    end
+    Instance.new = function(cls, parent)
+        if cls == "BindableEvent" or cls == "BindableFunction" then return bindable(cls, parent) end
+        return rawNew(cls, parent)
+    end
+end
+_G = _G or {}
+
 local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Teams = Teams, Players = Players, Lighting = Lighting,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
-                   CollectionService = CollectionService, DataStoreService = DataStoreService }
+                   CollectionService = CollectionService, DataStoreService = DataStoreService,
+                   TweenService = TweenService, HttpService = HttpService }
+local storageNames = { ReplicatedStorage = true, ServerStorage = true, ReplicatedFirst = true }
+local storage = __gb_storage
 game = setmetatable({}, { __index = function(_, name)
     if name == "StarterGui" then return __gb_uiFolder() end
+    if storageNames[name] then return storage(name) end
     return services[name]
 end })
 function game:GetService(name)
     if name == "StarterGui" then return __gb_uiFolder() end
+    if storageNames[name] then return storage(name) end
     local s = services[name]
     if s == nil then
         error("'" .. tostring(name) .. "' is not a service Guts and Bolts knows about", 2)
@@ -418,6 +803,7 @@ __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 __gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil
 __gb_awardBadge, __gb_hasBadge = nil, nil
+__gb_raycast, __gb_storage, __gb_addMethod = nil, nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -670,6 +1056,83 @@ int gui_clear(lua_State* L) {
 
 // Explode(position, radius, power)
 // __gb_navPath(from, to, params) -> status, { {position, action, label}, ... } (PathfindingService).
+// __gb_raycast(origin, direction, filterList, includeOnly) -> part, position, normal, distance
+// (workspace:Raycast / FindPartOnRay). `direction`'s length is how far to look.
+int l_raycast(lua_State* L) {
+    Scene* scene = LuaApi::engine(L)->scene();
+    const glm::vec3 from = LuaApi::checkVector3(L, 1), dir = LuaApi::checkVector3(L, 2);
+    const float range = glm::length(dir);
+    if (!scene || range < 1e-6f) return 0;
+    std::vector<const SceneNode*> list;
+    if (lua_istable(L, 3)) {
+        for (lua_Integer i = 1;; ++i) {
+            lua_rawgeti(L, 3, i);
+            if (lua_isnil(L, -1)) { lua_pop(L, 1); break; }
+            if (lua_isuserdata(L, -1)) list.push_back(LuaApi::checkNode(L, -1));
+            lua_pop(L, 1);
+        }
+    }
+    const bool include = lua_toboolean(L, 4);
+    auto inside = [&](const SceneNode* n) {   // n is one of the list, or inside one
+        for (const SceneNode* p = n; p; p = p->parent)
+            if (std::find(list.begin(), list.end(), p) != list.end()) return true;
+        return false;
+    };
+    auto above = [&](const SceneNode* n) {    // n holds one of the list
+        for (const SceneNode* l : list)
+            for (const SceneNode* p = l; p; p = p->parent) if (p == n) return true;
+        return false;
+    };
+    const glm::vec3 rd = dir / range;
+    float dist = 0.0f;
+    SceneNode* hit = Physics::raycastIf(*scene, from, rd, &dist, [&](const SceneNode* n) {
+        if (n == scene->root()) return true;
+        return include ? (inside(n) || above(n)) : !inside(n);
+    });
+    if (!hit || dist > range) return 0;
+    const glm::vec3 at = from + rd * dist;
+    const OBB box = Physics::worldOBB(hit);
+    glm::vec3 normal(0, 1, 0);
+    if (hit->primitiveType == PrimitiveType::Sphere) {
+        if (glm::length(at - box.center) > 1e-5f) normal = glm::normalize(at - box.center);
+    } else {   // the face of the box it hit
+        float best = -1.0f;
+        for (int i = 0; i < 3; ++i) {
+            const float f = glm::dot(at - box.center, box.axis[i]) / std::max(box.half[i], 1e-4f);
+            if (std::abs(f) > best) { best = std::abs(f); normal = box.axis[i] * (f < 0 ? -1.0f : 1.0f); }
+        }
+    }
+    LuaApi::pushInstance(L, hit->id);
+    LuaApi::pushVector3(L, at);
+    LuaApi::pushVector3(L, normal);
+    lua_pushnumber(L, dist);
+    return 4;
+}
+
+// __gb_addMethod(name, fn): a method every object gets (the prelude adds workspace:Raycast etc. this way).
+int l_addMethod(lua_State* L) {
+    luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_getfield(L, LUA_REGISTRYINDEX, "GB.InstanceMethods");
+    lua_pushvalue(L, 2);
+    lua_setfield(L, -2, lua_tostring(L, 1));
+    return 0;
+}
+
+// __gb_storage(name): ReplicatedStorage / ServerStorage - a hidden folder for templates
+// (what Roblox imports put there too).
+int l_storage(lua_State* L) {
+    Scene* scene = LuaApi::engine(L)->scene();
+    const std::string name = luaL_checkstring(L, 1);
+    if (!scene) return 0;
+    for (auto& c : scene->root()->children)
+        if (c->name == name && c->kind == NodeKind::Model) { LuaApi::pushInstance(L, c->id); return 1; }
+    auto folder = std::make_unique<SceneNode>(name, NodeKind::Model);
+    folder->visible = false;
+    LuaApi::pushInstance(L, scene->insert(std::move(folder))->id);
+    return 1;
+}
+
 int l_navPath(lua_State* L) {
     glm::vec3 from = LuaApi::checkVector3(L, 1), to = LuaApi::checkVector3(L, 2);
     NavMesh::Agent agent = LuaApi::checkAgent(L, 3);
@@ -910,6 +1373,9 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_dsSet", l_dsSet);
     lua_register(L, "__gb_navPath", l_navPath);
     lua_register(L, "__gb_navQuery", l_navQuery);
+    lua_register(L, "__gb_raycast", l_raycast);
+    lua_register(L, "__gb_storage", l_storage);
+    lua_register(L, "__gb_addMethod", l_addMethod);
     lua_register(L, "__gb_awardBadge", l_awardBadge);
     lua_register(L, "__gb_hasBadge", l_hasBadge);
 
