@@ -10,7 +10,7 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'gutstober-has-risen', name: 'Gutstober Has Risen', time: 1790869400, tag: 'Website',
+    id: 'gutstober-has-risen', name: 'Gutstober Has Risen', version: '0.6.4', time: 1790869400, tag: 'Website',
     summary: 'October is Gutstober: the website dresses up for Halloween, and Gutstober items are only for sale for a limited time.',
     items: [
       'Gutstober theme on the website for all of October: orange and purple, a pumpkin and some bats',
@@ -20,7 +20,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'liquid-assets-explosive-results', name: 'Liquid Assets & Explosive Results', time: 1790868800, tag: 'Engine',
+    id: 'liquid-assets-explosive-results', name: 'Liquid Assets & Explosive Results', version: '0.6.4', time: 1790868800, tag: 'Engine',
     summary: 'Explosions with real shockwaves, fire, smoke and mushroom clouds, bombs that blow holes in the water and send out tsunamis, real item pictures and friends lists you can browse.',
     items: [
       'Explosions have a shockwave that races outwards: it breaks joints, flings loose parts (light ones further), knocks people over and shakes the camera as it passes',

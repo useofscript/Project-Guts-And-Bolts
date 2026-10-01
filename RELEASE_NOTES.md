@@ -1,4 +1,4 @@
-# Next version: Liquid Assets & Explosive Results (not released yet)
+# Guts&Bolts 0.6.4: Liquid Assets & Explosive Results (October 1, 2026)
 
 ## New
 - **Explosions with a shockwave** that races outwards: it breaks joints, flings
