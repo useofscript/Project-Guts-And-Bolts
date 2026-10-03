@@ -185,6 +185,8 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "people") m_page = Page::People;
     if (m_opts.page == "groups") m_page = Page::Groups;
     if (m_opts.page == "friends") m_page = Page::Friends;
+    if (m_opts.page == "messages") m_page = Page::Messages;
+    if (m_opts.page == "outfits") { m_page = Page::Avatar; m_avatarTab = 2; }
     if (m_opts.page == "login") { m_page = Page::Login; m_loginTab = 1; }
     if (m_opts.page.rfind("servers:", 0) == 0 && !m_games.empty()) {   // tests: a game's Servers window
         m_selected = std::clamp(std::atoi(m_opts.page.c_str() + 8), 0, (int)m_games.size() - 1);
@@ -578,6 +580,17 @@ void PlayerApp::frame(float dt) {
         const GameCard& g = m_games[m_selected];
         openServers("local:" + g.path.stem().string(), g.info.title, localStarter(g.path));
     }
+    if (Online::online() && !m_opts.testOps.empty() && !Online::pending()) {   // tests: one request at a time
+        std::string t = m_opts.testOps.front();
+        m_opts.testOps.erase(m_opts.testOps.begin());
+        const size_t sp = t.find(' ');
+        const std::string op = t.substr(0, sp);
+        nlohmann::json args = sp == std::string::npos ? nlohmann::json::object() : nlohmann::json::parse(t.substr(sp + 1), nullptr, false);
+        Online::request(op, args.is_object() ? args : nlohmann::json::object(), [op](const nlohmann::json& r) {
+            std::printf("OP %s %s\n", op.c_str(), r.dump().substr(0, 300).c_str());
+            std::fflush(stdout);
+        });
+    }
     if (Online::online() && (!m_opts.testSignup.empty() || !m_opts.testLogin.empty())) {   // tests
         std::string& t = m_opts.testSignup.empty() ? m_opts.testLogin : m_opts.testSignup;
         bool signup = !m_opts.testSignup.empty();
@@ -622,6 +635,7 @@ void PlayerApp::frame(float dt) {
     ImGui::Begin("##PlayerHost", nullptr, flags);
     ImGui::PopStyleVar(3);
 
+    Classic::seasonal(GraphicsSettings::get().seasonTheme && Classic::isOctober());
     if (m_page == Page::Game) {
         drawGame(dt);
     } else {
@@ -669,6 +683,7 @@ void PlayerApp::frame(float dt) {
             case Page::Group:    drawGroup(); break;
             case Page::Friends:  drawFriends(); break;
             case Page::Login:    drawLogin(); break;
+            case Page::Messages: drawMessages(); break;
             default: break;
         }
         ImGui::PopTextWrapPos();
@@ -686,7 +701,7 @@ void PlayerApp::frame(float dt) {
         Classic::pushLight();
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.97f, 0.97f, 0.98f, 1));
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.06f, 0.38f, 0.73f, 1));
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, Classic::kTitle);
         ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.10f, 0.45f, 0.82f, 1));
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.86f, 0.91f, 0.98f, 1));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.80f, 0.88f, 0.98f, 1));
@@ -763,6 +778,15 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     dl->AddImageRounded((ImTextureID)(intptr_t)m_bannerView.colorTexture(), b0, b1, ImVec2(0, 1), ImVec2(1, 0),
                         IM_COL32_WHITE, 8.0f, ImDrawFlags_RoundCornersTop);
     Classic::logo(dl, ImVec2(pos.x + 26, pos.y + (bannerH - logoSize) * 0.5f - 4), logoSize, "GUTS&BOLTS");
+    if (Classic::gutstober) {   // Gutstober: a pumpkin after the logo and bats flapping across the banner
+        const float lw = ImGui::GetFont()->CalcTextSizeA(logoSize, FLT_MAX, 0, "GUTS&BOLTS").x;
+        Classic::pumpkin(dl, ImVec2(pos.x + 26 + lw + logoSize * 0.6f, pos.y + bannerH * 0.5f - 2), logoSize * 0.33f);
+        const float tt = (float)ImGui::GetTime();
+        for (int k = 0; k < 3; ++k) {
+            float x = std::fmod(tt * (22.0f + k * 9.0f) + k * 260.0f, width + 80.0f) - 40.0f;
+            Classic::bat(dl, ImVec2(pos.x + x, pos.y + 14 + k * 9 + std::sin(tt * 1.7f + k) * 5), 9.0f + k * 2.0f, tt + k);
+        }
+    }
 #ifndef GB_MOBILE
     drawServerButton(ImVec2(pos.x + 26, b1.y - 30));   // online / offline (phones: in the nav bar)
 #endif
@@ -814,7 +838,10 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     static std::string friendsLabel;
     size_t waiting = m_friends.contains("incoming") ? m_friends["incoming"].size() : 0;
     friendsLabel = waiting ? "Friends (" + std::to_string(waiting) + ")" : std::string("Friends");
-    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Friends", 3}, {"People", 11}, {"Groups", 12}, {"Avatar", 2},
+    static std::string messagesLabel;   // "Messages (2)" when there are unread ones
+    const int unread = unreadMessages();
+    messagesLabel = unread ? "Messages (" + std::to_string(unread) + ")" : std::string("Messages");
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Friends", 3}, {"Messages", 13}, {"People", 11}, {"Groups", 12}, {"Avatar", 2},
                                {"Develop", 4}, {"Settings", 5}};
     if (Badges::canVerify()) items.push_back({"Staff", 7});
 #ifdef GB_MOBILE
@@ -829,7 +856,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     {
         float x = pos.x + (portrait ? 10 : 14), row = 0;
         for (const Item& it : items) {
-            float w = ImGui::CalcTextSize(it.action == 3 ? friendsLabel.c_str() : it.label).x;
+            float w = ImGui::CalcTextSize(it.action == 3 ? friendsLabel.c_str() : it.action == 13 ? messagesLabel.c_str() : it.label).x;
             if (x + w + 4 > pos.x + width && x > pos.x + 14) { x = pos.x + (portrait ? 10 : 14); row += navH; }
             at.push_back(ImVec2(x, row));
             x += w + navGap;
@@ -838,10 +865,11 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     float rows = (at.empty() ? 0 : at.back().y) + navH;
     ImVec2 n0(pos.x, b1.y), n1(pos.x + width, b1.y + rows);
     dl->AddRectFilledMultiColor(n0, n1, Classic::kNavTop, Classic::kNavTop, Classic::kNavBottom, Classic::kNavBottom);
-    dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), IM_COL32(10, 60, 130, 255));
+    dl->AddLine(ImVec2(n0.x, n1.y - 1), ImVec2(n1.x, n1.y - 1), Classic::kNavLine);
     for (size_t k = 0; k < items.size(); ++k) {
         Item it = items[k];
         if (it.action == 3) it.label = friendsLabel.c_str();
+        if (it.action == 13) it.label = messagesLabel.c_str();
         float x = at[k].x;
         float rowY = n0.y + at[k].y;
         ImVec2 sz = ImGui::CalcTextSize(it.label);
@@ -855,11 +883,13 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                       (it.action == 7 && m_page == Page::Staff) || (it.action == 8 && m_page == Page::Bolts) ||
                       (it.action == 9 && m_page == Page::Create) || (it.action == 3 && m_page == Page::Friends) ||
                       (it.action == 11 && (m_page == Page::People || m_page == Page::Profile)) ||
-                      (it.action == 12 && (m_page == Page::Groups || m_page == Page::Group));
+                      (it.action == 12 && (m_page == Page::Groups || m_page == Page::Group)) ||
+                      (it.action == 13 && m_page == Page::Messages);
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
         dl->AddText(ImVec2(x + 1, rowY + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
         dl->AddText(ImVec2(x, rowY + (navH - sz.y) * 0.5f), IM_COL32(255, 255, 255, 255), it.label);
+        if (it.action == 13 && unread) dl->AddCircleFilled(ImVec2(x + sz.x + 5, rowY + navH * 0.3f), 3.5f, IM_COL32(230, 30, 30, 255));
         if (clicked) {
             switch (it.action) {
                 case 0: m_page = Page::Home; m_loaded.clear(); break;
@@ -877,6 +907,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 9: m_page = Page::Create; m_loaded.clear(); break;
                 case 11: m_page = Page::People; m_socialMsg.clear(); m_loaded.clear(); break;
                 case 12: m_page = Page::Groups; m_socialMsg.clear(); m_loaded.clear(); break;
+                case 13: m_page = Page::Messages; if (m_msgBox == "new") m_msgBox = "inbox"; m_messagesAt = -100.0; m_msgStatus.clear(); break;
                 case 10: if (!Online::online()) Online::connect(); break;
             }
         }
@@ -965,6 +996,7 @@ void PlayerApp::drawHome() {
         ImGui::Spacing();
     }
     // Online: games people published.
+    drawFeed();
     drawOnlineGames();
     // Daily Bolts waiting for you?
     if (Online::online() ? Online::me().value("canDaily", false) : Bolts::canClaimDaily()) {
@@ -1307,16 +1339,19 @@ void PlayerApp::drawAvatar(float dt) {
     // catalog) and your body (colours and the classic hats).
     ImGui::Spacing();
     {
-        const char* tabNames[] = {"Wardrobe", "Body & Colours"};
-        for (int t = 0; t < 2; ++t) {
+        const char* tabNames[] = {"Wardrobe", "Body & Colours", "Outfits"};
+        const float tw = std::min(150.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2) / 3.0f);
+        for (int t = 0; t < 3; ++t) {
             if (t) ImGui::SameLine();
             bool on = m_avatarTab == t;
-            if (on ? Classic::button(tabNames[t], Classic::kBlue, ImVec2(150, 30)) : ImGui::Button(tabNames[t], ImVec2(150, 30)))
+            if (on ? Classic::button(tabNames[t], Classic::kBlue, ImVec2(tw, 30)) : ImGui::Button(tabNames[t], ImVec2(tw, 30)))
                 m_avatarTab = t;
         }
     }
     if (m_avatarTab == 0) {
         drawWardrobe();
+    } else if (m_avatarTab == 2) {
+        drawOutfits();
     } else {
     ImGui::SeparatorText("Colour sets");
     int i = 0;
@@ -1359,6 +1394,13 @@ void PlayerApp::drawAvatar(float dt) {
     ImGui::EndChild();
     ImGui::EndChild();
 
+    // Just put on a saved outfit: show it as it comes in from the server (the look, then the clothes).
+    if (m_restageUntil > 0.0 && ImGui::GetTime() > m_restageAt && p) {
+        m_restageAt = ImGui::GetTime() + 0.5;
+        me.applyTo(*p);
+        Online::fetchSounds(*m_avatarScene);
+        if (ImGui::GetTime() > m_restageUntil) m_restageUntil = 0.0;
+    }
     if (changed && p) {
         me.applyTo(*p);
         me.save();

@@ -121,6 +121,9 @@ bool PlayerApp::renderItem(ItemRender& e) {
     bool ready = true;
     for (const std::string& src : sourcesOf(it))
         if (!haveSource(src)) { fetchSource(src); ready = false; }
+    for (const Catalog::Item& w : e.wearing)   // a saved outfit: everything in it
+        for (const std::string& src : sourcesOf(w))
+            if (!haveSource(src)) { fetchSource(src); ready = false; }
     if (!ready && !giveUp) return false;
 
     Scene scene;
@@ -137,7 +140,16 @@ bool PlayerApp::renderItem(ItemRender& e) {
     cam.yaw = 70.0f;
     cam.pitch = 8.0f;
 
-    if (it.type == Catalog::Type::Gear) {
+    if (e.outfit) {
+        // A saved outfit: its colours, hat and clothes on the character, the whole body.
+        Player* p = scene.player();
+        if (!p) return true;
+        p->setSpawn({0, 0, 0});
+        p->build();
+        dressPlayer(*p, e.colors, e.hat, e.hatTint, e.wearing);
+        cam.pivot = {0, 1.35f, 0};
+        cam.distance = 7.2f;
+    } else if (it.type == Catalog::Type::Gear) {
         // Gear on its own: the tool, framed to fit.
         if (Player* p = scene.player()) if (SceneNode* r = p->root()) r->visible = false;
         std::string text;

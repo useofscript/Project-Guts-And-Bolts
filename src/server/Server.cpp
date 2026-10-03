@@ -211,7 +211,10 @@ json GbServer::meJson(const User& u) const {
     j["bolts"] = balance(u);
     j["hasPassword"] = !u.keyBlob.empty();   // can log in on other devices
     j["authApp"] = !u.totpSecret.empty();    // logging in needs an authenticator-app code
-    j["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}};
+    j["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}, {"messages", u.privacyMessages}};
+    long long unread = 0;
+    if (u.inbox.is_array()) for (const json& m : u.inbox) if (!m.value("read", false)) ++unread;
+    j["unreadMessages"] = unread;
     json gear = json::array();
     for (const auto& g : u.gear) if (u.owned.count(g)) gear.push_back(g);
     j["gear"] = gear;
@@ -252,7 +255,7 @@ json GbServer::publicAsset(const Asset& a) const {
     json j = {{"id", a.id}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
               {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
-    if (a.kind == "game") { j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); }
+    if (a.kind == "game") { j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL); }
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
@@ -391,6 +394,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 }
         }
         r["gameBadges"] = gameBadges;
+        r["blurb"] = u->blurb;
+        r["status"] = u->posts.is_array() && !u->posts.empty() ? u->posts[0] : json();
+        r["playerBadges"] = playerBadgesOf(*u);
+        r["allPlayerBadges"] = allPlayerBadges();
         return r;
     }
     if (name == "users.search") {
@@ -425,6 +432,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
     if (name.rfind("friends.", 0) == 0 || name.rfind("follow.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
+    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
+        name == "profile.set" || name == "feed.list")
+        return socialOp(name, me, args);
     if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
         json r = okay(); r["me"] = meJson(me); return r;
     }
@@ -859,6 +869,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             return fail("Buy it first.");
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
+        if (a.kind == "game") { rememberPlayed(me, a.id); saveUsers(); }   // "Continue playing"
         if (a.kind == "game" && a.creator != me.id) { a.plays++; saveAssets(); }   // creators opening their own game don't count
         json r = okay(); r["asset"] = publicAsset(a); r["data"] = Online::base64Encode(data); return r;
     }
@@ -936,8 +947,19 @@ void GbServer::saveUsers() {
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
         if (!u.totpSecret.empty()) { all[id]["totpSecret"] = u.totpSecret; all[id]["totpLast"] = u.totpLast; }
         if (!u.totpPending.empty()) all[id]["totpPending"] = u.totpPending;
-        all[id]["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}};
+        all[id]["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}, {"messages", u.privacyMessages}};
         all[id]["gear"] = u.gear;
+        all[id]["outfits"] = u.outfits;
+        all[id]["favorites"] = u.favorites;
+        all[id]["recent"] = u.recent;
+        all[id]["inbox"] = u.inbox;
+        all[id]["sent"] = u.sent;
+        all[id]["messageDay"] = u.messageDay;
+        all[id]["messagesToday"] = u.messagesToday;
+        all[id]["blurb"] = u.blurb;
+        all[id]["posts"] = u.posts;
+        all[id]["statusDay"] = u.statusDay;
+        all[id]["statusesToday"] = u.statusesToday;
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -1043,7 +1065,21 @@ void GbServer::load() {
                     std::string st = j["privacy"].value("status", std::string("everyone")), jn = j["privacy"].value("join", std::string("everyone"));
                     u.privacyStatus = ok(st) ? st : "everyone";
                     u.privacyJoin = ok(jn) ? jn : "everyone";
+                    std::string ms = j["privacy"].value("messages", std::string("everyone"));
+                    u.privacyMessages = ok(ms) ? ms : "everyone";
                 }
+                if (j.contains("outfits") && j["outfits"].is_array()) u.outfits = j["outfits"];
+                if (j.contains("inbox") && j["inbox"].is_array()) u.inbox = j["inbox"];
+                if (j.contains("sent") && j["sent"].is_array()) u.sent = j["sent"];
+                for (const char* k : {"favorites", "recent"})
+                    if (j.contains(k) && j[k].is_array())
+                        for (const auto& g : j[k]) if (g.is_string()) (std::string(k) == "favorites" ? u.favorites : u.recent).push_back(g.get<std::string>());
+                u.messageDay = j.value("messageDay", std::string());
+                u.messagesToday = j.value("messagesToday", 0);
+                u.blurb = j.value("blurb", std::string());
+                if (j.contains("posts") && j["posts"].is_array()) u.posts = j["posts"];
+                u.statusDay = j.value("statusDay", std::string());
+                u.statusesToday = j.value("statusesToday", 0);
                 if (j.contains("gear") && j["gear"].is_array())
                     for (const auto& g : j["gear"]) if (g.is_string()) u.gear.push_back(g.get<std::string>());
                 u.totpSecret = j.value("totpSecret", std::string());

@@ -63,7 +63,7 @@ void GraphicsSettings::load() {
     rd("vsync", vsync); rd("fpsCap", fpsCap); rd("showFps", showFps);
     rd("quality", quality); rd("shadowRes", shadowRes); rd("shadowQuality", shadowQuality);
     rd("ssao", ssao); rd("bloom", bloom); rd("fxaa", fxaa); rd("postFx", postFx);
-    rd("renderScale", renderScale); rd("maxLights", maxLights); rd("allowGore", allowGore); rd("checkUpdates", checkUpdates);
+    rd("renderScale", renderScale); rd("maxLights", maxLights); rd("allowGore", allowGore); rd("checkUpdates", checkUpdates); rd("seasonTheme", seasonTheme);
     rd("touchControls", touchControls); rd("touchSize", touchSize);
     rd("shiftLockSwitch", shiftLockSwitch); rd("mouseSensitivity", mouseSensitivity); rd("invertCamera", invertCamera);
     rd("volume", volume); rd("fullscreen", fullscreen);
@@ -102,7 +102,7 @@ void GraphicsSettings::save() const {
         {"vsync", vsync}, {"fpsCap", fpsCap}, {"showFps", showFps},
         {"quality", quality}, {"shadowRes", shadowRes}, {"shadowQuality", shadowQuality},
         {"ssao", ssao}, {"bloom", bloom}, {"fxaa", fxaa}, {"postFx", postFx},
-        {"renderScale", renderScale}, {"maxLights", maxLights}, {"allowGore", allowGore}, {"checkUpdates", checkUpdates},
+        {"renderScale", renderScale}, {"maxLights", maxLights}, {"allowGore", allowGore}, {"checkUpdates", checkUpdates}, {"seasonTheme", seasonTheme},
         {"touchControls", touchControls}, {"touchSize", touchSize},
         {"shiftLockSwitch", shiftLockSwitch}, {"mouseSensitivity", mouseSensitivity}, {"invertCamera", invertCamera},
         {"volume", volume}, {"fullscreen", fullscreen},

@@ -23,6 +23,70 @@ using json = nlohmann::json;
 using namespace Social;
 
 namespace {
+std::string sinceText(long long t) {
+    long long s = std::max(0LL, Online::unixNow() - t);
+    if (s < 60) return "just now";
+    if (s < 3600) return std::to_string(s / 60) + (s / 60 == 1 ? " minute ago" : " minutes ago");
+    if (s < 86400) return std::to_string(s / 3600) + (s / 3600 == 1 ? " hour ago" : " hours ago");
+    return std::to_string(s / 86400) + (s / 86400 == 1 ? " day ago" : " days ago");
+}
+
+// Player Badges: a coloured shield with a white picture, same as the website. Locked ones are grey.
+void playerBadgeIcon(const std::string& key, bool got, float size) {
+    struct Look { const char* key; ImU32 col; };
+    static const Look looks[] = {
+        {"creator", IM_COL32(232, 89, 12, 255)},  {"builder", IM_COL32(29, 111, 216, 255)},
+        {"architect", IM_COL32(107, 47, 179, 255)}, {"friendly", IM_COL32(22, 163, 74, 255)},
+        {"collector", IM_COL32(176, 120, 0, 255)}, {"oldtimer", IM_COL32(91, 100, 114, 255)},
+    };
+    ImU32 col = IM_COL32(136, 136, 136, 255);
+    for (const auto& l : looks) if (key == l.key) col = l.col;
+    if (!got) col = IM_COL32(190, 190, 190, 255);
+    const ImU32 white = got ? IM_COL32(255, 255, 255, 255) : IM_COL32(240, 240, 240, 255);
+    const float h = size * 1.125f;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##pb", ImVec2(size, h));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float u = size / 32.0f;
+    auto P = [&](float x, float y) { return ImVec2(p.x + x * u, p.y + y * u); };
+    // Shield: flat top corners, pointed bottom.
+    ImVec2 shield[] = {P(16, 1), P(30, 6), P(30, 18), P(28, 25), P(23, 31), P(16, 35), P(9, 31), P(4, 25), P(2, 18), P(2, 6)};
+    dl->AddConvexPolyFilled(shield, 10, col);
+    dl->AddPolyline(shield, 10, IM_COL32(0, 0, 0, 64), ImDrawFlags_Closed, 1.0f);
+    ImVec2 shine[] = {P(16, 3), P(28, 7.5f), P(28, 12), P(4, 12), P(4, 7.5f)};
+    dl->AddConvexPolyFilled(shine, 5, IM_COL32(255, 255, 255, 40));
+    if (key == "creator") {          // a hammer over a brick
+        dl->AddRectFilled(P(9, 17), P(23, 24), white, 1.0f * u);
+        dl->AddLine(P(11, 15), P(21, 7), white, 2.4f * u);
+        dl->AddLine(P(18, 6), P(23, 11), white, 3.0f * u);
+    } else if (key == "builder") {   // one brick
+        dl->AddRectFilled(P(7, 14), P(25, 23), white, 1.0f * u);
+        dl->AddCircleFilled(P(12, 14), 2.0f * u, white);
+        dl->AddCircleFilled(P(20, 14), 2.0f * u, white);
+    } else if (key == "architect") { // a house
+        dl->AddTriangleFilled(P(16, 6), P(26, 15), P(6, 15), white);
+        dl->AddRectFilled(P(9, 15), P(23, 25), white);
+        dl->AddRectFilled(P(14, 18), P(18, 25), col);
+    } else if (key == "friendly") {  // two people
+        dl->AddCircleFilled(P(12, 12), 3.5f * u, white);
+        dl->AddCircleFilled(P(20, 12), 3.5f * u, white);
+        dl->AddRectFilled(P(6, 18), P(18, 25), white, 4.0f * u, ImDrawFlags_RoundCornersTop);
+        dl->AddRectFilled(P(14, 18), P(26, 25), white, 4.0f * u, ImDrawFlags_RoundCornersTop);
+    } else if (key == "collector") { // a star
+        ImVec2 c = P(16, 16);
+        for (int i = 0; i < 5; ++i) {
+            float a0 = -1.5708f + i * 1.2566f, a1 = a0 + 0.6283f, a2 = a0 - 0.6283f;
+            dl->AddTriangleFilled(ImVec2(c.x + std::cos(a0) * 10 * u, c.y + std::sin(a0) * 10 * u),
+                                  ImVec2(c.x + std::cos(a1) * 4 * u, c.y + std::sin(a1) * 4 * u),
+                                  ImVec2(c.x + std::cos(a2) * 4 * u, c.y + std::sin(a2) * 4 * u), white);
+        }
+        dl->AddCircleFilled(c, 4.2f * u, white);
+    } else if (key == "oldtimer") {  // a clock
+        dl->AddCircle(P(16, 16), 9 * u, white, 0, 2.5f * u);
+        dl->AddLine(P(16, 10), P(16, 16), white, 2.5f * u);
+        dl->AddLine(P(16, 16), P(20, 19), white, 2.5f * u);
+    }
+}
 
 // A group row: emblem, name, owner, members. True when clicked.
 bool groupRow(const json& g, int index) {
@@ -230,7 +294,14 @@ void PlayerApp::drawProfile() {
         else ImGui::TextDisabled("[ Offline ]");
     }
     std::string fs = m_profile.value("friendship", std::string("none"));
-    if (fs != "self") { ImGui::SameLine(0, 16); friendButton(id, fs); }
+    if (fs != "self") {
+        ImGui::SameLine(0, 16); friendButton(id, fs);
+        if (!Online::isGuest()) {
+            ImGui::SameLine(0, 8);
+            const long long num = u.value("userId", 0LL);
+            if (ImGui::Button("Send Message", ImVec2(0, 28))) openNewMessage(num > 0 ? "#" + std::to_string(num) : id);
+        }
+    }
     if (m_profile.contains("playing") && m_profile["playing"].is_object()) {
         const json& pl = m_profile["playing"];
         ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Playing %s", pl.value("title", std::string()).c_str());
@@ -380,6 +451,66 @@ void PlayerApp::drawProfile() {
     if (!tall) ImGui::SameLine(0, 18);
 
     ImGui::BeginChild("##profileRight", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
+    {   // About: "Right now I'm..." and the "About me" blurb (yours can be changed here)
+        boxTitle(("About " + name).c_str());
+        ImGui::PushTextWrapPos(0);
+        if (m_profile.contains("status") && m_profile["status"].is_object()) {
+            const json& st = m_profile["status"];
+            ImGui::TextColored(Classic::kBlue, "Right now:");
+            ImGui::SameLine();
+            ImGui::Text("\"%s\"  (%s)", st.value("text", std::string()).c_str(), sinceText(st.value("at", 0LL)).c_str());
+        }
+        const std::string blurb = m_profile.value("blurb", std::string());
+        if (!blurb.empty()) ImGui::TextUnformatted(blurb.c_str());
+        else ImGui::TextDisabled(fs == "self" ? "Tell people about yourself below." : "Nothing here yet.");
+        ImGui::PopTextWrapPos();
+        if (fs == "self" && m_profile.contains("blurb")) {
+            if (ImGui::TreeNode("Edit")) {
+                if (ImGui::IsItemToggledOpen() || m_blurbEdit.empty()) m_blurbEdit = blurb;
+                ImGui::TextUnformatted("Right now I'm...");
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90);
+                if (ImGui::InputText("##status", &m_statusEdit) && m_statusEdit.size() > 140) m_statusEdit.resize(140);
+                ImGui::SameLine();
+                if (Classic::button("Update", Classic::kBlue, ImVec2(80, 0)) && !m_statusEdit.empty()) {
+                    Online::request("profile.set", {{"status", m_statusEdit}}, [this](const json& r) {
+                        if (r.value("ok", false)) { m_profile["status"] = r["status"]; m_statusEdit.clear(); }
+                        else m_socialMsg = r.value("error", std::string());
+                    });
+                }
+                ImGui::TextUnformatted("About me");
+                if (ImGui::InputTextMultiline("##blurb", &m_blurbEdit, ImVec2(ImGui::GetContentRegionAvail().x, 90)) && m_blurbEdit.size() > 1000)
+                    m_blurbEdit.resize(1000);
+                if (Classic::button("Save", Classic::kPlay, ImVec2(80, 26))) {
+                    Online::request("profile.set", {{"blurb", m_blurbEdit}}, [this](const json& r) {
+                        if (r.value("ok", false)) m_profile["blurb"] = r.value("blurb", std::string());
+                        else m_socialMsg = r.value("error", std::string());
+                    });
+                }
+                ImGui::TreePop();
+            }
+        }
+        ImGui::Spacing();
+    }
+    if (m_profile.contains("allPlayerBadges")) {   // earned on their own by playing and building
+        std::vector<std::string> have;
+        for (const auto& b : m_profile.value("playerBadges", json::array())) have.push_back(b.value("key", std::string()));
+        const json& all = m_profile["allPlayerBadges"];
+        boxTitle(("Player Badges (" + std::to_string(have.size()) + ")").c_str());
+        int n = 0;
+        for (const auto& b : all) {
+            const std::string key = b.value("key", std::string());
+            const bool got = std::find(have.begin(), have.end(), key) != have.end();
+            if (n > 0 && ImGui::GetItemRectMax().x + 50.0f < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+                ImGui::SameLine(0, 10);   // wraps on narrow phone screens
+            ImGui::PushID(n++);
+            playerBadgeIcon(key, got, 40.0f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s%s\n%s", b.value("name", std::string()).c_str(), got ? " - earned!" : " (locked)",
+                                  b.value("need", std::string()).c_str());
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+    }
     {
         std::string t = "Friends (" + std::to_string(m_profile.value("friendCount", 0LL)) + ")";
         boxTitle(t.c_str());

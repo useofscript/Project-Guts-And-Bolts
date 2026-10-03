@@ -51,6 +51,7 @@ struct PlayerOptions {
     std::string joinCode;              // --join-code <code>: join a private server once online
     std::string testSignup, testLogin; // --test-signup / --test-login "user:password" once online
     float       cameraYaw = -1000.0f;  // --camera-yaw <degrees> (tests: look from another side)
+    std::vector<std::string> testOps;  // --test-op 'op {json}' (tests: send requests in order once online, print the answers)
     std::string testRename;            // --test-rename "New name" (tests: rename your first game on the Create page)
     std::string testPublish;           // --test-publish file.gbscene (tests: publish a game file to the server)
     int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
@@ -68,7 +69,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends, Login };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends, Login, Messages };
     // How a game is started: alone, or as the host of a server.
     enum class HostMode { Solo, Lan, Public, Private };
     using Starter = std::function<void(HostMode)>;   // loads the game (downloading it if needed) and starts it
@@ -153,12 +154,36 @@ private:
         std::unique_ptr<Framebuffer>   fb;
         bool   done = false;
         double lastUsed = 0, retryAt = 0, firstTry = 0;
+        // A saved outfit instead of one item (PlayerMail.cpp): the whole look on the mannequin.
+        bool   outfit = false;
+        BodyColors colors;
+        HatStyle   hat = HatStyle::None;
+        glm::vec3  hatTint{-1.0f};
+        std::vector<Catalog::Item> wearing;
     };
     std::map<std::string, ItemRender> m_itemRenders;
     void itemPicture(ImDrawList* dl, ImVec2 c, float s, const Catalog::Item& it);
     void updateItemRenders();
     bool renderItem(ItemRender& e);
     static bool dressPlayer(Player& p, BodyColors bc, HatStyle hat, glm::vec3 hatTint, const std::vector<Catalog::Item>& items);
+    // PlayerMail.cpp: messages, saved outfits, favourite and recently played games.
+    void drawMessages();
+    void openNewMessage(const std::string& to, const std::string& subject = "");
+    int  unreadMessages() const;
+    void drawOutfits();
+    void outfitPicture(ImDrawList* dl, ImVec2 c, float s, const nlohmann::json& outfit);
+    void refreshMyGames();
+    void drawFeed();
+    void setFavorite(const std::string& id, bool on);
+    nlohmann::json m_messages = nlohmann::json::array();
+    std::string    m_msgBox = "inbox", m_msgTo, m_msgSubject, m_msgBody, m_msgStatus;
+    double         m_messagesAt = -100.0;
+    nlohmann::json m_outfits = nlohmann::json::array();
+    double         m_outfitsAt = -100.0, m_restageUntil = 0.0, m_restageAt = 0.0;
+    std::string    m_outfitName, m_outfitMsg, m_renameOutfitId, m_renameOutfitName;
+    nlohmann::json m_recentGames = nlohmann::json::array(), m_favGames = nlohmann::json::array();
+    nlohmann::json m_openGame = nlohmann::json::object();   // the game in the online game popup
+    double         m_myGamesAt = -100.0;
     // Someone's friends / following / followers (a popup over their profile).
     void openPeople(const std::string& user, const std::string& which, int page = 0);
     void drawPeopleDialog();
@@ -318,6 +343,9 @@ private:
 
     // People and groups
     std::string    m_peopleQuery, m_profileId, m_groupId, m_groupQuery, m_socialMsg;
+    std::string    m_statusEdit, m_blurbEdit, m_feedPost;   // classic "Right now I'm..." and About me
+    nlohmann::json m_feed = nlohmann::json::array();
+    double         m_feedAt = -1000.0;
     nlohmann::json m_peopleResults = nlohmann::json::array();
     nlohmann::json m_profile = nlohmann::json::object();
     nlohmann::json m_groupList = nlohmann::json::array();

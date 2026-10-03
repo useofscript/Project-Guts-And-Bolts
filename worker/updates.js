@@ -10,6 +10,31 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'right-now-im', name: 'Right Now I\'m...', time: 1790899200, tag: 'Website',
+    summary: 'Classic profile stuff: an About me, a "Right now I\'m..." status, My Feed on the home page and Player Badges you earn on your own.',
+    items: [
+      'About me: write a few lines about yourself on your profile (press Edit under the About box)',
+      'Right now I\'m...: a short status (up to 140 letters) that shows on your profile',
+      'My Feed on the home page: your status and your friends\' and the people you follow, newest first',
+      'Player Badges: earned by themselves when you make a game (Creator), get 100 visits (Builder) or 1,000 (Architect), have 20 friends (Friendly), own 10 catalog items (Collector) or stay a year (Old Timer)',
+      'Locked badges are grey; hover one to see how to get it',
+      'All of it is in the Player app too, on profiles and the home page',
+    ],
+  },
+  {
+    id: 'youve-got-mail', name: 'You\'ve Got Mail', time: 1790877600, tag: 'Player',
+    summary: 'Private messages, saved outfits, favourite games and a "Continue Playing" row on the home page.',
+    items: [
+      'Messages: an inbox like old Roblox. Send anyone a message from their profile, reply, and see a red count when something new arrives',
+      'Choose who can message you in Settings > Privacy: everyone, friends only, or no one',
+      'Saved outfits: save your whole look on the Avatar page and put it back on in one click (up to 30)',
+      'Favourite games with the star on a game\'s page, and find them again on the home page',
+      'Continue Playing: the games you played last, right on the home page',
+      'All of this is in the Player app too: a Messages page, an Outfits tab on the Avatar page, and Continue Playing and Favorites on the home page',
+      'The Player dresses up for Gutstober too (orange and purple, a pumpkin and bats); turn it off in Settings',
+    ],
+  },
+  {
     id: 'gutstober-has-risen', name: 'Gutstober Has Risen', version: '0.6.4', time: 1790869400, tag: 'Website',
     summary: 'October is Gutstober: the website dresses up for Halloween, and Gutstober items are only for sale for a limited time.',
     items: [

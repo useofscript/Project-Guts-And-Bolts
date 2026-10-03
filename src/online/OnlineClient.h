@@ -42,7 +42,7 @@ void update();
 void takeMe(const nlohmann::json& reply);
 // Save your avatar (Profile) on the server, so the website and your other devices
 // show it too. (The server's copy comes back by itself: see takeMe.)
-void pushAvatar();
+void pushAvatar(std::function<void(const nlohmann::json&)> done = nullptr);
 // Requests still waiting for an answer (for "Working..." spinners).
 int  pending();
 

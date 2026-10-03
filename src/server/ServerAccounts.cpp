@@ -133,6 +133,7 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
         auto ok = [](const std::string& v) { return v == "everyone" || v == "friends" || v == "nobody"; };
         if (ok(str("status"))) me.privacyStatus = str("status");
         if (ok(str("join"))) me.privacyJoin = str("join");
+        if (ok(str("messages"))) me.privacyMessages = str("messages");   // who can send you messages
         saveUsers();
         json r = okay(); r["me"] = meJson(me); return r;
     }

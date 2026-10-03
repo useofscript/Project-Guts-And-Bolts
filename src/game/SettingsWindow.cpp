@@ -46,6 +46,8 @@ void draw(bool* open) {
     ImGui::SeparatorText("Content");
     ImGui::Checkbox("Show blood & gore", &s.allowGore);
     help("Turn off to hide blood, oil and gibs in every game.");
+    ImGui::Checkbox("Gutstober theme (October)", &s.seasonTheme);
+    help("In October the app dresses up for Halloween: orange and purple, a pumpkin and bats. Turn off for the usual blue.");
 
     ImGui::SeparatorText("Controls");
     const char* touch[] = {"Auto (phones and tablets)", "Always on", "Off"};

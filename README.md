@@ -1499,6 +1499,37 @@ Profiles also have an **Add Friend** button. Anyone can look at someone's
 counts, or *See all*); every name in them is a blue link to that person's profile.
 Nothing on the site shows anyone's address or when they were last on.
 
+**Messages.** Everyone signed up has an inbox (*Messages* in the top bar; a red
+number shows unread ones). Press **Send Message** on someone's profile, or
+*New message* and type their user number (like #5). Open a message to read it,
+then **Reply** or **Delete**. *Settings > Privacy* sets who can message you:
+everyone, friends only or no one. Guests can't use messages, and each account
+can send 40 a day.
+
+**Outfits.** On the Avatar page, *My outfits* saves your whole look and puts it
+back on in one click (things you no longer own are left off). Up to 30.
+
+**Favourites and Continue Playing.** The star on a game's page adds it to your
+favourites. The home page shows your favourites and the games you played last.
+
+All three work the same in the Player app: *Messages* in its menu bar, the
+*Outfits* tab on the Avatar page, and the Continue Playing and Favorites rows on
+its home page (open a game and press *Favorite*). In October the Player wears the
+Gutstober theme like the website; turn it off in *Settings > Gutstober theme*.
+
+**About me, status and My Feed.** Press *Edit* in the About box on your own
+profile to write an *About me* and a *Right now I'm...* status (up to 140
+letters; 30 a day). The home page's **My Feed** box shows your status and the
+latest ones from your friends and the people you follow, newest first. You can
+post a new status straight from it.
+
+**Player Badges** come by themselves: *Creator* (make a game), *Builder* (100
+visits to your games), *Architect* (1,000 visits), *Friendly* (20 friends),
+*Collector* (own 10 catalog items) and *Old Timer* (a year on Guts&Bolts).
+Profiles show all six; the grey ones are still locked.
+
+All of this is in the Player app too, on profiles and the home page.
+
 **Join.** If someone's playing and lets you join, their profile (on the site
 and in the app) shows *Playing ...* with a **Join** button that puts you in the
 same server.
