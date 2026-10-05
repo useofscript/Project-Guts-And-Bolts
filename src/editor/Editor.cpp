@@ -124,6 +124,7 @@ Editor::~Editor() {
     m_plugins.reset();
     m_team.reset();
     if (m_session) m_session->stop();
+    dropAutoSave();   // a normal close: nothing to recover next time
 }
 
 void Editor::render(float dt) {
@@ -169,6 +170,8 @@ void Editor::render(float dt) {
     renderPublishDialog();
     renderPublishModelDialog();
     renderMakeGearDialog();
+    renderRecoverDialog();
+    autoSaveTick();
     renderAccessoryWindow();
     renderPluginLibrary();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
@@ -745,6 +748,7 @@ void Editor::saveFile(const std::string& path, bool sync) {
     if (Serializer::writeFile(path, Serializer::saveScene(*m_scene, true))) {
         m_path  = path;
         m_dirty = false;
+        dropAutoSave();   // saved for real: the backup isn't needed
         const std::string& published = info.publishedId;
         if (published.empty()) {
             Log::system("Saved to " + path + ". It's only on this computer: use File > Publish to put it online "

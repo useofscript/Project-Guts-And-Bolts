@@ -135,6 +135,14 @@ private:
     void saveFile(const std::string& path, bool sync = true);
     void save();
     void updateTitle();
+    // AutoSave / Auto-Recovery (EditorAutosave.cpp)
+    void        autoSaveTick();
+    void        dropAutoSave();
+    void        renderRecoverDialog();
+    double      m_lastAutoSave = 0.0;
+    long long   m_autoSavedAt = 0, m_recoverTime = 0;
+    bool        m_openRecover = false, m_recoverPending = false;   // (pending: keep the old backup until they choose)
+    std::string m_recoverFrom;
     void exportRoblox(bool selectionOnly);
 
     // Undo / redo (whole-scene snapshots)
