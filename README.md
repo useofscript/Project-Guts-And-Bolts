@@ -260,6 +260,27 @@ Blender.
 Right-click in the Explorer for **Insert Object** (every kind of object, with
 a search box). **Lighting** and **StarterPlayer** are in the Explorer too.
 
+**Handles, like Roblox.** Selected parts get a light blue box. **Move** has an
+arrow on each of the six sides (along the part's own axes, or the world's with
+*World* on): drag one and everything selected slides that way. **Scale** has an
+orb on each side: drag one and only that side moves (hold **Ctrl** to grow both
+sides). **Rotate** turns everything selected together. Click empty space and
+drag to **box-select**.
+
+**Unions** (MODEL tab > Solid Modeling, like Roblox): select parts and press
+**Union** (Ctrl+Shift+G) to join them into one shape. **Negate** (Ctrl+Shift+N)
+turns a part into a see-through pink "hole": union it with other parts and it
+gets cut out of them. **Intersect** (Ctrl+Shift+I) keeps only where parts
+overlap. **Separate** (Ctrl+Shift+U) gives back the parts a union was made from.
+
+**Script Analysis** (VIEW tab, or View > Script Analysis) checks every script
+without running anything: red errors are things Lua can't read (a missing
+`end`), yellow warnings are names that aren't defined anywhere (usually a typo,
+like `pirnt`). Click one to jump to it.
+
+**AutoSave**: every 5 minutes Studio keeps a backup of unsaved work (your game
+file isn't touched). If Studio crashes, it offers to open the backup next time.
+
 ### Controls
 
 These match Roblox Studio. Press **F1** (or **View > Shortcuts**) in Studio

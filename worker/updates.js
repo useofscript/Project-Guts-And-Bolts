@@ -10,6 +10,20 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'cut-and-paste-studio', name: 'Studio Gets Its Hands Dirty', time: 1791244800, tag: 'Studio',
+    summary: 'Unions, Roblox-style Move and Scale handles, box select, blue selection boxes, Script Analysis and AutoSave.',
+    items: [
+      'Unions like Roblox: Union (Ctrl+Shift+G) joins parts into one, Negate (Ctrl+Shift+N) turns a part into a hole that gets cut out, Intersect (Ctrl+Shift+I) keeps the overlap, Separate (Ctrl+Shift+U) gives the parts back',
+      'Scale has an orb on each of the 6 sides: drag one to move just that side (hold Ctrl for both sides)',
+      'Move has an arrow on each side, and moves everything you selected (with snapping and collisions)',
+      'Rotating several things now turns them all together instead of only the last one picked',
+      'Click empty space and drag to box-select parts',
+      'Selected parts get a light blue box around them',
+      'Script Analysis (VIEW tab): finds mistakes in every script without pressing Play, like a missing "end" or a misspelled name',
+      'AutoSave: unsaved work is backed up every 5 minutes, and Studio offers to bring it back after a crash',
+    ],
+  },
+  {
     id: 'gear-up-look-it-up', name: 'Gear Up, Look It Up', time: 1791158400, tag: 'Studio',
     summary: 'Every Library asset gets its own page you can find by ID, and Guts can make gear straight from Studio.',
     items: [

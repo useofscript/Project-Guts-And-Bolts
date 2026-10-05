@@ -1,6 +1,12 @@
 # Next version (not released yet)
 
 ## New
+- **Studio, more like Roblox Studio**: Union / Negate / Intersect / Separate
+  (Ctrl+Shift+G / N / I / U); Scale orbs on each side (drag one side, Ctrl for
+  both) and Move arrows; rotating several things turns them all together; drag
+  a box to select; blue selection boxes; **Script Analysis** (VIEW tab) lists
+  script mistakes without running anything; **AutoSave** every 5 minutes with
+  crash recovery.
 - **Asset pages**: every decal, sound, model and plugin in the Library has its
   own page, found by its ID (`#/library/<ID>` on the website, *Create > Library*
   in the Player). Listen to audio, see decals full size and **Copy ID** to paste
