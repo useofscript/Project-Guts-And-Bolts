@@ -16,7 +16,7 @@ inline constexpr int  kDefaultPort = 7780;
 inline constexpr int  kProtocol    = 1;
 // The Guts&Bolts server on Cloudflare (online even when nobody's computer is on).
 // New players start on it; "Use the official server" in the server dialogs picks it.
-inline constexpr const char* kOfficialServer = "https://project-guts-and-bolts.pizzadoe173.workers.dev";
+inline constexpr const char* kOfficialServer = "https://gutsandbolts.net";
 inline constexpr long long kMaxClockSkew = 600;   // seconds a request's time may be off by
 
 // Uploading. Verified creators pay nothing and can sell their creations;

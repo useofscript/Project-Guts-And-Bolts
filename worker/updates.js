@@ -10,6 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'new-address', name: 'Moving Day', time: 1791241500, tag: 'Website',
+    summary: 'Guts&Bolts has its own address now: gutsandbolts.net.',
+    items: [
+      'The website lives at gutsandbolts.net (www.gutsandbolts.net works too)',
+      'The Player and Studio connect to gutsandbolts.net from the next update on',
+      'The old address keeps working, so nobody gets cut off while they update',
+    ],
+  },
+  {
     id: 'peek-under-the-hood', name: 'Peek Under the Hood', version: '0.6.5', time: 1791334800, tag: 'Player',
     summary: 'The Developer Console, like Roblox: press F9 or type /devconsole in a game.',
     items: [

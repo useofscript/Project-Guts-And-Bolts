@@ -1,3 +1,10 @@
+# Next version (not released yet)
+
+## New
+- **gutsandbolts.net**: the website and the server have their own address. The
+  apps connect to it from this version on; the old `workers.dev` address still
+  works for older apps.
+
 # Guts&Bolts 0.6.5: Nobody Gets Left Behind (October 5, 2026)
 
 ## New

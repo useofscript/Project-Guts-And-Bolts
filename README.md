@@ -1146,7 +1146,8 @@ public half is your **account ID** (safe to share). The secret half stays in
 
 The **official Guts&Bolts server runs on Cloudflare** (with the website), so it's
 online even when nobody's computer is on. The apps always use it:
-`https://project-guts-and-bolts.pizzadoe173.workers.dev`. (Clicking the status
+**<https://gutsandbolts.net>** (`www.gutsandbolts.net` works too, and the old
+`workers.dev` address still answers for older apps). (Clicking the status
 pill on the site's banner, or Studio's **File > Guts&Bolts Server... >
 Reconnect**, tries again if the connection dropped.)
 

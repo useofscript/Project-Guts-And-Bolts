@@ -216,7 +216,7 @@ jobs:
           notes = open("release_notes_latest.md", encoding="utf-8").read()
           notes = notes if len(notes) <= 3500 else notes[:3499] + "…"
           embed = {"title": f"📦 New release: {os.environ.get('NAME') or 'Guts&Bolts ' + tag}", "url": url, "color": 0x16A34A,
-                   "description": notes + f"\n\n**[Download it here]({url})** · [Website](https://project-guts-and-bolts.pizzadoe173.workers.dev)"}
+                   "description": notes + f"\n\n**[Download it here]({url})** · [Website](https://gutsandbolts.net)"}
           body = json.dumps({"username": "Guts&Bolts Dev Log", "embeds": [embed]}).encode()
           req = urllib.request.Request(os.environ["WEBHOOK"], data=body,
                                        headers={"Content-Type": "application/json", "User-Agent": "GutsAndBolts-DevLog"})
