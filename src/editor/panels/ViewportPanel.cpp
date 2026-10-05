@@ -324,6 +324,7 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     glm::mat4 world = base * glm::translate(glm::mat4(1.0f), localPivot);
     const glm::vec3 pivotBefore(world[3]);
     const Transform before0 = sel->transform;
+    const glm::mat4 worldBefore = world;
     const bool changed = ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
                                               glm::value_ptr(world), nullptr,
                                               snapping && op != ImGuizmo::SCALE ? snap : nullptr);
@@ -336,6 +337,20 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     if (!ImGuizmo::IsUsing()) m_gizmoDragging = false;
     if (changed) {
         glm::vec3 movedPivot = glm::vec3(world[3]) - pivotBefore;
+        // Rotating several things: they all turn together around the gizmo, like Roblox
+        // (before, only the last one picked turned).
+        if (m_state->tool == GizmoTool::Rotate) {
+            const glm::mat4 turn = world * glm::inverse(worldBefore);
+            for (SceneNode* o : m_scene->selectionRoots()) {
+                if (o == sel || m_scene->isProtected(o) || m_scene->isCharacterPart(o)) continue;
+                glm::mat4 ow = turn * o->worldMatrix();
+                if (o->parent) ow = glm::inverse(o->parent->worldMatrix()) * ow;
+                float ot[3], orr[3], os[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(ow), ot, orr, os);
+                o->transform.position = {ot[0], ot[1], ot[2]};
+                o->transform.rotation = {orr[0], orr[1], orr[2]};
+            }
+        }
         world = world * glm::translate(glm::mat4(1.0f), -localPivot);
         // Convert the manipulated world matrix back into a local transform.
         glm::mat4 local = world;
