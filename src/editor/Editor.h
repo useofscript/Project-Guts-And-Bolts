@@ -49,6 +49,8 @@ public:
     void testAddPart(const std::string& name);
     void testInsert(const std::string& names);   // Insert Object, each one into the one before
     void testPremades(const std::string& list);
+    void testToolStep(const std::string& step);
+    void testAnalysis();   // --test-analysis   // --test-tools: "1".. hold a slot, "click", "print"
     void testSelect(const std::string& names);
     void testSnapshot(const std::string& file);   // --test-snapshot
     void testExportRoblox(const std::string& path);
@@ -82,6 +84,10 @@ private:
     void       copySelected();
     void       paste();
     void       groupSelected();
+    // Solid modeling (EditorSolid.cpp): Union / Intersect, Negate, Separate
+    void       unionSelected(int mode);   // 0 union, 1 intersect
+    void       negateSelected();
+    void       separateSelected();
     void       cutSelected();
     void       pasteInto();
     void       toggleLocked();
@@ -102,6 +108,12 @@ private:
     void       renderPublishDialog();
     void       renderPluginLibrary();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
+    void       renderMakeGearDialog();
+    // Pictures on parts that only live on this computer (an imported Roblox hat's texture) go up
+    // as decals first, so the website and everyone else's game see them too. Then `done` runs
+    // with the node's "texture"s pointing at them ("gb:<number>").
+    void       uploadLocalTextures(nlohmann::json node, const std::string& name,
+                                   std::function<void(nlohmann::json node, std::string error)> done);       // File > Make Gear (staff): start from a ready-made Tool, sell it in the catalog
     // The Toolbox's Library tiles (everyone's public models, decals and audio, or your own).
     std::vector<ToolboxTile> libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status);
     unsigned   libraryPicture(const nlohmann::json& asset);
@@ -128,6 +140,14 @@ private:
     void saveFile(const std::string& path, bool sync = true);
     void save();
     void updateTitle();
+    // AutoSave / Auto-Recovery (EditorAutosave.cpp)
+    void        autoSaveTick();
+    void        dropAutoSave();
+    void        renderRecoverDialog();
+    double      m_lastAutoSave = 0.0;
+    long long   m_autoSavedAt = 0, m_recoverTime = 0;
+    bool        m_openRecover = false, m_recoverPending = false;   // (pending: keep the old backup until they choose)
+    std::string m_recoverFrom;
     void exportRoblox(bool selectionOnly);
 
     // Undo / redo (whole-scene snapshots)
@@ -163,6 +183,7 @@ private:
     // Library: publishing a model (public or private) and browsing everyone's public ones.
     bool        m_openPublishModel = false, m_modelPublic = true, m_libraryLoaded = false;
     bool        m_modelAsGear = false;   // staff: sell a Tool in the catalog as Gear
+    bool        m_openMakeGear = false, m_openPublishGear = false;
     int         m_gearPrice = 0;
     std::string m_modelName, m_modelDesc, m_modelMsg, m_libraryQuery, m_libraryMsg;
     int         m_libraryKind = 0;   // 0 models, 1 decals, 2 audio

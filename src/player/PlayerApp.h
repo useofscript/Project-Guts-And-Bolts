@@ -44,6 +44,7 @@ struct PlayerOptions {
     std::string testRedeemBolts;       // --test-redeem-bolts <code> (tests)
     std::string testBuy;               // --test-buy "<item name>" (tests: buy and wear it)
     std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
+    std::string onlineGame;            // --online-game ID: press Play on a published game once online
     bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
     bool        privateServer = false; // --private-server (with a game): start a private server once online
     std::string testAccessory, testFace;   // --test-accessory file.json / --test-face face.png (tests)
@@ -174,6 +175,13 @@ private:
     void outfitPicture(ImDrawList* dl, ImVec2 c, float s, const nlohmann::json& outfit);
     void refreshMyGames();
     void drawFeed();
+    // Create > Library: public models, decals, audio and plugins, each with its own page (PlayerLibrary.cpp)
+    static constexpr int kLibraryTab = 8;
+    void     drawLibrary();
+    void     drawAsset();
+    void     openAsset(const std::string& id);   // "gb:decal-..." or just "decal-..."
+    void     stopAssetSound();
+    unsigned libraryPicture(const nlohmann::json& asset, int& w, int& h);
     void setFavorite(const std::string& id, bool on);
     nlohmann::json m_messages = nlohmann::json::array();
     std::string    m_msgBox = "inbox", m_msgTo, m_msgSubject, m_msgBody, m_msgStatus;
@@ -277,6 +285,13 @@ private:
     std::unique_ptr<ChatLog>       m_soloChat;     // chat when playing alone
     std::string m_chatInput;
     bool        m_chatOpen = false;
+    // Developer Console (PlayerDevConsole.cpp): F9 or /devconsole.
+    bool        m_devConsole = false, m_devFollow = true;
+    int         m_devTab = 0;
+    std::string m_devFilter, m_devCommand;
+    std::string m_gameOwner;   // the account that made the game we're hosting
+    void drawDevConsole();
+    bool devServerAccess() const;
     // The leaderboard: folded away or not (Tab), and the little menu you get by
     // clicking someone's name (Add Friend / Follow).
     bool        m_listOpen = true;
@@ -345,6 +360,10 @@ private:
     std::string    m_peopleQuery, m_profileId, m_groupId, m_groupQuery, m_socialMsg;
     std::string    m_statusEdit, m_blurbEdit, m_feedPost;   // classic "Right now I'm..." and About me
     nlohmann::json m_feed = nlohmann::json::array();
+    std::string    m_libKind = "model", m_libQuery, m_libLoaded, m_libIdInput, m_assetId, m_assetMsg;
+    nlohmann::json m_libList = nlohmann::json::array(), m_asset;
+    int            m_assetSound = 0;     // the Listen button's sound
+    double         m_copiedAt = -100.0;
     double         m_feedAt = -1000.0;
     nlohmann::json m_peopleResults = nlohmann::json::array();
     nlohmann::json m_profile = nlohmann::json::object();
@@ -385,6 +404,15 @@ private:
     int            m_gameServersPage = 0;
     std::string    m_playMsg;                      // "Finding a server..."
     bool           m_joinedOnce = false;           // fetched the game's sounds after joining
+    // The host left: everyone moves to a new server that one of the players hosts (PlayerFriends.cpp).
+    std::string    m_moveFrom, m_moveGame, m_moveTitle;   // the server they left, its game
+    double         m_moveUntil = 0.0, m_moveRetryAt = 0.0;
+    std::string    m_continues;                    // hosting: the old server we're taking over
+    std::string    m_tookOver;                     // ...and while the server says yes or no to that
+    double         m_tookOverUntil = 0.0;
+    void startMove(const std::string& session, const std::string& game, const std::string& title);
+    void moveStep();
+    bool moving() const { return !m_moveFrom.empty(); }
     bool           m_autoStarted = false;          // test options that wait for the server
     bool           m_autoServers = false;
 

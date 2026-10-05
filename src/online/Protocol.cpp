@@ -147,6 +147,14 @@ bool base64Decode(const std::string& in, std::string& out) {
 
 // --- Text ----------------------------------------------------------------------
 
+std::string assetRef(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
+    if (a == std::string::npos) return s;
+    std::string t = s.substr(a, b - a + 1);
+    if (!t.empty() && t.size() < 19 && t.find_first_not_of("0123456789") == std::string::npos) return "gb:" + t;
+    return t == s ? s : t;
+}
+
 std::string cleanText(const std::string& s, size_t maxLen, bool allowNewlines) {
     std::string out;
     for (unsigned char c : s) {

@@ -1,6 +1,7 @@
 // Scene objects for scripts: Instance (parts, models, scripts), Humanoid,
 // Lighting, and the Signal / Connection event objects.
 #include "LuaApi.h"
+#include "../online/Protocol.h"
 #include "ScriptEngine.h"
 #include "../scene/Animation.h"
 #include "../scene/Physics.h"
@@ -628,7 +629,7 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
         }
     }
     if (hasImage(n)) {
-        if (is(k, "Image"))             { g.image = luaL_checkstring(L, 3); return true; }
+        if (is(k, "Image"))             { g.image = Online::assetRef(luaL_checkstring(L, 3)); return true; }
         if (is(k, "ImageColor3"))       { g.imageColor = LuaApi::checkColor3(L, 3); return true; }
         if (is(k, "ImageTransparency")) { g.imageTransparency = t01(); return true; }
         if (is(k, "ScaleType")) return true;
@@ -972,7 +973,7 @@ int inst_newindex(lua_State* L) {
         }
     }
     if (n->isSound()) {
-        if (is(k, "SoundId"))  { n->soundId = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "SoundId"))  { n->soundId = Online::assetRef(luaL_checkstring(L, 3)); return 0; }
         if (is(k, "Volume"))   { n->volume = std::max(0.0f, (float)luaL_checknumber(L, 3)); Audio::setVolume(n->audioHandle, n->volume); return 0; }
         if (is(k, "PlaybackSpeed") || is(k, "Pitch")) { n->pitch = std::max(0.05f, (float)luaL_checknumber(L, 3)); Audio::setPitch(n->audioHandle, n->pitch); return 0; }
         if (is(k, "Looped"))   { n->looped = lua_toboolean(L, 3); return 0; }
@@ -998,7 +999,7 @@ int inst_newindex(lua_State* L) {
         return 0;
     }
     if (n->isDecal()) {
-        if (is(k, "Texture"))      { n->texture = luaL_checkstring(L, 3); return 0; }
+        if (is(k, "Texture"))      { n->texture = Online::assetRef(luaL_checkstring(L, 3)); return 0; }
         if (is(k, "Color3"))       { n->color = LuaApi::checkColor3(L, 3); return 0; }
         if (is(k, "Transparency")) { n->transparency = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
         if (is(k, "Face")) {

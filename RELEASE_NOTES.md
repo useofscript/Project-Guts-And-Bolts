@@ -1,6 +1,32 @@
-# Next version (not released yet)
+# Guts&Bolts 0.6.5: Nobody Gets Left Behind (October 5, 2026)
 
 ## New
+- **Nobody gets kicked when the host leaves**: the player who has been there
+  longest starts a new server of the same game (same name, same private code)
+  and everyone else follows them there by themselves. The world starts fresh,
+  but everybody stays together.
+- **Developer Console** (F9, or type `/devconsole` in the chat), like Roblox's:
+  a Client tab for everyone, and a Server tab with the server's log and a Lua
+  command bar that only the game's owner gets.
+- **Script editor**: line numbers, Roblox-style colours, and the line with a
+  mistake underlined in red.
+- **Hat pictures on the website**: hats with a texture now look the same on
+  the website as in the Player.
+- **Studio, more like Roblox Studio**: Union / Negate / Intersect / Separate
+  (Ctrl+Shift+G / N / I / U); Scale orbs on each side (drag one side, Ctrl for
+  both) and Move arrows; rotating several things turns them all together; drag
+  a box to select; blue selection boxes; **Script Analysis** (VIEW tab) lists
+  script mistakes without running anything; **AutoSave** every 5 minutes with
+  crash recovery.
+- **Asset pages**: every decal, sound, model and plugin in the Library has its
+  own page, found by its ID (`#/library/<ID>` on the website, *Create > Library*
+  in the Player). Listen to audio, see decals full size and **Copy ID** to paste
+  it into a game.
+- **Numbered asset IDs**: every asset has a plain number counting up, like
+  Roblox's. Type `123` into a Texture / SoundId (or `gb:123`); old IDs still work.
+- **Make Gear** (staff, in Studio's File menu): start from a ready-made Classic
+  Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, and sell it
+  in the catalog. The ready-made gear is in the Toolbox for everyone too.
 - **Classic profiles**: an *About me* blurb and a *Right now I'm...* status
   (140 letters) on your profile, a **My Feed** box on the home page with your
   friends' and followed people's statuses, and **Player Badges** you earn on your

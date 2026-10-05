@@ -10,7 +10,54 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'right-now-im', name: 'Right Now I\'m...', time: 1790899200, tag: 'Website',
+    id: 'peek-under-the-hood', name: 'Peek Under the Hood', version: '0.6.5', time: 1791334800, tag: 'Player',
+    summary: 'The Developer Console, like Roblox: press F9 or type /devconsole in a game.',
+    items: [
+      'Client tab: everything that happened on your computer, errors in red and warnings in yellow, with a search box',
+      'Server tab, only for the game\'s owner: the server\'s log (what your scripts print) and a command bar that runs Lua on the server',
+      'Other players never get the Server tab, so only you can poke at your game while it runs',
+    ],
+  },
+  {
+    id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', version: '0.6.5', time: 1791331200, tag: 'Server',
+    summary: 'When the player hosting a game leaves, everyone else moves to a new server together instead of getting kicked.',
+    items: [
+      'Before: if the first person in a server left, everyone else got thrown back to the home screen',
+      'Now: the player who has been there longest starts a new server of the same game, and everyone follows them there by themselves',
+      'Private servers keep the same code, so friends can still join with it',
+      'You see "The host left. Moving everyone to a new server" for a few seconds, then you\'re back in (the world starts fresh)',
+    ],
+  },
+  {
+    id: 'cut-and-paste-studio', name: 'Studio Gets Its Hands Dirty', version: '0.6.5', time: 1791244800, tag: 'Studio',
+    summary: 'Unions, Roblox-style Move and Scale handles, box select, blue selection boxes, Script Analysis and AutoSave.',
+    items: [
+      'Unions like Roblox: Union (Ctrl+Shift+G) joins parts into one, Negate (Ctrl+Shift+N) turns a part into a hole that gets cut out, Intersect (Ctrl+Shift+I) keeps the overlap, Separate (Ctrl+Shift+U) gives the parts back',
+      'Scale has an orb on each of the 6 sides: drag one to move just that side (hold Ctrl for both sides)',
+      'Move has an arrow on each side, and moves everything you selected (with snapping and collisions)',
+      'Rotating several things now turns them all together instead of only the last one picked',
+      'Click empty space and drag to box-select parts',
+      'Selected parts get a light blue box around them',
+      'Script Analysis (VIEW tab): finds mistakes in every script without pressing Play, like a missing "end" or a misspelled name',
+      'AutoSave: unsaved work is backed up every 5 minutes, and Studio offers to bring it back after a crash',
+    ],
+  },
+  {
+    id: 'gear-up-look-it-up', name: 'Gear Up, Look It Up', version: '0.6.5', time: 1791158400, tag: 'Studio',
+    summary: 'Every Library asset gets its own page you can find by ID, and Guts can make gear straight from Studio.',
+    items: [
+      'Asset pages: every decal, sound, model and plugin in the Library has its own page, found by its ID',
+      'Listen to audio right on its page, see decals full size, and press Copy ID to paste it into your game',
+      'Got an ID? Paste it into the box on the Library page to jump straight to it (website and Player)',
+      'Every asset now has a plain number for its ID, counting up like Roblox (1, 2, 3...). Type it straight into a Decal\'s Texture or a Sound\'s SoundId. Old IDs keep working',
+      'The Player app has a Library tab on its Create page with the same pages',
+      'Studio: File > Make Gear for staff. Start from a Classic Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, then sell it',
+      'The ready-made gear is in the Toolbox for everyone to use in their own games',
+      'Fixed: hats with a picture (like imported Roblox hats) now show it on the website too. Studio uploads the picture with the hat now, so upload older textured hats again',
+    ],
+  },
+  {
+    id: 'right-now-im', name: 'Right Now I\'m...', version: '0.6.5', time: 1790899200, tag: 'Website',
     summary: 'Classic profile stuff: an About me, a "Right now I\'m..." status, My Feed on the home page and Player Badges you earn on your own.',
     items: [
       'About me: write a few lines about yourself on your profile (press Edit under the About box)',
@@ -22,7 +69,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'youve-got-mail', name: 'You\'ve Got Mail', time: 1790877600, tag: 'Player',
+    id: 'youve-got-mail', name: 'You\'ve Got Mail', version: '0.6.5', time: 1790877600, tag: 'Player',
     summary: 'Private messages, saved outfits, favourite games and a "Continue Playing" row on the home page.',
     items: [
       'Messages: an inbox like old Roblox. Send anyone a message from their profile, reply, and see a red count when something new arrives',

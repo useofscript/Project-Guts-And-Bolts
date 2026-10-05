@@ -75,6 +75,8 @@ private:
     // Dragging the move / scale / rotate handles: where it started (for the readout
     // by the mouse: "4 studs", "45 deg", like Roblox Studio).
     bool      m_gizmoDragging = false;
+    bool      m_partBox = false;         // Build mode: dragging a selection box from empty space
+    ImVec2    m_boxFrom{0, 0};
     Transform m_dragStart;
     glm::vec3 m_dragStartPivot{0.0f};
     Physics  m_navPhysics;
@@ -85,6 +87,18 @@ private:
     void handleInput(float dt);
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);
+    void drawSelectionBoxes(const glm::mat4& view, const glm::mat4& proj,
+                            const glm::vec2& imgMin, const glm::vec2& imgSize);
+    // Roblox-style handles on each of the 6 sides. Scale: orbs, drag one to move just that side.
+    // Move: arrows, drag one to slide everything selected along that way.
+    bool scaleHandles(SceneNode* sel, const glm::mat4& view, const glm::mat4& proj,
+                      const glm::vec2& imgMin, const glm::vec2& imgSize, bool move = false);
+    std::vector<SceneNode*> m_moveNodes;
+    std::vector<Transform>  m_moveStart;
+    std::vector<uint64_t>   m_moveHits;
+    int       m_scaleHover = -1, m_scaleDrag = -1;   // handle 0..5 (axis * 2 + side)
+    float     m_scaleT0 = 0.0f;
+    Transform m_scaleStart;
     void mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
                   const glm::mat4& view, const glm::mat4& proj, glm::vec3& ro, glm::vec3& rd) const;
     void modelingView(const glm::mat4& view, const glm::mat4& proj,

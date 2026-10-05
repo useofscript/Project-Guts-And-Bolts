@@ -197,6 +197,8 @@ json toJson(const SceneNode& n) {
         j["anchored"]     = n.anchored;
         j["canCollide"]   = n.canCollide;
         j["castShadow"]   = n.castShadow;
+        if (n.negated) j["negate"] = {{"color", vec(n.negColor)}, {"transparency", n.negTransparency}, {"canCollide", n.negCollide}};
+        if (!n.unionSource.empty()) j["union"] = json::parse(n.unionSource, nullptr, false);
         if (n.density >= 0)    j["density"]    = n.density;
         if (n.friction >= 0)   j["friction"]   = n.friction;
         if (n.elasticity >= 0) j["elasticity"] = n.elasticity;
@@ -341,6 +343,13 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->anchored      = get<bool>(j, "anchored", true);
         n->canCollide    = get<bool>(j, "canCollide", true);
         n->castShadow    = get<bool>(j, "castShadow", true);
+        if (auto it = j.find("negate"); it != j.end() && it->is_object()) {
+            n->negated = true;
+            n->negColor = vec(*it, "color", glm::vec3(0.64f));
+            n->negTransparency = get<float>(*it, "transparency", 0.0f);
+            n->negCollide = get<bool>(*it, "canCollide", true);
+        }
+        if (auto it = j.find("union"); it != j.end() && it->is_object()) n->unionSource = it->dump();
         n->density       = get<float>(j, "density", -1.0f);
         n->friction      = get<float>(j, "friction", -1.0f);
         n->elasticity    = get<float>(j, "elasticity", -1.0f);
@@ -643,6 +652,9 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.visible = src->visible;     dst.internal = src->internal;
     dst.transparency = src->transparency; dst.material = src->material;
     dst.anchored = src->anchored;   dst.canCollide = src->canCollide; dst.castShadow = src->castShadow;
+    dst.negated = src->negated;     dst.negColor = src->negColor;
+    dst.negTransparency = src->negTransparency; dst.negCollide = src->negCollide;
+    dst.unionSource = src->unionSource;
     dst.source = src->source;       dst.enabled = src->enabled;
     dst.isModule = src->isModule;   dst.locked = src->locked;
     dst.tags = src->tags;           dst.attributes = src->attributes;

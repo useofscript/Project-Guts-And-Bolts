@@ -14,7 +14,10 @@ enum class Premade {
     SwingingRope, WreckingBall, Windmill, Seesaw, MotorCart, DominoRun, CratePyramid, Trampoline,
     Checkpoint, Zombie,
     TimeBomb, Nuke, DepthCharge,   // explosions (Liquid Assets & Explosive Results)
+    // Ready-made Tools, like Roblox's classic gear (staff can sell them in the catalog: File > Make Gear)
+    GearSword, GearRocketLauncher, GearSpeedCoil, GearGravityCoil, GearBomb,
 };
+inline bool isGearPremade(Premade p) { return p >= Premade::GearSword && p <= Premade::GearBomb; }
 
 struct PremadeInfo {
     Premade     kind;

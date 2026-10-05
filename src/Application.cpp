@@ -132,7 +132,13 @@ void Application::run() {
         if (m_opts.teamHost && frame == 2) m_editor->startTeamCreate(true, "");
         if (!m_opts.teamJoin.empty() && frame == 2) m_editor->startTeamCreate(false, m_opts.teamJoin);
         if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
+        if (m_opts.testAnalysis && frame == 5) m_editor->testAnalysis();
         if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
+        if (!m_opts.testTools.empty() && frame > 40 && frame % 25 == 0) {   // one step every 25 frames
+            size_t sp = m_opts.testTools.find(' ');
+            m_editor->testToolStep(m_opts.testTools.substr(0, sp));
+            m_opts.testTools = sp == std::string::npos ? "" : m_opts.testTools.substr(sp + 1);
+        }
         if (!m_opts.testSelect.empty() && frame == 10) m_editor->testSelect(m_opts.testSelect);
         if (!m_opts.testMesh.empty() && frame == 14) m_editor->testMesh(m_opts.testMesh);
         if (m_opts.testAnim) m_editor->testAnimation(frame);

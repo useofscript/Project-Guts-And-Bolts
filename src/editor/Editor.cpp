@@ -124,6 +124,7 @@ Editor::~Editor() {
     m_plugins.reset();
     m_team.reset();
     if (m_session) m_session->stop();
+    dropAutoSave();   // a normal close: nothing to recover next time
 }
 
 void Editor::render(float dt) {
@@ -164,9 +165,13 @@ void Editor::render(float dt) {
     if (m_showPanel[kPanelOutput])     m_output->render();
     if (m_showPanel[kPanelScript])     m_scriptEditor->render();
     m_scriptEditor->renderFindAll();
+    m_scriptEditor->renderAnalysis();
     renderServerDialog();
     renderPublishDialog();
     renderPublishModelDialog();
+    renderMakeGearDialog();
+    renderRecoverDialog();
+    autoSaveTick();
     renderAccessoryWindow();
     renderPluginLibrary();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
@@ -479,6 +484,7 @@ void Editor::testSelect(const std::string& names) {
         if (list.find("," + n->name + ",") != std::string::npos) m_scene->addToSelection(n);
     });
     Log::info("Selected " + std::to_string(m_scene->selection().size()) + " object(s)");
+    if (SceneNode* one = m_scene->selected(); one && one->isScript() && m_scene->selection().size() == 1) openScript(one);
 }
 
 void Editor::testPremades(const std::string& list) {
@@ -488,6 +494,29 @@ void Editor::testPremades(const std::string& list) {
         glm::vec3 at((i % 4) * 14.0f - 21.0f, 0.0f, (i / 4) * -14.0f - 8.0f);
         buildPremade(*m_scene, p.kind, at);
         ++i;
+    }
+}
+
+void Editor::testAnalysis() {
+    m_scriptEditor->showAnalysis();
+    m_scriptEditor->runAnalysis();
+    for (const auto& is : m_scriptEditor->issues())
+        std::printf("ANALYSIS %s %s:%d %s\n", is.error ? "error" : "warning", is.name.c_str(), is.line, is.text.c_str());
+    std::fflush(stdout);
+}
+
+void Editor::testToolStep(const std::string& step) {
+    if (!m_session || !m_session->running()) return;
+    if (step.size() == 1 && step[0] >= '1' && step[0] <= '9') m_session->selectToolSlot(step[0] - '1');
+    else if (step == "click") m_session->click(0);
+    else if (step == "print" && m_scene->player()) {
+        Player* p = m_scene->player();
+        SceneNode* held = p->equippedTool();
+        int rockets = 0, bombs = 0;
+        m_scene->forEach([&](SceneNode* n) { rockets += n->name == "Rocket"; bombs += n->name == "Bomb" && n->isPart(); });
+        std::printf("TOOLS held=%s slots=%d walk=%.1f jumpHeight=%.1f health=%.0f rockets=%d bombs=%d\n", held ? held->name.c_str() : "-",
+                    (int)p->tools().size(), p->humanoid().walkSpeed, p->humanoid().jumpHeight, p->humanoid().health, rockets, bombs);
+        std::fflush(stdout);
     }
 }
 
@@ -720,6 +749,7 @@ void Editor::saveFile(const std::string& path, bool sync) {
     if (Serializer::writeFile(path, Serializer::saveScene(*m_scene, true))) {
         m_path  = path;
         m_dirty = false;
+        dropAutoSave();   // saved for real: the backup isn't needed
         const std::string& published = info.publishedId;
         if (published.empty()) {
             Log::system("Saved to " + path + ". It's only on this computer: use File > Publish to put it online "
@@ -811,11 +841,13 @@ void Editor::handleShortcuts() {
         if (ImGui::IsKeyPressed(ImGuiKey_D, false)) duplicateSelected();
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (io.KeyShift) { m_nameInput = m_scene->info().title; m_openSaveAs = true; } else save(); }
         if (ImGui::IsKeyPressed(ImGuiKey_O, false)) { m_pending = Pending::Open; m_openDiscard = m_dirty; if (!m_dirty) m_openOpen = true; }
-        if (ImGui::IsKeyPressed(ImGuiKey_N, false)) { m_pending = Pending::New;  m_openDiscard = m_dirty; if (!m_dirty) { newScene(); m_pending = Pending::None; } }
+        if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_N, false)) negateSelected();
+        else if (ImGui::IsKeyPressed(ImGuiKey_N, false)) { m_pending = Pending::New;  m_openDiscard = m_dirty; if (!m_dirty) { newScene(); m_pending = Pending::None; } }
         if (ImGui::IsKeyPressed(ImGuiKey_A, false)) selectAll();
-        if (ImGui::IsKeyPressed(ImGuiKey_G, false)) groupSelected();
-        if (ImGui::IsKeyPressed(ImGuiKey_U, false)) ungroupSelected();
-        if (ImGui::IsKeyPressed(ImGuiKey_I, false)) { m_insertParent = m_scene->selected(); m_openInsert = true; }
+        if (ImGui::IsKeyPressed(ImGuiKey_G, false)) { if (io.KeyShift) unionSelected(0); else groupSelected(); }
+        if (ImGui::IsKeyPressed(ImGuiKey_U, false)) { if (io.KeyShift) separateSelected(); else ungroupSelected(); }
+        if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_I, false)) unionSelected(1);
+        else if (ImGui::IsKeyPressed(ImGuiKey_I, false)) { m_insertParent = m_scene->selected(); m_openInsert = true; }
         if (ImGui::IsKeyPressed(ImGuiKey_L, false)) m_state.gizmoLocal = !m_state.gizmoLocal;
         // Roblox's tool keys.
         if (ImGui::IsKeyPressed(ImGuiKey_1, false)) m_state.tool = GizmoTool::Select;
@@ -1242,6 +1274,7 @@ void Editor::renderShortcuts() {
          {"Ctrl+D", "Duplicate"},
          {"Del", "Delete"},
          {"Ctrl+G / Ctrl+U", "Group into a Model / ungroup"},
+         {"Ctrl+Shift+G / N / I / U", "Union / negate / intersect / separate"},
          {"Alt+L", "Lock (can't be clicked in the Viewport)"},
          {"Alt+A", "Anchor / unanchor"},
          {"Ctrl+Z / Ctrl+Y", "Undo / redo"}},
@@ -1393,6 +1426,7 @@ void Editor::renderMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
         if (ImGui::MenuItem("Publish Selection to Library...", nullptr, false, m_scene->selected() != nullptr)) m_openPublishModel = true;
+        if (Online::staff() && ImGui::MenuItem("Make Gear...")) m_openMakeGear = true;   // staff: Tools sold in the catalog
         if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
         if (ImGui::MenuItem("Library (plugins, audio)")) m_showPluginLibrary = true;
         ImGui::Separator();
@@ -1431,6 +1465,10 @@ void Editor::renderMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Group", "Ctrl+G", false, editable)) groupSelected();
         if (ImGui::MenuItem("Ungroup", "Ctrl+U", false, editable && sel->kind == NodeKind::Model)) ungroupSelected();
+        if (ImGui::MenuItem("Union", "Ctrl+Shift+G", false, editable)) unionSelected(0);
+        if (ImGui::MenuItem("Negate", "Ctrl+Shift+N", false, editable)) negateSelected();
+        if (ImGui::MenuItem("Intersect", "Ctrl+Shift+I", false, editable)) unionSelected(1);
+        if (ImGui::MenuItem("Separate", "Ctrl+Shift+U", false, editable && !sel->unionSource.empty())) separateSelected();
         if (ImGui::MenuItem("Hide / Show", "H", false, sel != nullptr)) toggleHidden();
         ImGui::EndMenu();
     }
@@ -1464,6 +1502,8 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Expand Selected", "Ctrl+Right", false, sel != nullptr)) m_outliner->expand(m_scene->selection());
         if (ImGui::MenuItem("Collapse Selected", "Ctrl+Left", false, sel != nullptr)) m_outliner->collapse(m_scene->selection());
         if (ImGui::MenuItem("Collapse All", "Ctrl+Shift+Left")) m_outliner->collapseAll();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Script Analysis", nullptr, m_scriptEditor->analysisShown())) m_scriptEditor->showAnalysis();
         ImGui::Separator();
         if (ImGui::MenuItem("Settings...")) m_showSettings = true;
         if (ImGui::MenuItem("Keyboard Shortcuts", "F1", m_showShortcuts)) m_showShortcuts = !m_showShortcuts;

@@ -119,8 +119,11 @@ const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCool
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
+// When a host leaves, the players left behind get kMoveWait seconds to move to a new server
+// (one of them hosts it), and each would-be new host gets kHeirWait seconds to start it.
+const kMoveWait = 90, kHeirWait = 12;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -141,6 +144,19 @@ const GENRES = ['Adventure', 'Obby', 'Fighting', 'Horror', 'Roleplay', 'Simulato
 const ratingOf = (a) => ((a.likes || 0) + 1) / ((a.likes || 0) + (a.dislikes || 0) + 2);
 // Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
 const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join']);
+
+// Assets have plain numbers counting up, like Roblox's asset IDs (1, 2, 3...). New ones
+// use the number as their ID; older ones ("decal-1a2b3c4d5e") got a number too and
+// answer to both, so games that already use the old IDs keep working.
+// (src/server has the same.)
+class AssetMap extends Map {
+  constructor() { super(); this.byNum = new Map(); }
+  set(id, a) { if (a && a.num) this.byNum.set(String(a.num), id); return super.set(id, a); }
+  resolve(id) { id = String(id ?? ''); return super.has(id) ? id : (this.byNum.get(id) || id); }
+  get(id) { return super.get(this.resolve(id)); }
+  has(id) { return super.has(this.resolve(id)); }
+  delete(id) { return super.delete(this.resolve(id)); }
+}
 
 // --- helpers ---------------------------------------------------------------------
 const now = () => Math.floor(Date.now() / 1000);
@@ -357,7 +373,7 @@ export class GbServerObject extends DurableObject {
       CREATE TABLE IF NOT EXISTS nonces (key TEXT PRIMARY KEY, time INTEGER NOT NULL);`);
     this.official = lower(env.OFFICIAL || '');
     this.name = env.SERVER_NAME || 'Guts&Bolts';
-    this.users = new Map(); this.assets = new Map(); this.groups = new Map();
+    this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map();
     // What changed and needs writing (set up first: loading can already change things).
     this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
@@ -371,6 +387,7 @@ export class GbServerObject extends DurableObject {
     this.posted = this.getMeta('updates', []);  // updates staff posted on the website (the rest are in updates.js)
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
+    this.nextAssetNum = Math.max(1, ids.asset || 1);
     this.takenNames = new Set(ids.taken || []);
     for (const u of this.users.values()) {
       this.claimOfficial(u);
@@ -382,6 +399,7 @@ export class GbServerObject extends DurableObject {
     this.addExampleGames();
     this.addVerifiedHat();
     this.timeGutstoberItems();
+    this.numberAssets();
     for (const u of this.users.values()) if (u.emailVerified && !u.owned.includes(VERIFIED_HAT_ID)) { this.giveVerifiedHat(u); this.saveUser(u); }
     // Keys made by "forgot password": they sign for the account they reset.
     this.aliases = new Map();
@@ -394,6 +412,8 @@ export class GbServerObject extends DurableObject {
     // The relay (in memory: a restart closes every game, like the C++ server).
     this.conns = new Map();      // conn id -> { ws, mode, account, session, ticket, peer, since, lastActive, closing }
     this.sessions = new Map();   // session id -> { id, game, title, host, code, priv, max, created, control, players:Set }
+    // Servers whose host left: old session id -> { game, title, priv, code, max, members:[accounts], heir, heirSince, newId, until }
+    this.moved = new Map();
     this.sweepTimer = null;
   }
 
@@ -424,7 +444,7 @@ export class GbServerObject extends DurableObject {
     }
     if (this.dirty.ids) {
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'ids',
-        JSON.stringify({ next: this.nextUserId, taken: [...this.takenNames] }));
+        JSON.stringify({ next: this.nextUserId, taken: [...this.takenNames], asset: this.nextAssetNum }));
     }
     if (this.dirty.updates)
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'updates', JSON.stringify(this.posted));
@@ -455,6 +475,13 @@ export class GbServerObject extends DurableObject {
   }
   saveUser(...us) { for (const u of us) if (u) this.dirty.users.add(u.id); }
   saveAsset(a) { this.dirty.assets.add(a.id); }
+  // Give every asset without one its number (oldest first), and never hand a number out twice.
+  numberAssets() {
+    for (const a of this.assets.values()) if (a.num) this.nextAssetNum = Math.max(this.nextAssetNum, a.num + 1);
+    const todo = [...this.assets.values()].filter((a) => !a.num).sort((x, y) => (x.created || 0) - (y.created || 0) || (x.id < y.id ? -1 : 1));
+    for (const a of todo) { a.num = this.nextAssetNum++; this.assets.set(a.id, a); this.saveAsset(a); }
+    if (todo.length) this.dirty.ids = true;
+  }
   saveGroup(g) { this.dirty.groups.add(g.id); }
 
   writeFile(id, bytes) {
@@ -724,7 +751,7 @@ export class GbServerObject extends DurableObject {
 
   publicAsset(a, me = null) {
     const c = this.users.get(a.creator);
-    return { id: a.id, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
+    return { id: a.id, num: a.num || 0, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
       creatorName: c ? c.name : (a.builtin ? 'Guts' : '?'), creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
       icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
@@ -935,8 +962,9 @@ export class GbServerObject extends DurableObject {
       return okay({ me: this.meJson(me) });
     }
     if (name === 'gear.equip') {   // put gear you own in (or take it out of) your backpack for games
-      const id = str(args, 'id'), on = args.on !== false;
-      const a = this.assets.get(id);
+      const on = args.on !== false;
+      const a = this.assets.get(str(args, 'id'));
+      const id = a ? a.id : str(args, 'id');
       me.gear = (me.gear || []).filter((g) => g !== id && me.owned.includes(g));
       if (on) {
         if (!a || a.kind !== 'gear') return fail('That gear doesn\'t exist (any more).');
@@ -1349,7 +1377,9 @@ export class GbServerObject extends DurableObject {
       const fee = verified ? 0 : FEE[kind];
       if (fee > 0 && this.balance(me) < fee)
         return fail('Uploading costs ' + fee + ' Bolts, and you have ' + this.balance(me) + '. (It\'s free for Verified creators.)');
-      const a = { id: kind + '-' + randomHex(5), kind, name: title, description: desc, creator: me.id, price, created: t,
+      const assetNo = this.nextAssetNum++;
+      this.dirty.ids = true;
+      const a = { id: String(assetNo), num: assetNo, kind, name: title, description: desc, creator: me.id, price, created: t,
         sales: 0, plays: 0, size: data.length, meta };
       if (access) { a.access = access; if (access === 'public') this.countPublicModel(me); }
       this.writeFile(a.id, data);
@@ -1457,6 +1487,13 @@ export class GbServerObject extends DurableObject {
       const offset = Math.max(0, num(args, 'offset'));
       const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
       return okay({ assets: found.slice(offset, offset + limit).map((a) => this.publicAsset(a, me)), total: found.length, genres: GENRES });
+    }
+    // One asset's page (the Library's "asset ID" pages): what it is, without downloading it.
+    // Takes the ID people paste into games too ("gb:decal-..."). (src/server has the same.)
+    if (name === 'asset.info') {
+      const a = this.assets.get(str(args, 'id').trim().replace(/^gb:/, ''));
+      if (!a || !this.canPlay(a, me)) return fail('There\'s nothing with that ID (or it\'s private).');
+      return okay({ asset: this.publicAsset(a, me), owned: me.owned.includes(a.id) });
     }
     if (name === 'get') {
       const a = this.assets.get(str(args, 'id'));
@@ -2188,7 +2225,7 @@ export class GbServerObject extends DurableObject {
   }
 
   serverOp(name, me, args) {
-    const game = cleanText(typeof args.game === 'string' ? args.game : '', 80);
+    const game = this.assets.resolve(cleanText(typeof args.game === 'string' ? args.game : '', 80));   // (its number works too)
     const asset = this.assets.get(game);
     if (asset && !this.canPlay(asset, me)) return fail(this.noPlay(asset));
     if (name === 'servers.play') {
@@ -2231,12 +2268,19 @@ export class GbServerObject extends DurableObject {
       let hosting = 0;
       for (const s of this.sessions.values()) if (s.host === me.id) hosting++;
       if (hosting >= kHostedEach) { reply(fail('You\'re already running ' + kHostedEach + ' servers.')); close(); return; }
-      const s = { id: 's-' + randomHex(6), game: cleanText(typeof args.game === 'string' ? args.game : '', 80),
+      const s = { id: 's-' + randomHex(6), game: this.assets.resolve(cleanText(typeof args.game === 'string' ? args.game : '', 80)),
         title: cleanText(typeof args.title === 'string' ? args.title : '', 60) || 'A game', host: me.id, code: '',
         priv: !!args.private, created: t,
         max: clamp((this.assets.get(args.game) || {}).maxPlayers || (Number.isInteger(args.max) ? args.max : kDefaultMax), 2, kMostPlayers),
         control: c.id, players: new Set() };
-      if (s.priv) {
+      // Taking over a server whose host left: same game, name, privacy and code, so everyone can follow.
+      const old = typeof args.continues === 'string' ? this.moved.get(args.continues) : null;
+      if (old) {
+        if (old.newId || !old.members.includes(me.id)) { reply(fail('Someone else is already hosting the new server.')); close(); return; }
+        Object.assign(s, { game: old.game, title: old.title, priv: old.priv, code: old.code, max: old.max });
+        old.newId = s.id;
+      }
+      if (s.priv && !s.code) {
         do s.code = makeCode(); while ([...this.sessions.values()].some((x) => x.code === s.code));
       }
       c.mode = 'host'; c.account = me.id; c.session = s.id;
@@ -2253,9 +2297,24 @@ export class GbServerObject extends DurableObject {
       } else {
         s = this.sessions.get(typeof args.session === 'string' ? args.session : '') || null;
       }
+      // Its host left: follow everyone to the new server (or be asked to host it).
+      const old = !s && !code ? this.moved.get(typeof args.session === 'string' ? args.session : '') : null;
+      let following = false;
+      if (old && old.members.includes(me.id)) {
+        s = old.newId ? this.sessions.get(old.newId) || null : null;
+        if (!s) {
+          if (old.newId) { reply(fail('The new server closed too.')); close(); return; }
+          if (t - old.heirSince > kHeirWait) { old.heir++; old.heirSince = t; }   // they didn't start it: next in line
+          if (old.heir >= old.members.length) { reply(fail('That server has closed.')); close(); return; }
+          reply({ ok: false, hostLeft: true, you: old.members[old.heir] === me.id, error: 'The host left. Moving to a new server...' });
+          close();
+          return;
+        }
+        following = true;
+      }
       if (!s) { reply(fail('That server has closed.')); close(); return; }
       if (s.host === me.id) { reply(fail('That\'s your own server.')); close(); return; }
-      if (s.priv && !code && !me.friends.includes(s.host)) {
+      if (s.priv && !code && !following && !me.friends.includes(s.host)) {
         reply(fail('That\'s a private server. You need to be the host\'s friend, or have its code.'));
         close();
         return;
@@ -2283,7 +2342,7 @@ export class GbServerObject extends DurableObject {
     joiner.peer = c.id; joiner.ticket = '';
     c.peer = joiner.id; c.session = s.id; c.account = s.host;
     s.players.add(joiner.id);
-    this.sendTo(joiner, { t: 'relay', ok: true, title: s.title });
+    this.sendTo(joiner, { t: 'relay', ok: true, title: s.title, session: s.id, game: s.game });
   }
 
   // A connection went away (or is being closed): take its pipe partner with it,
@@ -2298,6 +2357,12 @@ export class GbServerObject extends DurableObject {
       }
       for (const [sid, s] of this.sessions) {
         if (!dead.has(s.control)) continue;
+        // The players stay together: remember them (longest-playing first) so one can host a new server.
+        const members = [];
+        for (const p of s.players) { const pc = this.conns.get(p); if (pc && pc.account) members.push(pc.account);   // (their pipes die with the host, but they're still here) }
+        if (members.length)
+          this.moved.set(sid, { game: s.game, title: s.title, priv: s.priv, code: s.code, max: s.max, members,
+            heir: 0, heirSince: now(), newId: '', until: now() + kMoveWait });
         for (const p of s.players) if (!dead.has(p)) { dead.add(p); grew = true; }
         this.sessions.delete(sid);
       }
@@ -2317,6 +2382,7 @@ export class GbServerObject extends DurableObject {
   }
   sweep() {
     const t = now();
+    for (const [id, m] of this.moved) if (t > m.until) this.moved.delete(id);
     for (const c of [...this.conns.values()]) {
       if (!this.conns.has(c.id)) continue;
       if (c.mode === 'pending') {
@@ -2389,7 +2455,7 @@ export class GbServerObject extends DurableObject {
         try { m = raw ? JSON.parse(new TextDecoder().decode(raw)) : null; } catch { m = null; }
         if (!m || !Array.isArray(m.nodes)) return new Response('No gear.', { status: 404 });
         const shape = (n) => (n && typeof n === 'object' && n.kind !== 'Script' && n.kind !== 'LocalScript' && n.kind !== 'ModuleScript' ? {
-          kind: n.kind, shape: n.shape, mesh: n.mesh, pos: n.pos, rot: n.rot, size: n.size, color: n.color, material: n.material,
+          kind: n.kind, shape: n.shape, mesh: n.mesh, pos: n.pos, rot: n.rot, size: n.size, color: n.color, material: n.material, texture: n.texture,
           transparency: n.transparency, children: (Array.isArray(n.children) ? n.children : []).map(shape).filter(Boolean),
         } : null);
         return new Response(JSON.stringify({ nodes: m.nodes.map(shape).filter(Boolean) }),
@@ -2399,12 +2465,20 @@ export class GbServerObject extends DurableObject {
       if (!data) return new Response('No accessory.', { status: 404 });
       return new Response(data, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
     }
+    // GET /decal/<asset id or number>: a decal's picture (decals are always free and public), e.g. a hat's texture.
+    if (url.pathname.startsWith('/decal/')) {
+      const a = this.assets.get(decodeURIComponent(url.pathname.slice(7)).replace(/^gb:/, ''));
+      const data = a && a.kind === 'decal' ? this.readFile(a.id) : null;
+      if (!data) return new Response('No picture.', { status: 404 });
+      const jpg = data.length > 2 && data[0] === 0xff && data[1] === 0xd8;
+      return new Response(data, { headers: { 'content-type': jpg ? 'image/jpeg' : 'image/png', 'cache-control': 'public, max-age=86400' } });
+    }
     // GET /thumb/<asset id> and /icon/<asset id>: a game's picture and icon (public, so pages can show them directly).
     if (url.pathname.startsWith('/thumb/') || url.pathname.startsWith('/icon/')) {
       const icon = url.pathname.startsWith('/icon/');
       const id = decodeURIComponent(url.pathname.slice(icon ? 6 : 7));
       const a = this.assets.get(id);
-      let data = a && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + id) : null;
+      let data = a && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + a.id) : null;
       // Shirts and pants: their picture is the item itself (the template), for the 3D mannequins.
       if (!data && !icon && a && (a.kind === 'shirt' || a.kind === 'pants') && a.meta && a.meta.image) data = this.readFile(a.id);
       if (!data) return new Response('No picture.', { status: 404 });

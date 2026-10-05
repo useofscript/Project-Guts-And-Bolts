@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.6.4 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.6.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -320,6 +320,7 @@ add_library(gb_engine STATIC
     src/scene/RobloxFile.cpp
     src/scene/RobloxMesh.cpp
     src/scene/EditMesh.cpp
+    src/scene/Csg.cpp
     src/scripting/Luau.cpp
     src/scripting/ScriptEngine.cpp
     src/scripting/LuaTypes.cpp
@@ -397,7 +398,7 @@ endif()
 if(GB_MOBILE)
     # Phones and tablets get the Player only. On Android it's a library that
     # SDL's Java activity loads (it must be called "main").
-    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/ItemRenders.cpp src/player/PlayerMail.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/LaunchLink.cpp)
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/ItemRenders.cpp src/player/PlayerMail.cpp src/player/PlayerLibrary.cpp src/player/PlayerDevConsole.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/LaunchLink.cpp)
     if(ANDROID)
         add_library(main SHARED ${PLAYER_SOURCES})
         target_link_libraries(main PRIVATE gb_engine)
@@ -450,6 +451,8 @@ set(EDITOR_SOURCES
     src/editor/Icons.cpp
     src/editor/panels/ViewportModeling.cpp
     src/editor/EditorModes.cpp
+    src/editor/EditorSolid.cpp
+    src/editor/EditorAutosave.cpp
     src/editor/EditorOnline.cpp
     src/editor/Thumbnailer.cpp
     src/editor/Plugins.cpp
@@ -464,6 +467,7 @@ set(EDITOR_SOURCES
     src/editor/panels/PlayerPanel.cpp
     src/editor/panels/OutputPanel.cpp
     src/editor/panels/ScriptEditorPanel.cpp
+    src/editor/panels/ScriptAnalysis.cpp
 )
 if(WIN32)
     list(APPEND EDITOR_SOURCES resources/app.rc)
@@ -481,6 +485,8 @@ set(PLAYER_SOURCES
     src/player/PlayerSocial.cpp
     src/player/ItemRenders.cpp
     src/player/PlayerMail.cpp
+    src/player/PlayerLibrary.cpp
+    src/player/PlayerDevConsole.cpp
     src/player/PlayerFriends.cpp
     src/player/PlayerLogin.cpp
     src/player/LaunchLink.cpp

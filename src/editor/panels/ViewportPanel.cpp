@@ -278,11 +278,184 @@ bool ViewportPanel::pointAt(ImVec2 mouse, glm::vec3& point, SceneNode*& part) {
     return true;
 }
 
+bool ViewportPanel::scaleHandles(SceneNode* sel, const glm::mat4& view, const glm::mat4& proj,
+                                 const glm::vec2& imgMin, const glm::vec2& imgSize, bool move) {
+    const glm::mat4 M = sel->worldMatrix();
+    const glm::vec3 c(M[3]);
+    glm::vec3 dir[3];
+    float half[3];
+    for (int i = 0; i < 3; ++i) {
+        const glm::vec3 col(M[i]);
+        half[i] = glm::length(col) * 0.5f;
+        dir[i] = half[i] > 1e-6f ? col / (half[i] * 2.0f) : glm::vec3(i == 0, i == 1, i == 2);
+    }
+    if (move && !m_state->gizmoLocal) {   // World: the arrows point along the world's X / Y / Z
+        float wh[3];
+        for (int k = 0; k < 3; ++k) wh[k] = std::abs(dir[0][k]) * half[0] + std::abs(dir[1][k]) * half[1] + std::abs(dir[2][k]) * half[2];
+        for (int k = 0; k < 3; ++k) { half[k] = wh[k]; dir[k] = glm::vec3(k == 0, k == 1, k == 2); }
+    }
+    const glm::mat4 vp = proj * view;
+    auto toScreen = [&](glm::vec3 p, ImVec2& out) {
+        glm::vec4 q = vp * glm::vec4(p, 1.0f);
+        if (q.w <= 0.01f) return false;
+        out = ImVec2(imgMin.x + (q.x / q.w * 0.5f + 0.5f) * imgSize.x, imgMin.y + (0.5f - q.y / q.w * 0.5f) * imgSize.y);
+        return true;
+    };
+    const ImVec2 mouse = ImGui::GetMousePos();
+    glm::vec3 ro, rd;
+    mouseRay({mouse.x, mouse.y}, imgMin, imgSize, view, proj, ro, rd);
+    // Where along the line through the part's middle (along `d`) the mouse ray passes closest.
+    auto alongAxis = [&](const glm::vec3& d) {
+        const glm::vec3 w0 = c - ro;
+        const float b = glm::dot(d, rd), dd = glm::dot(d, w0), e = glm::dot(rd, w0);
+        const float den = 1.0f - b * b;
+        return den < 1e-5f ? 0.0f : (b * e - dd) / den;
+    };
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 cols[3] = {IM_COL32(230, 70, 60, 255), IM_COL32(80, 200, 80, 255), IM_COL32(60, 120, 240, 255)};
+    for (int h = 0; h < 6; ++h) {
+        const int ax = h / 2;
+        const float side = (h % 2) ? -1.0f : 1.0f;
+        const glm::vec3 at = c + dir[ax] * side * (half[ax] + 0.35f);
+        ImVec2 sp;
+        if (!toScreen(at, sp)) continue;
+        const float r = 8.0f;
+        const bool hot = m_scaleDrag == h || (m_scaleDrag < 0 && m_hovered &&
+                         (mouse.x - sp.x) * (mouse.x - sp.x) + (mouse.y - sp.y) * (mouse.y - sp.y) < (r + 3) * (r + 3));
+        if (hot && m_scaleDrag < 0) m_scaleHover = h;
+        ImVec2 base = sp;
+        if (toScreen(c + dir[ax] * side * half[ax], base)) dl->AddLine(base, sp, cols[ax], 1.5f);
+        const ImU32 fill = hot ? IM_COL32(255, 230, 90, 255) : cols[ax];
+        if (move) {
+            // An arrow pointing away from the part.
+            ImVec2 d(sp.x - base.x, sp.y - base.y);
+            float len = std::sqrt(d.x * d.x + d.y * d.y);
+            if (len < 1e-3f) { d = ImVec2(0, -1); len = 1; }
+            d = ImVec2(d.x / len, d.y / len);
+            const ImVec2 n(-d.y, d.x);
+            const float s2 = hot ? 1.25f : 1.0f;
+            ImVec2 tip(sp.x + d.x * 12 * s2, sp.y + d.y * 12 * s2);
+            ImVec2 a(sp.x - d.x * 4 * s2 + n.x * 8 * s2, sp.y - d.y * 4 * s2 + n.y * 8 * s2);
+            ImVec2 b(sp.x - d.x * 4 * s2 - n.x * 8 * s2, sp.y - d.y * 4 * s2 - n.y * 8 * s2);
+            dl->AddTriangleFilled(tip, a, b, fill);
+            dl->AddTriangle(tip, a, b, IM_COL32(0, 0, 0, 120), 1.5f);
+        } else {
+            dl->AddCircleFilled(sp, hot ? r + 2 : r, fill, 20);
+            dl->AddCircle(sp, hot ? r + 2 : r, IM_COL32(0, 0, 0, 120), 20, 1.5f);
+        }
+    }
+
+    // Start / continue / finish a drag.
+    if (m_scaleDrag < 0 && m_scaleHover >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        m_scaleDrag = m_scaleHover;
+        m_scaleStart = sel->transform;
+        m_scaleT0 = alongAxis(dir[m_scaleDrag / 2]);
+        if (move) {   // everything selected moves together
+            m_moveNodes = {sel};
+            for (SceneNode* o : m_scene->selectionRoots())
+                if (o != sel && !m_scene->isProtected(o) && !m_scene->isCharacterPart(o)) m_moveNodes.push_back(o);
+            m_moveStart.clear();
+            for (SceneNode* o : m_moveNodes) m_moveStart.push_back(o->transform);
+            m_moveHits = m_state->collisions ? collisionsOf(*m_scene, m_moveNodes) : std::vector<uint64_t>();
+        }
+    }
+    if (move && m_scaleDrag >= 0) {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) { m_scaleDrag = -1; return true; }
+        const int ax = m_scaleDrag / 2;
+        float by = alongAxis(dir[ax]) - m_scaleT0;
+        const float step = m_state->snapEnabled && m_state->snapTranslate > 0.01f ? m_state->snapTranslate : 0.0f;
+        if (step > 0.0f) by = std::round(by / step) * step;
+        for (size_t i = 0; i < m_moveNodes.size(); ++i) {
+            SceneNode* o = m_moveNodes[i];
+            if (!m_scene->findById(o->id)) continue;
+            glm::vec3 d = dir[ax] * by;
+            if (o->parent) d = glm::vec3(glm::inverse(o->parent->worldMatrix()) * glm::vec4(d, 0.0f));
+            o->transform = m_moveStart[i];
+            o->transform.position += d;
+        }
+        if (m_state->collisions) stopAtCollisions(*m_scene, m_moveNodes, m_moveStart, m_moveHits, true);
+        m_scene->markDirty();
+        char text[64];
+        std::snprintf(text, sizeof text, "%+.2f studs", by);
+        dl->AddText(ImVec2(mouse.x + 16, mouse.y + 10), IM_COL32(255, 255, 255, 255), text);
+        return true;
+    }
+    if (m_scaleDrag >= 0) {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) { m_scaleDrag = -1; return true; }
+        const int ax = m_scaleDrag / 2;
+        const float side = (m_scaleDrag % 2) ? -1.0f : 1.0f;
+        const bool both = ImGui::GetIO().KeyCtrl;   // Ctrl: both sides at once (like Roblox)
+        float grow = (alongAxis(dir[ax]) - m_scaleT0) * side * (both ? 2.0f : 1.0f);
+        const float step = m_state->snapEnabled && m_state->snapTranslate > 0.01f ? m_state->snapTranslate : 0.0f;
+        if (step > 0.0f) grow = std::round(grow / step) * step;
+        const float minSize = step > 0.0f ? step : 0.05f;
+        const float startSize = m_scaleStart.scale[ax];
+        const float newSize = std::max(minSize, startSize + grow);
+        const float d = newSize - startSize;
+        sel->transform = m_scaleStart;
+        sel->transform.scale[ax] = newSize;
+        if (!both) {   // the far side stays where it is: the middle moves half as far
+            glm::vec3 shift = dir[ax] * side * (d * 0.5f);
+            if (sel->parent) shift = glm::vec3(glm::inverse(sel->parent->worldMatrix()) * glm::vec4(shift, 0.0f));
+            sel->transform.position += shift;
+        }
+        m_scene->markDirty();
+        char text[64];
+        std::snprintf(text, sizeof text, "%.2f studs", newSize);
+        dl->AddText(ImVec2(mouse.x + 16, mouse.y + 10), IM_COL32(255, 255, 255, 255), text);
+    }
+    return true;
+}
+
+// The light blue box around each selected part, like Roblox Studio's.
+void ViewportPanel::drawSelectionBoxes(const glm::mat4& view, const glm::mat4& proj,
+                                       const glm::vec2& imgMin, const glm::vec2& imgSize) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const glm::mat4 vp = proj * view;
+    auto screen = [&](const glm::vec3& p, ImVec2& out) {
+        glm::vec4 q = vp * glm::vec4(p, 1.0f);
+        if (q.w <= 0.05f) return false;
+        out = ImVec2(imgMin.x + (q.x / q.w * 0.5f + 0.5f) * imgSize.x, imgMin.y + (0.5f - q.y / q.w * 0.5f) * imgSize.y);
+        return true;
+    };
+    int drawn = 0;
+    std::vector<SceneNode*> stack = m_scene->selectionRoots();
+    while (!stack.empty() && drawn < 400) {
+        SceneNode* n = stack.back();
+        stack.pop_back();
+        if (n == m_scene->root()) continue;
+        for (auto& c : n->children) stack.push_back(c.get());
+        if (!n->isPart() || n->internal) continue;
+        ++drawn;
+        const glm::mat4 M = n->worldMatrix();
+        ImVec2 corner[8];
+        bool ok = true;
+        for (int i = 0; i < 8 && ok; ++i) {
+            // A hair bigger than the part, so the lines sit on its surface.
+            glm::vec3 local((i & 1) ? 0.51f : -0.51f, (i & 2) ? 0.51f : -0.51f, (i & 4) ? 0.51f : -0.51f);
+            ok = screen(glm::vec3(M * glm::vec4(local, 1.0f)), corner[i]);
+        }
+        if (!ok) continue;
+        static const int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+        for (const auto& e : edges) dl->AddLine(corner[e[0]], corner[e[1]], IM_COL32(25, 160, 255, 255), 1.6f);
+    }
+}
+
 void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                               const glm::vec2& imgMin, const glm::vec2& imgSize) {
     SceneNode* sel = m_scene->selected();
-    if (!sel || sel == m_scene->root() || sel->isScript() || sel->isGui() || m_state->tool == GizmoTool::Select)
+    m_scaleHover = -1;
+    if (!sel || sel == m_scene->root() || sel->isScript() || sel->isGui() || m_state->tool == GizmoTool::Select) {
+        m_scaleDrag = -1;
         return;   // (game UI is moved by dragging it in the viewport)
+    }
+
+    if ((m_state->tool == GizmoTool::Scale || m_state->tool == GizmoTool::Translate) &&
+        sel->isPart() && !m_state->animRig && !m_scene->isCharacterPart(sel) &&
+        scaleHandles(sel, view, proj, imgMin, imgSize, m_state->tool == GizmoTool::Translate))
+        return;
+    m_scaleDrag = -1;
 
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist();
@@ -324,6 +497,7 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     glm::mat4 world = base * glm::translate(glm::mat4(1.0f), localPivot);
     const glm::vec3 pivotBefore(world[3]);
     const Transform before0 = sel->transform;
+    const glm::mat4 worldBefore = world;
     const bool changed = ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), op, mode,
                                               glm::value_ptr(world), nullptr,
                                               snapping && op != ImGuizmo::SCALE ? snap : nullptr);
@@ -336,6 +510,20 @@ void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
     if (!ImGuizmo::IsUsing()) m_gizmoDragging = false;
     if (changed) {
         glm::vec3 movedPivot = glm::vec3(world[3]) - pivotBefore;
+        // Rotating several things: they all turn together around the gizmo, like Roblox
+        // (before, only the last one picked turned).
+        if (m_state->tool == GizmoTool::Rotate) {
+            const glm::mat4 turn = world * glm::inverse(worldBefore);
+            for (SceneNode* o : m_scene->selectionRoots()) {
+                if (o == sel || m_scene->isProtected(o) || m_scene->isCharacterPart(o)) continue;
+                glm::mat4 ow = turn * o->worldMatrix();
+                if (o->parent) ow = glm::inverse(o->parent->worldMatrix()) * ow;
+                float ot[3], orr[3], os[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(ow), ot, orr, os);
+                o->transform.position = {ot[0], ot[1], ot[2]};
+                o->transform.rotation = {orr[0], orr[1], orr[2]};
+            }
+        }
         world = world * glm::translate(glm::mat4(1.0f), -localPivot);
         // Convert the manipulated world matrix back into a local transform.
         glm::mat4 local = world;
@@ -453,7 +641,7 @@ void ViewportPanel::render(float dt) {
             // Simulate: click things to look at them in Properties, and drag
             // them with the gizmo while the world keeps running.
             drawGizmo(view, proj, imgMin, imgSize);
-            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing() || m_scaleHover >= 0 || m_scaleDrag >= 0;
             if (ImGuizmo::IsUsing())
                 for (SceneNode* n : m_scene->selectionRoots()) { n->velocity = glm::vec3(0.0f); n->angularVelocity = glm::vec3(0.0f); n->sleepTime = 0; }
             if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -519,6 +707,7 @@ void ViewportPanel::render(float dt) {
                           kPickNames[std::clamp(m_state->modeling.selectMode, 0, 2)]);
             dl->AddText(ImVec2(imgPos.x + 12, imgMax.y - ImGui::GetFontSize() - 10), IM_COL32(255, 255, 255, 200), tip);
         } else {
+            drawSelectionBoxes(view, proj, imgMin, imgSize);
             drawGizmo(view, proj, imgMin, imgSize);
 
             // Team Create: a coloured box around what each other person has selected.
@@ -658,7 +847,7 @@ void ViewportPanel::render(float dt) {
             }
 
             // Left-click to pick — but not while interacting with the gizmo.
-            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing() || m_scaleHover >= 0 || m_scaleDrag >= 0;
             // Ctrl+click adds / removes, Shift+click adds.
             auto pick = [&](SceneNode* hit) {
                 ImGuiIO& io = ImGui::GetIO();
@@ -687,6 +876,40 @@ void ViewportPanel::render(float dt) {
                     hit = top;
                 }
                 if (hit || !(ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) pick(hit);
+                // Clicked empty space: hold and drag to box-select, like Roblox Studio.
+                if (!hit) { m_partBox = true; m_boxFrom = m; }
+            }
+            if (m_partBox) {
+                const ImVec2 m = ImGui::GetMousePos();
+                const ImVec2 lo(std::min(m.x, m_boxFrom.x), std::min(m.y, m_boxFrom.y));
+                const ImVec2 hi(std::max(m.x, m_boxFrom.x), std::max(m.y, m_boxFrom.y));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(lo, hi, IM_COL32(80, 160, 255, 40));
+                dl->AddRect(lo, hi, IM_COL32(80, 160, 255, 220));
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                    m_partBox = false;
+                    if (hi.x - lo.x > 4 && hi.y - lo.y > 4) {
+                        // Everything whose middle is inside the box (whole Models, like clicking).
+                        const glm::mat4 vp = proj * view;
+                        std::vector<SceneNode*> found;
+                        m_scene->forEach([&](SceneNode* n) {
+                            if (!n->isPart() || n->locked || n->internal || !n->visible || m_scene->isCharacterPart(n)) return;
+                            glm::vec4 c = vp * glm::vec4(glm::vec3(n->worldMatrix()[3]), 1.0f);
+                            if (c.w <= 0.01f) return;   // behind the camera
+                            const float sx = imgMin.x + (c.x / c.w * 0.5f + 0.5f) * imgSize.x;
+                            const float sy = imgMin.y + (0.5f - c.y / c.w * 0.5f) * imgSize.y;
+                            if (sx < lo.x || sx > hi.x || sy < lo.y || sy > hi.y) return;
+                            SceneNode* top = n;
+                            for (SceneNode* p = n->parent; p && p != m_scene->root(); p = p->parent)
+                                if (p->kind == NodeKind::Model) top = p;
+                            if (m_scene->isProtected(top)) return;
+                            if (std::find(found.begin(), found.end(), top) == found.end()) found.push_back(top);
+                        });
+                        ImGuiIO& io = ImGui::GetIO();
+                        if (!io.KeyShift && !io.KeyCtrl) m_scene->deselect();
+                        for (SceneNode* n : found) m_scene->addToSelection(n);
+                    }
+                }
             }
         }
     }

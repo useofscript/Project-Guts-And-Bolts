@@ -132,7 +132,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"list", "profile", "people.list", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list",
                                                     "get", "servers.play", "relay.host", "relay.join"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -252,7 +252,7 @@ json GbServer::meJson(const User& u) const {
 }
 
 json GbServer::publicAsset(const Asset& a) const {
-    json j = {{"id", a.id}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
+    json j = {{"id", a.id}, {"num", a.num}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
               {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
     if (a.kind == "game") { j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL); }
@@ -355,7 +355,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (who.avatar.is_object() && who.avatar.contains("wearing") && who.avatar["wearing"].is_array())
                 for (const auto& id : who.avatar["wearing"])
                     if (id.is_string())
-                        if (auto it = m_assets.find(id.get<std::string>()); it != m_assets.end()) out.push_back(publicAsset(it->second));
+                        if (auto it = findAsset(id.get<std::string>()); it != m_assets.end()) out.push_back(publicAsset(it->second));
             return out;
         };
         r["wearing"] = wornItems(*u);
@@ -383,7 +383,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json gameBadges = json::array();
         for (const json& e : u->gameBadges) {
             if (!e.is_array() || e.size() < 3) continue;
-            auto g = m_assets.find(e[1].get<std::string>());
+            auto g = findAsset(e[1].get<std::string>());
             if (g == m_assets.end()) continue;
             for (const json& b : g->second.badges)
                 if (b.value("id", std::string()) == e[0].get<std::string>())
@@ -473,7 +473,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     }
     if (name == "thumb.set") {
         // A picture of a game (Studio sends one when publishing): a PNG or JPG, up to 400 KB.
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change pictures of your own things.");
@@ -491,7 +491,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay(); r["asset"] = publicAsset(a); return r;
     }
     if (name == "thumb.get") {
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         std::string data;
         if (it == m_assets.end() || !it->second.thumb || !readFile(m_opts.data / "files" / ("thumb-" + it->first), data))
             return fail("No picture.");
@@ -713,7 +713,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                         ". (It's free for Verified creators.)");
 
         Asset a;
-        a.id = kind + "-" + Account::randomHex(5);
+        a.num = m_nextAssetNum++;
+        a.id = std::to_string(a.num);
+        m_assetNums[a.id] = a.id;
+        saveIds();
         a.kind = kind; a.name = title; a.description = desc; a.creator = me.id;
         a.price = price; a.created = now; a.size = data.size(); a.meta = meta;
         if (!writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
@@ -728,7 +731,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     }
     // --- Game badges: creators make them on their game's page, game scripts award them.
     if (name == "gamebadge.create" || name == "gamebadge.delete") {
-        auto it = m_assets.find(str("game"));
+        auto it = findAsset(str("game"));
         if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
         Asset& g = it->second;
         if (g.creator != me.id) return fail("Only the game's creator can change its badges.");
@@ -787,7 +790,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     }
     if (name == "update") {
         // The creator replaces their upload (a new version of a game or plugin).
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (a.creator != me.id) return fail("You can only update your own things.");
@@ -835,13 +838,14 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay(); r["assets"] = list; r["total"] = found.size(); return r;
     }
     if (name == "gear.equip") {   // gear you own, in your backpack for games (worker/server.js)
-        const std::string id = str("id");
+        std::string id = str("id");
+        if (auto f = findAsset(id); f != m_assets.end()) id = f->first;   // (its number works too)
         const bool on = args.value("on", true);
         std::vector<std::string> keep;
         for (const auto& g : me.gear) if (g != id && me.owned.count(g)) keep.push_back(g);
         me.gear = keep;
         if (on) {
-            auto it = m_assets.find(id);
+            auto it = findAsset(id);
             if (it == m_assets.end() || it->second.kind != "gear") return fail("That gear doesn't exist (any more).");
             if (!me.owned.count(id)) return fail("Get it from the catalog first.");
             if ((int)me.gear.size() >= Online::kMostGear)
@@ -852,7 +856,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay(); r["me"] = meJson(me); return r;
     }
     if (name == "game.settings") {   // (the website's game settings; here just "Allow gear")
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
         Asset& a = it->second;
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change your own games.");
@@ -860,8 +864,17 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         saveAssets();
         json r = okay(); r["asset"] = publicAsset(a); return r;
     }
+    // One asset's page (the Library's "asset ID" pages): what it is, without downloading it.
+    // Takes the ID people paste into games too ("gb:decal-..."). (worker/server.js has the same.)
+    if (name == "asset.info") {
+        std::string id = Online::cleanText(str("id"), 80);
+        if (id.rfind("gb:", 0) == 0) id = id.substr(3);
+        auto it = findAsset(id);
+        if (it == m_assets.end()) return fail("There's nothing with that ID (or it's private).");
+        json r = okay(); r["asset"] = publicAsset(it->second); r["owned"] = me.owned.count(id) > 0; return r;
+    }
     if (name == "get") {
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         const bool mine = me.owned.count(a.id) || a.creator == me.id;
@@ -874,7 +887,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay(); r["asset"] = publicAsset(a); r["data"] = Online::base64Encode(data); return r;
     }
     if (name == "buy") {
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
@@ -898,7 +911,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json r = okay(); r["me"] = meJson(me); return r;
     }
     if (name == "delete") {
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         if (it->second.creator != me.id && !isStaff(me)) return fail("You can only delete your own things.");
         std::error_code ec;
@@ -969,7 +982,7 @@ void GbServer::saveAssets() {
     for (const auto& [id, a] : m_assets)
         all[id] = {{"kind", a.kind}, {"name", a.name}, {"description", a.description}, {"creator", a.creator},
                    {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
-                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}};
+                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}, {"num", a.num}};
     writeFile(m_opts.data / "assets.json", all.dump(1));
 }
 
@@ -1131,6 +1144,7 @@ void GbServer::load() {
                 if (j.contains("meta")) a.meta = j["meta"];
                 if (j.contains("badges") && j["badges"].is_array()) a.badges = j["badges"];
                 a.thumb = j.value("thumb", 0LL);
+                a.num = j.value("num", 0LL);
                 if (Online::validKind(a.kind)) m_assets[id] = a;
             }
     }

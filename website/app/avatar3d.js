@@ -218,18 +218,25 @@ function trs(pos, rot, size) {
   return mul(T, mul(Rz, mul(Ry, mul(Rx, S))));
 }
 // A custom mesh ("v" = x,y,z,..., "f" = corner lists) -> flat-shaded triangles.
+// With "uv" (u,v for each corner of each face, like an imported Roblox hat) it keeps them,
+// so the hat's picture lands where it does in the game.
 function meshShape(m) {
-  const v = m.v || [], pos = [], nrm = [];
-  for (const f of m.f || []) {
+  const v = m.v || [], pos = [], nrm = [], uv = [];
+  const uvs = Array.isArray(m.uv) && m.uv.length === (m.f || []).length ? m.uv : null;
+  (m.f || []).forEach((f, fi) => {
+    const fu = uvs && Array.isArray(uvs[fi]) && uvs[fi].length === f.length * 2 ? uvs[fi] : null;
     for (let i = 1; i + 1 < f.length; ++i) {
       const a = f[0] * 3, b = f[i] * 3, c = f[i + 1] * 3;
       const e1 = [v[b] - v[a], v[b + 1] - v[a + 1], v[b + 2] - v[a + 2]], e2 = [v[c] - v[a], v[c + 1] - v[a + 1], v[c + 2] - v[a + 2]];
       const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
       for (const k of [a, b, c]) { pos.push(v[k], v[k + 1], v[k + 2]); nrm.push(...n); }
+      if (fu) for (const j of [0, i, i + 1]) uv.push(fu[j * 2], fu[j * 2 + 1]);
     }
-  }
-  return { pos, nrm };
+  });
+  return uvs ? { pos, nrm, uv } : { pos, nrm };
 }
+// A part's picture ("gb:123" / "123"): the decal's number, or '' for none.
+const pictureOf = (t) => (typeof t === 'string' && /^(gb:)?[\w-]{1,60}$/.test(t.trim()) && !/[\\/.]/.test(t) ? t.trim().replace(/^gb:/, '') : '');
 // One accessory file -> pieces already placed (positions from the feet).
 function accessoryPieces(acc) {
   const out = [];
@@ -250,7 +257,9 @@ function accessoryPieces(acc) {
         const nx = shape.nrm[i] / l0, ny = shape.nrm[i + 1] / l1, nz = shape.nrm[i + 2] / l2;
         nrm.push(m[0] * nx + m[4] * ny + m[8] * nz, m[1] * nx + m[5] * ny + m[9] * nz, m[2] * nx + m[6] * ny + m[10] * nz);
       }
-      out.push({ mesh: { pos, nrm }, color: colorOf((node.color || [0.6, 0.6, 0.6]).map((c) => c * 255), [150, 150, 150]),
+      const tex = shape.uv ? pictureOf(node.texture) : '';
+      out.push({ mesh: tex ? { pos, nrm, uv: shape.uv } : { pos, nrm }, tex,
+        color: colorOf((node.color || [0.6, 0.6, 0.6]).map((c) => c * 255), [150, 150, 150]),
         shine: node.material === 'Neon' ? 0 : 0, glow: node.material === 'Neon' ? 1 : 0 });
     }
     for (const c of node.children || []) walk(c, m);
@@ -269,9 +278,11 @@ function loadAccessory(id) {
   }
   return accessories.get(id);
 }
-// Start (and wait for) the accessories some items need.
+// Start (and wait for) the accessories some items need, and their pictures.
 async function loadAccessories(items) {
-  await Promise.all((items || []).filter(isModelAccessory).map((it) => loadAccessory(it.id).ready));
+  const list = (items || []).filter(isModelAccessory).map((it) => loadAccessory(it.id));
+  await Promise.all(list.map((e) => e.ready));
+  await Promise.all(list.flatMap((e) => (e.pieces || []).filter((p) => p.tex).map((p) => decalTexture(p.tex).ready)));
 }
 
 // Everything in one list of triangles: position, normal, colour, shine, and the
@@ -279,7 +290,13 @@ async function loadAccessories(items) {
 const STRIDE = 13;
 function build(list) {
   const data = [];
+  const accTex = [];   // up to 4 accessory pictures per draw (aCloth 3..6)
   for (const p of list) {
+    let slot = -1;
+    if (p.tex) {
+      slot = accTex.indexOf(p.tex);
+      if (slot < 0 && accTex.length < 4) { accTex.push(p.tex); slot = accTex.length - 1; }
+    }
     const src = p.mesh || SHAPES[p.shape];
     const at = p.at || [0, 0, 0], size = p.size || [1, 1, 1];
     const rc = Math.cos(p.roll || 0), rs = Math.sin(p.roll || 0);   // turned about Z
@@ -296,10 +313,12 @@ function build(list) {
       const k = (i / 3) * 2;
       const u = p.mesh && src.uv ? src.uv[k] : 0, v = p.mesh && src.uv ? src.uv[k + 1] : 0;
       data.push(x, y, z, nx / l, ny / l, nz / l, p.color[0], p.color[1], p.color[2], p.face ? 3 : p.torso ? 4 : p.glow ? 2 : p.shine ? 1 : 0,
-        u, v, p.mesh && src.uv ? p.cloth || 0 : 0);
+        u, v, p.mesh && src.uv ? (slot >= 0 ? 3 + slot : p.cloth || 0) : 0);
     }
   }
-  return new Float32Array(data);
+  const out = new Float32Array(data);
+  out.accTex = accTex;
+  return out;
 }
 
 // --- the one WebGL canvas --------------------------------------------------------
@@ -321,6 +340,7 @@ varying vec3 vNrm; varying vec3 vCol; varying float vShine; varying float vY;
 varying vec3 vPos; varying vec3 vModelNrm; varying vec2 vUV; varying float vCloth;
 uniform float uShadow;
 uniform sampler2D uShirt, uPants; // shirt / pants pictures (the template layout)
+uniform sampler2D uAcc0, uAcc1, uAcc2, uAcc3;   // accessories' own pictures (an imported hat's texture)
 uniform sampler2D uFace;       // the face picture
 uniform vec3 uHeadC, uHeadS;   // the head's middle and size
 uniform sampler2D uTShirt;     // a T-shirt picture (on the front of the torso)
@@ -331,7 +351,10 @@ void main() {
   vec3 n = normalize(vNrm);
   vec3 base = vCol;
   // Clothing: the picture over the body colour (see-through bits show the body).
-  if (vCloth > 0.5) {
+  if (vCloth > 2.5) {
+    vec4 px = vCloth < 3.5 ? texture2D(uAcc0, vUV) : vCloth < 4.5 ? texture2D(uAcc1, vUV) : vCloth < 5.5 ? texture2D(uAcc2, vUV) : texture2D(uAcc3, vUV);
+    base = mix(base, px.rgb, px.a);
+  } else if (vCloth > 0.5) {
     vec4 px = vCloth < 1.5 ? texture2D(uShirt, vUV) : texture2D(uPants, vUV);
     base = mix(base, px.rgb, px.a);
   }
@@ -388,6 +411,7 @@ function initGl() {
     torsoC: gl.getUniformLocation(prog, 'uTorsoC'), torsoS: gl.getUniformLocation(prog, 'uTorsoS'),
     uv: gl.getAttribLocation(prog, 'aUV'), cloth: gl.getAttribLocation(prog, 'aCloth'),
     shirt: gl.getUniformLocation(prog, 'uShirt'), pants: gl.getUniformLocation(prog, 'uPants'),
+    acc: [0, 1, 2, 3].map((i) => gl.getUniformLocation(prog, 'uAcc' + i)),
   };
   vbo = gl.createBuffer();
   // A soft round shadow under the feet (rings fading out).
@@ -501,6 +525,33 @@ function teeTexture(id) {
   return entry;
 }
 
+// Decal pictures by number (an accessory's texture), from /decal/<id>.
+const decalTextures = new Map();
+function decalTexture(id) {
+  if (decalTextures.has(id)) return decalTextures.get(id);
+  const tex = gl.createTexture();
+  const entry = { tex, loaded: false, ready: null };
+  entry.ready = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);   // (the game's pictures are bottom row first too)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      entry.loaded = true;
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = '/decal/' + encodeURIComponent(id);
+  });
+  decalTextures.set(id, entry);
+  return entry;
+}
+
 // A 1 x 1 see-through picture: clothing that hasn't loaded shows the body colour.
 let blankTex = null;
 function blankTexture() {
@@ -573,6 +624,13 @@ function draw(buffer, count, w, h, yaw, pitch, face = '', tee = '', shirt = '', 
   gl.activeTexture(gl.TEXTURE3);
   gl.bindTexture(gl.TEXTURE_2D, clothTex(pants));
   gl.uniform1i(loc.pants, 3);
+  for (let i = 0; i < 4; ++i) {   // accessories' pictures
+    const id = buffer.accTex && buffer.accTex[i];
+    const d = id ? decalTexture(id) : null;
+    gl.activeTexture(gl.TEXTURE4 + i);
+    gl.bindTexture(gl.TEXTURE_2D, d && d.loaded ? d.tex : blankTexture());
+    gl.uniform1i(loc.acc[i], 4 + i);
+  }
   gl.activeTexture(gl.TEXTURE0);
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
   gl.bufferData(gl.ARRAY_BUFFER, buffer, gl.DYNAMIC_DRAW);
@@ -712,9 +770,10 @@ export async function itemPicture(item, size = 150) {
     const moved = list.map((p) => {   // turn about its own middle
       const pos = p.mesh.pos.slice();
       for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; ++k) pos[i + k] -= mid[k];
-      return Object.assign({}, p, { mesh: { pos, nrm: p.mesh.nrm } });
+      return Object.assign({}, p, { mesh: { pos, nrm: p.mesh.nrm, uv: p.mesh.uv } });
     });
     const span = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+    await Promise.all(list.filter((p) => p.tex).map((p) => decalTexture(p.tex).ready));
     const buffer = build(moved);
     await faceTexture('').ready;
     draw(buffer, buffer.length / STRIDE, w, h, -0.6, 0.35, '', '', '', '', { at: [0, 0, 0], dist: span * 2.6, noShadow: true });

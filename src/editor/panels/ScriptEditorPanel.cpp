@@ -83,6 +83,94 @@ void ScriptEditorPanel::open(uint64_t scriptId) {
 }
 
 // Called by the text box every frame while it's active (and when Tab completes a word).
+// Roblox Studio's dark script colours.
+void ScriptEditorPanel::drawColoredCode(ImDrawList* dl, const std::string& src, ImVec2 origin, float lineH, int first, int last) {
+    static const std::set<std::string> kKeywords = {"and", "break", "do", "else", "elseif", "end", "for", "function", "goto", "if",
+        "in", "local", "not", "or", "repeat", "return", "then", "until", "while", "continue", "self"};
+    static const std::set<std::string> kLiterals = {"true", "false", "nil"};
+    static const std::set<std::string> kBuiltins = {"game", "workspace", "script", "print", "warn", "error", "wait", "task", "math",
+        "string", "table", "Instance", "Vector3", "Vector2", "CFrame", "Color3", "BrickColor", "UDim2", "UDim", "Enum", "pairs",
+        "ipairs", "tostring", "tonumber", "typeof", "type", "require", "spawn", "delay", "tick", "time", "os", "coroutine", "pcall",
+        "Ray", "TweenInfo", "RaycastParams", "Sounds", "Explode", "next", "select", "unpack", "setmetatable", "getmetatable"};
+    const ImU32 cText = IM_COL32(204, 204, 204, 255), cKey = IM_COL32(248, 109, 124, 255), cStr = IM_COL32(173, 241, 149, 255),
+                cNum = IM_COL32(255, 198, 0, 255), cCom = IM_COL32(102, 102, 102, 255), cBuilt = IM_COL32(132, 214, 247, 255),
+                cCall = IM_COL32(253, 251, 172, 255), cProp = IM_COL32(97, 161, 241, 255);
+    int line = 0;
+    float x = origin.x;
+    size_t i = 0;
+    const size_t n = src.size();
+    // Draw [a, b) in a colour, moving along (and down at new lines).
+    auto paint = [&](size_t a, size_t b, ImU32 col) {
+        while (a < b) {
+            size_t nl = src.find('\n', a);
+            size_t end = nl == std::string::npos || nl >= b ? b : nl;
+            if (line >= first && line <= last && end > a) {
+                dl->AddText(ImVec2(x, origin.y + line * lineH), col, src.data() + a, src.data() + end);
+                x += ImGui::CalcTextSize(src.data() + a, src.data() + end).x;
+            } else if (end > a) {
+                x += 0.0f;   // off screen: only the line count matters
+            }
+            if (end < b) { ++line; x = origin.x; a = end + 1; } else a = end;
+        }
+    };
+    auto longClose = [&](size_t at) -> size_t {   // after "[[", "[==[": where it ends
+        size_t j = at + 1;
+        int level = 0;
+        while (j < n && src[j] == '=') { ++level; ++j; }
+        std::string close = "]" + std::string((size_t)level, '=') + "]";
+        size_t e = src.find(close, j + 1);
+        return e == std::string::npos ? n : e + close.size();
+    };
+    auto isLong = [&](size_t at) {
+        if (at >= n || src[at] != '[') return false;
+        size_t j = at + 1;
+        while (j < n && src[j] == '=') ++j;
+        return j < n && src[j] == '[';
+    };
+    std::string prevWord;
+    char prevSig = 0;
+    while (i < n && line <= last) {
+        const char c = src[i];
+        if (c == '-' && i + 1 < n && src[i + 1] == '-') {
+            size_t e = isLong(i + 2) ? longClose(i + 2) : src.find('\n', i);
+            if (e == std::string::npos) e = n;
+            paint(i, e, cCom); i = e; continue;
+        }
+        if (c == '"' || c == '\'') {
+            size_t e = i + 1;
+            while (e < n && src[e] != c && src[e] != '\n') { if (src[e] == '\\') ++e; ++e; }
+            e = std::min(n, e + 1);
+            paint(i, e, cStr); i = e; prevSig = '"'; continue;
+        }
+        if (isLong(i)) { size_t e = longClose(i); paint(i, e, cStr); i = e; prevSig = '"'; continue; }
+        if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < n && std::isdigit((unsigned char)src[i + 1]))) {
+            size_t e = i;
+            while (e < n && (std::isalnum((unsigned char)src[e]) || src[e] == '.' || src[e] == '_')) ++e;
+            paint(i, e, cNum); i = e; prevSig = '0'; continue;
+        }
+        if (std::isalpha((unsigned char)c) || c == '_') {
+            size_t e = i;
+            while (e < n && (std::isalnum((unsigned char)src[e]) || src[e] == '_')) ++e;
+            const std::string w = src.substr(i, e - i);
+            size_t k = e;
+            while (k < n && (src[k] == ' ' || src[k] == '\t')) ++k;
+            const bool call = k < n && (src[k] == '(' || src[k] == '"' || src[k] == '{');
+            ImU32 col = cText;
+            if (kKeywords.count(w)) col = cKey;
+            else if (kLiterals.count(w)) col = cNum;
+            else if (prevSig == '.' || prevSig == ':') col = call ? cCall : cProp;
+            else if (kBuiltins.count(w)) col = cBuilt;
+            else if (call || prevWord == "function") col = cCall;
+            paint(i, e, col);
+            prevWord = w; prevSig = 'a'; i = e; continue;
+        }
+        size_t e = i + 1;
+        paint(i, e, cText);
+        if (!std::isspace((unsigned char)c)) { prevSig = c; prevWord.clear(); }
+        i = e;
+    }
+}
+
 int ScriptEditorPanel::onEdit(ImGuiInputTextCallbackData* d) {
     auto* self = static_cast<ScriptEditorPanel*>(d->UserData);
     if (d->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
@@ -305,10 +393,60 @@ void ScriptEditorPanel::render() {
     const bool suggesting = m_codeActive && !m_suggest.empty();
     ImGuiInputTextFlags flags = ImGuiInputTextFlags_CallbackAlways |
                                 (suggesting ? ImGuiInputTextFlags_CallbackCompletion : ImGuiInputTextFlags_AllowTabInput);
+    // Line numbers down the left, like Roblox Studio.
+    const int lines = 1 + (int)std::count(s->source.begin(), s->source.end(), '\n');
+    const float gutter = ImGui::CalcTextSize(std::to_string(std::max(lines, 99)).c_str()).x + 14.0f;
+    const ImVec2 gutterPos = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(gutter, 1));
+    ImGui::SameLine(0, 0);
     if (m_focusCode) { ImGui::SetKeyboardFocusHere(); m_focusCode = false; }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, 1.0f));
     ImGui::InputTextMultiline("##code", &s->source, ImVec2(-1, -footer), flags, &ScriptEditorPanel::onEdit, this);
+    ImGui::PopStyleColor();
     m_codeActive = ImGui::IsItemActive();
     const float lineH = ImGui::GetTextLineHeight();
+    {
+        const ImVec2 boxMin = ImGui::GetItemRectMin(), boxMax = ImGui::GetItemRectMax();
+        // The text box scrolls inside its own little window (the last child made just now).
+        ImVec2 scroll(0, 0);
+        ImGuiWindow* parent = ImGui::GetCurrentWindow();
+        ImGuiWindow* box = parent->DC.ChildWindows.empty() ? nullptr : parent->DC.ChildWindows.back();
+        if (box) scroll = box->Scroll;
+        const ImVec2 pad = ImGui::GetStyle().FramePadding;
+        const ImVec2 origin(boxMin.x + pad.x - scroll.x, boxMin.y + pad.y - scroll.y);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        // Gutter: numbers, with the mistake's line in red.
+        dl->AddRectFilled(ImVec2(gutterPos.x, boxMin.y), ImVec2(gutterPos.x + gutter - 2, boxMax.y), IM_COL32(37, 37, 38, 255));
+        dl->PushClipRect(ImVec2(gutterPos.x, boxMin.y), ImVec2(gutterPos.x + gutter, boxMax.y), true);
+        const int first = std::max(0, (int)(scroll.y / lineH) - 1), last = std::min(lines, first + (int)((boxMax.y - boxMin.y) / lineH) + 3);
+        for (int i = first; i < last; ++i) {
+            const std::string n = std::to_string(i + 1);
+            const float y = origin.y + i * lineH;
+            const bool bad = !m_error.empty() && m_errorLine == i + 1;
+            const bool here = m_cursorLine == i + 1;
+            dl->AddText(ImVec2(gutterPos.x + gutter - 8 - ImGui::CalcTextSize(n.c_str()).x, y),
+                        bad ? IM_COL32(255, 90, 80, 255) : here ? IM_COL32(220, 220, 220, 255) : IM_COL32(120, 120, 120, 255), n.c_str());
+        }
+        dl->PopClipRect();
+        // The code itself, coloured like Roblox Studio's dark theme (drawn over the plain text,
+        // into the text box's own window so it lands on top).
+        if (box) dl = box->DrawList;
+        dl->PushClipRect(ImVec2(boxMin.x + 1, boxMin.y + 1), ImVec2(boxMax.x - 1, boxMax.y - 1), true);
+        drawColoredCode(dl, s->source, origin, lineH, first, last);
+        // A red wavy line under the line with the mistake.
+        if (!m_error.empty() && m_errorLine >= 1 && m_errorLine <= lines) {
+            size_t ls = 0;
+            for (int k = 1; k < m_errorLine; ++k) ls = s->source.find('\n', ls) + 1;
+            size_t le = s->source.find('\n', ls);
+            if (le == std::string::npos) le = s->source.size();
+            const float w = std::max(20.0f, ImGui::CalcTextSize(s->source.data() + ls, s->source.data() + le).x);
+            const float y = origin.y + m_errorLine * lineH - 1.0f;
+            for (float x = 0; x < w; x += 4.0f)
+                dl->AddLine(ImVec2(origin.x + x, y + ((int)(x / 4) % 2 ? 2.0f : 0.0f)),
+                            ImVec2(origin.x + x + 4, y + ((int)(x / 4) % 2 ? 0.0f : 2.0f)), IM_COL32(255, 70, 60, 255), 1.2f);
+        }
+        dl->PopClipRect();
+    }
     ImGui::PopFont();
 
     // --- Autocomplete popup under the cursor ---

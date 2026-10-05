@@ -260,6 +260,27 @@ Blender.
 Right-click in the Explorer for **Insert Object** (every kind of object, with
 a search box). **Lighting** and **StarterPlayer** are in the Explorer too.
 
+**Handles, like Roblox.** Selected parts get a light blue box. **Move** has an
+arrow on each of the six sides (along the part's own axes, or the world's with
+*World* on): drag one and everything selected slides that way. **Scale** has an
+orb on each side: drag one and only that side moves (hold **Ctrl** to grow both
+sides). **Rotate** turns everything selected together. Click empty space and
+drag to **box-select**.
+
+**Unions** (MODEL tab > Solid Modeling, like Roblox): select parts and press
+**Union** (Ctrl+Shift+G) to join them into one shape. **Negate** (Ctrl+Shift+N)
+turns a part into a see-through pink "hole": union it with other parts and it
+gets cut out of them. **Intersect** (Ctrl+Shift+I) keeps only where parts
+overlap. **Separate** (Ctrl+Shift+U) gives back the parts a union was made from.
+
+**Script Analysis** (VIEW tab, or View > Script Analysis) checks every script
+without running anything: red errors are things Lua can't read (a missing
+`end`), yellow warnings are names that aren't defined anywhere (usually a typo,
+like `pirnt`). Click one to jump to it.
+
+**AutoSave**: every 5 minutes Studio keeps a backup of unsaved work (your game
+file isn't touched). If Studio crashes, it offers to open the backup next time.
+
 ### Controls
 
 These match Roblox Studio. Press **F1** (or **View > Shortcuts**) in Studio
@@ -435,9 +456,12 @@ hand to the `Handle`, placed by the tool's **Grip** (`GripPos`, `GripForward`,
 
 ### Gear
 
-Like Roblox's old gear: staff make a Tool in Studio, select it and use
-**File > Publish Selection to Library** with **Sell it in the catalog as
-Gear** ticked. It shows up in the catalog under **Gear**. Buy it, then press
+Like Roblox's old gear: staff open **File > Make Gear** in Studio. Start
+from a ready-made one (**Classic Sword**, **Rocket Launcher**, **Speed Coil**,
+**Gravity Coil** or **Bomb**, also in the Toolbox for everyone) or your own
+Tool, change it, press Play to try it (it's already in your backpack: press 1),
+then **Publish as Gear**. (Or select a Tool and use **File > Publish Selection
+to Library** with **Sell it in the catalog as Gear** ticked.) It shows up in the catalog under **Gear**. Buy it, then press
 **Equip** (on the item, or on the app's Avatar page under *Gear*). You can have
 up to 4 equipped. You get your equipped gear in your backpack (and again every
 time you respawn) in games whose creator ticked **Allow gear** in the game's
@@ -1006,6 +1030,17 @@ Press **Esc** (or the Menu button) for a Roblox-style menu with three tabs:
 Along the bottom: **[R] Reset Character**, **[L] Leave Game** (both ask "Are
 you sure?" first) and **[Esc] Resume Game**.
 
+### The Developer Console
+
+Press **F9** (or type **/devconsole** in the chat) for the Developer Console,
+like Roblox's. The **Client** tab shows what happened on your own computer
+(errors in red, warnings in yellow), with a search box.
+
+The **Server** tab is only for the game's **owner** (the account that published
+it). It shows the server's log, including what the game's scripts `print()`,
+and has a command bar that runs Lua on the server. The host checks who you are
+before sending you any of it, so other players never see that tab.
+
 ### Player collisions
 
 Players bump into each other like in Roblox, and you can stand on someone's
@@ -1263,6 +1298,12 @@ Find things in two places:
   it on the selected part, or a sound to add it.
 - **The website's Create > Library tab:** all public models, decals, audio and
   plugins. **Create > Models** lists yours with a Public / Private switch.
+- **Asset pages:** everything in the Library has its own page, found by its ID
+  (the same `gb:decal-...` ID you paste into a game): `#/library/<ID>` on the
+  website, or *Create > Library* in the Player app (paste an ID into *Got an ID?*
+  to jump straight to it). Decals show their picture, audio has a **Listen**
+  button, and **Copy ID** copies the ID to paste into a Decal's Texture or a
+  Sound's File.
 
 ### Limiteds, resale and trading
 
@@ -1482,6 +1523,13 @@ the Guts&Bolts server, and it passes the game's messages along. So:
 **Play** asks the server for the fullest public server of that game that still
 has room. If nobody's playing, you quietly become the host of a new public
 server, and the next person to press Play joins you.
+
+**When the host leaves**, nobody gets kicked. The Guts&Bolts server picks
+whoever has been in the game longest, their Player starts a new server of the
+same game (same name, same private code), and everyone else follows them there
+on their own. It takes a few seconds and the world starts fresh, but everybody
+stays together. If that player can't do it within about 12 seconds, the next
+one in line is asked.
 
 **Private servers** get a 6-letter code (it shows in the pause menu). Your
 friends can join straight from their Friends list; anyone else needs the
