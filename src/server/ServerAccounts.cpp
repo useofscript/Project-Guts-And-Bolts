@@ -79,8 +79,35 @@ GbServer::User* GbServer::findUserId(long long userId) {
     return nullptr;
 }
 
+std::map<std::string, GbServer::Asset>::iterator GbServer::findAsset(const std::string& id) {
+    auto it = m_assets.find(id);
+    if (it != m_assets.end()) return it;
+    auto n = m_assetNums.find(id);
+    return n == m_assetNums.end() ? m_assets.end() : m_assets.find(n->second);
+}
+std::map<std::string, GbServer::Asset>::const_iterator GbServer::findAsset(const std::string& id) const {
+    auto it = m_assets.find(id);
+    if (it != m_assets.end()) return it;
+    auto n = m_assetNums.find(id);
+    return n == m_assetNums.end() ? m_assets.end() : m_assets.find(n->second);
+}
+
+// Give every asset without one its number (oldest first); a number is never handed out twice.
+void GbServer::numberAssets() {
+    std::vector<Asset*> todo;
+    for (auto& [id, a] : m_assets) {
+        if (a.num > 0) m_nextAssetNum = std::max(m_nextAssetNum, a.num + 1);
+        else todo.push_back(&a);
+    }
+    std::sort(todo.begin(), todo.end(), [](const Asset* x, const Asset* y) { return x->created != y->created ? x->created < y->created : x->id < y->id; });
+    for (Asset* a : todo) a->num = m_nextAssetNum++;
+    m_assetNums.clear();
+    for (auto& [id, a] : m_assets) m_assetNums[std::to_string(a.num)] = id;
+    if (!todo.empty()) saveAssets();
+}
+
 void GbServer::saveIds() {
-    writeFile(m_opts.data / "ids.json", json{{"next", m_nextUserId}, {"taken", m_takenNames}}.dump(1));
+    writeFile(m_opts.data / "ids.json", json{{"next", m_nextUserId}, {"taken", m_takenNames}, {"asset", m_nextAssetNum}}.dump(1));
 }
 
 void GbServer::loadIds() {
@@ -89,6 +116,7 @@ void GbServer::loadIds() {
         json j = json::parse(text, nullptr, false);
         if (j.is_object()) {
             m_nextUserId = std::max<long long>(2, j.value("next", 2LL));
+            m_nextAssetNum = std::max<long long>(1, j.value("asset", 1LL));
             if (j.contains("taken"))
                 for (const auto& n : j["taken"]) if (n.is_string()) m_takenNames.insert(n.get<std::string>());
         }
@@ -102,6 +130,7 @@ void GbServer::loadIds() {
         }
     }
     m_takenNames.insert("guts");
+    numberAssets();
     saveIds();
     for (auto& [id, u] : m_users) gutsFollows(u);
 }

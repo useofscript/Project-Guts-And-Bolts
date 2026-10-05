@@ -32,6 +32,8 @@ const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plug
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
 const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
+// An asset's ID, the way people see and type it: its number (like Roblox's), or the old ID for anything that hasn't got one.
+const assetNum = (a) => String(a.num || a.id);
 const isCatalogItem = (k) => WEARABLE.includes(k) || k === 'gear';   // sold in the catalog (they have #/item pages)
 // Only Guts' own accessories and faces can be Limited.
 const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
@@ -702,18 +704,18 @@ async function libraryPage(head) {
   const r = await pageCall('list', { kind, query, sort: 'popular', limit: 100 });
   const chip = (k, l) => html`<a class="chip ${kind === k ? 'on' : ''}" href="#/create/library?kind=${k}">${l}</a>`;
   const card = (a) => html`<div class="card square lib-card">
-      <a class="pic" href="#/library/${a.id}">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
+      <a class="pic" href="#/library/${assetNum(a)}">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
         : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
         : html`<span class="lib-kind">${a.kind === 'audio' ? raw(SPEAKER_SVG) : ''}${KINDS[a.kind] || a.kind}</span>`}${officialBadge(a)}</a>
-      <a class="name" href="#/library/${a.id}">${a.name}</a>
+      <a class="name" href="#/library/${assetNum(a)}">${a.name}</a>
       <div class="by">by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
-      <div class="by small"><button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button></div></div>`;
+      <div class="by small">ID ${assetNum(a)} <button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy ID</button></div></div>`;
   show(html`${head}
     <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> (the
       <b>Library</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
     <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
-    <form class="row" data-form="assetGo"><input type="text" name="id" placeholder="Got an ID? Paste it here (gb:decal-...)" style="max-width:280px">
+    <form class="row" data-form="assetGo"><input type="text" name="id" placeholder="Got an ID? Paste it here (like 123)" style="max-width:280px">
       <button class="btn">Go</button></form>
     <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>
     ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(card)}</div>` : html`<p class="muted">Nothing here yet.</p>`) : html`<p class="error">${r.error}</p>`}`);
@@ -752,8 +754,8 @@ pages.library = async (id = '') => {
   if (isCatalogItem(a.kind)) { location.replace('#/item/' + a.id); return; }
   if (a.kind === 'game') { location.replace('#/game/' + a.id); return; }
   const useIt = {
-    decal: 'In Studio, select a Decal (or a Part) and paste the ID into its Texture. Scripts can use it too: decal.Texture = "gb:' + a.id + '"',
-    audio: 'In Studio, select a Sound and paste the ID into its File (SoundId). Scripts can use it too: sound.SoundId = "gb:' + a.id + '"',
+    decal: 'In Studio, select a Decal (or a Part) and paste the ID into its Texture. Scripts can use it too: decal.Texture = "' + assetNum(a) + '"',
+    audio: 'In Studio, select a Sound and paste the ID into its File (SoundId). Scripts can use it too: sound.SoundId = "' + assetNum(a) + '"',
     model: 'In Studio, open the Toolbox, pick the Library tab and search for it to insert it into your game.',
     plugin: 'In Studio, open the Toolbox\'s Plugins tab and install it from there.',
   }[a.kind] || '';
@@ -788,8 +790,8 @@ pages.library = async (id = '') => {
         <div class="item-side">
           <div class="item-buybox asset-idbox">
             <div class="small">Asset ID</div>
-            <input type="text" class="asset-id" value="gb:${a.id}" readonly>
-            <button class="btn blue big buy" data-act="copyId" data-id="${a.id}">Copy ID</button>
+            <input type="text" class="asset-id" value="${assetNum(a)}" readonly>
+            <button class="btn blue big buy" data-act="copyId" data-id="${assetNum(a)}">Copy ID</button>
             ${a.kind === 'decal' ? html`<p class="small"><a id="decalOpen" target="_blank" rel="noopener" hidden>Open full size</a></p>` : ''}
           </div>
           ${canDelete ? html`<p><button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></p>` : ''}
@@ -849,7 +851,7 @@ async function myModelsPage(head) {
 let serverPage = 1;   // which page of a game's server cards
 pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
-  const g = r.ok && r.assets.find((a) => a.id === id);
+  const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
   const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
@@ -921,7 +923,7 @@ pages.catalog = async () => {
 
 pages.item = async (id) => {
   const r = await pageCall('list', { kind: 'clothing', limit: 100 });
-  const a = r.ok && r.assets.find((x) => x.id === id);
+  const a = r.ok && r.assets.find((x) => x.id === id || String(x.num) === id);
   if (!a) { show(html`<h1>Item not found</h1>`); return; }
   const owned = signedIn() && (me.owned || []).includes(a.id);
   const gearOn = a.kind === 'gear' && signedIn() && (me.gear || []).includes(a.id);
@@ -966,7 +968,7 @@ pages.item = async (id) => {
           </div>
           <p class="item-desc">${a.description || html`<span class="muted">No description.</span>`}</p>
           <hr>
-          <p class="small muted">Type: ${KINDS[a.kind]}</p>
+          <p class="small muted">Type: ${KINDS[a.kind]} · Asset ID ${assetNum(a)}</p>
           ${a.kind === 'gear' ? html`<p class="small muted">Equipped gear goes in your backpack in games that allow gear (up to 4 at once).</p>`
             : owned ? html`<p class="small muted">Wear it from the Avatar page.</p>` : ''}
         </div>
@@ -1114,10 +1116,10 @@ pages.create = async (tab = 'games') => {
       ${a.kind === 'game' ? gameIcon(a, 48) : ''}
       ${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="">` : ''}
       ${clothing || face ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
-      <div class="grow"><b>${a.kind === 'decal' || a.kind === 'audio' || a.kind === 'plugin' ? html`<a href="#/library/${a.id}">${a.name}</a>` : a.name}</b><br><span class="small muted">
+      <div class="grow"><b>${a.kind === 'decal' || a.kind === 'audio' || a.kind === 'plugin' ? html`<a href="#/library/${assetNum(a)}">${a.name}</a>` : a.name}</b><br><span class="small muted">
         ${a.kind === 'game' ? html`${a.plays} plays · ${ACCESS_NAMES[a.access || 'public']}` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
-        ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID gb:${a.id}` : ''}</span></div>
-      ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button>` : ''}
+        ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID ${assetNum(a)}` : ''}</span></div>
+      ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy ID</button>` : ''}
       ${a.kind === 'game' ? html`<a class="btn small" href="#/game/${a.id}">View</a>
         <a class="btn small blue" href="#/configure/${a.id}">Configure</a>` : ''}
       <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`;
@@ -1136,7 +1138,7 @@ pages.create = async (tab = 'games') => {
 pages.configure = async (id) => {
   if (!signedIn()) { show(html`<h1>Configure game</h1>${needSignIn('change your games')}`); return; }
   const r = await pageCall('list', { creator: me.id, kind: 'game', limit: 100 });
-  const g = r.ok && r.assets.find((a) => a.id === id);
+  const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
   const access = g.access || 'public';
   const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
@@ -1956,8 +1958,8 @@ const actions = {
     box.innerHTML = f.url ? html`<audio controls autoplay src="${f.url}"></audio>`.s : html`<p class="error">${f.error}</p>`.s;
   },
   async copyId(d) {
-    try { await navigator.clipboard.writeText('gb:' + d.id); toast('Copied gb:' + d.id + '. Paste it into Studio.'); }
-    catch { prompt('Copy this ID:', 'gb:' + d.id); }
+    try { await navigator.clipboard.writeText(d.id); toast('Copied ' + d.id + '. Paste it into a Decal\'s Texture or a Sound\'s SoundId in Studio.'); }
+    catch { prompt('Copy this ID:', d.id); }
   },
   async deleteAsset(d) {
     if (!confirm('Delete "' + d.name + '" for good?')) return;

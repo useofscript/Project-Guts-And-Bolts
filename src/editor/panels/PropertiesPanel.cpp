@@ -1,4 +1,5 @@
 #include "PropertiesPanel.h"
+#include "../../online/Protocol.h"
 #include "../../scene/Scene.h"
 #include "../../scene/SceneNode.h"
 #include "../../renderer/MeshLibrary.h"
@@ -203,6 +204,7 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
     if (node->isDecal()) {
         ImGui::SeparatorText("Decal");
         ImGui::InputText("Texture", &node->texture);
+        if (ImGui::IsItemDeactivatedAfterEdit()) node->texture = Online::assetRef(node->texture);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("A picture: a .png / .jpg in the games folder, a full path,\nor gb:<id> for one uploaded on the Create page.");
         if (FileDialog::available()) {
@@ -306,6 +308,7 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
             ImGui::EndCombo();
         }
         ImGui::InputText("File", &node->soundId);
+        if (ImGui::IsItemDeactivatedAfterEdit()) node->soundId = Online::assetRef(node->soundId);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("A built-in name, or a .wav / .mp3 / .flac file in the games folder\n(e.g. music/theme.mp3)");
         ImGui::SliderFloat("Volume", &node->volume, 0.0f, 2.0f);

@@ -11,6 +11,8 @@
   own page, found by its ID (`#/library/<ID>` on the website, *Create > Library*
   in the Player). Listen to audio, see decals full size and **Copy ID** to paste
   it into a game.
+- **Numbered asset IDs**: every asset has a plain number counting up, like
+  Roblox's. Type `123` into a Texture / SoundId (or `gb:123`); old IDs still work.
 - **Make Gear** (staff, in Studio's File menu): start from a ready-made Classic
   Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, and sell it
   in the catalog. The ready-made gear is in the Toolbox for everyone too.

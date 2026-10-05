@@ -135,7 +135,7 @@ void PlayerApp::drawLibrary() {
     ImGui::SameLine();
     if (ImGui::Button("Search") || enter) m_libLoaded.clear();
     ImGui::SetNextItemWidth(std::min(260.0f, ImGui::GetContentRegionAvail().x - 90));
-    const bool go = ImGui::InputTextWithHint("##libid", "Got an ID? gb:decal-...", &m_libIdInput, ImGuiInputTextFlags_EnterReturnsTrue);
+    const bool go = ImGui::InputTextWithHint("##libid", "Got an ID? (like 123)", &m_libIdInput, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
     if ((ImGui::Button("Go") || go) && !m_libIdInput.empty()) { openAsset(m_libIdInput); m_libIdInput.clear(); return; }
     ImGui::Spacing();
@@ -189,7 +189,8 @@ void PlayerApp::drawAsset() {
     }
     const json& a = m_asset;
     const std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
-    const std::string gbId = "gb:" + id;
+    // Its number (like a Roblox asset ID); older uploads without one keep their old ID.
+    const std::string gbId = a.value("num", 0LL) > 0 ? std::to_string(a.value("num", 0LL)) : "gb:" + id;
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted(a.value("name", std::string()).c_str());
     ImGui::SetWindowFontScale(1.0f);

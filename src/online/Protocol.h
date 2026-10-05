@@ -85,6 +85,9 @@ bool        base64Decode(const std::string& text, std::string& bytes);
 
 // Names and descriptions: printable text only, trimmed, at most `maxLen` characters.
 std::string cleanText(const std::string& s, size_t maxLen, bool allowNewlines = false);
+// A Texture / SoundId / Image someone typed: a plain asset number ("123", like Roblox's
+// IDs) becomes "gb:123"; anything else is kept as it is.
+std::string assetRef(const std::string& s);
 
 // Usernames: 3-20 letters, numbers or one underscore (not at the ends), not
 // all numbers, and not one of the reserved names. "" if it's fine.

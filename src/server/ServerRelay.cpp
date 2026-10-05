@@ -71,6 +71,7 @@ const GbServer::Session* GbServer::sessionOf(const std::string& userId) const {
 
 json GbServer::serverOp(const std::string& name, User& me, const json& args) {
     std::string game = Online::cleanText(args.value("game", std::string()), 80);
+    if (auto f = findAsset(game); f != m_assets.end()) game = f->first;   // (its number works too)
 
     if (name == "servers.play") {
         // The fullest public server of this game that still has room, like Roblox.
@@ -123,6 +124,7 @@ void GbServer::relayRequest(Client& c, const json& req) {
         Session s;
         s.id = "s-" + Account::randomHex(6);
         s.game = Online::cleanText(args.value("game", std::string()), 80);
+        if (auto f = findAsset(s.game); f != m_assets.end()) s.game = f->first;
         s.title = Online::cleanText(args.value("title", std::string()), 60);
         if (s.title.empty()) s.title = "A game";
         s.host = me->id;

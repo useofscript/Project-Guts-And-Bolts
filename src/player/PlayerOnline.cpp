@@ -749,12 +749,13 @@ void PlayerApp::drawMyUploads(const std::string& kind) {
         ImGui::SameLine();
         ImGui::TextDisabled("- %lld sold", a.value("sales", 0LL));
         if (kind == "decal" || kind == "audio") {
-            ImGui::TextDisabled("ID: gb:%s", id.c_str());
+            const std::string shownId = a.value("num", 0LL) > 0 ? std::to_string(a.value("num", 0LL)) : "gb:" + id;
+            ImGui::TextDisabled("ID: %s", shownId.c_str());
             ImGui::SameLine();
             if (ImGui::SmallButton("Open")) openAsset(id);
             ImGui::SameLine();
             if (ImGui::SmallButton("Copy ID")) {
-                ImGui::SetClipboardText(("gb:" + id).c_str());
+                ImGui::SetClipboardText(shownId.c_str());
                 m_createMsg = kind == "decal" ? "Copied! Paste it into a Decal's Texture in Studio."
                                               : "Copied! Paste it into a Sound's File in Studio.";
             }

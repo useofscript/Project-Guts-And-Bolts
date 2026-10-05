@@ -40,7 +40,7 @@ json GbServer::playerBadgesOf(const User& u) const {
     for (const auto& [id, a] : m_assets)
         if (a.kind == "game" && a.creator == u.id) { ++games; visits += a.plays; }
     for (const std::string& id : u.owned)
-        if (auto it = m_assets.find(id); it != m_assets.end() && Online::isCatalogItem(it->second.kind)) ++items;
+        if (auto it = findAsset(id); it != m_assets.end() && Online::isCatalogItem(it->second.kind)) ++items;
     const long long age = Online::unixNow() - (u.created ? u.created : Online::unixNow());
     json out = json::array();
     for (const PlayerBadge& b : kPlayerBadges) {
@@ -118,7 +118,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
                 json wearing = json::array();
                 if (o.contains("avatar") && o["avatar"].contains("wearing"))
                     for (const json& id : o["avatar"]["wearing"])
-                        if (id.is_string()) if (auto it = m_assets.find(id.get<std::string>()); it != m_assets.end())
+                        if (id.is_string()) if (auto it = findAsset(id.get<std::string>()); it != m_assets.end())
                             wearing.push_back(publicAsset(it->second));
                 out.push_back({{"id", o.value("id", std::string())}, {"name", o.value("name", std::string())},
                                {"avatar", o.value("avatar", json::object())}, {"created", o.value("created", 0LL)}, {"wearing", wearing}});
@@ -176,7 +176,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
     // --- Favourite games, and the ones you played last ---
     if (name == "game.favorite") {
         if (me.userId == 0) return fail("Sign up first.");
-        auto it = m_assets.find(str("id"));
+        auto it = findAsset(str("id"));
         if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
         Asset& a = it->second;
         const bool had = std::find(me.favorites.begin(), me.favorites.end(), a.id) != me.favorites.end();
@@ -203,7 +203,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         limit = std::clamp(limit, 1LL, 200LL);
         json out = json::array();
         for (const std::string& id : ids) {
-            auto it = m_assets.find(id);
+            auto it = findAsset(id);
             if (it == m_assets.end() || it->second.kind != "game") continue;
             json pa = publicAsset(it->second);
             pa["myFavorite"] = std::find(me.favorites.begin(), me.favorites.end(), id) != me.favorites.end();

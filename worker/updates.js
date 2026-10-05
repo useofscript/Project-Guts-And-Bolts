@@ -30,6 +30,7 @@ export const BUILT_IN_UPDATES = [
       'Asset pages: every decal, sound, model and plugin in the Library has its own page, found by its ID',
       'Listen to audio right on its page, see decals full size, and press Copy ID to paste it into your game',
       'Got an ID? Paste it into the box on the Library page to jump straight to it (website and Player)',
+      'Every asset now has a plain number for its ID, counting up like Roblox (1, 2, 3...). Type it straight into a Decal\'s Texture or a Sound\'s SoundId. Old IDs keep working',
       'The Player app has a Library tab on its Create page with the same pages',
       'Studio: File > Make Gear for staff. Start from a Classic Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, then sell it',
       'The ready-made gear is in the Toolbox for everyone to use in their own games',

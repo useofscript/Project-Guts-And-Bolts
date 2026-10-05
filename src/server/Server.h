@@ -79,6 +79,7 @@ private:
         long long   price = 0, created = 0, sales = 0, plays = 0;
         size_t      size = 0;
         long long   thumb = 0;                   // when its picture was last set (0 = none)
+        long long   num = 0;                     // its number, counting up like Roblox's asset IDs
         nlohmann::json meta = nlohmann::json::object();
         nlohmann::json badges = nlohmann::json::array();   // games: badges its creator made
     };
@@ -178,6 +179,13 @@ private:
     std::vector<std::unique_ptr<Client>> m_clients;
     std::map<std::string, User>  m_users;
     std::map<std::string, Asset> m_assets;
+    // Assets have plain numbers counting up (1, 2, 3...), like Roblox's asset IDs. New ones use the
+    // number as their ID; older ones ("decal-1a2b...") answer to their number too. (worker/server.js: AssetMap)
+    std::map<std::string, std::string> m_assetNums;   // number -> id
+    long long m_nextAssetNum = 1;
+    std::map<std::string, Asset>::iterator       findAsset(const std::string& id);
+    std::map<std::string, Asset>::const_iterator findAsset(const std::string& id) const;
+    void numberAssets();
     std::map<std::string, Group> m_groups;
     std::map<std::string, Session> m_sessions;
     long long m_nextUserId = 2;                      // 1 is Guts (the staff account)
