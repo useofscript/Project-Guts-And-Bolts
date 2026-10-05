@@ -702,6 +702,40 @@ void ViewportPanel::render(float dt) {
                     hit = top;
                 }
                 if (hit || !(ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) pick(hit);
+                // Clicked empty space: hold and drag to box-select, like Roblox Studio.
+                if (!hit) { m_partBox = true; m_boxFrom = m; }
+            }
+            if (m_partBox) {
+                const ImVec2 m = ImGui::GetMousePos();
+                const ImVec2 lo(std::min(m.x, m_boxFrom.x), std::min(m.y, m_boxFrom.y));
+                const ImVec2 hi(std::max(m.x, m_boxFrom.x), std::max(m.y, m_boxFrom.y));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(lo, hi, IM_COL32(80, 160, 255, 40));
+                dl->AddRect(lo, hi, IM_COL32(80, 160, 255, 220));
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                    m_partBox = false;
+                    if (hi.x - lo.x > 4 && hi.y - lo.y > 4) {
+                        // Everything whose middle is inside the box (whole Models, like clicking).
+                        const glm::mat4 vp = proj * view;
+                        std::vector<SceneNode*> found;
+                        m_scene->forEach([&](SceneNode* n) {
+                            if (!n->isPart() || n->locked || n->internal || !n->visible || m_scene->isCharacterPart(n)) return;
+                            glm::vec4 c = vp * glm::vec4(glm::vec3(n->worldMatrix()[3]), 1.0f);
+                            if (c.w <= 0.01f) return;   // behind the camera
+                            const float sx = imgMin.x + (c.x / c.w * 0.5f + 0.5f) * imgSize.x;
+                            const float sy = imgMin.y + (0.5f - c.y / c.w * 0.5f) * imgSize.y;
+                            if (sx < lo.x || sx > hi.x || sy < lo.y || sy > hi.y) return;
+                            SceneNode* top = n;
+                            for (SceneNode* p = n->parent; p && p != m_scene->root(); p = p->parent)
+                                if (p->kind == NodeKind::Model) top = p;
+                            if (m_scene->isProtected(top)) return;
+                            if (std::find(found.begin(), found.end(), top) == found.end()) found.push_back(top);
+                        });
+                        ImGuiIO& io = ImGui::GetIO();
+                        if (!io.KeyShift && !io.KeyCtrl) m_scene->deselect();
+                        for (SceneNode* n : found) m_scene->addToSelection(n);
+                    }
+                }
             }
         }
     }

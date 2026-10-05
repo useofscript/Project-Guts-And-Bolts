@@ -75,6 +75,8 @@ private:
     // Dragging the move / scale / rotate handles: where it started (for the readout
     // by the mouse: "4 studs", "45 deg", like Roblox Studio).
     bool      m_gizmoDragging = false;
+    bool      m_partBox = false;         // Build mode: dragging a selection box from empty space
+    ImVec2    m_boxFrom{0, 0};
     Transform m_dragStart;
     glm::vec3 m_dragStartPivot{0.0f};
     Physics  m_navPhysics;
