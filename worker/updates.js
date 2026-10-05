@@ -34,6 +34,7 @@ export const BUILT_IN_UPDATES = [
       'The Player app has a Library tab on its Create page with the same pages',
       'Studio: File > Make Gear for staff. Start from a Classic Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, then sell it',
       'The ready-made gear is in the Toolbox for everyone to use in their own games',
+      'Fixed: hats with a picture (like imported Roblox hats) now show it on the website too. Studio uploads the picture with the hat now, so upload older textured hats again',
     ],
   },
   {

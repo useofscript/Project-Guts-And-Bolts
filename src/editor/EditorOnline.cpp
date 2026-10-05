@@ -397,6 +397,10 @@ void Editor::renderPublishModelDialog() {
             if (gear) { args["kind"] = "gear"; args["price"] = m_gearPrice; args.erase("access"); }
             m_onlineBusy = true;
             m_modelMsg = "Publishing...";
+            // Pictures on its parts that only live on this computer go up first (as decals).
+            uploadLocalTextures(model, m_modelName, [this, args, picture, gear](json withPics, std::string error) mutable {
+            if (!error.empty()) { m_onlineBusy = false; m_modelMsg = error; return; }
+            args["data"] = Online::base64Encode(withPics.dump());
             Online::request("upload", args, [this, picture, gear](const json& r) {
                 m_onlineBusy = false;
                 if (!r.value("ok", false)) { m_modelMsg = r.value("error", std::string("Publishing didn't work.")); return; }
@@ -407,6 +411,7 @@ void Editor::renderPublishModelDialog() {
                 m_libraryLoaded = false;
                 Online::connect();   // refresh "public models left"
             }, 120);
+            });
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -421,6 +426,60 @@ void Editor::renderPublishModelDialog() {
 // games that allow gear, like Roblox's classic gear. Start from a ready-made one (or
 // your own Tool), change it however you like, test it with Play, then publish it.
 // ---------------------------------------------------------------------------
+
+void Editor::uploadLocalTextures(json node, const std::string& name, std::function<void(json, std::string)> done) {
+    // Every local picture used (once each).
+    auto local = [](const std::string& t) -> std::filesystem::path {
+        if (t.empty() || t.rfind("gb:", 0) == 0 || t.rfind("builtin:", 0) == 0 || t.find("://") != std::string::npos) return {};
+        std::error_code ec;
+        std::filesystem::path p(t);
+        if (std::filesystem::is_regular_file(p, ec)) return p;
+        p = Paths::gamesFolder() / t;
+        return std::filesystem::is_regular_file(p, ec) ? p : std::filesystem::path();
+    };
+    std::vector<std::string> todo;
+    std::function<void(const json&)> find = [&](const json& n) {
+        if (!n.is_object()) return;
+        if (n.contains("texture") && n["texture"].is_string() && !local(n["texture"].get<std::string>()).empty())
+            if (std::find(todo.begin(), todo.end(), n["texture"].get<std::string>()) == todo.end()) todo.push_back(n["texture"].get<std::string>());
+        if (n.contains("children")) for (const auto& c : n["children"]) find(c);
+        if (n.contains("nodes")) for (const auto& c : n["nodes"]) find(c);
+    };
+    find(node);
+    if (todo.empty()) { done(node, ""); return; }
+    // One at a time, then swap them all in.
+    struct State { json node; std::vector<std::string> todo; std::map<std::string, std::string> refs; size_t at = 0; };
+    auto st = std::make_shared<State>();
+    st->node = std::move(node);
+    st->todo = std::move(todo);
+    auto step = std::make_shared<std::function<void()>>();
+    *step = [this, st, step, local, name, done]() {
+        if (st->at >= st->todo.size()) {
+            std::function<void(json&)> swap = [&](json& n) {
+                if (!n.is_object()) return;
+                if (n.contains("texture") && n["texture"].is_string())
+                    if (auto it = st->refs.find(n["texture"].get<std::string>()); it != st->refs.end()) n["texture"] = it->second;
+                if (n.contains("children")) for (auto& c : n["children"]) swap(c);
+                if (n.contains("nodes")) for (auto& c : n["nodes"]) swap(c);
+            };
+            swap(st->node);
+            done(st->node, "");
+            return;
+        }
+        const std::string path = st->todo[st->at];
+        std::ifstream f(local(path), std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        json args = {{"kind", "decal"}, {"name", (name.empty() ? std::string("Texture") : name + " texture").substr(0, 50)},
+                     {"description", "A picture used by " + name + "."}, {"data", Online::base64Encode(bytes)}};
+        Online::request("upload", args, [this, st, step, path, done](const json& r) {
+            if (!r.value("ok", false)) { done(json(), "Couldn't upload a picture it uses: " + r.value("error", std::string())); return; }
+            st->refs[path] = "gb:" + r["asset"].value("id", std::string());
+            ++st->at;
+            (*step)();
+        }, 120);
+    };
+    (*step)();
+}
 
 void Editor::renderMakeGearDialog() {
     if (m_openMakeGear) { ImGui::OpenPopup("Make Gear"); m_openMakeGear = false; }
@@ -747,12 +806,16 @@ void Editor::renderAccessoryWindow() {
             node["pos"] = place["position"];
             node["rot"] = place["rotation"];
             node["size"] = place["scale"];
-            json acc = {{"format", "gbaccessory"}, {"version", 1}, {"kind", place.value("kind", std::string("hat"))}, {"node", node}};
             std::string name = m_accessoryName.empty() ? model->name : m_accessoryName;
-            json args = {{"kind", acc["kind"]}, {"name", name}, {"description", m_accessoryDesc}, {"price", m_accessoryPrice},
-                         {"data", Online::base64Encode(acc.dump())}};
+            const std::string kind = place.value("kind", std::string("hat"));
             m_onlineBusy = true;
             m_accessoryMsg = "Uploading...";
+            // Its pictures first (an imported hat's texture), so the website and other players see them.
+            uploadLocalTextures(node, name, [this, name, kind](json node, std::string error) {
+            if (!error.empty()) { m_onlineBusy = false; m_accessoryMsg = error; return; }
+            json acc = {{"format", "gbaccessory"}, {"version", 1}, {"kind", kind}, {"node", node}};
+            json args = {{"kind", kind}, {"name", name}, {"description", m_accessoryDesc}, {"price", m_accessoryPrice},
+                         {"data", Online::base64Encode(acc.dump())}};
             Online::request("upload", args, [this, name](const json& r) {
                 m_onlineBusy = false;
                 if (!r.value("ok", false)) { m_accessoryMsg = r.value("error", std::string("The upload didn't work.")); return; }
@@ -760,6 +823,7 @@ void Editor::renderAccessoryWindow() {
                 m_accessoryMsg = "Uploaded \"" + name + "\" to the catalog!";
                 Log::system("Uploaded the accessory \"" + name + "\" (" + id + ")");
             }, 120);
+            });
         }
     }
     ImGui::EndDisabled();

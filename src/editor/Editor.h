@@ -108,7 +108,12 @@ private:
     void       renderPublishDialog();
     void       renderPluginLibrary();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
-    void       renderMakeGearDialog();       // File > Make Gear (staff): start from a ready-made Tool, sell it in the catalog
+    void       renderMakeGearDialog();
+    // Pictures on parts that only live on this computer (an imported Roblox hat's texture) go up
+    // as decals first, so the website and everyone else's game see them too. Then `done` runs
+    // with the node's "texture"s pointing at them ("gb:<number>").
+    void       uploadLocalTextures(nlohmann::json node, const std::string& name,
+                                   std::function<void(nlohmann::json node, std::string error)> done);       // File > Make Gear (staff): start from a ready-made Tool, sell it in the catalog
     // The Toolbox's Library tiles (everyone's public models, decals and audio, or your own).
     std::vector<ToolboxTile> libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status);
     unsigned   libraryPicture(const nlohmann::json& asset);

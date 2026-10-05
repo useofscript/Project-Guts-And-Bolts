@@ -2421,7 +2421,7 @@ export class GbServerObject extends DurableObject {
         try { m = raw ? JSON.parse(new TextDecoder().decode(raw)) : null; } catch { m = null; }
         if (!m || !Array.isArray(m.nodes)) return new Response('No gear.', { status: 404 });
         const shape = (n) => (n && typeof n === 'object' && n.kind !== 'Script' && n.kind !== 'LocalScript' && n.kind !== 'ModuleScript' ? {
-          kind: n.kind, shape: n.shape, mesh: n.mesh, pos: n.pos, rot: n.rot, size: n.size, color: n.color, material: n.material,
+          kind: n.kind, shape: n.shape, mesh: n.mesh, pos: n.pos, rot: n.rot, size: n.size, color: n.color, material: n.material, texture: n.texture,
           transparency: n.transparency, children: (Array.isArray(n.children) ? n.children : []).map(shape).filter(Boolean),
         } : null);
         return new Response(JSON.stringify({ nodes: m.nodes.map(shape).filter(Boolean) }),
@@ -2430,6 +2430,14 @@ export class GbServerObject extends DurableObject {
       const data = a && isAccessory(a.kind) && a.meta && a.meta.model ? this.readFile(a.id) : null;
       if (!data) return new Response('No accessory.', { status: 404 });
       return new Response(data, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' } });
+    }
+    // GET /decal/<asset id or number>: a decal's picture (decals are always free and public), e.g. a hat's texture.
+    if (url.pathname.startsWith('/decal/')) {
+      const a = this.assets.get(decodeURIComponent(url.pathname.slice(7)).replace(/^gb:/, ''));
+      const data = a && a.kind === 'decal' ? this.readFile(a.id) : null;
+      if (!data) return new Response('No picture.', { status: 404 });
+      const jpg = data.length > 2 && data[0] === 0xff && data[1] === 0xd8;
+      return new Response(data, { headers: { 'content-type': jpg ? 'image/jpeg' : 'image/png', 'cache-control': 'public, max-age=86400' } });
     }
     // GET /thumb/<asset id> and /icon/<asset id>: a game's picture and icon (public, so pages can show them directly).
     if (url.pathname.startsWith('/thumb/') || url.pathname.startsWith('/icon/')) {
