@@ -10,6 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'peek-under-the-hood', name: 'Peek Under the Hood', time: 1791334800, tag: 'Player',
+    summary: 'The Developer Console, like Roblox: press F9 or type /devconsole in a game.',
+    items: [
+      'Client tab: everything that happened on your computer, errors in red and warnings in yellow, with a search box',
+      'Server tab, only for the game\'s owner: the server\'s log (what your scripts print) and a command bar that runs Lua on the server',
+      'Other players never get the Server tab, so only you can poke at your game while it runs',
+    ],
+  },
+  {
     id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', time: 1791331200, tag: 'Server',
     summary: 'When the player hosting a game leaves, everyone else moves to a new server together instead of getting kicked.',
     items: [

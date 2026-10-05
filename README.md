@@ -1030,6 +1030,17 @@ Press **Esc** (or the Menu button) for a Roblox-style menu with three tabs:
 Along the bottom: **[R] Reset Character**, **[L] Leave Game** (both ask "Are
 you sure?" first) and **[Esc] Resume Game**.
 
+### The Developer Console
+
+Press **F9** (or type **/devconsole** in the chat) for the Developer Console,
+like Roblox's. The **Client** tab shows what happened on your own computer
+(errors in red, warnings in yellow), with a search box.
+
+The **Server** tab is only for the game's **owner** (the account that published
+it). It shows the server's log, including what the game's scripts `print()`,
+and has a command bar that runs Lua on the server. The host checks who you are
+before sending you any of it, so other players never see that tab.
+
 ### Player collisions
 
 Players bump into each other like in Roblox, and you can stand on someone's

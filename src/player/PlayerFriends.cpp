@@ -67,6 +67,7 @@ PlayerApp::Starter PlayerApp::onlineStarter(const std::string& id) {
             m_busy = false;
             m_playMsg.clear();
             if (!ok) { m_status = info.value("error", std::string("Couldn't download the game.")); return; }
+            m_gameOwner = info.value("creator", std::string());   // (the dev console's server side is theirs)
             joinGame(file, mode, id);
             Online::fetchSounds(*m_scene);
             if (info.value("allowGear", false)) giveGear(id);

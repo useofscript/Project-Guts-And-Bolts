@@ -7,6 +7,7 @@ namespace Log {
 
 namespace {
 std::vector<Entry> g_entries;
+unsigned long long g_count = 0;
 constexpr size_t kMaxEntries = 2000;
 
 std::string timestamp() {
@@ -26,6 +27,7 @@ void push(Level level, const std::string& text) {
     if (g_entries.size() >= kMaxEntries)
         g_entries.erase(g_entries.begin(), g_entries.begin() + kMaxEntries / 4);
     g_entries.push_back({level, text, timestamp()});
+    ++g_count;
     // Also echo to the terminal — handy when launching from a command line.
     static const char* tags[] = {"", "[warn] ", "[error] ", "[editor] "};
     std::printf("%s%s\n", tags[(int)level], text.c_str());
@@ -39,6 +41,7 @@ void error (const std::string& text) { push(Level::Error,  text); }
 void system(const std::string& text) { push(Level::System, text); }
 
 const std::vector<Entry>& entries() { return g_entries; }
+unsigned long long count() { return g_count; }
 void clear() { g_entries.clear(); }
 
 } // namespace Log

@@ -285,6 +285,13 @@ private:
     std::unique_ptr<ChatLog>       m_soloChat;     // chat when playing alone
     std::string m_chatInput;
     bool        m_chatOpen = false;
+    // Developer Console (PlayerDevConsole.cpp): F9 or /devconsole.
+    bool        m_devConsole = false, m_devFollow = true;
+    int         m_devTab = 0;
+    std::string m_devFilter, m_devCommand;
+    std::string m_gameOwner;   // the account that made the game we're hosting
+    void drawDevConsole();
+    bool devServerAccess() const;
     // The leaderboard: folded away or not (Tab), and the little menu you get by
     // clicking someone's name (Add Friend / Follow).
     bool        m_listOpen = true;

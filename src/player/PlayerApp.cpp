@@ -419,6 +419,7 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     Log::clear();
     if (mode == HostMode::Lan) {
         m_server = std::make_unique<NetServer>(m_scene.get(), m_session.get());
+        m_server->setOwner(gameKey.empty() ? Account::id() : m_gameOwner);
         std::string herr;
         if (!m_server->start(kDefaultPort, herr)) {
             m_status = "Couldn't host: " + herr;
@@ -430,6 +431,7 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
         int port = 0;
         if (Online::online() && Online::serverHostPort(server, port)) {
             m_server = std::make_unique<NetServer>(m_scene.get(), m_session.get());
+            m_server->setOwner(gameKey.empty() ? Account::id() : m_gameOwner);   // local file: it's ours
             nlohmann::json args = {{"game", gameKey.empty() ? "local:" + path.stem().string() : gameKey},
                                    {"title", m_currentTitle}, {"private", mode == HostMode::Private}, {"max", 12}};
             if (!m_continues.empty()) args["continues"] = m_continues;   // taking over from a host who left
@@ -519,6 +521,7 @@ ChatLog& PlayerApp::chat() {
 
 void PlayerApp::sendChat(const std::string& text) {
     if (text.empty()) return;
+    if (text == "/devconsole" || text == "/console") { m_devConsole = true; return; }   // like Roblox
     // "/e dance" and friends: emotes, like old Roblox (they don't go into the chat).
     if (text.rfind("/e ", 0) == 0 || text.rfind("/emote ", 0) == 0) {
         std::string name = text.substr(text.find(' ') + 1);
@@ -1642,6 +1645,8 @@ void PlayerApp::drawGame(float dt) {
     }
     drawPlayerMenu();
     if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
+    if (ImGui::IsKeyPressed(ImGuiKey_F9, false)) m_devConsole = !m_devConsole;
+    drawDevConsole();
 
     // "+5 Bolts for playing!" popup, top middle.
     if (ImGui::GetTime() < m_boltsToastUntil) {

@@ -347,6 +347,8 @@ struct NetServer::Client {
     bool        verified = false;
     bool        guest = false;       // no account: can play but not chat
     std::set<uint64_t> knownChars;   // rigs this client already has
+    bool        owner = false;       // owns the game: sees the server's dev console
+    unsigned long long logSent = 0;  // Log::count() already sent to them
 };
 
 NetServer::NetServer(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
@@ -653,6 +655,11 @@ void NetServer::handle(Client& c, const std::string& text) {
         for (auto& r : m_scene->remotes()) c.knownChars.insert(r.rootId);
 
         m_session->scripts().addPlayer(name, rig->id, c.id + 1);
+        if (!m_owner.empty() && c.accountId == m_owner) {   // the game's owner: the server side of the dev console
+            c.owner = true;
+            c.logSent = Log::count() - std::min<unsigned long long>(Log::entries().size(), 200);   // the last 200 lines first
+            c.conn->send(json{{"t", "devowner"}}.dump());
+        }
         m_chat.add("", name + " joined the game", true);
         broadcast(json{{"t", "chat"}, {"from", ""}, {"text", name + " joined the game"}, {"sys", true}}.dump(), &c);
         return;
@@ -688,6 +695,9 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "click") {
         uint64_t part = m.value("part", (uint64_t)0);
         if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
+    } else if (t == "devcmd") {   // the dev console's command bar: only the game's owner may run code here
+        if (!c.owner) return;
+        devCommand(m.value("code", std::string()));
     } else if (t == "guiclick") {
         uint64_t id = m.value("id", (uint64_t)0);
         if (SceneNode* b = m_scene->findById(id); b && b->isGuiButton()) m_session->scripts().fireGui(SignalKind::GuiClick, id);
@@ -776,7 +786,35 @@ std::string NetServer::worldMessage(bool) {
     return msg.dump();
 }
 
+bool NetServer::iAmOwner() const { return !m_owner.empty() && m_owner == Account::id(); }
+
+void NetServer::devCommand(const std::string& code) {
+    if (code.empty() || code.size() > 20000) return;
+    Log::system("> " + code);
+    std::string err;
+    if (!m_session->scripts().runCommand(code, err)) Log::error(err);
+}
+
+// New server log lines, to whoever owns the game.
+void NetServer::sendDevLog() {
+    const auto& all = Log::entries();
+    const unsigned long long total = Log::count();
+    for (auto& up : m_clients) {
+        Client& c = *up;
+        if (!c.owner || c.logSent >= total) continue;
+        unsigned long long first = std::max<unsigned long long>(c.logSent, total - all.size());
+        json lines = json::array();
+        for (unsigned long long i = first; i < total && lines.size() < 300; ++i) {
+            const Log::Entry& e = all[all.size() - (size_t)(total - i)];
+            lines.push_back({(int)e.level, e.time, e.text.substr(0, 2000)});
+            c.logSent = i + 1;
+        }
+        c.conn->send(json{{"t", "devlog"}, {"lines", lines}}.dump());
+    }
+}
+
 void NetServer::sendTick() {
+    sendDevLog();
     // Host's own death shows up on everyone's screen too.
     if (Player* host = m_scene->player()) {
         static bool wasDead = false;
@@ -915,6 +953,10 @@ void NetClient::update(float dt) {
     m_chat.update(dt);
 }
 
+void NetClient::devCommand(const std::string& code) {
+    if (m_conn && m_devOwner && !code.empty()) m_conn->send(json{{"t", "devcmd"}, {"code", code}}.dump());
+}
+
 void NetClient::handle(const std::string& text) {
     json m = json::parse(text, nullptr, false);
     if (!m.is_object()) return;
@@ -993,6 +1035,15 @@ void NetClient::handle(const std::string& text) {
         m_session->start();
         m_state = State::Joined;
         m_chat.add("", "Joined " + m_title + " as " + m.value("name", std::string("Player")), true);
+        return;
+    }
+    if (t == "devowner") { m_devOwner = true; return; }
+    if (t == "devlog") {
+        for (const auto& l : m.value("lines", json::array())) {
+            if (!l.is_array() || l.size() != 3 || !l[0].is_number_integer() || !l[1].is_string() || !l[2].is_string()) continue;
+            m_serverLog.push_back({(Log::Level)std::clamp(l[0].get<int>(), 0, 3), l[2].get<std::string>(), l[1].get<std::string>()});
+        }
+        if (m_serverLog.size() > 2000) m_serverLog.erase(m_serverLog.begin(), m_serverLog.begin() + 500);
         return;
     }
     if (t == "bye") {

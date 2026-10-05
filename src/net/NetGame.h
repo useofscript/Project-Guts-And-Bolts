@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 #include "Socket.h"
+#include "../core/Log.h"
 #include "../game/PlayerEntry.h"
 #include "../scene/Player.h"   // CharacterPose
 
@@ -86,6 +87,10 @@ public:
     bool relayReady() const { return !m_sessionId.empty(); }
     const std::string& relayCode() const { return m_code; }      // private servers: what friends type in
     const std::string& relayError() const { return m_relayError; }
+    // The dev console's server side (F9) is only for the game's owner (their account ID).
+    void setOwner(const std::string& accountId) { m_owner = accountId; }
+    bool iAmOwner() const;
+    void devCommand(const std::string& code);   // the owner (us) runs Lua on the server
 
 private:
     struct Client;
@@ -100,6 +105,8 @@ private:
     void broadcast(const std::string& msg, const Client* except = nullptr);
     std::string worldMessage(bool full);
 
+    void sendDevLog();
+    std::string m_owner;
     std::set<std::string> m_guestAccounts;   // joiners the server told us have no account (can't chat)
     Scene*       m_scene;
     GameSession* m_session;
@@ -146,6 +153,10 @@ public:
     const std::string& relayGame() const { return m_relayGame; }
     // We were in the game and then the host went away (closed it, crashed, or lost internet).
     bool hostLeft() const { return m_hostGone; }
+    // The dev console: the host said we own this game, so we see its server log and can run commands.
+    bool devOwner() const { return m_devOwner; }
+    const std::vector<Log::Entry>& serverLog() const { return m_serverLog; }
+    void devCommand(const std::string& code);
     // The server said this server's host left: 0 = no, 1 = wait for the new one, 2 = you host it.
     int movingTurn() const { return m_movingTurn; }
 
@@ -169,6 +180,8 @@ private:
     float        m_tick = 0.0f;
     bool         m_wasDead = false;
     std::string  m_relaySession, m_relayGame;
+    bool         m_devOwner = false;
+    std::vector<Log::Entry> m_serverLog;
     bool         m_hostGone = false;
     int          m_movingTurn = 0;
 };

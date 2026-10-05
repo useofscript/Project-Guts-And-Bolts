@@ -21,6 +21,8 @@ void error (const std::string& text);
 void system(const std::string& text);   // editor messages (dimmed)
 
 const std::vector<Entry>& entries();
+// How many entries were ever added (old ones get dropped, so this can be more than entries().size()).
+unsigned long long count();
 void clear();
 
 } // namespace Log
