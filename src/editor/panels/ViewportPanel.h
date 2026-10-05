@@ -87,6 +87,12 @@ private:
     void handleInput(float dt);
     void drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                    const glm::vec2& imgMin, const glm::vec2& imgSize);
+    // Roblox-style Scale: an orb on each of the 6 sides; drag one to move just that side.
+    bool scaleHandles(SceneNode* sel, const glm::mat4& view, const glm::mat4& proj,
+                      const glm::vec2& imgMin, const glm::vec2& imgSize);
+    int       m_scaleHover = -1, m_scaleDrag = -1;   // handle 0..5 (axis * 2 + side)
+    float     m_scaleT0 = 0.0f;
+    Transform m_scaleStart;
     void mouseRay(const glm::vec2& mouse, const glm::vec2& imgMin, const glm::vec2& imgSize,
                   const glm::mat4& view, const glm::mat4& proj, glm::vec3& ro, glm::vec3& rd) const;
     void modelingView(const glm::mat4& view, const glm::mat4& proj,

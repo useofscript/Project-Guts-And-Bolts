@@ -278,11 +278,99 @@ bool ViewportPanel::pointAt(ImVec2 mouse, glm::vec3& point, SceneNode*& part) {
     return true;
 }
 
+bool ViewportPanel::scaleHandles(SceneNode* sel, const glm::mat4& view, const glm::mat4& proj,
+                                 const glm::vec2& imgMin, const glm::vec2& imgSize) {
+    const glm::mat4 M = sel->worldMatrix();
+    const glm::vec3 c(M[3]);
+    glm::vec3 dir[3];
+    float half[3];
+    for (int i = 0; i < 3; ++i) {
+        const glm::vec3 col(M[i]);
+        half[i] = glm::length(col) * 0.5f;
+        dir[i] = half[i] > 1e-6f ? col / (half[i] * 2.0f) : glm::vec3(i == 0, i == 1, i == 2);
+    }
+    const glm::mat4 vp = proj * view;
+    auto toScreen = [&](glm::vec3 p, ImVec2& out) {
+        glm::vec4 q = vp * glm::vec4(p, 1.0f);
+        if (q.w <= 0.01f) return false;
+        out = ImVec2(imgMin.x + (q.x / q.w * 0.5f + 0.5f) * imgSize.x, imgMin.y + (0.5f - q.y / q.w * 0.5f) * imgSize.y);
+        return true;
+    };
+    const ImVec2 mouse = ImGui::GetMousePos();
+    glm::vec3 ro, rd;
+    mouseRay({mouse.x, mouse.y}, imgMin, imgSize, view, proj, ro, rd);
+    // Where along the line through the part's middle (along `d`) the mouse ray passes closest.
+    auto alongAxis = [&](const glm::vec3& d) {
+        const glm::vec3 w0 = c - ro;
+        const float b = glm::dot(d, rd), dd = glm::dot(d, w0), e = glm::dot(rd, w0);
+        const float den = 1.0f - b * b;
+        return den < 1e-5f ? 0.0f : (b * e - dd) / den;
+    };
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 cols[3] = {IM_COL32(230, 70, 60, 255), IM_COL32(80, 200, 80, 255), IM_COL32(60, 120, 240, 255)};
+    for (int h = 0; h < 6; ++h) {
+        const int ax = h / 2;
+        const float side = (h % 2) ? -1.0f : 1.0f;
+        const glm::vec3 at = c + dir[ax] * side * (half[ax] + 0.35f);
+        ImVec2 sp;
+        if (!toScreen(at, sp)) continue;
+        const float r = 8.0f;
+        const bool hot = m_scaleDrag == h || (m_scaleDrag < 0 && m_hovered &&
+                         (mouse.x - sp.x) * (mouse.x - sp.x) + (mouse.y - sp.y) * (mouse.y - sp.y) < (r + 3) * (r + 3));
+        if (hot && m_scaleDrag < 0) m_scaleHover = h;
+        ImVec2 base;
+        if (toScreen(c + dir[ax] * side * half[ax], base)) dl->AddLine(base, sp, cols[ax], 1.5f);
+        dl->AddCircleFilled(sp, hot ? r + 2 : r, hot ? IM_COL32(255, 230, 90, 255) : cols[ax], 20);
+        dl->AddCircle(sp, hot ? r + 2 : r, IM_COL32(0, 0, 0, 120), 20, 1.5f);
+    }
+
+    // Start / continue / finish a drag.
+    if (m_scaleDrag < 0 && m_scaleHover >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        m_scaleDrag = m_scaleHover;
+        m_scaleStart = sel->transform;
+        m_scaleT0 = alongAxis(dir[m_scaleDrag / 2]);
+    }
+    if (m_scaleDrag >= 0) {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) { m_scaleDrag = -1; return true; }
+        const int ax = m_scaleDrag / 2;
+        const float side = (m_scaleDrag % 2) ? -1.0f : 1.0f;
+        const bool both = ImGui::GetIO().KeyCtrl;   // Ctrl: both sides at once (like Roblox)
+        float grow = (alongAxis(dir[ax]) - m_scaleT0) * side * (both ? 2.0f : 1.0f);
+        const float step = m_state->snapEnabled && m_state->snapTranslate > 0.01f ? m_state->snapTranslate : 0.0f;
+        if (step > 0.0f) grow = std::round(grow / step) * step;
+        const float minSize = step > 0.0f ? step : 0.05f;
+        const float startSize = m_scaleStart.scale[ax];
+        const float newSize = std::max(minSize, startSize + grow);
+        const float d = newSize - startSize;
+        sel->transform = m_scaleStart;
+        sel->transform.scale[ax] = newSize;
+        if (!both) {   // the far side stays where it is: the middle moves half as far
+            glm::vec3 shift = dir[ax] * side * (d * 0.5f);
+            if (sel->parent) shift = glm::vec3(glm::inverse(sel->parent->worldMatrix()) * glm::vec4(shift, 0.0f));
+            sel->transform.position += shift;
+        }
+        m_scene->markDirty();
+        char text[64];
+        std::snprintf(text, sizeof text, "%.2f studs", newSize);
+        dl->AddText(ImVec2(mouse.x + 16, mouse.y + 10), IM_COL32(255, 255, 255, 255), text);
+    }
+    return true;
+}
+
 void ViewportPanel::drawGizmo(const glm::mat4& view, const glm::mat4& proj,
                               const glm::vec2& imgMin, const glm::vec2& imgSize) {
     SceneNode* sel = m_scene->selected();
-    if (!sel || sel == m_scene->root() || sel->isScript() || sel->isGui() || m_state->tool == GizmoTool::Select)
+    m_scaleHover = -1;
+    if (!sel || sel == m_scene->root() || sel->isScript() || sel->isGui() || m_state->tool == GizmoTool::Select) {
+        m_scaleDrag = -1;
         return;   // (game UI is moved by dragging it in the viewport)
+    }
+
+    if (m_state->tool == GizmoTool::Scale && sel->isPart() && !m_state->animRig && !m_scene->isCharacterPart(sel) &&
+        scaleHandles(sel, view, proj, imgMin, imgSize))
+        return;
+    m_scaleDrag = -1;
 
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist();
@@ -468,7 +556,7 @@ void ViewportPanel::render(float dt) {
             // Simulate: click things to look at them in Properties, and drag
             // them with the gizmo while the world keeps running.
             drawGizmo(view, proj, imgMin, imgSize);
-            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing() || m_scaleHover >= 0 || m_scaleDrag >= 0;
             if (ImGuizmo::IsUsing())
                 for (SceneNode* n : m_scene->selectionRoots()) { n->velocity = glm::vec3(0.0f); n->angularVelocity = glm::vec3(0.0f); n->sleepTime = 0; }
             if (m_hovered && !overGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -673,7 +761,7 @@ void ViewportPanel::render(float dt) {
             }
 
             // Left-click to pick — but not while interacting with the gizmo.
-            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            bool overGizmo = ImGuizmo::IsOver() || ImGuizmo::IsUsing() || m_scaleHover >= 0 || m_scaleDrag >= 0;
             // Ctrl+click adds / removes, Shift+click adds.
             auto pick = [&](SceneNode* hit) {
                 ImGuiIO& io = ImGui::GetIO();
