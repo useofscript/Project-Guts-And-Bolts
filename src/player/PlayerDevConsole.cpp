@@ -9,6 +9,7 @@
 #include "../net/NetGame.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 namespace {
@@ -45,9 +46,11 @@ void PlayerApp::drawDevConsole() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.1f, vp->WorkPos.y + vp->WorkSize.y * 0.1f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x * 0.8f, vp->WorkSize.y * 0.7f), ImGuiCond_FirstUseEver);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.11f, 0.12f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.11f, 0.12f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.92f, 0.92f, 1));
-    if (ImGui::Begin("Developer Console (F9)", &m_devConsole, ImGuiWindowFlags_NoCollapse)) {
+    const bool open = ImGui::Begin("Developer Console (F9)", &m_devConsole, ImGuiWindowFlags_NoCollapse);
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());   // above the game's own UI
+    if (open) {
         const bool server = devServerAccess();
         ImGui::SetNextItemWidth(220);
         ImGui::InputTextWithHint("##filter", "Search", &m_devFilter);
