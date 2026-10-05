@@ -10,7 +10,7 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'peek-under-the-hood', name: 'Peek Under the Hood', time: 1791334800, tag: 'Player',
+    id: 'peek-under-the-hood', name: 'Peek Under the Hood', version: '0.6.5', time: 1791334800, tag: 'Player',
     summary: 'The Developer Console, like Roblox: press F9 or type /devconsole in a game.',
     items: [
       'Client tab: everything that happened on your computer, errors in red and warnings in yellow, with a search box',
@@ -19,7 +19,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', time: 1791331200, tag: 'Server',
+    id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', version: '0.6.5', time: 1791331200, tag: 'Server',
     summary: 'When the player hosting a game leaves, everyone else moves to a new server together instead of getting kicked.',
     items: [
       'Before: if the first person in a server left, everyone else got thrown back to the home screen',
@@ -29,7 +29,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'cut-and-paste-studio', name: 'Studio Gets Its Hands Dirty', time: 1791244800, tag: 'Studio',
+    id: 'cut-and-paste-studio', name: 'Studio Gets Its Hands Dirty', version: '0.6.5', time: 1791244800, tag: 'Studio',
     summary: 'Unions, Roblox-style Move and Scale handles, box select, blue selection boxes, Script Analysis and AutoSave.',
     items: [
       'Unions like Roblox: Union (Ctrl+Shift+G) joins parts into one, Negate (Ctrl+Shift+N) turns a part into a hole that gets cut out, Intersect (Ctrl+Shift+I) keeps the overlap, Separate (Ctrl+Shift+U) gives the parts back',
@@ -43,7 +43,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'gear-up-look-it-up', name: 'Gear Up, Look It Up', time: 1791158400, tag: 'Studio',
+    id: 'gear-up-look-it-up', name: 'Gear Up, Look It Up', version: '0.6.5', time: 1791158400, tag: 'Studio',
     summary: 'Every Library asset gets its own page you can find by ID, and Guts can make gear straight from Studio.',
     items: [
       'Asset pages: every decal, sound, model and plugin in the Library has its own page, found by its ID',
@@ -57,7 +57,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'right-now-im', name: 'Right Now I\'m...', time: 1790899200, tag: 'Website',
+    id: 'right-now-im', name: 'Right Now I\'m...', version: '0.6.5', time: 1790899200, tag: 'Website',
     summary: 'Classic profile stuff: an About me, a "Right now I\'m..." status, My Feed on the home page and Player Badges you earn on your own.',
     items: [
       'About me: write a few lines about yourself on your profile (press Edit under the About box)',
@@ -69,7 +69,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'youve-got-mail', name: 'You\'ve Got Mail', time: 1790877600, tag: 'Player',
+    id: 'youve-got-mail', name: 'You\'ve Got Mail', version: '0.6.5', time: 1790877600, tag: 'Player',
     summary: 'Private messages, saved outfits, favourite games and a "Continue Playing" row on the home page.',
     items: [
       'Messages: an inbox like old Roblox. Send anyone a message from their profile, reply, and see a red count when something new arrives',

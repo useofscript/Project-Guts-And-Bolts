@@ -1,6 +1,17 @@
-# Next version (not released yet)
+# Guts&Bolts 0.6.5: Nobody Gets Left Behind (October 5, 2026)
 
 ## New
+- **Nobody gets kicked when the host leaves**: the player who has been there
+  longest starts a new server of the same game (same name, same private code)
+  and everyone else follows them there by themselves. The world starts fresh,
+  but everybody stays together.
+- **Developer Console** (F9, or type `/devconsole` in the chat), like Roblox's:
+  a Client tab for everyone, and a Server tab with the server's log and a Lua
+  command bar that only the game's owner gets.
+- **Script editor**: line numbers, Roblox-style colours, and the line with a
+  mistake underlined in red.
+- **Hat pictures on the website**: hats with a texture now look the same on
+  the website as in the Player.
 - **Studio, more like Roblox Studio**: Union / Negate / Intersect / Separate
   (Ctrl+Shift+G / N / I / U); Scale orbs on each side (drag one side, Ctrl for
   both) and Move arrows; rotating several things turns them all together; drag
