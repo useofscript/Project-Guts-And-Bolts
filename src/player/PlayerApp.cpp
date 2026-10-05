@@ -200,6 +200,8 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page.rfind("group:", 0) == 0) { m_groupId = m_opts.page.substr(6); m_page = Page::Group; }
     if (m_opts.page.rfind("profile:", 0) == 0) { m_profileId = m_opts.page.substr(8); m_page = Page::Profile; }
     if (m_opts.page.rfind("item:", 0) == 0) { m_page = Page::Catalog; m_openItem = std::atoi(m_opts.page.c_str() + 5); }
+    if (m_opts.page == "library") { m_page = Page::Create; m_createKind = kLibraryTab; }
+    if (m_opts.page.rfind("asset:", 0) == 0) { m_page = Page::Create; m_createKind = kLibraryTab; }   // (opened once online, below)
     if (m_opts.page == "staff" && Account::iAmStaff()) m_page = Page::Staff;
     if (m_opts.page == "create-item" && Account::iAmStaff()) { m_page = Page::Catalog; m_showCreate = true; }
     // (--online-play / --private-server / --join-code wait until we're online: see frame())
@@ -579,6 +581,10 @@ void PlayerApp::frame(float dt) {
         m_autoServers = false;
         const GameCard& g = m_games[m_selected];
         openServers("local:" + g.path.stem().string(), g.info.title, localStarter(g.path));
+    }
+    if (Online::online() && m_opts.page.rfind("asset:", 0) == 0 && m_opts.testOps.empty()) {   // test: an asset's page ("asset:gb:decal-...")
+        openAsset(m_opts.page.substr(6));
+        m_opts.page.clear();
     }
     if (Online::online() && !m_opts.testOps.empty() && !Online::pending()) {   // tests: one request at a time
         std::string t = m_opts.testOps.front();

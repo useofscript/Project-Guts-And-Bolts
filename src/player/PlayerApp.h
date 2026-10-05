@@ -174,6 +174,13 @@ private:
     void outfitPicture(ImDrawList* dl, ImVec2 c, float s, const nlohmann::json& outfit);
     void refreshMyGames();
     void drawFeed();
+    // Create > Library: public models, decals, audio and plugins, each with its own page (PlayerLibrary.cpp)
+    static constexpr int kLibraryTab = 8;
+    void     drawLibrary();
+    void     drawAsset();
+    void     openAsset(const std::string& id);   // "gb:decal-..." or just "decal-..."
+    void     stopAssetSound();
+    unsigned libraryPicture(const nlohmann::json& asset, int& w, int& h);
     void setFavorite(const std::string& id, bool on);
     nlohmann::json m_messages = nlohmann::json::array();
     std::string    m_msgBox = "inbox", m_msgTo, m_msgSubject, m_msgBody, m_msgStatus;
@@ -345,6 +352,10 @@ private:
     std::string    m_peopleQuery, m_profileId, m_groupId, m_groupQuery, m_socialMsg;
     std::string    m_statusEdit, m_blurbEdit, m_feedPost;   // classic "Right now I'm..." and About me
     nlohmann::json m_feed = nlohmann::json::array();
+    std::string    m_libKind = "model", m_libQuery, m_libLoaded, m_libIdInput, m_assetId, m_assetMsg;
+    nlohmann::json m_libList = nlohmann::json::array(), m_asset;
+    int            m_assetSound = 0;     // the Listen button's sound
+    double         m_copiedAt = -100.0;
     double         m_feedAt = -1000.0;
     nlohmann::json m_peopleResults = nlohmann::json::array();
     nlohmann::json m_profile = nlohmann::json::object();

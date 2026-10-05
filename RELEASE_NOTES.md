@@ -1,6 +1,13 @@
 # Next version (not released yet)
 
 ## New
+- **Asset pages**: every decal, sound, model and plugin in the Library has its
+  own page, found by its ID (`#/library/<ID>` on the website, *Create > Library*
+  in the Player). Listen to audio, see decals full size and **Copy ID** to paste
+  it into a game.
+- **Make Gear** (staff, in Studio's File menu): start from a ready-made Classic
+  Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, and sell it
+  in the catalog. The ready-made gear is in the Toolbox for everyone too.
 - **Classic profiles**: an *About me* blurb and a *Right now I'm...* status
   (140 letters) on your profile, a **My Feed** box on the home page with your
   friends' and followed people's statuses, and **Player Badges** you earn on your

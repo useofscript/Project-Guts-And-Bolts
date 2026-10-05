@@ -49,6 +49,7 @@ public:
     void testAddPart(const std::string& name);
     void testInsert(const std::string& names);   // Insert Object, each one into the one before
     void testPremades(const std::string& list);
+    void testToolStep(const std::string& step);   // --test-tools: "1".. hold a slot, "click", "print"
     void testSelect(const std::string& names);
     void testSnapshot(const std::string& file);   // --test-snapshot
     void testExportRoblox(const std::string& path);
@@ -102,6 +103,7 @@ private:
     void       renderPublishDialog();
     void       renderPluginLibrary();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
+    void       renderMakeGearDialog();       // File > Make Gear (staff): start from a ready-made Tool, sell it in the catalog
     // The Toolbox's Library tiles (everyone's public models, decals and audio, or your own).
     std::vector<ToolboxTile> libraryTiles(bool mine, int kind, const std::string& query, bool reload, std::string& status);
     unsigned   libraryPicture(const nlohmann::json& asset);
@@ -163,6 +165,7 @@ private:
     // Library: publishing a model (public or private) and browsing everyone's public ones.
     bool        m_openPublishModel = false, m_modelPublic = true, m_libraryLoaded = false;
     bool        m_modelAsGear = false;   // staff: sell a Tool in the catalog as Gear
+    bool        m_openMakeGear = false, m_openPublishGear = false;
     int         m_gearPrice = 0;
     std::string m_modelName, m_modelDesc, m_modelMsg, m_libraryQuery, m_libraryMsg;
     int         m_libraryKind = 0;   // 0 models, 1 decals, 2 audio

@@ -120,7 +120,7 @@ const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -1457,6 +1457,13 @@ export class GbServerObject extends DurableObject {
       const offset = Math.max(0, num(args, 'offset'));
       const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
       return okay({ assets: found.slice(offset, offset + limit).map((a) => this.publicAsset(a, me)), total: found.length, genres: GENRES });
+    }
+    // One asset's page (the Library's "asset ID" pages): what it is, without downloading it.
+    // Takes the ID people paste into games too ("gb:decal-..."). (src/server has the same.)
+    if (name === 'asset.info') {
+      const a = this.assets.get(str(args, 'id').trim().replace(/^gb:/, ''));
+      if (!a || !this.canPlay(a, me)) return fail('There\'s nothing with that ID (or it\'s private).');
+      return okay({ asset: this.publicAsset(a, me), owned: me.owned.includes(a.id) });
     }
     if (name === 'get') {
       const a = this.assets.get(str(args, 'id'));

@@ -246,6 +246,154 @@ bomb.Clicked:Connect(function()
 end)
 )";
 
+// --- Gear: Tools you hold. Click (or tap) to use them. ---
+
+const char* kGearSword = R"(-- Classic Sword: click to slash. A hit takes 25 health from other players (and zombies).
+local tool = script.Parent
+local blade = tool.Blade
+local slashing = false
+local hitThisSlash = {}
+
+tool.Activated:Connect(function()
+    if slashing then return end
+    slashing = true
+    hitThisSlash = {}
+    Sounds.Play("hit", blade.Position)
+    task.wait(0.5)
+    slashing = false
+end)
+
+local function slash(hit)
+    if not slashing then return end
+    local character = hit.Parent
+    local humanoid = character and character:FindFirstChild("Humanoid")
+    -- Not yourself, and only once per slash.
+    if not humanoid or character == tool.Parent or hitThisSlash[character] then return end
+    hitThisSlash[character] = true
+    humanoid:TakeDamage(25)
+end
+
+blade.Touched:Connect(slash)
+tool.Handle.Touched:Connect(slash)
+)";
+
+const char* kGearRocket = R"(-- Rocket Launcher: click to fire a rocket the way you're facing. It explodes on whatever it hits.
+local tool = script.Parent
+local ready = true
+
+tool.Activated:Connect(function()
+    local character = tool.Parent
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not ready or not root then return end
+    ready = false
+    local forward = root.CFrame.LookVector
+    local pos = root.Position + forward * 1.5 + Vector3.new(0, 0.8, 0)
+
+    local rocket = Instance.new("Part")
+    rocket.Name = "Rocket"
+    rocket.Size = Vector3.new(0.4, 0.4, 0.4)
+    rocket.Color = Color3.new(0.55, 0.55, 0.6)
+    rocket.Anchored = true
+    rocket.CanCollide = false
+    rocket.Position = pos
+    rocket.Parent = workspace
+
+    -- Fly forward a bit every frame until the rocket hits something (or goes too far).
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = { character, rocket }
+    for i = 1, 120 do
+        local step = forward * 2
+        local hit = workspace:Raycast(pos, step, params)
+        if hit then pos = hit.Position break end
+        pos = pos + step
+        rocket.Position = pos
+        task.wait(1 / 30)
+    end
+    rocket:Destroy()
+
+    local boom = Instance.new("Explosion")
+    boom.Position = pos
+    boom.BlastRadius = 5
+    boom.Parent = workspace
+
+    task.wait(1.5)   -- reloading
+    ready = true
+end)
+)";
+
+const char* kGearSpeedCoil = R"(-- Speed Coil: hold it to run twice as fast.
+local tool = script.Parent
+local humanoid, oldSpeed
+
+tool.Equipped:Connect(function()
+    humanoid = tool.Parent:FindFirstChild("Humanoid")
+    if humanoid then
+        oldSpeed = humanoid.WalkSpeed
+        humanoid.WalkSpeed = oldSpeed * 2
+    end
+end)
+
+tool.Unequipped:Connect(function()
+    if humanoid and oldSpeed then humanoid.WalkSpeed = oldSpeed end
+    humanoid = nil
+end)
+)";
+
+const char* kGearGravityCoil = R"(-- Gravity Coil: hold it to jump three times as high.
+local tool = script.Parent
+local humanoid, oldJump
+
+tool.Equipped:Connect(function()
+    humanoid = tool.Parent:FindFirstChild("Humanoid")
+    if humanoid then
+        oldJump = humanoid.JumpHeight
+        humanoid.JumpHeight = oldJump * 3
+    end
+end)
+
+tool.Unequipped:Connect(function()
+    if humanoid and oldJump then humanoid.JumpHeight = oldJump end
+    humanoid = nil
+end)
+)";
+
+const char* kGearBomb = R"(-- Bomb: click to drop a bomb in front of you. 3 seconds later, BOOM.
+local tool = script.Parent
+local ready = true
+
+tool.Activated:Connect(function()
+    local character = tool.Parent
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not ready or not root then return end
+    ready = false
+
+    local bomb = Instance.new("Part")
+    bomb.Name = "Bomb"
+    bomb.Shape = "Ball"
+    bomb.Size = Vector3.new(0.7, 0.7, 0.7)
+    bomb.Color = Color3.new(0.12, 0.12, 0.12)
+    bomb.Anchored = false
+    bomb.Position = root.Position + root.CFrame.LookVector * 1.5
+    bomb.Parent = workspace
+
+    for i = 1, 3 do
+        bomb.Color = Color3.new(1, 0.2, 0.1)
+        Sounds.Play("click", bomb.Position)
+        task.wait(0.15)
+        bomb.Color = Color3.new(0.12, 0.12, 0.12)
+        task.wait(0.85)
+    end
+    local boom = Instance.new("Explosion")
+    boom.Position = bomb.Position
+    boom.BlastRadius = 7
+    boom.Parent = workspace
+    bomb:Destroy()
+
+    task.wait(2)
+    ready = true
+end)
+)";
+
 const char* kNuke = R"(-- Nuke: click it, run. 10 seconds later: a shockwave, a fireball and a mushroom cloud.
 -- Near water it makes a tsunami. Change BlastRadius to make it bigger or smaller.
 local nuke = script.Parent
@@ -424,6 +572,27 @@ void addScript(Scene& scene, SceneNode* parent, const char* source) {
     scene.insert(std::move(s), parent);
 }
 
+// A Tool (gear) with its Handle; more parts go in with toolPart. Positions are inside the tool.
+SceneNode* makeTool(Scene& scene, const char* name, const char* tip, glm::vec3 at) {
+    auto t = std::make_unique<SceneNode>(name, NodeKind::Tool);
+    t->transform.position = at + glm::vec3(0.0f, 1.0f, 0.0f);
+    t->toolTip = tip;
+    t->starterTool = true;   // everyone starts with it, so Play tests it straight away (untick In StarterPack to leave it lying there)
+    return scene.insert(std::move(t), nullptr);
+}
+SceneNode* toolPart(Scene& scene, SceneNode* tool, const char* name, PrimitiveType shape, glm::vec3 pos, glm::vec3 size,
+                    glm::vec3 color, Material mat = Material::Plastic) {
+    auto p = std::make_unique<SceneNode>(name);
+    p->primitiveType = shape;
+    p->mesh = MeshLibrary::get(shape);
+    p->transform.position = pos;
+    p->transform.scale = size;
+    p->color = color;
+    p->material = mat;
+    p->canCollide = false;
+    return scene.insert(std::move(p), tool);
+}
+
 } // namespace
 
 SceneNode* makeConstraint(Scene& scene, ConstraintType type, SceneNode* a, const glm::vec3& pa,
@@ -493,6 +662,11 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::ExplodingBarrel,      "Exploding Barrel","Click it (or bump it) to blow it up"},
         {Premade::TimeBomb,             "Time Bomb",       "Click it: 5 seconds, then a blast that leaves fires burning"},
         {Premade::Nuke,                 "Nuke",            "Click it and run: shockwave, fireball, mushroom cloud (a tsunami near water)"},
+        {Premade::GearSword,            "Classic Sword",   "Gear: click to slash (25 damage a hit)"},
+        {Premade::GearRocketLauncher,   "Rocket Launcher", "Gear: fires rockets that explode on impact"},
+        {Premade::GearSpeedCoil,        "Speed Coil",      "Gear: hold it to run twice as fast"},
+        {Premade::GearGravityCoil,      "Gravity Coil",    "Gear: hold it to jump really high"},
+        {Premade::GearBomb,             "Bomb",            "Gear: drop a bomb that goes off after 3 seconds"},
         {Premade::DepthCharge,          "Depth Charge",    "Drop it in water: a column of spray and, in big water, a tsunami"},
         {Premade::LampPost,             "Lamp Post",       "A street lamp with a real light (try it at night)"},
         {Premade::DiscoFloor,           "Disco Floor",     "Tiles and a light that change colour"},
@@ -686,6 +860,39 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
             n->anchored = false;
             n->density = 3.0f;   // sinks
             addScript(scene, n, kDepthCharge);
+            break;
+        // Gear: a Tool with a Handle (what the hand holds; its long side points forward) and a script.
+        case Premade::GearSword: {
+            n = makeTool(scene, "Sword", "Click to slash!", at);
+            toolPart(scene, n, "Handle", Cube, {0, 0, 0}, {0.12f, 0.55f, 0.12f}, {0.25f, 0.17f, 0.1f}, Material::Wood);
+            toolPart(scene, n, "Guard", Cube, {0, 0.32f, 0}, {0.5f, 0.08f, 0.14f}, {0.75f, 0.6f, 0.15f}, Material::Metal);
+            toolPart(scene, n, "Blade", Cube, {0, 1.16f, 0}, {0.06f, 1.6f, 0.22f}, {0.8f, 0.82f, 0.86f}, Material::Metal);
+            n->gripPos = {0, -0.15f, 0};
+            addScript(scene, n, kGearSword);
+            break;
+        }
+        case Premade::GearRocketLauncher: {
+            n = makeTool(scene, "Rocket", "Click to fire a rocket", at);
+            toolPart(scene, n, "Handle", Cube, {0, 0, 0}, {0.14f, 0.5f, 0.16f}, {0.2f, 0.2f, 0.22f}, Material::Metal);
+            toolPart(scene, n, "Tube", PrimitiveType::Cylinder, {0, 0.45f, 0.22f}, {0.34f, 1.8f, 0.34f}, {0.25f, 0.4f, 0.2f}, Material::Metal);
+            addScript(scene, n, kGearRocket);
+            break;
+        }
+        case Premade::GearSpeedCoil:
+            n = makeTool(scene, "SpeedCoil", "Hold it to run faster", at);
+            toolPart(scene, n, "Handle", PrimitiveType::Cylinder, {0, 0, 0}, {0.26f, 0.6f, 0.26f}, {0.1f, 0.45f, 1.0f}, Material::Neon);
+            addScript(scene, n, kGearSpeedCoil);
+            break;
+        case Premade::GearGravityCoil:
+            n = makeTool(scene, "GravityCoil", "Hold it to jump higher", at);
+            toolPart(scene, n, "Handle", PrimitiveType::Cylinder, {0, 0, 0}, {0.26f, 0.6f, 0.26f}, {0.6f, 0.15f, 0.9f}, Material::Neon);
+            addScript(scene, n, kGearGravityCoil);
+            break;
+        case Premade::GearBomb:
+            n = makeTool(scene, "Bomb", "Click to drop a bomb", at);
+            toolPart(scene, n, "Handle", PrimitiveType::Sphere, {0, 0, 0}, {0.5f, 0.5f, 0.5f}, {0.12f, 0.12f, 0.12f}, Material::Metal);
+            toolPart(scene, n, "Fuse", PrimitiveType::Cylinder, {0, 0.32f, 0}, {0.05f, 0.18f, 0.05f}, {0.9f, 0.75f, 0.4f});
+            addScript(scene, n, kGearBomb);
             break;
         case Premade::ExplodingBarrel:
             n = addPart(scene, "ExplodingBarrel", PrimitiveType::Cylinder, at + glm::vec3(0, 0.75f, 0), {1.0f, 1.5f, 1.0f}, {0.8f, 0.12f, 0.08f}, Material::Metal);

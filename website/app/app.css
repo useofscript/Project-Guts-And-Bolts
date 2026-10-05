@@ -296,6 +296,13 @@ input[type=email] { font: inherit; color: var(--text); background: var(--panel);
 /* Create > Library */
 .lib-thumb { width: 100%; height: 100%; object-fit: cover; }
 .item-thumb { width: 100%; height: 100%; object-fit: contain; }
+.lib-card a.pic, .lib-card a.name { display: block; color: inherit; text-decoration: none; }
+.lib-card a.name:hover { text-decoration: underline; }
+.lib-kind { flex-direction: column; gap: 4px; }
+.asset-cols { grid-template-columns: 330px 1fr 210px; }
+.asset-idbox .asset-id { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 12px; margin: 4px 0 8px; text-align: center; }
+.audio-big svg { width: 96px; height: 96px; }
+#assetAudio audio { width: 100%; max-width: 360px; }
 .lib-kind { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--muted); font-weight: bold; }
 
 /* Catalog items in 3D */

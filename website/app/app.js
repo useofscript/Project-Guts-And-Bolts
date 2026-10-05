@@ -32,6 +32,7 @@ const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plug
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
 const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
+const isCatalogItem = (k) => WEARABLE.includes(k) || k === 'gear';   // sold in the catalog (they have #/item pages)
 // Only Guts' own accessories and faces can be Limited.
 const canBeLimited = (a) => ACCESSORIES.includes(a.kind) || a.kind === 'face';
 // Items with a real picture (Studio accessories, faces) show that instead of a drawing.
@@ -701,10 +702,10 @@ async function libraryPage(head) {
   const r = await pageCall('list', { kind, query, sort: 'popular', limit: 100 });
   const chip = (k, l) => html`<a class="chip ${kind === k ? 'on' : ''}" href="#/create/library?kind=${k}">${l}</a>`;
   const card = (a) => html`<div class="card square lib-card">
-      <div class="pic">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
+      <a class="pic" href="#/library/${a.id}">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
         : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
-        : html`<span class="lib-kind">${KINDS[a.kind] || a.kind}</span>`}${officialBadge(a)}</div>
-      <div class="name">${a.name}</div>
+        : html`<span class="lib-kind">${a.kind === 'audio' ? raw(SPEAKER_SVG) : ''}${KINDS[a.kind] || a.kind}</span>`}${officialBadge(a)}</a>
+      <a class="name" href="#/library/${a.id}">${a.name}</a>
       <div class="by">by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
       <div class="by small"><button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button></div></div>`;
   show(html`${head}
@@ -712,11 +713,106 @@ async function libraryPage(head) {
       <b>Library</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
     <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
       <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
+    <form class="row" data-form="assetGo"><input type="text" name="id" placeholder="Got an ID? Paste it here (gb:decal-...)" style="max-width:280px">
+      <button class="btn">Go</button></form>
     <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>
     ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(card)}</div>` : html`<p class="muted">Nothing here yet.</p>`) : html`<p class="error">${r.error}</p>`}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
   loadThumbs();
 }
+
+// A speaker, for audio in the Library.
+const SPEAKER_SVG = '<svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>'
+  + '<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+// Library files (decal pictures, audio) as something the page can show or play: fetched once.
+const assetUrls = new Map();
+function assetUrl(id) {
+  if (!assetUrls.has(id)) {
+    assetUrls.set(id, (async () => {
+      const r = await gb.call('get', { id });
+      if (!r.ok) { assetUrls.delete(id); return { error: r.error }; }
+      const ext = (r.asset.meta && r.asset.meta.ext) || '';
+      const type = { jpg: 'image/jpeg', png: 'image/png', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac' }[ext] || '';
+      return { url: URL.createObjectURL(new Blob([gb.base64Bytes(r.data)], type ? { type } : {})) };
+    })());
+  }
+  return assetUrls.get(id);
+}
+
+// #/library/<id>: one thing from the Library on its own page, found by its ID (the same
+// "gb:..." ID you paste into a game). Look at a decal, listen to audio, copy the ID.
+pages.library = async (id = '') => {
+  id = id.trim().replace(/^gb:/, '');
+  if (!id) { location.hash = '#/create/library'; return; }
+  const r = await pageCall('asset.info', { id });
+  if (!r.ok) { show(html`<p><a href="#/create/library">&lt; Library</a></p><h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
+  const a = r.asset;
+  // Catalog items and games have their own pages already.
+  if (isCatalogItem(a.kind)) { location.replace('#/item/' + a.id); return; }
+  if (a.kind === 'game') { location.replace('#/game/' + a.id); return; }
+  const useIt = {
+    decal: 'In Studio, select a Decal (or a Part) and paste the ID into its Texture. Scripts can use it too: decal.Texture = "gb:' + a.id + '"',
+    audio: 'In Studio, select a Sound and paste the ID into its File (SoundId). Scripts can use it too: sound.SoundId = "gb:' + a.id + '"',
+    model: 'In Studio, open the Toolbox, pick the Library tab and search for it to insert it into your game.',
+    plugin: 'In Studio, open the Toolbox\'s Plugins tab and install it from there.',
+  }[a.kind] || '';
+  const canDelete = signedIn() && (a.creator === me.id || me.staff);
+  show(html`<p><a href="#/create/library?kind=${a.kind}">&lt; Library</a></p>
+    <div class="item-page">
+      <h1 class="item-title">${a.name}</h1>
+      <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind] || a.kind}${a.access === 'private' ? ' / Private' : ''}</div>
+      <div class="item-cols asset-cols">
+        <div class="item-pic">
+          <div class="pic" id="assetPic">${a.kind === 'decal' ? html`<span class="muted">Loading...</span>`
+            : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
+            : a.kind === 'audio' ? html`<span class="lib-kind audio-big">${raw(SPEAKER_SVG)}Audio</span>`
+            : html`<span class="lib-kind">${KINDS[a.kind] || a.kind}</span>`}</div>
+          ${officialBadge(a)}
+        </div>
+        <div class="item-info">
+          <div class="item-creator">
+            <a href="#/user/${a.creator}" class="item-creator-pic" id="creatorPic"></a>
+            <table>
+              <tr><td>Creator:</td><td><a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</td></tr>
+              <tr><td>Created:</td><td>${a.created ? new Date(a.created * 1000).toLocaleDateString() : '?'}</td></tr>
+              <tr><td>Updated:</td><td>${ago(a.updated || a.created)}</td></tr>
+            </table>
+          </div>
+          <p class="item-desc">${a.description || html`<span class="muted">No description.</span>`}</p>
+          ${a.kind === 'audio' ? html`<div id="assetAudio"><button class="btn green" data-act="assetListen" data-id="${a.id}">&#9654; Listen</button></div>` : ''}
+          <hr>
+          <p class="small muted">Type: ${KINDS[a.kind] || a.kind}${a.size ? ' · ' + Math.max(1, Math.round(a.size / 1024)) + ' KB' : ''}</p>
+          ${useIt ? html`<p class="small">${useIt}</p>` : ''}
+        </div>
+        <div class="item-side">
+          <div class="item-buybox asset-idbox">
+            <div class="small">Asset ID</div>
+            <input type="text" class="asset-id" value="gb:${a.id}" readonly>
+            <button class="btn blue big buy" data-act="copyId" data-id="${a.id}">Copy ID</button>
+            ${a.kind === 'decal' ? html`<p class="small"><a id="decalOpen" target="_blank" rel="noopener" hidden>Open full size</a></p>` : ''}
+          </div>
+          ${canDelete ? html`<p><button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></p>` : ''}
+        </div>
+      </div>
+    </div>`);
+  loadThumbs();
+  $('.asset-id').addEventListener('focus', (e) => e.target.select());
+  if (a.kind === 'decal') {
+    assetUrl(a.id).then((f) => {
+      const el = $('#assetPic');
+      if (!el) return;
+      el.innerHTML = f.url ? html`<img class="item-thumb" src="${f.url}" alt="${a.name}">`.s : html`<span class="muted">${f.error}</span>`.s;
+      const open = $('#decalOpen');
+      if (open && f.url) { open.href = f.url; open.hidden = false; }
+    });
+  }
+  call('profile', { id: a.creator }).then((p) => {
+    const el = $('#creatorPic');
+    if (!p.ok || !el) return;
+    avatarPicture(p.user.avatar, p.wearing || [], 48).then((url) => { if (url && el.isConnected) el.innerHTML = html`<img src="${url}" alt="">`.s; });
+  }).catch(() => {});
+};
 
 // Create > Accessories: hats, hair and the rest, made and placed in Studio.
 async function myAccessoriesPage(head) {
@@ -1018,7 +1114,7 @@ pages.create = async (tab = 'games') => {
       ${a.kind === 'game' ? gameIcon(a, 48) : ''}
       ${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="">` : ''}
       ${clothing || face ? html`<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:#fff">${itemIcon(a)}</div>` : ''}
-      <div class="grow"><b>${a.name}</b><br><span class="small muted">
+      <div class="grow"><b>${a.kind === 'decal' || a.kind === 'audio' || a.kind === 'plugin' ? html`<a href="#/library/${a.id}">${a.name}</a>` : a.name}</b><br><span class="small muted">
         ${a.kind === 'game' ? html`${a.plays} plays · ${ACCESS_NAMES[a.access || 'public']}` : html`${a.price > 0 ? bolts(a.price) : 'free'} · ${a.sales} sold`}
         ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID gb:${a.id}` : ''}</span></div>
       ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${a.id}">Copy ID</button>` : ''}
@@ -1852,6 +1948,13 @@ const actions = {
     toast(r.ok ? (d.on ? 'Equipped! You\'ll have it in games that allow gear.' : 'Unequipped.') : r.error);
     render();
   },
+  async assetListen(d) {
+    const box = $('#assetAudio');
+    if (box) box.innerHTML = html`<span class="muted">Loading...</span>`.s;
+    const f = await assetUrl(d.id);
+    if (!box || !box.isConnected) return;
+    box.innerHTML = f.url ? html`<audio controls autoplay src="${f.url}"></audio>`.s : html`<p class="error">${f.error}</p>`.s;
+  },
   async copyId(d) {
     try { await navigator.clipboard.writeText('gb:' + d.id); toast('Copied gb:' + d.id + '. Paste it into Studio.'); }
     catch { prompt('Copy this ID:', 'gb:' + d.id); }
@@ -2139,6 +2242,7 @@ const forms = {
     render();
   },
   topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
+  assetGo(f) { const id = f.id.value.trim().replace(/^gb:/, ''); if (id) location.hash = '#/library/' + encodeURIComponent(id); },
   librarySearch(f) { location.hash = '#/create/library?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value, genre: f.genre.value }); },
   catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
@@ -2294,7 +2398,7 @@ async function render() {
   const name = pages[path[0]] ? path[0] : 'home';
   document.querySelectorAll('#nav a[data-page]').forEach((a) => {
     const p = a.dataset.page;
-    a.classList.toggle('on', p === name || (p === 'games' && name === 'game') || (p === 'catalog' && name === 'item') ||
+    a.classList.toggle('on', p === name || (p === 'games' && name === 'game') || (p === 'catalog' && name === 'item') || (p === 'create' && name === 'library') ||
       (p === 'people' && name === 'user') || (p === 'groups' && name === 'group'));
   });
   if (name !== 'avatar') avatarDraft = null;   // leaving the avatar page drops unsaved changes

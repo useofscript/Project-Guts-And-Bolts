@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'gear-up-look-it-up', name: 'Gear Up, Look It Up', time: 1791158400, tag: 'Studio',
+    summary: 'Every Library asset gets its own page you can find by ID, and Guts can make gear straight from Studio.',
+    items: [
+      'Asset pages: every decal, sound, model and plugin in the Library has its own page, found by its ID',
+      'Listen to audio right on its page, see decals full size, and press Copy ID to paste it into your game',
+      'Got an ID? Paste it into the box on the Library page to jump straight to it (website and Player)',
+      'The Player app has a Library tab on its Create page with the same pages',
+      'Studio: File > Make Gear for staff. Start from a Classic Sword, Rocket Launcher, Speed Coil, Gravity Coil or Bomb, try it, then sell it',
+      'The ready-made gear is in the Toolbox for everyone to use in their own games',
+    ],
+  },
+  {
     id: 'right-now-im', name: 'Right Now I\'m...', time: 1790899200, tag: 'Website',
     summary: 'Classic profile stuff: an About me, a "Right now I\'m..." status, My Feed on the home page and Player Badges you earn on your own.',
     items: [

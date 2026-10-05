@@ -132,7 +132,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"list", "profile", "people.list", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list",
                                                     "get", "servers.play", "relay.host", "relay.join"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -859,6 +859,15 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (args.contains("allowGear")) a.meta["allowGear"] = args["allowGear"] == true;
         saveAssets();
         json r = okay(); r["asset"] = publicAsset(a); return r;
+    }
+    // One asset's page (the Library's "asset ID" pages): what it is, without downloading it.
+    // Takes the ID people paste into games too ("gb:decal-..."). (worker/server.js has the same.)
+    if (name == "asset.info") {
+        std::string id = Online::cleanText(str("id"), 80);
+        if (id.rfind("gb:", 0) == 0) id = id.substr(3);
+        auto it = m_assets.find(id);
+        if (it == m_assets.end()) return fail("There's nothing with that ID (or it's private).");
+        json r = okay(); r["asset"] = publicAsset(it->second); r["owned"] = me.owned.count(id) > 0; return r;
     }
     if (name == "get") {
         auto it = m_assets.find(str("id"));

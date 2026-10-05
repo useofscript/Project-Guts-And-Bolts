@@ -318,9 +318,9 @@ void PlayerApp::drawOnlineItemDialog() {
 namespace {
 
 // The Create page's tabs. The first is your games; the rest are upload kinds.
-const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "T-Shirts", "Pants", "Plugins"};
-const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "tshirt", "pants", "plugin"};
-constexpr int     kCreateTabCount = 8;
+const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "T-Shirts", "Pants", "Plugins", "Library"};
+const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "tshirt", "pants", "plugin", "library"};
+constexpr int     kCreateTabCount = 9;   // (the last one is PlayerApp::kLibraryTab)
 
 std::string readWholeFile(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
@@ -751,6 +751,8 @@ void PlayerApp::drawMyUploads(const std::string& kind) {
         if (kind == "decal" || kind == "audio") {
             ImGui::TextDisabled("ID: gb:%s", id.c_str());
             ImGui::SameLine();
+            if (ImGui::SmallButton("Open")) openAsset(id);
+            ImGui::SameLine();
             if (ImGui::SmallButton("Copy ID")) {
                 ImGui::SetClipboardText(("gb:" + id).c_str());
                 m_createMsg = kind == "decal" ? "Copied! Paste it into a Decal's Texture in Studio."
@@ -791,6 +793,7 @@ void PlayerApp::drawCreate() {
         bool on = m_createKind == i;
         if (on ? Classic::button(kCreateTabs[i], Classic::kBlue, ImVec2(tw, 28)) : ImGui::Button(kCreateTabs[i], ImVec2(tw, 28))) {
             m_createKind = i;
+            if (i == kLibraryTab) m_assetId.clear();   // the tab always opens on the list
             m_createMsg.clear();
             m_renameKey.clear();
         }
@@ -803,6 +806,8 @@ void PlayerApp::drawCreate() {
     }
 
     if (m_createKind == 0) { drawMyGames(); return; }
+    if (m_createKind == kLibraryTab) { drawLibrary(); return; }
+    stopAssetSound();
     const std::string kind = kCreateKinds[m_createKind];
 
     if (!Online::online()) {

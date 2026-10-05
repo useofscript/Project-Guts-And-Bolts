@@ -435,9 +435,12 @@ hand to the `Handle`, placed by the tool's **Grip** (`GripPos`, `GripForward`,
 
 ### Gear
 
-Like Roblox's old gear: staff make a Tool in Studio, select it and use
-**File > Publish Selection to Library** with **Sell it in the catalog as
-Gear** ticked. It shows up in the catalog under **Gear**. Buy it, then press
+Like Roblox's old gear: staff open **File > Make Gear** in Studio. Start
+from a ready-made one (**Classic Sword**, **Rocket Launcher**, **Speed Coil**,
+**Gravity Coil** or **Bomb**, also in the Toolbox for everyone) or your own
+Tool, change it, press Play to try it (it's already in your backpack: press 1),
+then **Publish as Gear**. (Or select a Tool and use **File > Publish Selection
+to Library** with **Sell it in the catalog as Gear** ticked.) It shows up in the catalog under **Gear**. Buy it, then press
 **Equip** (on the item, or on the app's Avatar page under *Gear*). You can have
 up to 4 equipped. You get your equipped gear in your backpack (and again every
 time you respawn) in games whose creator ticked **Allow gear** in the game's
@@ -1263,6 +1266,12 @@ Find things in two places:
   it on the selected part, or a sound to add it.
 - **The website's Create > Library tab:** all public models, decals, audio and
   plugins. **Create > Models** lists yours with a Public / Private switch.
+- **Asset pages:** everything in the Library has its own page, found by its ID
+  (the same `gb:decal-...` ID you paste into a game): `#/library/<ID>` on the
+  website, or *Create > Library* in the Player app (paste an ID into *Got an ID?*
+  to jump straight to it). Decals show their picture, audio has a **Listen**
+  button, and **Copy ID** copies the ID to paste into a Decal's Texture or a
+  Sound's File.
 
 ### Limiteds, resale and trading
 

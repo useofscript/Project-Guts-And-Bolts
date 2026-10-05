@@ -167,6 +167,7 @@ void Editor::render(float dt) {
     renderServerDialog();
     renderPublishDialog();
     renderPublishModelDialog();
+    renderMakeGearDialog();
     renderAccessoryWindow();
     renderPluginLibrary();
     if (m_showPanel[kPanelCommandBar]) renderCommandBar();
@@ -488,6 +489,21 @@ void Editor::testPremades(const std::string& list) {
         glm::vec3 at((i % 4) * 14.0f - 21.0f, 0.0f, (i / 4) * -14.0f - 8.0f);
         buildPremade(*m_scene, p.kind, at);
         ++i;
+    }
+}
+
+void Editor::testToolStep(const std::string& step) {
+    if (!m_session || !m_session->running()) return;
+    if (step.size() == 1 && step[0] >= '1' && step[0] <= '9') m_session->selectToolSlot(step[0] - '1');
+    else if (step == "click") m_session->click(0);
+    else if (step == "print" && m_scene->player()) {
+        Player* p = m_scene->player();
+        SceneNode* held = p->equippedTool();
+        int rockets = 0, bombs = 0;
+        m_scene->forEach([&](SceneNode* n) { rockets += n->name == "Rocket"; bombs += n->name == "Bomb" && n->isPart(); });
+        std::printf("TOOLS held=%s slots=%d walk=%.1f jumpHeight=%.1f health=%.0f rockets=%d bombs=%d\n", held ? held->name.c_str() : "-",
+                    (int)p->tools().size(), p->humanoid().walkSpeed, p->humanoid().jumpHeight, p->humanoid().health, rockets, bombs);
+        std::fflush(stdout);
     }
 }
 
@@ -1393,6 +1409,7 @@ void Editor::renderMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
         if (ImGui::MenuItem("Publish Selection to Library...", nullptr, false, m_scene->selected() != nullptr)) m_openPublishModel = true;
+        if (Online::staff() && ImGui::MenuItem("Make Gear...")) m_openMakeGear = true;   // staff: Tools sold in the catalog
         if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
         if (ImGui::MenuItem("Library (plugins, audio)")) m_showPluginLibrary = true;
         ImGui::Separator();

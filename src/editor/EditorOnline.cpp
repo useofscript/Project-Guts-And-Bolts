@@ -342,6 +342,8 @@ void Editor::renderPublishModelDialog() {
         m_modelName = sel ? sel->name : "Model";
         m_modelDesc.clear();
         m_modelMsg.clear();
+        m_modelAsGear = m_openPublishGear;   // (from Make Gear: already ticked)
+        m_openPublishGear = false;
     }
     ImGui::SetNextWindowSize(ImVec2(520, 0));
     if (!ImGui::BeginPopupModal("Publish to Library", nullptr, ImGuiWindowFlags_NoResize)) return;
@@ -411,6 +413,51 @@ void Editor::renderPublishModelDialog() {
     }
     if (ImGui::Button("Close", ImVec2(90, 30))) ImGui::CloseCurrentPopup();
     if (!m_modelMsg.empty()) ImGui::TextWrapped("%s", m_modelMsg.c_str());
+    ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------
+// File > Make Gear (staff): gear is a Tool people buy in the catalog and bring into
+// games that allow gear, like Roblox's classic gear. Start from a ready-made one (or
+// your own Tool), change it however you like, test it with Play, then publish it.
+// ---------------------------------------------------------------------------
+
+void Editor::renderMakeGearDialog() {
+    if (m_openMakeGear) { ImGui::OpenPopup("Make Gear"); m_openMakeGear = false; }
+    ImGui::SetNextWindowSize(ImVec2(520, 0));
+    if (!ImGui::BeginPopupModal("Make Gear", nullptr, ImGuiWindowFlags_NoResize)) return;
+    ImGui::TextWrapped("Gear is a Tool people buy in the catalog. They equip it on their Avatar page and get it in "
+                       "every game whose creator ticked Allow gear.");
+    ImGui::Spacing();
+    ImGui::SeparatorText("1. Start from");
+    int k = 0;
+    for (const PremadeInfo& p : premadeList()) {
+        if (!isGearPremade(p.kind)) continue;
+        if (k++ % 3) ImGui::SameLine();
+        if (ImGui::Button(p.name, ImVec2(160, 30))) spawnPremade(p.kind);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", p.tip);
+    }
+    ImGui::TextDisabled("...or build your own: Insert Object > Tool (it comes with a Handle to hold).");
+    ImGui::SeparatorText("2. Make it yours");
+    ImGui::TextWrapped("Change the parts, colours and the script inside it. Press Play to try it: it's in your "
+                       "backpack, so press 1 to hold it and click to use it.");
+    ImGui::SeparatorText("3. Sell it");
+    SceneNode* sel = m_scene->selected();
+    while (sel && !sel->isTool()) sel = sel->parent;   // (a part inside the tool counts)
+    if (!sel) {
+        ImGui::TextDisabled("Select the Tool to publish it.");
+    } else {
+        ImGui::Text("Selected: %s", sel->name.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Publish as Gear...")) {
+            m_scene->select(sel);
+            m_openPublishGear = true;
+            m_openPublishModel = true;
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Close", ImVec2(90, 28))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
