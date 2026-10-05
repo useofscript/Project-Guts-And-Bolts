@@ -18,6 +18,12 @@ public:
     void renderFindAll();           // the "Find in All Scripts" window
     uint64_t current() const { return m_id; }
     void showFindAll() { m_showFindAll = true; m_focusFindAll = true; }
+    void renderAnalysis();          // the "Script Analysis" window (ScriptAnalysis.cpp)
+    void showAnalysis() { m_showAnalysis = true; m_analysedAt = -100.0; }
+    bool analysisShown() const { return m_showAnalysis; }
+    void runAnalysis();
+    struct Issue { uint64_t script; std::string name; int line; bool error; std::string text; };
+    const std::vector<Issue>& issues() const { return m_issues; }
 
 private:
     static int onEdit(ImGuiInputTextCallbackData* d);
@@ -53,4 +59,9 @@ private:
     bool        m_showFindAll = false, m_focusFindAll = false;
     std::string m_findAll, m_findAllRan;
     std::vector<Hit> m_hits;
+
+    // Script Analysis
+    bool               m_showAnalysis = false;
+    double             m_analysedAt = -100.0;
+    std::vector<Issue> m_issues;
 };

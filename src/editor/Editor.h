@@ -49,7 +49,8 @@ public:
     void testAddPart(const std::string& name);
     void testInsert(const std::string& names);   // Insert Object, each one into the one before
     void testPremades(const std::string& list);
-    void testToolStep(const std::string& step);   // --test-tools: "1".. hold a slot, "click", "print"
+    void testToolStep(const std::string& step);
+    void testAnalysis();   // --test-analysis   // --test-tools: "1".. hold a slot, "click", "print"
     void testSelect(const std::string& names);
     void testSnapshot(const std::string& file);   // --test-snapshot
     void testExportRoblox(const std::string& path);
@@ -83,6 +84,10 @@ private:
     void       copySelected();
     void       paste();
     void       groupSelected();
+    // Solid modeling (EditorSolid.cpp): Union / Intersect, Negate, Separate
+    void       unionSelected(int mode);   // 0 union, 1 intersect
+    void       negateSelected();
+    void       separateSelected();
     void       cutSelected();
     void       pasteInto();
     void       toggleLocked();

@@ -315,6 +315,24 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
                               ImVec2(c.x, c.y - s * 0.25f), rgb(255, 230, 90));
         break;
     }
+    // Solid modeling: a grey block and a round shape overlapping, joined / cut / overlapped / apart.
+    case Id::Union:
+        dl->AddRectFilled(ImVec2(c.x - s * 0.42f, c.y - s * 0.1f), ImVec2(c.x + s * 0.1f, c.y + s * 0.4f), rgb(150, 152, 160));
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.12f, c.y - s * 0.08f), s * 0.3f, rgb(150, 152, 160));
+        break;
+    case Id::Negate:
+        dl->AddRectFilled(ImVec2(c.x - s * 0.35f, c.y - s * 0.35f), ImVec2(c.x + s * 0.35f, c.y + s * 0.35f), IM_COL32(255, 110, 110, 150));
+        dl->AddRect(ImVec2(c.x - s * 0.35f, c.y - s * 0.35f), ImVec2(c.x + s * 0.35f, c.y + s * 0.35f), rgb(230, 80, 80), 0, 0, th);
+        break;
+    case Id::Intersect:
+        dl->AddRect(ImVec2(c.x - s * 0.42f, c.y - s * 0.1f), ImVec2(c.x + s * 0.1f, c.y + s * 0.4f), tint, 0, 0, th * 0.6f);
+        dl->AddCircle(ImVec2(c.x + s * 0.12f, c.y - s * 0.08f), s * 0.3f, tint, 0, th * 0.6f);
+        dl->AddRectFilled(ImVec2(c.x - s * 0.16f, c.y - s * 0.1f), ImVec2(c.x + s * 0.1f, c.y + s * 0.2f), rgb(80, 150, 240));
+        break;
+    case Id::Separate:
+        dl->AddRectFilled(ImVec2(c.x - s * 0.45f, c.y - s * 0.05f), ImVec2(c.x - s * 0.05f, c.y + s * 0.4f), rgb(150, 152, 160));
+        dl->AddCircleFilled(ImVec2(c.x + s * 0.2f, c.y - s * 0.15f), s * 0.25f, rgb(150, 152, 160));
+        break;
     case Id::Collide:
         dl->AddRectFilled(ImVec2(c.x - s * 0.42f, c.y - s * 0.2f), ImVec2(c.x - s * 0.02f, c.y + s * 0.2f), rgb(140, 142, 150));
         dl->AddRectFilled(ImVec2(c.x + s * 0.02f, c.y - s * 0.3f), ImVec2(c.x + s * 0.42f, c.y + s * 0.1f), rgb(80, 150, 240));

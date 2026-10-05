@@ -132,6 +132,7 @@ void Application::run() {
         if (m_opts.teamHost && frame == 2) m_editor->startTeamCreate(true, "");
         if (!m_opts.teamJoin.empty() && frame == 2) m_editor->startTeamCreate(false, m_opts.teamJoin);
         if (!m_opts.testAddPart.empty() && frame == 60) m_editor->testAddPart(m_opts.testAddPart);
+        if (m_opts.testAnalysis && frame == 5) m_editor->testAnalysis();
         if (!m_opts.testPremades.empty() && frame == 2) m_editor->testPremades(m_opts.testPremades);
         if (!m_opts.testTools.empty() && frame > 40 && frame % 25 == 0) {   // one step every 25 frames
             size_t sp = m_opts.testTools.find(' ');

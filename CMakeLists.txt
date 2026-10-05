@@ -320,6 +320,7 @@ add_library(gb_engine STATIC
     src/scene/RobloxFile.cpp
     src/scene/RobloxMesh.cpp
     src/scene/EditMesh.cpp
+    src/scene/Csg.cpp
     src/scripting/Luau.cpp
     src/scripting/ScriptEngine.cpp
     src/scripting/LuaTypes.cpp
@@ -450,6 +451,7 @@ set(EDITOR_SOURCES
     src/editor/Icons.cpp
     src/editor/panels/ViewportModeling.cpp
     src/editor/EditorModes.cpp
+    src/editor/EditorSolid.cpp
     src/editor/EditorOnline.cpp
     src/editor/Thumbnailer.cpp
     src/editor/Plugins.cpp
@@ -464,6 +466,7 @@ set(EDITOR_SOURCES
     src/editor/panels/PlayerPanel.cpp
     src/editor/panels/OutputPanel.cpp
     src/editor/panels/ScriptEditorPanel.cpp
+    src/editor/panels/ScriptAnalysis.cpp
 )
 if(WIN32)
     list(APPEND EDITOR_SOURCES resources/app.rc)

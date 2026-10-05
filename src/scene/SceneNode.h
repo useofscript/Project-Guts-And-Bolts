@@ -137,6 +137,14 @@ public:
     bool     anchored   = true;              // false = falls with gravity in Play
     bool     canCollide = true;              // false = things pass through it
     bool     castShadow = true;
+    // Solid modeling (Roblox's Negate / Union): a negated part is shown see-through pink and
+    // cut out of the other parts by Union; it remembers its old look for Un-negate. A union
+    // remembers the parts it was made from (JSON) so Separate can give them back.
+    bool        negated = false;
+    glm::vec3   negColor{1.0f};
+    float       negTransparency = 0.0f;
+    bool        negCollide = true;
+    std::string unionSource;
 
     // Script (kind == Script); an Animation's keyframes (JSON, see Animation.h)
     std::string source;

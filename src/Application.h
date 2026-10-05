@@ -28,6 +28,7 @@ struct LaunchOptions {
     std::string testCommand;       // --test-command "<lua>"  (tests: run it in the Command Bar)
     std::string testInsert;        // --test-insert "ScreenGui TextButton" (tests: Insert Object, each into the last)
     std::string testPremades;      // --test-premades <comma list or "all">  (tests)
+    bool        testAnalysis = false;  // --test-analysis: open Script Analysis and print what it finds (tests)
     std::string testTools;         // --test-tools "1 click wait print" while playing (tests: gear)
 };
 

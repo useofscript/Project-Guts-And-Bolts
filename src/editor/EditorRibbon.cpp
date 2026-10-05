@@ -1,5 +1,6 @@
 // Studio's ribbon (HOME / MODEL / TEST / VIEW), laid out like Roblox Studio's.
 #include "Editor.h"
+#include "panels/ScriptEditorPanel.h"
 #include "Icons.h"
 #include "Theme.h"
 #include "panels/ViewportPanel.h"
@@ -361,6 +362,24 @@ void Editor::renderToolbar() {
                 setMode(StudioMode::Modeling);
         }
         {
+            Group g("Solid Modeling");   // like Roblox's: join parts, cut holes, keep the overlap
+            const bool parts = !m_playing && m_scene->selectionRoots().size() >= 2;
+            if (bigButton("Union", Icons::Id::Union, false, parts, "Join the selected parts into one (Ctrl+Shift+G). "
+                          "Negated parts in the selection get cut out."))
+                unionSelected(0);
+            {
+                Stack st;
+                if (smallButton("Negate", Icons::Id::Negate, sel && sel->negated, editable && sel->isPart(),
+                                "Turn the part into a hole that Union cuts out (Ctrl+Shift+N)"))
+                    negateSelected();
+                if (smallButton("Intersect", Icons::Id::Intersect, false, parts, "Keep only where the parts overlap (Ctrl+Shift+I)"))
+                    unionSelected(1);
+                if (smallButton("Separate", Icons::Id::Separate, false, editable && !sel->unionSource.empty(),
+                                "Break a union back into its parts (Ctrl+Shift+U)"))
+                    separateSelected();
+            }
+        }
+        {
             Group g("Navigation");
             if (bigButton("Navmesh", Icons::Id::NavMesh, m_state.showNavMesh, true,
                           "Show the navigation mesh: the blue floor is where characters can walk; yellow arcs are "
@@ -514,6 +533,9 @@ void Editor::renderToolbar() {
         }
         {
             Group g("Other");
+            if (bigButton("Script Analysis", Icons::Id::Script, m_scriptEditor->analysisShown(), true,
+                          "Find mistakes in every script without pressing Play"))
+                m_scriptEditor->showAnalysis();
             if (bigButton("Shortcuts", Icons::Id::Keyboard, m_showShortcuts, true, "Every keyboard shortcut (F1)"))
                 m_showShortcuts = !m_showShortcuts;
             if (bigButton("Settings", Icons::Id::Settings, false, true, "Graphics and frame rate")) m_showSettings = true;
