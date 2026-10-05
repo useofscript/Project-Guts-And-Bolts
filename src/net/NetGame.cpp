@@ -893,6 +893,7 @@ void NetClient::update(float dt) {
     while (m_conn && m_conn->pop(msg)) handle(msg);
     if (!m_conn) return;
     if (!ok || !m_conn->alive()) {
+        if (m_state == State::Joined) m_hostGone = true;
         if (m_error.empty()) m_error = m_state == State::Joined ? "Lost connection to the host."
                                                                 : "The host didn't let us in.";
         disconnect();
@@ -920,8 +921,12 @@ void NetClient::handle(const std::string& text) {
     std::string t = m.value("t", "");
 
     if (t == "relay") {   // the Guts&Bolts server, before handing us to the host
-        if (!m.value("ok", false)) {
+        if (m.value("ok", false)) {
+            m_relaySession = m.value("session", std::string());
+            m_relayGame = m.value("game", std::string());
+        } else {
             m_error = m.value("error", std::string("Couldn't join that server."));
+            if (m.value("hostLeft", false)) m_movingTurn = m.value("you", false) ? 2 : 1;
             m_conn.reset();
             m_state = State::Failed;
         }

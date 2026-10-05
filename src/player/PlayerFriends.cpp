@@ -11,6 +11,7 @@
 #include "PlayerApp.h"
 #include "SocialUi.h"
 #include "../core/Account.h"
+#include "../core/Log.h"
 #include "../game/Badges.h"
 #include "../net/NetGame.h"
 #include "../online/AssetCache.h"
@@ -125,6 +126,31 @@ void PlayerApp::joinRelay(const std::string& session, const std::string& code, c
     m_paused = false;
     m_status.clear();
     m_page = Page::Game;
+}
+
+// The host left the game. Instead of kicking everyone, the Guts&Bolts server picks one of the
+// players (whoever has been there longest) to host a new server of the same game, and the
+// rest follow them there. The world starts fresh, but everyone stays together.
+void PlayerApp::startMove(const std::string& session, const std::string& game, const std::string& title) {
+    m_session->stop();
+    m_moveFrom = session;
+    m_moveGame = game;
+    m_moveTitle = title;
+    m_moveUntil = ImGui::GetTime() + 80.0;
+    m_moveRetryAt = ImGui::GetTime() + 0.5;   // give the server a moment to notice the host is gone
+    Log::info("The host left. Moving everyone to a new server...");
+}
+
+void PlayerApp::moveStep() {
+    if (ImGui::GetTime() > m_moveUntil) {
+        m_moveFrom.clear();
+        leaveGame();
+        m_status = "The host left, and nobody could start a new server.";
+        return;
+    }
+    if (ImGui::GetTime() < m_moveRetryAt) return;
+    m_moveRetryAt = ImGui::GetTime() + 3.0;   // (if joining can't even start, try again in a bit)
+    joinRelay(m_moveFrom, "", m_moveTitle);   // the server either sends us to the new host, or asks us to be it
 }
 
 void PlayerApp::openServers(const std::string& key, const std::string& title, Starter start) {

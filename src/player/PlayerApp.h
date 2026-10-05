@@ -44,6 +44,7 @@ struct PlayerOptions {
     std::string testRedeemBolts;       // --test-redeem-bolts <code> (tests)
     std::string testBuy;               // --test-buy "<item name>" (tests: buy and wear it)
     std::string onlineTest;            // --online-test "op {json}|op {json}" (tests: talk to the server, print replies)
+    std::string onlineGame;            // --online-game ID: press Play on a published game once online
     bool        onlinePlay = false;    // --online-play (with a game): press Play once online (public server)
     bool        privateServer = false; // --private-server (with a game): start a private server once online
     std::string testAccessory, testFace;   // --test-accessory file.json / --test-face face.png (tests)
@@ -396,6 +397,15 @@ private:
     int            m_gameServersPage = 0;
     std::string    m_playMsg;                      // "Finding a server..."
     bool           m_joinedOnce = false;           // fetched the game's sounds after joining
+    // The host left: everyone moves to a new server that one of the players hosts (PlayerFriends.cpp).
+    std::string    m_moveFrom, m_moveGame, m_moveTitle;   // the server they left, its game
+    double         m_moveUntil = 0.0, m_moveRetryAt = 0.0;
+    std::string    m_continues;                    // hosting: the old server we're taking over
+    std::string    m_tookOver;                     // ...and while the server says yes or no to that
+    double         m_tookOverUntil = 0.0;
+    void startMove(const std::string& session, const std::string& game, const std::string& title);
+    void moveStep();
+    bool moving() const { return !m_moveFrom.empty(); }
     bool           m_autoStarted = false;          // test options that wait for the server
     bool           m_autoServers = false;
 

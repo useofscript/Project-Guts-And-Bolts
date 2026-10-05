@@ -119,6 +119,9 @@ const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCool
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
+// When a host leaves, the players left behind get kMoveWait seconds to move to a new server
+// (one of them hosts it), and each would-be new host gets kHeirWait seconds to start it.
+const kMoveWait = 90, kHeirWait = 12;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
@@ -409,6 +412,8 @@ export class GbServerObject extends DurableObject {
     // The relay (in memory: a restart closes every game, like the C++ server).
     this.conns = new Map();      // conn id -> { ws, mode, account, session, ticket, peer, since, lastActive, closing }
     this.sessions = new Map();   // session id -> { id, game, title, host, code, priv, max, created, control, players:Set }
+    // Servers whose host left: old session id -> { game, title, priv, code, max, members:[accounts], heir, heirSince, newId, until }
+    this.moved = new Map();
     this.sweepTimer = null;
   }
 
@@ -2268,7 +2273,14 @@ export class GbServerObject extends DurableObject {
         priv: !!args.private, created: t,
         max: clamp((this.assets.get(args.game) || {}).maxPlayers || (Number.isInteger(args.max) ? args.max : kDefaultMax), 2, kMostPlayers),
         control: c.id, players: new Set() };
-      if (s.priv) {
+      // Taking over a server whose host left: same game, name, privacy and code, so everyone can follow.
+      const old = typeof args.continues === 'string' ? this.moved.get(args.continues) : null;
+      if (old) {
+        if (old.newId || !old.members.includes(me.id)) { reply(fail('Someone else is already hosting the new server.')); close(); return; }
+        Object.assign(s, { game: old.game, title: old.title, priv: old.priv, code: old.code, max: old.max });
+        old.newId = s.id;
+      }
+      if (s.priv && !s.code) {
         do s.code = makeCode(); while ([...this.sessions.values()].some((x) => x.code === s.code));
       }
       c.mode = 'host'; c.account = me.id; c.session = s.id;
@@ -2285,9 +2297,24 @@ export class GbServerObject extends DurableObject {
       } else {
         s = this.sessions.get(typeof args.session === 'string' ? args.session : '') || null;
       }
+      // Its host left: follow everyone to the new server (or be asked to host it).
+      const old = !s && !code ? this.moved.get(typeof args.session === 'string' ? args.session : '') : null;
+      let following = false;
+      if (old && old.members.includes(me.id)) {
+        s = old.newId ? this.sessions.get(old.newId) || null : null;
+        if (!s) {
+          if (old.newId) { reply(fail('The new server closed too.')); close(); return; }
+          if (t - old.heirSince > kHeirWait) { old.heir++; old.heirSince = t; }   // they didn't start it: next in line
+          if (old.heir >= old.members.length) { reply(fail('That server has closed.')); close(); return; }
+          reply({ ok: false, hostLeft: true, you: old.members[old.heir] === me.id, error: 'The host left. Moving to a new server...' });
+          close();
+          return;
+        }
+        following = true;
+      }
       if (!s) { reply(fail('That server has closed.')); close(); return; }
       if (s.host === me.id) { reply(fail('That\'s your own server.')); close(); return; }
-      if (s.priv && !code && !me.friends.includes(s.host)) {
+      if (s.priv && !code && !following && !me.friends.includes(s.host)) {
         reply(fail('That\'s a private server. You need to be the host\'s friend, or have its code.'));
         close();
         return;
@@ -2315,7 +2342,7 @@ export class GbServerObject extends DurableObject {
     joiner.peer = c.id; joiner.ticket = '';
     c.peer = joiner.id; c.session = s.id; c.account = s.host;
     s.players.add(joiner.id);
-    this.sendTo(joiner, { t: 'relay', ok: true, title: s.title });
+    this.sendTo(joiner, { t: 'relay', ok: true, title: s.title, session: s.id, game: s.game });
   }
 
   // A connection went away (or is being closed): take its pipe partner with it,
@@ -2330,6 +2357,12 @@ export class GbServerObject extends DurableObject {
       }
       for (const [sid, s] of this.sessions) {
         if (!dead.has(s.control)) continue;
+        // The players stay together: remember them (longest-playing first) so one can host a new server.
+        const members = [];
+        for (const p of s.players) { const pc = this.conns.get(p); if (pc && pc.account) members.push(pc.account);   // (their pipes die with the host, but they're still here) }
+        if (members.length)
+          this.moved.set(sid, { game: s.game, title: s.title, priv: s.priv, code: s.code, max: s.max, members,
+            heir: 0, heirSince: now(), newId: '', until: now() + kMoveWait });
         for (const p of s.players) if (!dead.has(p)) { dead.add(p); grew = true; }
         this.sessions.delete(sid);
       }
@@ -2349,6 +2382,7 @@ export class GbServerObject extends DurableObject {
   }
   sweep() {
     const t = now();
+    for (const [id, m] of this.moved) if (t > m.until) this.moved.delete(id);
     for (const c of [...this.conns.values()]) {
       if (!this.conns.has(c.id)) continue;
       if (c.mode === 'pending') {

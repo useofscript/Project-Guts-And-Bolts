@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', time: 1791331200, tag: 'Server',
+    summary: 'When the player hosting a game leaves, everyone else moves to a new server together instead of getting kicked.',
+    items: [
+      'Before: if the first person in a server left, everyone else got thrown back to the home screen',
+      'Now: the player who has been there longest starts a new server of the same game, and everyone follows them there by themselves',
+      'Private servers keep the same code, so friends can still join with it',
+      'You see "The host left. Moving everyone to a new server" for a few seconds, then you\'re back in (the world starts fresh)',
+    ],
+  },
+  {
     id: 'cut-and-paste-studio', name: 'Studio Gets Its Hands Dirty', time: 1791244800, tag: 'Studio',
     summary: 'Unions, Roblox-style Move and Scale handles, box select, blue selection boxes, Script Analysis and AutoSave.',
     items: [

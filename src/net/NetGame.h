@@ -141,6 +141,13 @@ public:
     const std::string& gameTitle() const { return m_title; }
     const std::vector<PlayerEntry>& players() const { return m_players; }
     ChatLog& chat() { return m_chat; }
+    // Through a Guts&Bolts server: which server this is and which game it plays.
+    const std::string& relaySession() const { return m_relaySession; }
+    const std::string& relayGame() const { return m_relayGame; }
+    // We were in the game and then the host went away (closed it, crashed, or lost internet).
+    bool hostLeft() const { return m_hostGone; }
+    // The server said this server's host left: 0 = no, 1 = wait for the new one, 2 = you host it.
+    int movingTurn() const { return m_movingTurn; }
 
 private:
     void handle(const std::string& msg);
@@ -161,4 +168,7 @@ private:
     ChatLog      m_chat;
     float        m_tick = 0.0f;
     bool         m_wasDead = false;
+    std::string  m_relaySession, m_relayGame;
+    bool         m_hostGone = false;
+    int          m_movingTurn = 0;
 };

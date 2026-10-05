@@ -29,6 +29,8 @@ constexpr int       kMostPlayers    = 30;
 constexpr size_t    kHostedEach     = 3;     // servers one account can host at once
 constexpr long long kJoinWait       = 15;    // seconds for the host to pick up a joining player
 constexpr long long kHostSilence    = 90;    // hosts ping every 20 s
+constexpr long long kMoveWait       = 90;    // seconds a left-behind server's players have to move to a new one
+constexpr long long kHeirWait       = 12;    // seconds each would-be new host gets to start it
 constexpr long long kPipeSilence    = 120;
 
 std::string makeCode() {
@@ -132,7 +134,18 @@ void GbServer::relayRequest(Client& c, const json& req) {
         s.max = std::clamp(args.contains("max") && args["max"].is_number_integer() ? args["max"].get<int>() : kDefaultMax, 2, kMostPlayers);
         s.created = now;
         s.control = &c;
-        if (s.priv) {
+        // Taking over a server whose host left: same game, name, privacy and code, so everyone can follow.
+        if (auto old = m_moved.find(args.value("continues", std::string())); old != m_moved.end()) {
+            Moved& m = old->second;
+            if (!m.newId.empty() || std::find(m.members.begin(), m.members.end(), me->id) == m.members.end()) {
+                reply(fail("Someone else is already hosting the new server."));
+                c.closing = true;
+                return;
+            }
+            s.game = m.game; s.title = m.title; s.priv = m.priv; s.code = m.code; s.max = m.max;
+            m.newId = s.id;
+        }
+        if (s.priv && s.code.empty()) {
             do s.code = makeCode();
             while (std::any_of(m_sessions.begin(), m_sessions.end(), [&](const auto& kv) { return kv.second.code == s.code; }));
         }
@@ -158,9 +171,26 @@ void GbServer::relayRequest(Client& c, const json& req) {
         } else if (auto it = m_sessions.find(args.value("session", std::string())); it != m_sessions.end()) {
             s = &it->second;
         }
+        // Its host left: follow everyone to the new server (or be asked to host it).
+        bool following = false;
+        if (auto old = !s && code.empty() ? m_moved.find(args.value("session", std::string())) : m_moved.end();
+            old != m_moved.end() && std::find(old->second.members.begin(), old->second.members.end(), me->id) != old->second.members.end()) {
+            Moved& m = old->second;
+            if (auto it = m.newId.empty() ? m_sessions.end() : m_sessions.find(m.newId); it != m_sessions.end()) s = &it->second;
+            if (!s) {
+                if (!m.newId.empty()) { reply(fail("The new server closed too.")); c.closing = true; return; }
+                if (now - m.heirSince > kHeirWait) { ++m.heir; m.heirSince = now; }   // they didn't start it: next in line
+                if (m.heir >= m.members.size()) { reply(fail("That server has closed.")); c.closing = true; return; }
+                reply(json{{"ok", false}, {"hostLeft", true}, {"you", m.members[m.heir] == me->id},
+                           {"error", "The host left. Moving to a new server..."}});
+                c.closing = true;
+                return;
+            }
+            following = true;
+        }
         if (!s) { reply(fail("That server has closed.")); c.closing = true; return; }
         if (s->host == me->id) { reply(fail("That's your own server.")); c.closing = true; return; }
-        if (s->priv && code.empty() && !me->friends.count(s->host)) {
+        if (s->priv && code.empty() && !following && !me->friends.count(s->host)) {
             reply(fail("That's a private server. You need to be the host's friend, or have its code."));
             c.closing = true;
             return;
@@ -198,10 +228,11 @@ void GbServer::relayAccept(Client& c, const std::string& ticket) {
     c.account = s.host;
     s.players.insert(joiner);
     // Everything after this line is the game's own messages, passed straight through.
-    joiner->conn->send(json{{"t", "relay"}, {"ok", true}, {"title", s.title}}.dump());
+    joiner->conn->send(json{{"t", "relay"}, {"ok", true}, {"title", s.title}, {"session", s.id}, {"game", s.game}}.dump());
 }
 
 void GbServer::relayStep(long long now) {
+    for (auto it = m_moved.begin(); it != m_moved.end();) it = now > it->second.until ? m_moved.erase(it) : std::next(it);
     for (auto& c : m_clients) {
         if (c->mode != Client::Mode::PendingJoin || c->closing) continue;
         bool gone = !m_sessions.count(c->session);
@@ -232,6 +263,19 @@ void GbServer::dropClients(long long now) {
             if (c->peer && dead.insert(c->peer).second) grew = true;
         for (auto it = m_sessions.begin(); it != m_sessions.end();) {
             if (!dead.count(it->second.control)) { ++it; continue; }
+            // The players stay together: remember them (longest-playing first) so one can host a new server.
+            std::vector<Client*> left;
+            for (Client* p : it->second.players) if (!p->account.empty()) left.push_back(p);   // (their pipes die with the host, but they're still here)
+            std::sort(left.begin(), left.end(), [](Client* a, Client* b) { return a->since < b->since; });
+            if (!left.empty()) {
+                Moved m;
+                m.game = it->second.game; m.title = it->second.title; m.code = it->second.code;
+                m.priv = it->second.priv; m.max = it->second.max;
+                for (Client* p : left) m.members.push_back(p->account);
+                m.heirSince = now;
+                m.until = now + kMoveWait;
+                m_moved[it->first] = std::move(m);
+            }
             for (Client* p : it->second.players) if (dead.insert(p).second) grew = true;
             log("server " + it->first + " closed");
             it = m_sessions.erase(it);

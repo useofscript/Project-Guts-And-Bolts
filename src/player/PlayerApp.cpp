@@ -430,9 +430,13 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
         int port = 0;
         if (Online::online() && Online::serverHostPort(server, port)) {
             m_server = std::make_unique<NetServer>(m_scene.get(), m_session.get());
-            nlohmann::json req = Online::signedRequest("relay.host", {{"game", gameKey.empty() ? "local:" + path.stem().string() : gameKey},
-                                                            {"title", m_currentTitle}, {"private", mode == HostMode::Private},
-                                                            {"max", 12}});
+            nlohmann::json args = {{"game", gameKey.empty() ? "local:" + path.stem().string() : gameKey},
+                                   {"title", m_currentTitle}, {"private", mode == HostMode::Private}, {"max", 12}};
+            if (!m_continues.empty()) args["continues"] = m_continues;   // taking over from a host who left
+            m_tookOver = m_continues;
+            m_tookOverUntil = ImGui::GetTime() + 20.0;
+            m_continues.clear();
+            nlohmann::json req = Online::signedRequest("relay.host", args);
             if (!m_server->startRelay(server, port, req.dump(), herr)) {
                 m_status = "Couldn't start a server (" + herr + "), so you're playing alone.";
                 m_server.reset();
@@ -615,7 +619,10 @@ void PlayerApp::frame(float dt) {
     followLink();
     updateItemRenders();   // item pictures (a couple per frame)
     if (!m_autoStarted && Online::online()) {   // test options that need the server first
-        if (m_opts.onlinePlay && !m_opts.game.empty()) {
+        if (!m_opts.onlineGame.empty()) {
+            m_autoStarted = true;
+            playGame(m_opts.onlineGame, "", onlineStarter(m_opts.onlineGame));
+        } else if (m_opts.onlinePlay && !m_opts.game.empty()) {
             m_autoStarted = true;
             std::filesystem::path path = m_opts.game;
             playGame("local:" + path.stem().string(), path.stem().string(), localStarter(path));
@@ -1445,10 +1452,42 @@ void PlayerApp::drawGame(float dt) {
         m_client->update(dt);
         if (m_client->state() == NetClient::State::Failed) {
             std::string err = m_client->error();
-            leaveGame();
-            m_status = err;
-            return;
+            // The host left (or we're already following everyone): don't kick, move to a new server.
+            if (m_client->hostLeft() && !m_client->relaySession().empty()) {
+                std::string from = m_client->relaySession(), game = m_client->relayGame();
+                m_client.reset();
+                startMove(from, game, m_currentTitle);
+            } else if (moving() && m_client->movingTurn()) {
+                const bool mine = m_client->movingTurn() == 2;
+                m_client.reset();
+                if (mine) {   // our turn to host it: same game, everyone follows us
+                    m_continues = m_moveFrom;
+                    m_moveFrom.clear();
+                    onlineStarter(m_moveGame)(HostMode::Public);
+                } else m_moveRetryAt = ImGui::GetTime() + 2.0;
+            } else {
+                leaveGame();
+                m_status = err;
+                return;
+            }
         }
+        if (m_client && m_client->state() == NetClient::State::Joined && moving()) m_moveFrom.clear();   // made it
+    }
+    // We were going to host the new server, but someone else already does: follow them instead.
+    if (!m_tookOver.empty() && ImGui::GetTime() > m_tookOverUntil) m_tookOver.clear();
+    if (m_server && !m_tookOver.empty() && !m_server->relayError().empty()) {
+        std::string from = m_tookOver;
+        m_tookOver.clear();
+        m_server.reset();
+        startMove(from, m_moveGame, m_currentTitle);
+    }
+    if (moving() && !m_client) {
+        moveStep();
+        drawLoading(pos, size, 1.0f, "The host left. Moving everyone to a new server");
+        if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) { m_moveFrom.clear(); leaveGame(); }
+        return;
+    }
+    if (m_client) {
         if (m_client->state() == NetClient::State::Joined) {
             m_currentTitle = m_client->gameTitle();
             if (!m_joinedOnce) { m_joinedOnce = true; Online::fetchSounds(*m_scene); }   // server audio the host's game uses

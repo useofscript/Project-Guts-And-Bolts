@@ -188,6 +188,16 @@ private:
     void numberAssets();
     std::map<std::string, Group> m_groups;
     std::map<std::string, Session> m_sessions;
+    // A server whose host left: its players get a while to move to a new one, which one of them hosts.
+    struct Moved {
+        std::string game, title, code, newId;
+        bool        priv = false;
+        int         max = 12;
+        std::vector<std::string> members;   // accounts, longest-playing first
+        size_t      heir = 0;               // whose turn it is to host
+        long long   heirSince = 0, until = 0;
+    };
+    std::map<std::string, Moved> m_moved;   // old session id ->
     long long m_nextUserId = 2;                      // 1 is Guts (the staff account)
     std::set<std::string> m_takenNames;              // every username ever used (lower case)
     std::map<std::string, std::vector<long long>> m_failedLogins;   // username -> times of wrong passwords

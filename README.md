@@ -1513,6 +1513,13 @@ the Guts&Bolts server, and it passes the game's messages along. So:
 has room. If nobody's playing, you quietly become the host of a new public
 server, and the next person to press Play joins you.
 
+**When the host leaves**, nobody gets kicked. The Guts&Bolts server picks
+whoever has been in the game longest, their Player starts a new server of the
+same game (same name, same private code), and everyone else follows them there
+on their own. It takes a few seconds and the world starts fresh, but everybody
+stays together. If that player can't do it within about 12 seconds, the next
+one in line is asked.
+
 **Private servers** get a 6-letter code (it shows in the pause menu). Your
 friends can join straight from their Friends list; anyone else needs the
 code. Private servers never show up for strangers, and Play never puts
