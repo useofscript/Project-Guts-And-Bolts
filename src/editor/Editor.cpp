@@ -484,6 +484,7 @@ void Editor::testSelect(const std::string& names) {
         if (list.find("," + n->name + ",") != std::string::npos) m_scene->addToSelection(n);
     });
     Log::info("Selected " + std::to_string(m_scene->selection().size()) + " object(s)");
+    if (SceneNode* one = m_scene->selected(); one && one->isScript() && m_scene->selection().size() == 1) openScript(one);
 }
 
 void Editor::testPremades(const std::string& list) {

@@ -27,6 +27,7 @@ public:
 
 private:
     static int onEdit(ImGuiInputTextCallbackData* d);
+    void drawColoredCode(ImDrawList* dl, const std::string& src, ImVec2 origin, float lineH, int firstLine, int lastLine);
     void findNext(const std::string& text, bool backwards);
     void updateSuggestions(const std::string& source);
     void runFindAll();
