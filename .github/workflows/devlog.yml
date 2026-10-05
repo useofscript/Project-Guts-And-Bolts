@@ -30,7 +30,7 @@ jobs:
 
           event = json.loads(os.environ["EVENT"])
           repo = os.environ["REPO"]
-          site = "https://project-guts-and-bolts.pizzadoe173.workers.dev"
+          site = "https://gutsandbolts.net"
 
           def cut(text, n):
               return text if len(text) <= n else text[: n - 1] + "…"

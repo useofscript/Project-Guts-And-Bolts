@@ -60,7 +60,8 @@ bool splitAddress(const std::string& address, std::string& host, int& port) {
     for (const char* sc : {"https://", "wss://", "http://", "ws://"})
         if (a.rfind(sc, 0) == 0) { scheme = sc; a = a.substr(std::strlen(sc)); break; }
     if (size_t slash = a.find('/'); slash != std::string::npos) a.resize(slash);
-    if (scheme.empty() && a.find(".workers.dev") != std::string::npos) scheme = "https://";
+    if (scheme.empty() && (a.find(".workers.dev") != std::string::npos || a.find("gutsandbolts.net") != std::string::npos))
+        scheme = "https://";
     const bool web = !scheme.empty(), secure = scheme == "https://" || scheme == "wss://";
     host = a;
     port = web ? (secure ? 443 : 80) : kDefaultPort;

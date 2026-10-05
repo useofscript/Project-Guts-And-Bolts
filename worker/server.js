@@ -2359,7 +2359,8 @@ export class GbServerObject extends DurableObject {
         if (!dead.has(s.control)) continue;
         // The players stay together: remember them (longest-playing first) so one can host a new server.
         const members = [];
-        for (const p of s.players) { const pc = this.conns.get(p); if (pc && pc.account) members.push(pc.account);   // (their pipes die with the host, but they're still here) }
+        // (Their pipes die with the host, but they're still here.)
+        for (const p of s.players) { const pc = this.conns.get(p); if (pc && pc.account) members.push(pc.account); }
         if (members.length)
           this.moved.set(sid, { game: s.game, title: s.title, priv: s.priv, code: s.code, max: s.max, members,
             heir: 0, heirSince: now(), newId: '', until: now() + kMoveWait });
