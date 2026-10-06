@@ -122,14 +122,19 @@ void PlayerApp::drawLibrary() {
                         "to paste into a Decal's Texture or a Sound's File in Studio.");
     ImGui::PopTextWrapPos();
     // The kinds, then search, then "got an ID?".
+    // (Own IDs: the Create page's tabs above have buttons with the same names.)
+    ImGui::PushID("libkinds");
     for (int i = 0; i < 4; ++i) {
         if (i) ImGui::SameLine();
+        ImGui::PushID(i);
         const bool on = m_libKind == kLibKinds[i];
         if (on ? Classic::button(kLibTitles[i], Classic::kBlue, ImVec2(90, 26)) : ImGui::Button(kLibTitles[i], ImVec2(90, 26))) {
             m_libKind = kLibKinds[i];
             m_libLoaded.clear();
         }
+        ImGui::PopID();
     }
+    ImGui::PopID();
     ImGui::SetNextItemWidth(std::min(260.0f, ImGui::GetContentRegionAvail().x - 90));
     const bool enter = ImGui::InputTextWithHint("##libq", "Search the Library", &m_libQuery, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();

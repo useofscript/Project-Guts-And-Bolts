@@ -1,6 +1,7 @@
 #include "OutlinerPanel.h"
 #include "../../scene/Scene.h"
 #include "../../scene/SceneNode.h"
+#include "../../scene/Player.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -186,8 +187,13 @@ void OutlinerPanel::drawNode(SceneNode* node) {
     if (open) {
         // The character lives under StarterPlayer while you build (see render()).
         const bool hideCharacter = node == m_scene->root() && !(playing && playing());
-        for (auto& child : node->children)
-            if (!(hideCharacter && m_scene->isCharacterRoot(child->id))) drawNode(child.get());
+        // The services have their own rows below the Workspace (but a search looks in them too).
+        const bool hideServices = node == m_scene->root() && !filtering;
+        for (auto& child : node->children) {
+            if (hideCharacter && m_scene->isCharacterRoot(child->id)) continue;
+            if (hideServices && m_scene->isServiceFolder(child.get())) continue;
+            drawNode(child.get());
+        }
         ImGui::TreePop();
     }
 
@@ -218,6 +224,38 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
     }
     ImGui::Separator();
     if (onInsert && ImGui::MenuItem("More (search)...")) onInsert(parent);
+}
+
+// A container service (ReplicatedStorage, ServerScriptService, StarterPack...): a row of
+// its own like Roblox's Explorer, holding what's inside its folder. The folder is made
+// the first time you put something in it (Insert Object, or drag things onto the row).
+void OutlinerPanel::folderService(const char* name, int icon, const char* tip) {
+    SceneNode* f = m_scene->serviceFolder(name, false);
+    bool kids = false;
+    if (f) for (auto& c : f->children) if (!c->internal) { kids = true; break; }
+    ImGui::PushID(name);
+    const bool open = serviceRow(name, icon, kids, f && f->selected);
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen() && f) m_scene->select(f);
+    if (ImGui::IsItemHovered() && tip) ImGui::SetTooltip("%s", tip);
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("GB_NODE")) {
+            SceneNode* dragged = *static_cast<SceneNode* const*>(p->Data);
+            m_dragNodes.clear();
+            if (dragged->selected) m_dragNodes = m_scene->selectionRoots();
+            else                   m_dragNodes.push_back(dragged);
+            m_dropTarget = m_scene->serviceFolder(name, true);
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (onInsertNamed && ImGui::BeginPopupContextItem("##svc")) {
+        if (ImGui::BeginMenu("Insert Object")) { insertMenu(m_scene->serviceFolder(name, true)); ImGui::EndMenu(); }
+        ImGui::EndPopup();
+    }
+    if (open) {
+        if (f) for (auto& c : f->children) drawNode(c.get());
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
 }
 
 bool OutlinerPanel::serviceRow(const char* name, int icon, bool hasKids, bool selected) {
@@ -259,10 +297,24 @@ void OutlinerPanel::render() {
     if (SceneNode* root = m_scene->root())
         drawNode(root);
 
-    // The other services, like Roblox's Explorer. Lighting: the sky, sun and fog
-    // settings. StarterPlayer: the character everyone spawns as (it goes into the
-    // Workspace when the game runs).
+    // The other services, in Roblox's order. Lighting: the sky, sun and fog settings.
+    // StarterPlayer: the character everyone spawns as (it goes into the Workspace when
+    // the game runs). The rest hold what you put in them.
     if (m_filter.empty()) {
+        using Id = Icons::Id;
+        {
+            const bool live = playing && playing();
+            std::vector<std::string> who;
+            if (live) {
+                if (Player* p = m_scene->player()) if (SceneNode* r = m_scene->findById(p->rootId())) who.push_back(r->name);
+                for (auto& rc : m_scene->remotes()) who.push_back(rc.name);
+            }
+            if (serviceRow("Players", (int)Id::Player, !who.empty(), false)) {
+                for (const std::string& n : who) { ImGui::TreeNodeEx(n.c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", n.c_str()); }
+                ImGui::TreePop();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Everyone in the game (while it runs).");
+        }
         if (serviceRow("Lighting", (int)Icons::Id::Lighting, false, false)) ImGui::TreePop();
         if (ImGui::IsItemClicked() && onLighting) onLighting();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sky, sun, fog and colours (opens the Lighting settings)");
@@ -270,6 +322,12 @@ void OutlinerPanel::render() {
         for (auto& c : m_scene->root()->children)
             if (m_scene->isCharacterRoot(c->id)) character = c.get();
         const bool inWorkspace = playing && playing();
+        folderService("ReplicatedFirst", (int)Id::Folder, "Loads first on every player's computer (loading screens).");
+        folderService("ReplicatedStorage", (int)Id::Folder, "Things scripts copy into the game (on the server and every player's computer).");
+        folderService("ServerScriptService", (int)Id::Script, "Scripts that run the game. Nobody sees them.");
+        folderService("ServerStorage", (int)Id::Folder, "Things only server scripts use (maps, prizes). Not in the world until a script clones them.");
+        folderService("StarterGui", (int)Id::ScreenGui, "The game's on-screen UI (ScreenGuis). Everyone gets a copy.");
+        folderService("StarterPack", (int)Id::Tool, "Tools everyone spawns with.");
         if (serviceRow("StarterPlayer", (int)Icons::Id::Player, character && !inWorkspace, false)) {
             if (character && !inWorkspace) drawNode(character);
             ImGui::TreePop();
@@ -277,11 +335,31 @@ void OutlinerPanel::render() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(inWorkspace ? "The character is in the Workspace while the game runs."
                                           : "The character everyone spawns as. Dress it, add scripts to it (its Animate script plays its animations).");
+        folderService("Teams", (int)Id::Team, "Teams players can be on. Insert a Team here.");
+        folderService("SoundService", (int)Id::Sound, "Sounds for the whole game (music, sound effects scripts play).");
+        folderService("Chat", (int)Id::Output, "Chat settings and scripts.");
+        folderService("TextChatService", (int)Id::Output, "Text chat settings and scripts.");
+        if (m_showAllServices) {
+            // The services scripts reach with game:GetService(...). Nothing to put in them here.
+            static const char* hidden[] = {"RunService", "UserInputService", "ContextActionService", "TweenService", "Debris",
+                "CollectionService", "HttpService", "DataStoreService", "MemoryStoreService", "MessagingService", "MarketplaceService",
+                "BadgeService", "GamePassService", "PathfindingService", "PhysicsService", "TeleportService", "SocialService",
+                "GroupService", "InsertService", "ContentProvider", "PolicyService", "LocalizationService", "TextService",
+                "GuiService", "HapticService", "ProximityPromptService", "AssetService", "AnalyticsService", "LogService",
+                "ScriptContext", "Stats", "TestService", "MaterialService", "VoiceChatService", "ChangeHistoryService", "Selection"};
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            for (const char* n : hidden) {
+                if (serviceRow(n, (int)Id::Settings, false, false)) ImGui::TreePop();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scripts use it with game:GetService(\"%s\").", n);
+            }
+            ImGui::PopStyleColor();
+        }
     }
 
     // Right-click empty space: Insert Object into the Workspace.
     if (onInsertNamed && ImGui::BeginPopupContextWindow("##explorerEmpty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         if (ImGui::BeginMenu("Insert Object")) { insertMenu(nullptr); ImGui::EndMenu(); }
+        ImGui::MenuItem("Show All Services", nullptr, &m_showAllServices);
         ImGui::EndPopup();
     }
 

@@ -60,7 +60,8 @@ void GameSession::setupTools() {
     // StarterPack tools are templates: everyone gets a copy each time they spawn.
     std::vector<SceneNode*> starters;
     m_scene->forEach([&](SceneNode* n) {
-        if (n->isTool() && n->starterTool && !m_scene->isCharacterPart(n)) starters.push_back(n);
+        const bool inStarterPack = n->parent && n->parent->name == "StarterPack" && m_scene->isServiceFolder(n->parent);
+        if (n->isTool() && (n->starterTool || inStarterPack) && !m_scene->isCharacterPart(n)) starters.push_back(n);
     });
     for (SceneNode* t : starters)
         if (auto owned = m_scene->detach(t)) m_starterPack.push_back(std::move(owned));
