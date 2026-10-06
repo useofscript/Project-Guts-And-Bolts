@@ -284,10 +284,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
 
     // --- Account -----------------------------------------------------------
     if (name == "hello") {
-        std::string n = Online::cleanText(str("name"), 20);
+        std::string n = say(str("name"), 20);
         if (me.userId > 0) n = me.username;   // signed up: your name is your username
         if (!n.empty()) {
-            if (Account::nameIsReserved(n) && !isOfficial(me)) n = "Player";
+            if ((Account::nameIsReserved(n) && !isOfficial(me)) || TextFilter::nameHasHateWord(n)) n = "Player";
             me.name = n;
         }
         // Badges this player got offline (with a code) come along for the ride.
@@ -643,9 +643,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name == "upload") {
         std::string kind = str("kind");
         if (!Online::validKind(kind)) return fail("You can't upload that kind of thing.");
-        std::string title = Online::cleanText(str("name"), 50);
+        std::string title = say(str("name"), 50);
         if (title.empty()) return fail("Give it a name.");
-        std::string desc = Online::cleanText(str("description"), 1000, true);
+        std::string desc = say(str("description"), 1000, true);
         const bool verified = isVerified(me);
         if (kind == "gear" && !isStaff(me)) return fail("Only Guts&Bolts staff can make gear.");
         if (Online::isAccessory(kind) && !verified && !isStaff(me))
@@ -766,7 +766,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             for (const auto& [id, x] : m_assets) count += x.kind == "gamepass" && x.meta.value("game", std::string()) == g.id;
             if (count >= Online::kMostPasses) return fail("A game can have at most " + std::to_string(Online::kMostPasses) + " passes.");
         }
-        const std::string title = creating || args.contains("name") ? Online::cleanText(str("name"), 50) : pass->name;
+        const std::string title = creating || args.contains("name") ? say(str("name"), 50) : pass->name;
         if (title.empty()) return fail("Give the pass a name.");
         const long long price = creating || args.contains("price") ? std::clamp(num("price"), 0LL, 1000000LL) : pass->price;
         if (price > 0 && !isVerified(me) && !isStaff(me))
@@ -795,7 +795,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         pass->name = title;
         pass->price = price;
-        if (args.contains("description")) pass->description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("description")) pass->description = say(str("description"), 1000, true);
         if (args.contains("offsale")) pass->meta["offsaleAt"] = args["offsale"] == true ? 1LL : 0LL;
         if (!icon.empty() && writeFile(m_opts.data / "files" / ("thumb-" + pass->id), icon)) pass->thumb = t;
         saveAssets();
@@ -835,7 +835,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             json r = okay(); r["badges"] = g.badges; return r;
         }
         if (g.badges.size() >= 30) return fail("A game can have up to 30 badges.");
-        std::string title = Online::cleanText(str("name"), 40);
+        std::string title = say(str("name"), 40);
         if (title.empty()) return fail("Give the badge a name.");
         json col = json::array({240, 180, 40});
         if (args.contains("color") && args["color"].is_array() && args["color"].size() == 3) {
@@ -843,7 +843,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             for (const auto& v : args["color"]) col.push_back(std::clamp(v.is_number() ? v.get<int>() : 0, 0, 255));
         }
         json b = {{"id", "badge-" + Account::randomHex(5)}, {"name", title},
-                  {"description", Online::cleanText(str("description"), 300, true)}, {"color", col},
+                  {"description", say(str("description"), 300, true)}, {"color", col},
                   {"created", Online::unixNow()}, {"awarded", 0}};
         g.badges.push_back(b);
         saveAssets();
@@ -900,9 +900,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 return fail("That isn't a Guts&Bolts accessory.");
         }
         if ((!Online::isClothing(a.kind) || model) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
-        std::string title = Online::cleanText(str("name"), 50);
+        std::string title = say(str("name"), 50);
         if (!title.empty()) a.name = title;
-        if (args.contains("description")) a.description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("description")) a.description = say(str("description"), 1000, true);
         if (args.contains("price") && a.kind != "game" && !Online::alwaysFree(a.kind)) {
             long long price = std::clamp(num("price"), 0LL, 1000000LL);
             if (price > 0 && !isVerified(me)) return fail("Only Verified creators can sell things.");

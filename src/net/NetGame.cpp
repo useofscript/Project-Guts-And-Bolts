@@ -14,6 +14,7 @@
 #include "../core/Log.h"
 #include "../core/Audio.h"
 #include "../core/Account.h"
+#include "../core/TextFilter.h"
 #include "../online/OnlineClient.h"
 
 #include <nlohmann/json.hpp>
@@ -302,15 +303,18 @@ void showSmoothly(Scene& scene, std::unordered_map<uint64_t, PoseBuffer>& poses)
 // Chat
 // ===========================================================================
 
-void ChatLog::add(const std::string& from, const std::string& text, bool system, bool admin, bool verified) {
+// What players say goes through the text filter on the way in (the host filters it too,
+// this catches a host that doesn't).
+void ChatLog::add(const std::string& from, const std::string& said, bool system, bool admin, bool verified) {
+    const std::string text = system ? said : TextFilter::filter(said);
     lines.push_back({from, text, system, admin, verified});
     if (lines.size() > 100) lines.erase(lines.begin());
     if (!system) bubbles[from] = {text, 6.0f};
 }
 
-void ChatLog::addWhisper(const std::string& from, const std::string& to, const std::string& text, bool admin,
+void ChatLog::addWhisper(const std::string& from, const std::string& to, const std::string& said, bool admin,
                          bool verified) {
-    Line l{from, text, false, admin, verified};
+    Line l{from, TextFilter::filter(said), false, admin, verified};
     l.whisper = true;
     l.to = to;
     lines.push_back(l);
@@ -529,7 +533,7 @@ void NetServer::announce(const std::string& text) {
 }
 
 void NetServer::say(const std::string& text) {
-    std::string t = cleanText(text, 200);
+    std::string t = TextFilter::filter(cleanText(text, 200));
     if (t.empty()) return;
     if (Online::isGuest() && Online::online()) { m_chat.add("", Online::kGuestChatText, true); return; }
     bool admin = Account::iAmStaff(), ver = Badges::iHave(Badges::Id::Verified);
@@ -692,7 +696,7 @@ void NetServer::handle(Client& c, const std::string& text) {
 
         std::string base = cleanText(m.value("name", std::string("Player")), 20);
         if (base.empty()) base = "Player";
-        if (Account::nameIsReserved(base) && !c.admin) base = "Player";   // only the real Guts is Guts
+        if ((Account::nameIsReserved(base) && !c.admin) || TextFilter::nameHasHateWord(base)) base = "Player";   // only the real Guts is Guts
         std::string name = base;
         auto taken = [&](const std::string& n) {
             if (!m_dedicated && n == Online::playerName()) return true;
@@ -891,7 +895,7 @@ void NetServer::handle(Client& c, const std::string& text) {
         c.remoteBudget -= 1.0;
         m_session->scripts().remoteIn(m, c.id + 1);
     } else if (t == "chat") {
-        std::string msg = cleanText(m.value("text", std::string()), 200);
+        std::string msg = TextFilter::filter(cleanText(m.value("text", std::string()), 200));
         if (msg.empty()) return;
         if (c.guest) {   // guests don't chat: tell just them why
             c.conn->send(json{{"t", "chat"}, {"from", ""}, {"text", Online::kGuestChatText}, {"sys", true}}.dump());

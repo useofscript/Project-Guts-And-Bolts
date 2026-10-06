@@ -13,6 +13,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../website/app/gbcrypto.wasm';
 import { BUILT_IN_UPDATES } from './updates.js';
+import { filterText, nameHasHateWord } from './textfilter.js';
 // The example games that come with Guts&Bolts: always on the server (as Guts's
 // games), so the website and the apps have something to play from day one.
 import demolitionYard from '../games/Demolition Yard.gbscene';
@@ -214,8 +215,11 @@ function usernameProblem(name, official = false) {
   if (l === 'guts') return official ? '' : 'That username belongs to Guts&Bolts staff.';
   if (['admin', 'administrator', 'staff', 'moderator', 'mod', 'gutsandbolts', 'gutsbolts', 'official', 'system',
     'server', 'roblox', 'support', 'help'].includes(l)) return 'That username is reserved.';
+  if (nameHasHateWord(name)) return 'That username isn\'t allowed.';
   return '';
 }
+// What people write for others to read goes through the text filter (textfilter.js).
+const say = (s, maxLen, allowNewlines = false) => filterText(cleanText(s, maxLen, allowNewlines));
 const nameIsReserved = (name) => lower(name).replace(/[ _.]/g, '') === lower(kStaffName);
 
 function makeCode() {
@@ -894,10 +898,10 @@ export class GbServerObject extends DurableObject {
     const t = now(), today = utcDay(t);
 
     if (name === 'hello') {
-      let n = cleanText(str(args, 'name'), 20);
+      let n = say(str(args, 'name'), 20);
       if (me.userId > 0) n = me.username;
       if (n) {
-        if (nameIsReserved(n) && !this.isOfficial(me)) n = 'Player';
+        if ((nameIsReserved(n) && !this.isOfficial(me)) || nameHasHateWord(n)) n = 'Player';
         me.name = n;
       }
       if (Array.isArray(args.grants))
@@ -1050,12 +1054,12 @@ export class GbServerObject extends DurableObject {
       if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change your own games.');
       if ('name' in args) {
-        const title = cleanText(str(args, 'name'), 50);
+        const title = say(str(args, 'name'), 50);
         if (!title) return fail('Give it a name.');
         if (nameIsReserved(title) && !this.isOfficial(me)) return fail('That name belongs to Guts&Bolts.');
         a.name = title;
       }
-      if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
+      if ('description' in args) a.description = say(str(args, 'description'), 1000, true);
       if ('access' in args) {
         const access = str(args, 'access');
         if (!ACCESS.includes(access)) return fail('Pick public, friends or private.');
@@ -1075,9 +1079,9 @@ export class GbServerObject extends DurableObject {
     // --- Classic profile: "About me" and "Right now I'm..." ---
     if (name === 'profile.set') {
       if (me.userId === 0) return fail('Sign up first.');
-      if ('blurb' in args) me.blurb = cleanText(str(args, 'blurb'), kMaxBlurb, true);
+      if ('blurb' in args) me.blurb = say(str(args, 'blurb'), kMaxBlurb, true);
       if ('status' in args) {
-        const text = cleanText(str(args, 'status'), kMaxStatus);
+        const text = say(str(args, 'status'), kMaxStatus);
         if (text) {
           if (me.statusDay !== today) { me.statusDay = today; me.statusesToday = 0; }
           if (me.statusesToday >= kStatusesPerDay) return fail('That\'s enough status updates for today.');
@@ -1112,7 +1116,7 @@ export class GbServerObject extends DurableObject {
       if (name === 'outfit.list') return list();
       if (name === 'outfit.save') {
         if (!me.avatar) return fail('Change your look first, then save it as an outfit.');
-        const title = cleanText(str(args, 'name'), 40) || 'Outfit ' + (outfits.length + 1);
+        const title = say(str(args, 'name'), 40) || 'Outfit ' + (outfits.length + 1);
         const old = find();
         if (old) { old.avatar = JSON.parse(JSON.stringify(me.avatar)); old.name = title; }
         else {
@@ -1132,7 +1136,7 @@ export class GbServerObject extends DurableObject {
         return list();
       }
       if (name === 'outfit.rename') {
-        const title = cleanText(str(args, 'name'), 40);
+        const title = say(str(args, 'name'), 40);
         if (!title) return fail('Give it a name.');
         o.name = title;
         this.saveUser(me);
@@ -1177,8 +1181,8 @@ export class GbServerObject extends DurableObject {
       if (!this.allows(this.privacyOf(them).messages, me, them)) {
         return fail(this.privacyOf(them).messages === 'friends' ? them.name + ' only gets messages from friends.' : them.name + ' doesn\'t get messages.');
       }
-      const subject = cleanText(str(args, 'subject'), 80) || '(no subject)';
-      const body = cleanText(str(args, 'body'), 2000, true);
+      const subject = say(str(args, 'subject'), 80) || '(no subject)';
+      const body = say(str(args, 'body'), 2000, true);
       if (!body) return fail('Write something first.');
       if (me.messageDay !== today) { me.messageDay = today; me.messagesToday = 0; }
       if (me.messagesToday >= kMessagesPerDay) return fail('That\'s ' + kMessagesPerDay + ' messages today. Try again tomorrow.');
@@ -1353,9 +1357,9 @@ export class GbServerObject extends DurableObject {
     if (name === 'upload') {
       const kind = str(args, 'kind');
       if (!KINDS.includes(kind)) return fail('You can\'t upload that kind of thing.');
-      const title = cleanText(str(args, 'name'), 50);
+      const title = say(str(args, 'name'), 50);
       if (!title) return fail('Give it a name.');
-      const desc = cleanText(str(args, 'description'), 1000, true);
+      const desc = say(str(args, 'description'), 1000, true);
       const verified = this.isVerified(me);
       if (isAccessory(kind) && !verified && !this.isStaff(me)) return fail('Only Verified creators can make hats and accessories. Shirts and pants are open to everyone!');
       if (kind === 'face' && !this.isOfficial(me)) return fail('Only Guts can make faces.');
@@ -1458,7 +1462,7 @@ export class GbServerObject extends DurableObject {
       if (g.creator !== me.id && !this.isStaff(me)) return fail('Only the game\'s creator can make or change its passes.');
       if (creating && [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === g.id).length >= kMostPasses)
         return fail('A game can have at most ' + kMostPasses + ' passes.');
-      const title = 'name' in args || creating ? cleanText(str(args, 'name'), 50) : a.name;
+      const title = 'name' in args || creating ? say(str(args, 'name'), 50) : a.name;
       if (!title) return fail('Give the pass a name.');
       const price = 'price' in args || creating ? clamp(num(args, 'price'), 0, 1000000) : a.price;
       if (price > 0 && !this.isVerified(me) && !this.isStaff(me)) return fail('Only Verified creators can sell passes. Make it free for now, or get Verified!');
@@ -1482,7 +1486,7 @@ export class GbServerObject extends DurableObject {
       }
       pass.name = title;
       pass.price = price;
-      if ('description' in args) pass.description = cleanText(str(args, 'description'), 1000, true);
+      if ('description' in args) pass.description = say(str(args, 'description'), 1000, true);
       if ('offsale' in args) pass.offsaleAt = args.offsale === true ? 1 : 0;   // (1 = off sale since the start of time)
       if (icon) { this.writeFile('thumb:' + pass.id, icon); pass.thumb = t; }
       pass.updated = t;
@@ -1518,10 +1522,10 @@ export class GbServerObject extends DurableObject {
         return okay({ badges: g.badges });
       }
       if (g.badges.length >= 30) return fail('A game can have up to 30 badges.');
-      const title = cleanText(str(args, 'name'), 40);
+      const title = say(str(args, 'name'), 40);
       if (!title) return fail('Give the badge a name.');
       const col = Array.isArray(args.color) && args.color.length === 3 ? args.color.map((v) => clamp(Number(v) | 0, 0, 255)) : [240, 180, 40];
-      const b = { id: 'badge-' + randomHex(5), name: title, description: cleanText(str(args, 'description'), 300, true),
+      const b = { id: 'badge-' + randomHex(5), name: title, description: say(str(args, 'description'), 300, true),
         color: col, created: t, awarded: 0 };
       g.badges.push(b);
       this.saveAsset(g);
@@ -1574,9 +1578,9 @@ export class GbServerObject extends DurableObject {
         if (!acc || acc.format !== 'gbaccessory' || !acc.node) return fail('That isn\'t a Guts&Bolts accessory.');
       }
       if (!isClothing(a.kind) || model) this.writeFile(a.id, data);
-      const title = cleanText(str(args, 'name'), 50);
+      const title = say(str(args, 'name'), 50);
       if (title) a.name = title;
-      if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
+      if ('description' in args) a.description = say(str(args, 'description'), 1000, true);
       if ('price' in args && a.kind !== 'game' && !alwaysFree(a.kind)) {
         const price = clamp(num(args, 'price'), 0, 1000000);
         if (price > 0 && !this.isVerified(me)) return fail('Only Verified creators can sell things.');
@@ -1678,11 +1682,11 @@ export class GbServerObject extends DurableObject {
       if (!a || !isCatalogItem(a.kind)) return fail('That item doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('Only the item\'s creator or staff can change it.');
       if ('name' in args) {
-        const title = cleanText(str(args, 'name'), 50);
+        const title = say(str(args, 'name'), 50);
         if (!title) return fail('Give it a name.');
         a.name = title;
       }
-      if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
+      if ('description' in args) a.description = say(str(args, 'description'), 1000, true);
       if ('price' in args) {
         const price = clamp(num(args, 'price'), 0, 1000000);
         if (price > 0 && !this.isVerified(this.users.get(a.creator) || me) && !this.isStaff(me)) return fail('Only Verified creators can sell things.');
@@ -2255,7 +2259,7 @@ export class GbServerObject extends DurableObject {
       return okay({ groups: this.groupsOf(me.id).map((g) => Object.assign(this.publicGroup(g), { role: g.members[me.id] })) });
     }
     if (name === 'groups.create') {
-      const title = cleanText(str(args, 'name'), 40);
+      const title = say(str(args, 'name'), 40);
       if (title.length < 3) return fail('Group names need at least 3 letters.');
       if (nameIsReserved(title) && !this.isOfficial(me)) return fail('That name belongs to Guts&Bolts.');
       for (const g of this.groups.values()) if (lower(g.name) === lower(title)) return fail('There\'s already a group called that.');
@@ -2264,7 +2268,7 @@ export class GbServerObject extends DurableObject {
       if (this.groupsOf(me.id).length >= kMaxJoined) return fail('You\'re in too many groups. Leave one first.');
       const fee = this.isVerified(me) ? 0 : kGroupFee;
       if (this.balance(me) < fee) return fail('Making a group costs ' + fee + ' Bolts (free for Verified people).');
-      const g = { id: 'g-' + randomHex(5), name: title, description: cleanText(str(args, 'description'), 1000, true), owner: me.id,
+      const g = { id: 'g-' + randomHex(5), name: title, description: say(str(args, 'description'), 1000, true), owner: me.id,
         created: t, color: clamp(typeof args.color === 'number' ? Math.trunc(args.color) : 0x3a7bd5, 0, 0xffffff),
         open: args.open === undefined ? true : !!args.open, members: { [me.id]: 'Owner' }, requests: [],
         shout: { by: '', text: '', time: 0 }, wall: [] };
@@ -2311,7 +2315,7 @@ export class GbServerObject extends DurableObject {
     }
     if (name === 'groups.post') {
       if (!myRole) return fail('Join the group to post on its wall.');
-      const text = cleanText(str(args, 'text'), 300, true);
+      const text = say(str(args, 'text'), 300, true);
       if (!text) return fail('Write something first.');
       if (t - (this.lastPost.get(me.id) || 0) < kPostCooldown) return fail('Slow down a little - wait a few seconds between posts.');
       this.lastPost.set(me.id, t);
@@ -2331,13 +2335,13 @@ export class GbServerObject extends DurableObject {
     }
     if (name === 'groups.shout') {
       if (!canManage) return fail('Only the group\'s owner and admins can shout.');
-      g.shout = { by: me.id, text: cleanText(str(args, 'text'), 200), time: t };
+      g.shout = { by: me.id, text: say(str(args, 'text'), 200), time: t };
       this.saveGroup(g);
       return okay();
     }
     if (name === 'groups.edit') {
       if (!canManage) return fail('Only the group\'s owner and admins can change it.');
-      if ('description' in args) g.description = cleanText(str(args, 'description'), 1000, true);
+      if ('description' in args) g.description = say(str(args, 'description'), 1000, true);
       if ('color' in args) g.color = clamp(num(args, 'color'), 0, 0xffffff);
       if ('open' in args) {
         g.open = !!args.open;
@@ -2572,7 +2576,7 @@ export class GbServerObject extends DurableObject {
       for (const s of this.sessions.values()) if (s.host === me.id && !s.dedicated) hosting++;
       if (!dedicated && hosting >= kHostedEach) { reply(fail('You\'re already running ' + kHostedEach + ' servers.')); close(); return; }
       const s = { id: 's-' + randomHex(6), game: this.assets.resolve(cleanText(typeof args.game === 'string' ? args.game : '', 80)),
-        title: cleanText(typeof args.title === 'string' ? args.title : '', 60) || 'A game', host: me.id, code: '',
+        title: say(typeof args.title === 'string' ? args.title : '', 60) || 'A game', host: me.id, code: '',
         priv: !!args.private, created: t,
         max: clamp((this.assets.get(args.game) || {}).maxPlayers || (Number.isInteger(args.max) ? args.max : kDefaultMax), 2, kMostPlayers),
         control: c.id, players: new Set(), dedicated };

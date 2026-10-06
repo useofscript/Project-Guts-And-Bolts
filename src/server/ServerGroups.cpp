@@ -68,7 +68,7 @@ json GbServer::groupOp(const std::string& name, User& me, const json& args) {
         json r = okay(); r["groups"] = list; return r;
     }
     if (name == "groups.create") {
-        std::string title = Online::cleanText(str("name"), 40);
+        std::string title = say(str("name"), 40);
         if (title.size() < 3) return fail("Group names need at least 3 letters.");
         if (Account::nameIsReserved(title) && !isOfficial(me)) return fail("That name belongs to Guts&Bolts.");
         for (const auto& [id, g] : m_groups)
@@ -83,7 +83,7 @@ json GbServer::groupOp(const std::string& name, User& me, const json& args) {
         Group g;
         g.id = "g-" + Account::randomHex(5);
         g.name = title;
-        g.description = Online::cleanText(str("description"), 1000, true);
+        g.description = say(str("description"), 1000, true);
         g.owner = me.id;
         g.created = now;
         g.color = (int)std::clamp(args.value("color", 0x3A7BD5LL), 0LL, 0xFFFFFFLL);
@@ -163,7 +163,7 @@ json GbServer::groupOp(const std::string& name, User& me, const json& args) {
     }
     if (name == "groups.post") {
         if (myRole.empty()) return fail("Join the group to post on its wall.");
-        std::string text = Online::cleanText(str("text"), 300, true);
+        std::string text = say(str("text"), 300, true);
         if (text.empty()) return fail("Write something first.");
         if (now - m_lastPost[me.id] < kPostCooldown) return fail("Slow down a little - wait a few seconds between posts.");
         m_lastPost[me.id] = now;
@@ -184,13 +184,13 @@ json GbServer::groupOp(const std::string& name, User& me, const json& args) {
     }
     if (name == "groups.shout") {
         if (!canManage) return fail("Only the group's owner and admins can shout.");
-        g.shout = {me.id, Online::cleanText(str("text"), 200), now};
+        g.shout = {me.id, say(str("text"), 200), now};
         saveGroups();
         return okay();
     }
     if (name == "groups.edit") {
         if (!canManage) return fail("Only the group's owner and admins can change it.");
-        if (args.contains("description")) g.description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("description")) g.description = say(str("description"), 1000, true);
         if (args.contains("color")) g.color = (int)std::clamp(args.value("color", 0LL), 0LL, 0xFFFFFFLL);
         if (args.contains("open")) {
             g.open = args.value("open", true);

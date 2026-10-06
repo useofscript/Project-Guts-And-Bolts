@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'soap-in-the-mouth', name: 'Soap in the Mouth', time: 1791330000, tag: 'Server',
+    summary: 'A text filter: slurs, links and personal info get covered with # before anyone else sees them.',
+    items: [
+      'Chat, messages, profiles, group posts and the names and descriptions of things are all filtered',
+      'Slurs are caught even with spaces, dots or look-alike letters in them',
+      'Links (except to gutsandbolts.net), email addresses and phone numbers are covered so nobody shares personal info',
+      'Usernames and guest names with slurs in them aren\'t allowed',
+    ],
+  },
+  {
     id: 'apple-of-my-eye', name: 'Apple of My Eye', time: 1791328060, tag: 'Player',
     summary: 'The website\'s Play button opens the Player on a Mac too, not just on Windows, Linux and Android.',
     items: [
