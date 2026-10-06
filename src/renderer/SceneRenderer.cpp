@@ -127,6 +127,8 @@ SceneRenderer::SceneRenderer() {
     m_composite = std::make_unique<Shader>(fullscreenVert, compositeFrag);
     m_fxaa      = std::make_unique<Shader>(fullscreenVert, fxaaFrag);
     m_water       = std::make_unique<Shader>(waterVert, waterFrag);
+    m_hlMask      = std::make_unique<Shader>(highlightMaskVert, highlightMaskFrag);
+    m_hl          = std::make_unique<Shader>(fullscreenVert, highlightFrag);
     m_fluidDepth  = std::make_unique<Shader>(fluidVert, fluidDepthFrag);
     m_fluidThick  = std::make_unique<Shader>(fluidVert, fluidThickFrag);
     m_fluidColor  = std::make_unique<Shader>(fluidVert, fluidColorFrag);
@@ -152,7 +154,7 @@ SceneRenderer::~SceneRenderer() {
     if (m_emptyVao) glDeleteVertexArrays(1, &m_emptyVao);
     if (m_fluidVbo) glDeleteBuffers(1, &m_fluidVbo);
     if (m_fluidVao) glDeleteVertexArrays(1, &m_fluidVao);
-    destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_fColor); destroyTarget(m_sceneCopy); destroyTarget(m_waterCopy);
+    destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_fColor); destroyTarget(m_sceneCopy); destroyTarget(m_waterCopy); destroyTarget(m_hlTarget);
     destroyTarget(m_hdr);
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
@@ -613,6 +615,92 @@ void SceneRenderer::render(Scene& scene, const Camera& camera, Framebuffer& targ
     renderLiquid(scene, camera);
 
     postProcess(scene, camera, target);
+    drawHighlights(scene, camera, target);
+}
+
+// Highlights: each one's parts are drawn flat into a mask (what covers the screen,
+// and what of that isn't behind something), then the mask is filled in and an
+// outline drawn round it, on top of the finished picture (so lighting, fog and
+// bloom don't change the colours). Like Roblox, at most 31 show at once.
+void SceneRenderer::drawHighlights(Scene& scene, const Camera& camera, Framebuffer& target) {
+    std::vector<SceneNode*> lights;
+    scene.forEach([&](SceneNode* n) {
+        if (lights.size() >= 31 || !n->isHighlight() || !n->enabled) return;
+        const HighlightProps& h = n->highlight;
+        if (h.fillTransparency >= 0.999f && h.outlineTransparency >= 0.999f) return;
+        lights.push_back(n);
+    });
+    if (lights.empty()) return;
+
+    if (m_hlTarget.w != m_hdr.w || m_hlTarget.h != m_hdr.h || !m_hlTarget.fbo)
+        createTarget(m_hlTarget, m_hdr.w, m_hdr.h, GL_RGBA8, false);
+    const glm::mat4 proj = camera.projection();
+    const glm::mat4 viewProj = proj * camera.view();
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+
+    std::vector<SceneNode*> parts, stack;
+    for (SceneNode* hl : lights) {
+        const HighlightProps& h = hl->highlight;
+        SceneNode* on = h.adornee ? scene.findById(h.adornee) : hl->parent;
+        if (!on) continue;
+        // Its parts: the adornee and everything in it that shows (hidden models hide theirs).
+        bool hidden = false;
+        for (SceneNode* p = on; p; p = p->parent) if (!p->visible) hidden = true;
+        if (hidden) continue;
+        parts.clear();
+        stack.assign(1, on);
+        while (!stack.empty()) {
+            SceneNode* n = stack.back();
+            stack.pop_back();
+            if (!n->visible) continue;
+            if (n->kind == NodeKind::Part && n->mesh && n->shownTransparency() < 0.99f && !Player::isWater(n)) parts.push_back(n);
+            for (auto& c : n->children) stack.push_back(c.get());
+        }
+        if (parts.empty()) continue;
+
+        // 1. The mask.
+        bindTarget(m_hlTarget);
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);   // covered anywhere = covered
+        glDisable(GL_CULL_FACE);       // (inside a part counts as covered too)
+        m_hlMask->bind();
+        m_hlMask->setMat4("uViewProj", viewProj);
+        bindTex(0, m_hdr.depth);
+        m_hlMask->setInt("uDepth", 0);
+        m_hlMask->setVec2("uSize", glm::vec2((float)m_hlTarget.w, (float)m_hlTarget.h));
+        m_hlMask->setVec2("uDepthParams", glm::vec2(proj[3][2], proj[2][2]));
+        m_hlMask->setBool("uOrtho", camera.orthographic);
+        for (SceneNode* n : parts) {
+            const glm::mat4 m = n->worldMatrix();
+            if (tooFar(glm::vec3(m[3]), partRadius(m))) continue;
+            m_hlMask->setMat4("uModel", m);
+            n->mesh->draw();
+        }
+        glEnable(GL_CULL_FACE);
+
+        // 2. Fill and outline, over the picture.
+        target.bind();
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (keep it solid)
+        m_hl->bind();
+        bindTex(0, m_hlTarget.color);
+        m_hl->setInt("uMask", 0);
+        m_hl->setVec2("uTexel", glm::vec2(1.0f / std::max(1, target.width()), 1.0f / std::max(1, target.height())));
+        m_hl->setBool("uOnTop", h.onTop);
+        m_hl->setVec4("uFill", glm::vec4(h.fill, 1.0f - h.fillTransparency));
+        m_hl->setVec4("uOutline", glm::vec4(h.outline, 1.0f - h.outlineTransparency));
+        glBindVertexArray(m_emptyVao);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindVertexArray(0);
+    }
+
+    glActiveTexture(GL_TEXTURE0);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    target.unbind();
 }
 
 namespace {

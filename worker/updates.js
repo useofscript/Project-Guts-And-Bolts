@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'glow-up', name: 'Glow Up', time: 1791323500, tag: 'Engine',
+    summary: 'Highlights: colour a part or a whole character and give it an outline, even through walls, like Roblox.',
+    items: [
+      'Put a Highlight in a part or model and it gets a coloured fill and an outline',
+      'AlwaysOnTop shows it through walls; Occluded only where you can see it',
+      'Pick the fill and outline colours and how see-through each one is',
+      'Highlights the server puts on players show for everyone in multiplayer',
+      'Roblox games with Highlights now import with them',
+    ],
+  },
+  {
     id: 'press-e', name: 'Press E', time: 1791322400, tag: 'Engine',
     summary: 'ProximityPrompts: walk up to a door and a little "E Open" card pops up, like Roblox.',
     items: [

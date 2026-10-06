@@ -1076,6 +1076,14 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         }
         put(std::make_unique<SceneNode>("ProximityPrompt", NodeKind::Prompt));
     }
+    else if (what == "Highlight") {
+        // It colours what it's in (a part or a model).
+        if (!parent || parent == m_scene->root() || (!parent->isPart() && parent->kind != NodeKind::Model)) {
+            Log::warn("Select a part or model first: a Highlight colours and outlines what it's inside.");
+            return;
+        }
+        put(std::make_unique<SceneNode>("Highlight", NodeKind::Highlight));
+    }
     else if (what == "RemoteEvent" || what == "RemoteFunction") {
         // Both sides need to find it, so it goes in ReplicatedStorage unless you picked a place.
         if (!parent || parent == m_scene->root()) {
@@ -1220,7 +1228,7 @@ void Editor::renderInsertObject() {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::LocalScript}, {"ModuleScript", Icons::Id::ModuleScript},
-        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote}, {"ProximityPrompt", Icons::Id::Prompt},
+        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote}, {"ProximityPrompt", Icons::Id::Prompt}, {"Highlight", Icons::Id::Highlight},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment},
         {"BodyVelocity", Icons::Id::Constraint}, {"BodyPosition", Icons::Id::Constraint}, {"BodyGyro", Icons::Id::Constraint},

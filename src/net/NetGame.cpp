@@ -148,6 +148,7 @@ std::string nodeState(const SceneNode* n) {
         n->brightness, n->range, n->spotAngle);
     if (n->isGui()) return std::string(buf) + Serializer::guiToJson(n->gui).dump();   // text, colours, sizes...
     if (n->isPrompt()) return std::string(buf) + Serializer::promptToJson(n->prompt, n->enabled).dump();
+    if (n->isHighlight()) return std::string(buf) + Serializer::highlightToJson(n->highlight, n->enabled).dump();
     return buf;
 }
 
@@ -158,6 +159,7 @@ json nodeUpdate(const SceneNode* n) {
             {"rg", n->range}, {"sa", n->spotAngle}};
     if (n->isGui()) u["gui"] = Serializer::guiToJson(n->gui);
     if (n->isPrompt()) u["pr"] = Serializer::promptToJson(n->prompt, n->enabled);
+    if (n->isHighlight()) u["hl"] = Serializer::highlightToJson(n->highlight, n->enabled);
     return u;
 }
 
@@ -183,6 +185,7 @@ void applyUpdate(SceneNode* n, const json& u) {
         n->gui.absPos = absPos; n->gui.absSize = absSize;
     }
     if (n->isPrompt() && u.contains("pr") && u["pr"].is_object()) Serializer::promptFromJson(u["pr"], n->prompt, n->enabled);
+    if (n->isHighlight() && u.contains("hl") && u["hl"].is_object()) Serializer::highlightFromJson(u["hl"], n->highlight, n->enabled);
 }
 
 glm::vec3 spawnPoint(Scene& scene) {
@@ -373,6 +376,32 @@ std::string toolString(SceneNode* t) {
     t->transform = keep;
     return s;
 }
+// The Highlights inside a character. Characters travel as poses (their ids differ on
+// each computer), so what each one highlights goes as a path of names from the
+// character ("" = all of it, "Head"...), or "w": an id out in the world.
+std::string charHighlights(Scene& scene, SceneNode* root) {
+    json list = json::array();
+    std::vector<SceneNode*> stack{root};
+    while (!stack.empty() && list.size() < 8) {
+        SceneNode* n = stack.back();
+        stack.pop_back();
+        for (auto& c : n->children) {
+            if (!c->isHighlight()) { stack.push_back(c.get()); continue; }
+            json e = {{"h", Serializer::highlightToJson(c->highlight, c->enabled)}};
+            SceneNode* on = c->highlight.adornee ? scene.findById(c->highlight.adornee) : n;
+            if (!on) continue;
+            if (on == root || root->isAncestorOf(on)) {
+                std::string path;
+                for (SceneNode* p = on; p && p != root; p = p->parent) path = p->name + (path.empty() ? "" : "/" + path);
+                e["a"] = path;
+            } else {
+                e["w"] = on->id;
+            }
+            list.push_back(e);
+        }
+    }
+    return list.empty() ? std::string() : list.dump();
+}
 } // namespace
 
 struct NetServer::Client {
@@ -391,6 +420,7 @@ struct NetServer::Client {
     unsigned long long logSent = 0;  // Log::count() already sent to them
     std::string toolsSent;           // the tools they carry, as last sent to them
     std::map<uint64_t, std::string> heldSent;   // what each other character holds, as last sent
+    std::map<uint64_t, std::string> hlSent;     // the Highlights on each character, as last sent
     double      remoteBudget = 60.0;  // RemoteEvent messages they may still send (refills over time)
     double      remoteAt = 0.0;
 };
@@ -971,7 +1001,7 @@ void NetServer::sendTick() {
     json w = json::parse(world);
 
     // Characters: everyone's pose (each client skips its own).
-    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; bool verified; uint64_t held = 0; std::string heldNode; };
+    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; bool verified; uint64_t held = 0; std::string heldNode, hl; };
     std::vector<Char> chars;
     if (Player* host = m_scene->player())
         if (SceneNode* r = host->root())
@@ -985,6 +1015,7 @@ void NetServer::sendTick() {
     // The tool in each hand (sent again only when it changes).
     for (Char& ch : chars)
         if (SceneNode* t = Player::heldTool(ch.root)) { ch.held = t->id; ch.heldNode = toolString(t); }
+    for (Char& ch : chars) ch.hl = charHighlights(*m_scene, ch.root);
 
     for (auto& c : m_clients) {
         if (!c->joined) continue;
@@ -1007,6 +1038,13 @@ void NetServer::sendTick() {
         msg["ts"] = clockNow();
         if (auto mine = m_session->scripts().leaderstats(c->name); !mine.empty()) msg["mys"] = statsJson(mine);
         c->conn->send(msg.dump());
+        // Highlights on characters (their own too), when they change.
+        for (auto& ch : chars) {
+            std::string& was = c->hlSent[ch.id];
+            if (was == ch.hl) continue;
+            was = ch.hl;
+            c->conn->send(json{{"t", "hl"}, {"i", ch.id}, {"list", ch.hl.empty() ? json::array() : json::parse(ch.hl)}}.dump());
+        }
 
         // Things only this player needs to know about their own character.
         if (RemoteCharacter* rc = m_scene->findRemote(c->rootId)) {
@@ -1338,6 +1376,37 @@ void NetClient::handle(const std::string& text) {
         return;
     }
     if (t == "tools" && me) { showMyTools(m); return; }
+    if (t == "hl") {   // the Highlights on a character
+        const uint64_t id = m.value("i", (uint64_t)0);
+        auto& mine = m_charHl[id];
+        for (uint64_t old : mine)
+            if (SceneNode* n = m_scene->findById(old)) m_scene->removeNode(n);
+        mine.clear();
+        SceneNode* root = m_scene->findById(me && id == m_myServerRoot ? me->rootId() : id);
+        if (!root || !m.contains("list") || !m["list"].is_array()) return;
+        for (const auto& e : m["list"]) {
+            if (!e.is_object() || !e.contains("h") || !e["h"].is_object()) continue;
+            auto node = std::make_unique<SceneNode>("Highlight", NodeKind::Highlight);
+            Serializer::highlightFromJson(e["h"], node->highlight, node->enabled);
+            node->highlight.adornee = 0;
+            if (e.contains("w")) {
+                node->highlight.adornee = e.value("w", (uint64_t)0);
+            } else {   // a path of names inside the character
+                SceneNode* on = root;
+                std::string path = e.value("a", std::string());
+                for (size_t at = 0; on && !path.empty() && at <= path.size();) {
+                    size_t slash = path.find('/', at);
+                    if (slash == std::string::npos) slash = path.size();
+                    on = on->findChild(path.substr(at, slash - at));
+                    at = slash + 1;
+                }
+                if (!on) continue;
+                if (on != root) node->highlight.adornee = on->id;
+            }
+            mine.push_back(root->addChild(std::move(node))->id);
+        }
+        return;
+    }
     if (t == "passprompt") { m_passPrompt = m.value("pass", std::string()); return; }
     if (t == "hum" && me) {
         humanoidFrom(me->humanoid(), m.value("h", json::object()));

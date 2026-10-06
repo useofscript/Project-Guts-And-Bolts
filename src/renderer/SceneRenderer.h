@@ -45,6 +45,7 @@ private:
     void drawConstraints(Scene& scene, bool editing);
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
     void renderLiquid(Scene& scene, const Camera& camera);   // real liquid (Liquid.cpp)
+    void drawHighlights(Scene& scene, const Camera& camera, Framebuffer& target);   // Highlight objects
     void ensureTargets(int w, int h);
     void buildGrid();
 public:
@@ -61,6 +62,8 @@ private:
     std::unique_ptr<Shader> m_lit, m_grid, m_sky, m_depth;
     std::unique_ptr<Shader> m_ssao, m_bloomPre, m_bloomDown, m_bloomUp, m_composite, m_fxaa;
     std::unique_ptr<Shader> m_water;   // water parts (see Shaders::waterFrag)
+    std::unique_ptr<Shader> m_hlMask, m_hl;   // Highlights (see Shaders::highlightFrag)
+    Target m_hlTarget;                        // a Highlight's shape on screen
     std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidColor, m_fluidBlur, m_fluidShade, m_fluidSimple;
     Target m_waterCopy;   // water parts: the solid scene behind them (colour and depth)
     struct FlowTex { unsigned tex = 0; int version = -1; };

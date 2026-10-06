@@ -19,6 +19,8 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //            server Scripts send each other messages
 //   Prompt — a ProximityPrompt: "E  Open" pops up when a player walks up to the
 //            part it's in; pressing the key (or tapping it) fires Triggered
+//   Highlight — colours a part or model and draws an outline round it, even
+//            through walls (to show teammates, the thing you're aiming at...)
 //   Light  — a PointLight / SpotLight, usually placed inside a part
 //   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
 //   Sound  — a sound effect or music (inside a part = it comes from there)
@@ -32,7 +34,7 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
 enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui,
-                      FluidSystem, FluidEmitter, Mover, Remote, Prompt };
+                      FluidSystem, FluidEmitter, Mover, Remote, Prompt, Highlight };
 
 // A ProximityPrompt's settings (kind == Prompt; `enabled` switches it off).
 struct PromptProps {
@@ -43,6 +45,17 @@ struct PromptProps {
     float       range = 5.0f;          // MaxActivationDistance (Roblox's default 10 studs)
     bool        lineOfSight = true;    // RequiresLineOfSight: hidden behind walls
     bool        clickable = true;      // ClickablePrompt: can be clicked / tapped too
+};
+
+// A Highlight's settings (kind == Highlight; `enabled` switches it off). Like Roblox's
+// defaults: a see-through red fill with a white outline, shown through walls.
+struct HighlightProps {
+    glm::vec3 fill{1.0f, 0.0f, 0.0f};      // FillColor
+    glm::vec3 outline{1.0f, 1.0f, 1.0f};   // OutlineColor
+    float     fillTransparency = 0.5f;     // FillTransparency (1 = no fill)
+    float     outlineTransparency = 0.0f;  // OutlineTransparency (1 = no outline)
+    bool      onTop = true;                // DepthMode: AlwaysOnTop (seen through walls), else Occluded
+    uint64_t  adornee = 0;                 // Adornee: what it highlights (0 = what it's in)
 };
 
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
@@ -291,6 +304,7 @@ public:
     bool        isLocal = false;          // LocalScript: runs on each player's computer, not the game's server
     bool        remoteFunction = false;   // (kind == Remote) a RemoteFunction, else a RemoteEvent
     PromptProps prompt;                   // (kind == Prompt)
+    HighlightProps highlight;             // (kind == Highlight)
 
     // Anything
     std::vector<Attribute>   attributes;
@@ -414,6 +428,7 @@ public:
     bool isMover() const { return kind == NodeKind::Mover; }
     bool isRemote() const { return kind == NodeKind::Remote; }
     bool isPrompt() const { return kind == NodeKind::Prompt; }
+    bool isHighlight() const { return kind == NodeKind::Highlight; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;

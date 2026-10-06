@@ -32,6 +32,7 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Script   ? (node->isModule ? "ModuleScript" : node->isLocal ? "LocalScript" : "Script")
                     : node->kind == NodeKind::Remote   ? (node->remoteFunction ? "RemoteFunction" : "RemoteEvent")
                     : node->kind == NodeKind::Prompt   ? "ProximityPrompt"
+                    : node->kind == NodeKind::Highlight ? "Highlight"
                     : node->kind == NodeKind::Light    ? (node->lightType == LightType::Spot ? "SpotLight" : "PointLight")
                     : node->kind == NodeKind::Sound    ? "Sound"
                     : node->kind == NodeKind::Attachment ? "Attachment"
@@ -372,6 +373,24 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("Shows when a player walks up to the part it's in. Pressing the key (or clicking it) "
                             "fires its Triggered event, with the player who pressed it.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    if (node->isHighlight()) {
+        HighlightProps& h = node->highlight;
+        ImGui::SeparatorText("Highlight");
+        ImGui::Checkbox("Enabled", &node->enabled);
+        ImGui::ColorEdit3("FillColor", &h.fill.x);
+        ImGui::SliderFloat("FillTransparency", &h.fillTransparency, 0.0f, 1.0f, "%.2f");
+        ImGui::ColorEdit3("OutlineColor", &h.outline.x);
+        ImGui::SliderFloat("OutlineTransparency", &h.outlineTransparency, 0.0f, 1.0f, "%.2f");
+        int mode = h.onTop ? 0 : 1;
+        if (ImGui::Combo("DepthMode", &mode, "AlwaysOnTop\0Occluded\0")) h.onTop = mode == 0;
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(h.onTop ? "Colours the part or model it's in, with an outline round it, seen even through walls."
+                                    : "Colours the part or model it's in, with an outline round it, only where you can see it.");
         ImGui::PopTextWrapPos();
         return;
     }

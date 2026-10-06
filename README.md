@@ -707,6 +707,29 @@ end)
 - In a multiplayer game the server checks the player really is close before
   `Triggered` fires.
 
+### Highlights
+
+A **Highlight** colours a part or a whole model and draws an outline round it,
+like Roblox's. Put one inside what you want to stand out (Insert Object >
+Effects & Lights > Highlight, with the part or model selected), or make one in a
+script:
+
+```lua
+local h = Instance.new("Highlight")
+h.FillColor = Color3.fromRGB(255, 60, 60)
+h.OutlineColor = Color3.new(1, 1, 1)
+h.FillTransparency = 0.5
+h.Parent = player.Character      -- see them through walls
+```
+
+- `DepthMode` is `Enum.HighlightDepthMode.AlwaysOnTop` (seen through walls, the
+  default) or `Occluded` (only where you can see it).
+- `FillTransparency = 1` gives just the outline; `OutlineTransparency = 1` just the fill.
+- `Adornee` points it at something else, so one Highlight in a LocalScript can
+  follow whatever the mouse is over.
+- Up to 31 show at once. Highlights put on characters by the server show for
+  everyone in a multiplayer game.
+
 ### Your character's moves (the Animate script)
 
 Every character gets a 2011-style **Animate** script: idle, walk, run, jump,

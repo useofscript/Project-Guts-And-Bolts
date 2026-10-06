@@ -1006,6 +1006,16 @@ struct Converter {
             p.clickable = in.flag("ClickablePrompt", true);
             node->enabled = in.flag("Enabled", true);
             ++report.other;
+        } else if (c == "Highlight") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Highlight);
+            HighlightProps& h = node->highlight;
+            if (const Value* v = in.get("FillColor"))    h.fill = glm::clamp(v->v, 0.0f, 1.0f);
+            if (const Value* v = in.get("OutlineColor")) h.outline = glm::clamp(v->v, 0.0f, 1.0f);
+            h.fillTransparency = std::clamp((float)in.num("FillTransparency", 0.5), 0.0f, 1.0f);
+            h.outlineTransparency = std::clamp((float)in.num("OutlineTransparency", 0.0), 0.0f, 1.0f);
+            h.onTop = (int)in.num("DepthMode", 0) == 0;   // 0 AlwaysOnTop, 1 Occluded
+            node->enabled = in.flag("Enabled", true);
+            ++report.other;
         } else if (c == "RemoteEvent" || c == "RemoteFunction" || c == "UnreliableRemoteEvent") {
             node = std::make_unique<SceneNode>(name, NodeKind::Remote);
             node->remoteFunction = c == "RemoteFunction";
@@ -1220,6 +1230,12 @@ struct Converter {
         std::unordered_map<int64_t, SceneNode*> byRef;
         for (auto& [inst, node] : made) byRef[inst->referent] = node;
         for (auto& [inst, node] : made) {
+            if (node->isHighlight()) {   // (its Adornee)
+                const Value* v = inst->get("Adornee");
+                if (v && v->kind == Value::Ref)
+                    if (auto it = byRef.find(v->ref); it != byRef.end()) node->highlight.adornee = it->second->id;
+                continue;
+            }
             if (!node->isConstraint() && !node->isMover()) continue;
             auto ref = [&](const char* a, const char* b) -> uint64_t {
                 const Value* v = inst->get(a);
@@ -1352,6 +1368,7 @@ struct XmlWriter {
             case NodeKind::Script:     cls = n.isModule ? "ModuleScript" : n.isLocal ? "LocalScript" : "Script"; break;
             case NodeKind::Remote:     cls = n.remoteFunction ? "RemoteFunction" : "RemoteEvent"; break;
             case NodeKind::Prompt:     cls = "ProximityPrompt"; break;
+            case NodeKind::Highlight:  cls = "Highlight"; break;
             case NodeKind::Light:      cls = n.lightType == LightType::Spot ? "SpotLight" : "PointLight"; break;
             case NodeKind::Sound:      cls = "Sound"; break;
             case NodeKind::Attachment: cls = "Attachment"; break;
@@ -1380,6 +1397,15 @@ struct XmlWriter {
             boolean("CanBeDropped", n.canBeDropped);
             boolean("Enabled", n.enabled);
             str("ToolTip", n.toolTip);
+            break;
+        case NodeKind::Highlight:
+            color3("FillColor", n.highlight.fill);
+            color3("OutlineColor", n.highlight.outline);
+            flt("FillTransparency", n.highlight.fillTransparency);
+            flt("OutlineTransparency", n.highlight.outlineTransparency);
+            token("DepthMode", n.highlight.onTop ? 0 : 1);
+            refProp("Adornee", n.highlight.adornee);
+            boolean("Enabled", n.enabled);
             break;
         case NodeKind::Prompt:
             str("ActionText", n.prompt.action);

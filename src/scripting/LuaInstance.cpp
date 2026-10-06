@@ -106,6 +106,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Script: return n->isModule ? "ModuleScript" : n->isLocal ? "LocalScript" : "Script";
         case NodeKind::Remote: return n->remoteFunction ? "RemoteFunction" : "RemoteEvent";
         case NodeKind::Prompt: return "ProximityPrompt";
+        case NodeKind::Highlight: return "Highlight";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Tool:       return "Tool";
@@ -1204,6 +1205,16 @@ int inst_index(lua_State* L) {
         if (is(k, "PromptShown"))           { LuaApi::pushSignal(L, SignalKind::PromptShown, n->id); return 1; }
         if (is(k, "PromptHidden"))          { LuaApi::pushSignal(L, SignalKind::PromptHidden, n->id); return 1; }
     }
+    if (n->isHighlight()) {
+        const HighlightProps& h = n->highlight;
+        if (is(k, "FillColor"))           { LuaApi::pushColor3(L, h.fill); return 1; }
+        if (is(k, "OutlineColor"))        { LuaApi::pushColor3(L, h.outline); return 1; }
+        if (is(k, "FillTransparency"))    { lua_pushnumber(L, h.fillTransparency); return 1; }
+        if (is(k, "OutlineTransparency")) { lua_pushnumber(L, h.outlineTransparency); return 1; }
+        if (is(k, "DepthMode"))           { lua_pushstring(L, h.onTop ? "AlwaysOnTop" : "Occluded"); return 1; }
+        if (is(k, "Enabled"))             { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "Adornee"))             { if (h.adornee && E(L)->scene()->findById(h.adornee)) LuaApi::pushInstance(L, h.adornee); else lua_pushnil(L); return 1; }
+    }
     if (n->kind == NodeKind::Remote) {
         if (is(k, "OnServerEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteServer, n->id); return 1; }
         if (is(k, "OnClientEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteClient, n->id); return 1; }
@@ -1416,6 +1427,21 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Style") || is(k, "Exclusivity") || is(k, "GamepadKeyCode") || is(k, "UIOffset") ||
             is(k, "AutoLocalize") || is(k, "RootLocalizationTable")) return 0;
     }
+    if (n->isHighlight()) {
+        HighlightProps& h = n->highlight;
+        if (is(k, "FillColor"))           { h.fill = glm::clamp(LuaApi::checkColor3(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "OutlineColor"))        { h.outline = glm::clamp(LuaApi::checkColor3(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "FillTransparency"))    { h.fillTransparency = std::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "OutlineTransparency")) { h.outlineTransparency = std::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
+        if (is(k, "DepthMode")) {   // Enum.HighlightDepthMode.AlwaysOnTop / Occluded
+            std::string m = luaL_tolstring(L, 3, nullptr);
+            lua_pop(L, 1);
+            h.onTop = m.find("Occluded") == std::string::npos && m != "1";
+            return 0;
+        }
+        if (is(k, "Enabled"))             { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Adornee"))             { SceneNode* a = lua_isnoneornil(L, 3) ? nullptr : LuaApi::checkNode(L, 3); h.adornee = a ? a->id : 0; return 0; }
+    }
     if (n->kind == NodeKind::Remote) {
         if (is(k, "OnServerInvoke")) {
             if (!lua_isnil(L, 3)) luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -1572,6 +1598,8 @@ int inst_new(lua_State* L) {
         n->remoteFunction = cls == "RemoteFunction";
     } else if (cls == "ProximityPrompt") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Prompt);
+    } else if (cls == "Highlight") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Highlight);
     } else if (cls == "Attachment") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Attachment);
     } else if (cls == "RopeConstraint" || cls == "RodConstraint" || cls == "SpringConstraint" ||

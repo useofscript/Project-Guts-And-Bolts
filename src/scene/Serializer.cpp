@@ -51,6 +51,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Mover:        return "Mover";
         case NodeKind::Remote:       return "Remote";
         case NodeKind::Prompt:       return "Prompt";
+        case NodeKind::Highlight:    return "Highlight";
         default:               return "Part";
     }
 }
@@ -72,6 +73,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Mover")        return NodeKind::Mover;
     if (s == "Remote")       return NodeKind::Remote;
     if (s == "Prompt")       return NodeKind::Prompt;
+    if (s == "Highlight")    return NodeKind::Highlight;
     return NodeKind::Part;
 }
 
@@ -122,6 +124,31 @@ void promptFromJson(const nlohmann::json& j, PromptProps& p, bool& enabled) {
     p.lineOfSight = j.value("los", true);
     p.clickable   = j.value("click", true);
     enabled       = j.value("on", true);
+}
+
+nlohmann::json highlightToJson(const HighlightProps& h, bool enabled) {
+    nlohmann::json j = {{"fill", vec(h.fill)}, {"outline", vec(h.outline)},
+                        {"fillT", h.fillTransparency}, {"outlineT", h.outlineTransparency}};
+    if (!h.onTop)   j["occluded"] = true;
+    if (h.adornee)  j["adornee"] = h.adornee;   // (a node ID, like a constraint's ref0)
+    if (!enabled)   j["on"] = false;
+    return j;
+}
+
+void highlightFromJson(const nlohmann::json& j, HighlightProps& h, bool& enabled) {
+    auto color = [&](const char* key, glm::vec3 fallback) {
+        auto it = j.find(key);
+        if (it == j.end() || !it->is_array() || it->size() != 3) return fallback;
+        for (auto& v : *it) if (!v.is_number()) return fallback;
+        return glm::clamp(glm::vec3((*it)[0].get<float>(), (*it)[1].get<float>(), (*it)[2].get<float>()), 0.0f, 1.0f);
+    };
+    h.fill                = color("fill", glm::vec3(1, 0, 0));
+    h.outline             = color("outline", glm::vec3(1));
+    h.fillTransparency    = std::clamp(j.value("fillT", 0.5f), 0.0f, 1.0f);
+    h.outlineTransparency = std::clamp(j.value("outlineT", 0.0f), 0.0f, 1.0f);
+    h.onTop               = !j.value("occluded", false);
+    h.adornee             = j.value("adornee", (uint64_t)0);
+    enabled               = j.value("on", true);
 }
 
 nlohmann::json guiToJson(const GuiProps& g) {
@@ -392,6 +419,7 @@ json toJson(const SceneNode& n) {
     if (n.isLocal)  j["local"]    = true;
     if (n.remoteFunction) j["function"] = true;
     if (n.isPrompt()) j["prompt"] = Serializer::promptToJson(n.prompt, n.enabled);
+    if (n.isHighlight()) j["highlight"] = Serializer::highlightToJson(n.highlight, n.enabled);
     if (n.locked)   j["locked"]   = true;
     if (!n.tags.empty()) j["tags"] = n.tags;
     if (!n.attributes.empty()) {
@@ -574,6 +602,7 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     n->isLocal       = get<bool>(j, "local", false);
     n->remoteFunction = get<bool>(j, "function", false);
     if (auto p = j.find("prompt"); p != j.end() && p->is_object()) Serializer::promptFromJson(*p, n->prompt, n->enabled);
+    if (auto h = j.find("highlight"); h != j.end() && h->is_object()) Serializer::highlightFromJson(*h, n->highlight, n->enabled);
     n->locked        = get<bool>(j, "locked", false);
     if (auto t = j.find("tags"); t != j.end() && t->is_array())
         for (auto& v : *t) if (v.is_string()) n->tags.push_back(v.get<std::string>());
@@ -808,7 +837,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.source = src->source;       dst.enabled = src->enabled;
     dst.isModule = src->isModule;   dst.locked = src->locked;
     dst.isLocal = src->isLocal;     dst.remoteFunction = src->remoteFunction;
-    dst.prompt = src->prompt;
+    dst.prompt = src->prompt;       dst.highlight = src->highlight;
     dst.tags = src->tags;           dst.attributes = src->attributes;
     dst.lightType = src->lightType; dst.brightness = src->brightness;
     dst.range = src->range;         dst.spotAngle = src->spotAngle;
@@ -859,6 +888,8 @@ void remapRefs(SceneNode& n, const std::unordered_map<uint64_t, uint64_t>& map) 
     }
     if (n.isGui() && n.gui.adornee)   // (a copied BillboardGui sits on the copied part, if it came along)
         if (auto it = map.find(n.gui.adornee); it != map.end()) n.gui.adornee = it->second;
+    if (n.isHighlight() && n.highlight.adornee)   // (the same for a copied Highlight)
+        if (auto it = map.find(n.highlight.adornee); it != map.end()) n.highlight.adornee = it->second;
     if (n.kind == NodeKind::FluidEmitter)   // (a copied emitter uses the copied liquid, if it came along)
         if (auto it = map.find(n.fluidSystem); it != map.end()) n.fluidSystem = it->second;
     for (auto& c : n.children) remapRefs(*c, map);

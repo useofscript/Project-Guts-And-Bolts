@@ -558,6 +558,60 @@ inline const char* depthFrag = R"(#version 410 core
 void main() {}
 )";
 
+// Highlights, step 1: the highlighted parts' shape on screen. Red = covered, green =
+// covered and not behind anything else (compared with the scene's depth).
+inline const char* highlightMaskVert = R"(#version 410 core
+layout(location=0) in vec3 aPos;
+uniform mat4 uViewProj;
+uniform mat4 uModel;
+void main() { gl_Position = uViewProj * uModel * vec4(aPos, 1.0); }
+)";
+
+inline const char* highlightMaskFrag = R"(#version 410 core
+uniform sampler2D uDepth;     // the scene's depth
+uniform vec2  uSize;          // its size in pixels
+uniform vec2  uDepthParams;   // (proj[3][2], proj[2][2]): depth -> distance
+uniform bool  uOrtho;
+out vec4 FragColor;
+float dist(float d) { return uOrtho ? d : uDepthParams.x / (d * 2.0 - 1.0 + uDepthParams.y); }
+void main() {
+    float scene = texture(uDepth, gl_FragCoord.xy / uSize).r;
+    // The part itself wrote that depth, so allow a little slack.
+    float a = dist(gl_FragCoord.z), b = dist(scene);
+    bool seen = uOrtho ? gl_FragCoord.z <= scene + 0.0005 : a <= b * 1.004 + 0.02;
+    FragColor = vec4(1.0, seen ? 1.0 : 0.0, 0.0, 1.0);
+}
+)";
+
+// Highlights, step 2: fill the shape, and draw an outline just outside it.
+inline const char* highlightFrag = R"(#version 410 core
+in vec2 vUV;
+uniform sampler2D uMask;
+uniform vec2  uTexel;         // one pixel of the screen, in uv
+uniform bool  uOnTop;         // AlwaysOnTop: the whole shape; else only the parts you can see
+uniform vec4  uFill;          // colour, opacity
+uniform vec4  uOutline;
+out vec4 FragColor;
+float cover(vec2 uv) {
+    vec2 m = texture(uMask, uv).rg;
+    return uOnTop ? m.r : m.g;
+}
+void main() {
+    float c = cover(vUV);
+    if (c > 0.5) { FragColor = uFill; return; }
+    // Near the edge? Look round in a little circle (about 2.5 pixels).
+    float edge = 0.0;
+    for (int i = 0; i < 12; ++i) {
+        float a = float(i) * 0.5235988;
+        vec2 d = vec2(cos(a), sin(a));
+        edge = max(edge, cover(vUV + d * uTexel * 1.25));
+        edge = max(edge, cover(vUV + d * uTexel * 2.5));
+    }
+    if (edge < 0.5) discard;
+    FragColor = uOutline;
+}
+)";
+
 // ---------------------------------------------------------------------------
 // Post-processing (all fullscreen passes)
 // ---------------------------------------------------------------------------

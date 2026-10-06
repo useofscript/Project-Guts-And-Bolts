@@ -208,7 +208,7 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
         {"Scripts", {"Script", "LocalScript", "ModuleScript", "RemoteEvent", "RemoteFunction"}},
         {"Characters & Tools", {"Tool", "Rig", "Animation", "Team", "ProximityPrompt"}},
         {"Containers", {"Model", "Folder"}},
-        {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal"}},
+        {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal", "Highlight"}},
         {"Water", {"Water", "WaterSource", "FluidVolume", "FluidSystem", "FluidEmitter"}},
         {"Constraints", {"Attachment", "LinearVelocity", "AlignPosition", "AlignOrientation", "AngularVelocity", "VectorForce", "Torque"}},
         {"Body Movers (classic)", {"BodyVelocity", "BodyPosition", "BodyGyro", "BodyAngularVelocity", "BodyThrust", "BodyForce"}},
@@ -406,6 +406,7 @@ std::string className(const SceneNode& n) {
         case NodeKind::Script:     return n.isModule ? "ModuleScript" : n.isLocal ? "LocalScript" : "Script";
         case NodeKind::Remote:     return n.remoteFunction ? "RemoteFunction" : "RemoteEvent";
         case NodeKind::Prompt:     return "ProximityPrompt";
+        case NodeKind::Highlight:  return "Highlight";
         case NodeKind::Light:      return n.lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";

@@ -8,6 +8,7 @@ class SceneNode;
 struct Environment;
 struct GuiProps;
 struct PromptProps;
+struct HighlightProps;
 
 // Turns scenes and objects into JSON text and back. Used for:
 //  * File > Save / Open (".gbscene" files)
@@ -26,6 +27,9 @@ void                       guiFromJson(GuiProps& g, const nlohmann::json& j);
 // A ProximityPrompt's settings (and whether it's on), the same way.
 nlohmann::json             promptToJson(const PromptProps& p, bool enabled);
 void                       promptFromJson(const nlohmann::json& j, PromptProps& p, bool& enabled);
+// A Highlight's settings (and whether it's on), the same way.
+nlohmann::json             highlightToJson(const HighlightProps& h, bool enabled);
+void                       highlightFromJson(const nlohmann::json& j, HighlightProps& h, bool& enabled);
 // freshIds = true gives every object a brand-new id (needed for copies).
 std::unique_ptr<SceneNode> nodeFromString(const std::string& text, bool freshIds);
 std::unique_ptr<SceneNode> clone(const SceneNode& node);

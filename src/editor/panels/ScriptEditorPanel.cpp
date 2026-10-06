@@ -60,6 +60,8 @@ const char* const kWords[] = {
     "ProximityPrompt", "ProximityPromptService", "Triggered", "TriggerEnded", "ActionText", "ObjectText",
     "KeyboardKeyCode", "HoldDuration", "MaxActivationDistance", "RequiresLineOfSight", "PromptButtonHoldBegan",
     "PromptButtonHoldEnded", "PromptShown", "PromptHidden", "ClickablePrompt",
+    "Highlight", "FillColor", "OutlineColor", "FillTransparency", "OutlineTransparency", "DepthMode",
+    "HighlightDepthMode", "AlwaysOnTop", "Occluded", "Adornee",
 };
 
 bool wordChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
