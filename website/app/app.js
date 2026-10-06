@@ -984,7 +984,8 @@ pages.game = async (id) => {
           <tr><td>Created</td><td>${new Date(g.created * 1000).toLocaleDateString()}</td><td>Updated</td><td>${ago(g.updated || g.created)}</td></tr>
           <tr><td>Server size</td><td>${g.maxPlayers || 12}</td><td>Genre</td><td>${(g.genres || []).join(', ') || 'All'}</td></tr></table>
         <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
-        ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>` : ''}
+        ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>
+          <button class="btn" data-act="editInStudio" data-id="${g.id}" data-name="${g.name}">Edit in Studio</button>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
@@ -1224,7 +1225,8 @@ pages.create = async (tab = 'games') => {
         ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID ${assetNum(a)}` : ''}</span></div>
       ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy ID</button>` : ''}
       ${a.kind === 'game' ? html`<a class="btn small" href="#/game/${a.id}">View</a>
-        <a class="btn small blue" href="#/configure/${a.id}">Configure</a>` : ''}
+        <a class="btn small blue" href="#/configure/${a.id}">Configure</a>
+        <button class="btn small" data-act="editInStudio" data-id="${a.id}" data-name="${a.name}">Edit in Studio</button>` : ''}
       <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`;
   show(html`${head}<div class="box">${costs}</div>
     ${kind === 'game' ? html`<h2>My published games</h2>` : html`<h2>My ${KINDS[kind]}${kind === 'pants' ? '' : 's'}</h2>`}
@@ -1990,6 +1992,16 @@ const actions = {
     launchGame(d.id, d.name, '');
   },
   pickGuest(d) { launchGame(d.id, d.name, d.guest); },
+  // Edit in Studio: the app (Player) downloads the game and opens Studio on it.
+  editInStudio(d) {
+    const url = 'gutsandbolts://edit/' + encodeURIComponent(d.id);
+    popup(html`<h1 class="popup-title">Opening Studio...</h1>
+      <div class="launch-spin" aria-hidden="true"></div>
+      <p>Opening <b>${d.name}</b> in Guts&amp;Bolts Studio. The Guts&amp;Bolts app gets the game, then starts Studio.</p>
+      <p class="small muted">If your browser asks, choose <b>Open Guts&amp;Bolts</b>. Studio runs on Windows, Mac and Linux (not phones).</p>
+      <p class="popup-buttons"><a class="btn green" href="${url}">Try again</a> <a class="btn" href="../#download">Download the app</a></p>`);
+    location.href = url;
+  },
   joinServer(d) {
     if (!signedIn()) { guestPicker(d.id, d.name); return; }
     launchGame(d.id, d.name, '', d.server);
