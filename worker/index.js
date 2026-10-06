@@ -2,6 +2,7 @@
 //
 //   /api   one signed request -> one answer   (the website and the apps)
 //   /ws    a WebSocket for the multiplayer relay (the apps)
+//   /download/...  the apps themselves (downloads.js)
 //   else   the website's files (website/)
 //
 // Normally the Guts&Bolts server itself runs here too (server.js, a Durable
@@ -9,6 +10,7 @@
 // (host:port), /api is passed on to that server instead, over TCP.
 import { connect } from 'cloudflare:sockets';
 import { GbServerObject } from './server.js';
+import { handleDownload } from './downloads.js';
 export { GbServerObject };
 
 const MAX_REQUEST = 40 * 1024 * 1024;   // a whole game, base64
@@ -69,8 +71,9 @@ export default {
     const url = new URL(request.url);
     // The site lives at gutsandbolts.net. The old workers.dev address only keeps answering
     // older apps (the server and its pictures); people opening it in a browser get moved.
-    if (url.hostname.endsWith('.workers.dev') && !/^\/(api|ws|thumb|icon|wear|decal)(\/|$)/.test(url.pathname))
+    if (url.hostname.endsWith('.workers.dev') && !/^\/(api|ws|thumb|icon|wear|decal|download)(\/|$)/.test(url.pathname))
       return Response.redirect('https://gutsandbolts.net' + url.pathname + url.search, 301);
+    if (url.pathname.startsWith('/download/')) return handleDownload(request, env, url);
     if (url.pathname === '/api/info') {
       return reply({ ok: true, server: env.GB_SERVER || 'cloudflare', time: Math.floor(Date.now() / 1000) });
     }

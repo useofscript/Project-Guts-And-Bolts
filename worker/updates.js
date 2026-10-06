@@ -10,7 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'paint-job', name: 'Paint Job', time: 1791244800, tag: 'Studio',
+    id: 'home-delivery', name: 'Home Delivery', version: '0.6.6', time: 1791248400, tag: 'Website',
+    summary: 'Download Guts&Bolts straight from gutsandbolts.net, and it updates itself from there too.',
+    items: [
+      'The Download buttons on gutsandbolts.net give you the Player and Studio (and the Android app) directly',
+      'The apps update themselves from gutsandbolts.net: they download the new version and restart, and your own games stay put',
+    ],
+  },
+  {
+    id: 'paint-job', name: 'Paint Job', version: '0.6.6', time: 1791244800, tag: 'Studio',
     summary: 'Hats imported from Roblox files show their pictures for everyone, on the website too.',
     items: [
       'Some hats still used a picture that only lived on the computer that made them, so the website (and everyone else) saw them plain white',
@@ -19,7 +27,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'new-address', name: 'Moving Day', time: 1791241500, tag: 'Website',
+    id: 'new-address', name: 'Moving Day', version: '0.6.6', time: 1791241500, tag: 'Website',
     summary: 'Guts&Bolts has its own address now: gutsandbolts.net.',
     items: [
       'The website lives at gutsandbolts.net (www.gutsandbolts.net works too)',

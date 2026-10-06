@@ -33,18 +33,23 @@ apps and adds Desktop / menu shortcuts. The first build takes a few minutes.
 > No window? Run `python3 install.py --cli` for the text version.
 > `python3 install.py --check` just shows what it detected.
 
-**Updates are automatic.** When the Player or Studio opens and a newer version
-is out, an *Updating Guts&Bolts* screen counts down from 3, runs the updater
-and reopens the app, so everyone plays on the same version. Studio waits
+**Getting it:** players download the Player and Studio from
+**<https://gutsandbolts.net/#download>**, which is the only place they come from.
+The files live on Cloudflare (an R2 bucket, `worker/downloads.js`). Each release
+uploads them there itself: GitHub signs a short-lived token for the release run,
+and the site checks that signature, so no password is stored anywhere.
+
+**Updates are automatic.** When the Player or Studio opens and gutsandbolts.net
+has a newer version, an *Updating Guts&Bolts* screen counts down from 3,
+downloads the new version, puts it over the old one and reopens the app, so
+everyone plays on the same version. Your own games are kept. Studio waits
 while you have unsaved work, and the Player waits until you leave a game.
-(A copy downloaded without the source folder can't update itself: it shows an
-*Update available* card with a link instead.)
 
 ## Android (experimental)
 
 The Player also runs on Android phones and tablets (Android 7.0+). Download
-`GutsAndBoltsPlayer-Android.apk` from the
-[Releases page](https://github.com/useofscript/Project-Guts-And-Bolts/releases),
+`GutsAndBoltsPlayer-Android.apk` from
+[gutsandbolts.net](https://gutsandbolts.net/#download),
 open it on your phone and allow installing it. It has the thumbstick / jump
 button touch controls, swipe scrolling, the Back button, the sample games
 built in, and it can host or join games with phones and computers on the same

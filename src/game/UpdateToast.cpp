@@ -51,8 +51,7 @@ bool drawForced(const char* appName, const UpdateChecker::Info& info) {
     ImGui::TextColored(ImVec4(1.0f, 0.62f, 0.25f, 1), "Updating Guts&Bolts");
     ImGui::SetWindowFontScale(1.0f);
     ImGui::Spacing();
-    ImGui::Text("A new version is out (%d new change%s since %s).", info.behindBy, info.behindBy == 1 ? "" : "s",
-                UpdateChecker::currentVersion());
+    ImGui::Text("A new version is out (you have %s).", UpdateChecker::currentVersion());
     if (!info.latestMessage.empty()) ImGui::TextDisabled("Latest: %s", info.latestMessage.c_str());
     ImGui::TextDisabled("Everyone stays on the newest version, so games work the same for everybody.");
     ImGui::Spacing();
@@ -63,7 +62,7 @@ bool drawForced(const char* appName, const UpdateChecker::Info& info) {
                            left > 0 ? ("Starting the updater in " + std::to_string((int)left + 1) + "...").c_str() : "Starting...");
         if (left <= 0) {
             if (UpdateChecker::launchUpdater(g_appName.c_str())) quit = true;
-            else g_error = "Couldn't start the updater. Run install.py --update in the Guts&Bolts folder.";
+            else g_error = "Couldn't start the updater. Download the newest version from gutsandbolts.net.";
         }
     } else {
         ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", g_error.c_str());
@@ -125,8 +124,7 @@ bool draw(const char* appName, bool canForce) {
     ImGui::SameLine(w - 44);
     if (ImGui::SmallButton("x")) g_dismissed = true;
     ImGui::PushTextWrapPos(w - 16);
-    ImGui::Text("%d new change%s since your version (%s).", info.behindBy, info.behindBy == 1 ? "" : "s",
-                UpdateChecker::currentVersion());
+    ImGui::Text("A new version is out (you have %s).", UpdateChecker::currentVersion());
     ImGui::PopTextWrapPos();
     if (!info.latestMessage.empty()) {
         ImGui::PushTextWrapPos(w - 16);
@@ -142,7 +140,7 @@ bool draw(const char* appName, bool canForce) {
     ImGui::BeginDisabled(!UpdateChecker::canUpdate());
     if (ImGui::Button("Update now", ImVec2(120, 30))) {
         if (UpdateChecker::launchUpdater(appName)) quit = true;
-        else g_error = "Couldn't start the updater - run install.py --update yourself.";
+        else g_error = "Couldn't start the updater. Download the newest version from gutsandbolts.net.";
     }
     ImGui::EndDisabled();
     ImGui::PopStyleColor(3);
