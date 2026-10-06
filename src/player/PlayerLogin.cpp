@@ -351,6 +351,7 @@ void PlayerApp::takeLink(const std::string& url) {
     m_linkGame = link.game;
     m_linkGuest = link.guest;
     m_linkServer = link.server;
+    m_linkEdit = link.edit;
 }
 
 void PlayerApp::followLink() {
@@ -361,6 +362,17 @@ void PlayerApp::followLink() {
     if (m_busy) return;
     const std::string id = m_linkGame;
     m_linkGame.clear();
+    if (m_linkEdit) {   // the website's "Edit in Studio": fetch the game file and open Studio on it
+        m_linkEdit = false;
+        m_page = Page::Create;
+        m_createKind = 0;
+        m_createMsg = "Downloading the game for Studio...";
+        Online::download(id, [this](bool ok, const std::filesystem::path& file, const json& info) {
+            if (ok) openInStudio(file);
+            else m_createMsg = info.value("error", std::string("Couldn't download the game."));
+        });
+        return;
+    }
     if (m_page == Page::Game) leaveGame();
     if (Online::me().value("userId", 0LL) == 0) {   // not signed up on this device: play as a guest
         if (!m_linkGuest.empty()) applyGuestLook(m_linkGuest == "girl" ? 1 : 0);

@@ -804,22 +804,51 @@ local services = { Workspace = workspace, PathfindingService = PathfindingServic
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService,
                    TweenService = TweenService, HttpService = HttpService }
-local storageNames = { ReplicatedStorage = true, ServerStorage = true, ReplicatedFirst = true }
+-- The container services are folders at the top of the game (Studio shows them in the Explorer).
+local storageNames = { ReplicatedStorage = true, ServerStorage = true, ReplicatedFirst = true, ServerScriptService = true,
+                       StarterPack = true, SoundService = true, Chat = true, TextChatService = true }
 local storage = __gb_storage
-game = setmetatable({}, { __index = function(_, name)
+-- Services Guts and Bolts doesn't do much with yet: they exist (so scripts written for
+-- Roblox start), their harmless calls do nothing, and anything else says so clearly.
+local quiet = { ContentProvider = { PreloadAsync = true }, LogService = {}, ScriptContext = {}, TestService = {},
+    Stats = {}, GuiService = {}, HapticService = {}, ProximityPromptService = {}, LocalizationService = {},
+    AnalyticsService = { LogCustomEvent = true, LogEconomyEvent = true, LogProgressionEvent = true },
+    PolicyService = {}, SocialService = {}, GroupService = {}, AssetService = {}, TextService = {},
+    MaterialService = {}, VoiceChatService = {}, ContextActionService = { UnbindAction = true },
+    MemoryStoreService = {}, MessagingService = { PublishAsync = true }, TeleportService = {}, InsertService = {},
+    PhysicsService = { RegisterCollisionGroup = true, CollisionGroupSetCollidable = true },
+    MarketplaceService = {}, GamePassService = {}, ChangeHistoryService = { SetWaypoint = true }, Selection = {},
+    StarterPlayer = {}, VRService = {}, GamepadService = {}, KeyframeSequenceProvider = {}, NotificationService = {} }
+local made = {}
+local function quietService(name)
+    if made[name] then return made[name] end
+    local calls = quiet[name]
+    local s = setmetatable({ Name = name, ClassName = name }, { __index = function(_, key)
+        if calls[key] then return function() end end
+        if type(key) == "string" and key:sub(1, 1):match("%u") then
+            return function() error(name .. ":" .. key .. " isn't in Guts and Bolts yet", 2) end
+        end
+        return nil
+    end, __tostring = function() return name end })
+    made[name] = s
+    return s
+end
+local function findService(name)
     if name == "StarterGui" then return __gb_uiFolder() end
     if storageNames[name] then return storage(name) end
-    return services[name]
-end })
+    if services[name] ~= nil then return services[name] end
+    if quiet[name] then return quietService(name) end
+    return nil
+end
+game = setmetatable({}, { __index = function(_, name) return findService(name) end })
 function game:GetService(name)
-    if name == "StarterGui" then return __gb_uiFolder() end
-    if storageNames[name] then return storage(name) end
-    local s = services[name]
+    local s = findService(name)
     if s == nil then
         error("'" .. tostring(name) .. "' is not a service Guts and Bolts knows about", 2)
     end
     return s
 end
+game.FindService = function(_, name) return findService(name) end
 Workspace = workspace
 
 -- Handy extras that Roblox's Luau also has.

@@ -28,7 +28,7 @@ function show(content) { view.innerHTML = content.s; setTimeout(() => upgradeIte
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
   hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
-  tshirt: 'T-Shirt', gear: 'Gear' };
+  tshirt: 'T-Shirt', gear: 'Gear', animation: 'Animation' };
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
 const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
@@ -697,28 +697,118 @@ pages.games = async (mine, which) => {
       : html`<p class="error">${r.error}</p>`}`);
 };
 
+// The old catalog look, shared by the Catalog and the Library: a search bar with a category box
+// on top, "Browse by Category" down the left with filters under it, then rows of item tiles that
+// say more about a thing when you point at it.
+const BROWSE_PAGE = 42;
+// Everything of a kind (the server hands out 100 at a time).
+async function listAll(args) {
+  const all = [];
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const r = await pageCall('list', { ...args, offset, limit: 100 });
+    if (!r.ok) return r;
+    all.push(...r.assets);
+    if (r.assets.length < 100) break;
+  }
+  return { ok: true, assets: all };
+}
+const hashParams = () => new URLSearchParams(location.hash.split('?')[1] || '');
+// The page's address with some settings changed (going back to page 1 unless the page is what changed).
+function browseLink(changes) {
+  const p = hashParams();
+  if (!('page' in changes)) p.delete('page');
+  for (const [k, v] of Object.entries(changes)) { if (v === '' || v == null) p.delete(k); else p.set(k, v); }
+  const s = p.toString();
+  return location.hash.split('?')[0] + (s ? '?' + s : '');
+}
+const BROWSE_SORTS = [['', 'Relevance'], ['popular', 'Most Popular'], ['new', 'Recently Updated'], ['low', 'Price (Low to High)'], ['high', 'Price (High to Low)']];
+function browseSort(list, sort) {
+  const by = {
+    popular: (x, y) => (y.sales + y.plays) - (x.sales + x.plays),
+    new: (x, y) => (y.updated || y.created) - (x.updated || x.created),
+    low: (x, y) => (x.price || 0) - (y.price || 0),
+    high: (x, y) => (y.price || 0) - (x.price || 0),
+  }[sort];
+  return by ? [...list].sort(by) : list;
+}
+// Creators filter: everyone, Guts&Bolts staff (official), or one person by name.
+function creatorMatch(a, who) {
+  if (!who) return true;
+  if (who === 'official') return a.creatorStaff;
+  return lower(a.creatorName) === lower(who);
+}
+const lower = (s) => String(s || '').toLowerCase();
+// A tile: picture, blue name, price; pointing at it shows who made it, when, and how many sold.
+function browseCard(a, href, price) {
+  return html`<div class="card square bcard">
+    <a class="pic-wrap" href="${href}"><div class="pic">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain;border:0">`
+      : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
+      : a.kind === 'audio' || a.kind === 'plugin' || a.kind === 'model' || a.kind === 'animation' ? html`<span class="lib-kind">${a.kind === 'audio' ? raw(SPEAKER_SVG) : ''}${KINDS[a.kind] || a.kind}</span>`
+      : itemIcon(a)}</div>${officialBadge(a)}${a.limited ? html`<span class="limited-tag">LIMITED</span>` : a.offsaleAt ? html`<span class="timed-tag">${a.offsale ? 'OFF SALE' : 'TIMED'}</span>` : ''}</a>
+    <a class="name" href="${href}">${a.name}</a>
+    <div class="bprice">${price}</div>
+    <div class="btip"><div>Creator: <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
+      <div>Updated: ${ago(a.updated || a.created)}</div><div>${a.kind === 'model' || a.kind === 'animation' ? 'Taken' : 'Sales'}: ${(a.sales || 0).toLocaleString()}</div>
+      ${isCatalogItem(a.kind) ? '' : html`<div>ID: ${assetNum(a)} <button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy</button></div>`}</div></div>`;
+}
+// cats: [key, label, [kids]]; the page itself fetches, filters and passes the tiles in.
+function browsePage({ title, cats, cat, heading, shown, total, filters, side = '' }) {
+  const q = hashParams(), query = q.get('q') || '', sort = q.get('sort') || '', page = Math.max(1, Number(q.get('page')) || 1);
+  const catLink = (k) => browseLink({ cat: k, q: '' });
+  const open = (c) => c[0] === cat || (c[2] || []).some((k) => k[0] === cat);
+  const catRow = (c) => html`<div class="bcat ${open(c) ? 'open' : ''}">
+      <a class="${c[0] === cat ? 'on' : ''}" href="${catLink(c[0])}">${c[1]}${c[2] ? html`<span class="arrow">&#9654;</span>` : ''}</a>
+      ${c[2] ? html`<div class="bkids">${c[2].map((k) => html`<a class="${k[0] === cat ? 'on' : ''}" href="${catLink(k[0])}">${k[1]}</a>`)}</div>` : ''}</div>`;
+  const flat = cats.flatMap((c) => c === '-' ? [] : [[c[0], c[1]], ...(c[2] || [])]);
+  const from = (page - 1) * BROWSE_PAGE, to = Math.min(total, from + BROWSE_PAGE);
+  const pager = total > BROWSE_PAGE ? html`<div class="bpager">
+      ${page > 1 ? html`<a class="btn" href="${browseLink({ page: page - 1 })}">&lt; Previous</a>` : ''}
+      <span>Page ${page} of ${Math.ceil(total / BROWSE_PAGE)}</span>
+      ${to < total ? html`<a class="btn" href="${browseLink({ page: page + 1 })}">Next &gt;</a>` : ''}</div>` : '';
+  return html`<div class="btop"><h1>${title}</h1>
+      <form class="bsearch" data-form="browseSearch"><input type="search" name="q" value="${query}" aria-label="Search ${title}">
+        <select name="cat">${flat.map(([k, l]) => html`<option value="${k}" ${k === cat ? 'selected' : ''}>${l}</option>`)}</select>
+        <button class="btn">Search</button></form></div>
+    <div class="browse">
+      <aside class="bside">
+        <div class="bcats"><div class="bcats-head"><small>Browse by</small>Category</div>
+          ${cats.map((c) => c === '-' ? raw('<hr>') : catRow(c))}</div>
+        ${filters.length ? html`<h3 class="bfilters-head">Filters</h3>` : ''}
+        ${filters.map((f) => html`<div class="bfilter"><b>${f.title}</b>
+          ${f.options.map(([v, l]) => html`<a class="filt ${(q.get(f.key) || '') === v ? 'on' : ''}" href="${browseLink({ [f.key]: v })}"><span class="dot"></span>${l}</a>`)}
+          ${f.extra || ''}</div>`)}
+        ${side}
+      </aside>
+      <section class="bmain">
+        <div class="bhead"><div><b class="bcaps">${heading}</b><br>
+          <span class="small muted">${total ? `Showing ${from + 1} - ${to} of ${total.toLocaleString()} result${total === 1 ? '' : 's'}` : 'No results'}${query ? html` for <b>${query}</b>` : ''}</span></div>
+          <label class="small">Sort by: <select data-go>${BROWSE_SORTS.map(([k, l]) => html`<option value="${browseLink({ sort: k })}" ${sort === k ? 'selected' : ''}>${l}</option>`)}</select></label></div>
+        ${shown.length ? html`<div class="bgrid">${shown}</div>${pager}` : html`<p class="muted">Nothing here yet.</p>`}
+      </section></div>`;
+}
+// Cut a filtered, sorted list down to the page being looked at.
+function browseSlice(list) {
+  const page = Math.max(1, Number(hashParams().get('page')) || 1);
+  return list.slice((page - 1) * BROWSE_PAGE, page * BROWSE_PAGE);
+}
+const creatorFilter = () => ({ title: 'Creators', key: 'creator', options: [['', 'All Creators'], ['official', 'Guts&Bolts']],
+  extra: html`<form class="row bcreator" data-form="browseCreator"><input type="text" name="name" placeholder="Name" value="${(() => { const c = hashParams().get('creator') || ''; return c === 'official' ? '' : c; })()}"><button class="btn small">Go</button></form>` });
+
 // Create > Library: everything people have made public, to use in your games.
+const LIBRARY_CATS = [['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['animation', 'Animations'], ['plugin', 'Plugins']];
 async function libraryPage(head) {
-  const q = new URLSearchParams(location.hash.split('?')[1] || '');
-  const kind = q.get('kind') || 'model', query = q.get('q') || '';
-  const r = await pageCall('list', { kind, query, sort: 'popular', limit: 100 });
-  const chip = (k, l) => html`<a class="chip ${kind === k ? 'on' : ''}" href="#/create/library?kind=${k}">${l}</a>`;
-  const card = (a) => html`<div class="card square lib-card">
-      <a class="pic" href="#/library/${assetNum(a)}">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain">`
-        : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
-        : html`<span class="lib-kind">${a.kind === 'audio' ? raw(SPEAKER_SVG) : ''}${KINDS[a.kind] || a.kind}</span>`}${officialBadge(a)}</a>
-      <a class="name" href="#/library/${assetNum(a)}">${a.name}</a>
-      <div class="by">by <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
-      <div class="by small">ID ${assetNum(a)} <button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy ID</button></div></div>`;
-  show(html`${head}
-    <p class="muted">Everything people have made public. Use any of it in your games: in Studio, open the <b>Toolbox</b> (the
-      <b>Library</b> tab), or copy an ID into a Decal's Texture / a Sound's File.</p>
-    <form class="row" data-form="librarySearch"><input type="hidden" name="kind" value="${kind}">
-      <input type="search" name="q" placeholder="Search the Library" value="${query}" style="max-width:280px"><button class="btn blue">Search</button></form>
-    <form class="row" data-form="assetGo"><input type="text" name="id" placeholder="Got an ID? Paste it here (like 123)" style="max-width:280px">
-      <button class="btn">Go</button></form>
-    <div class="genre-chips">${chip('model', 'Models')}${chip('decal', 'Decals')}${chip('audio', 'Audio')}${chip('plugin', 'Plugins')}</div>
-    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(card)}</div>` : html`<p class="muted">Nothing here yet.</p>`) : html`<p class="error">${r.error}</p>`}`);
+  const q = hashParams();
+  const cat = LIBRARY_CATS.some((c) => c[0] === (q.get('cat') || q.get('kind'))) ? (q.get('cat') || q.get('kind')) : 'model';
+  const r = await listAll({ kind: cat, query: q.get('q') || '', sort: 'popular' });
+  if (!r.ok) { show(html`${head}<p class="error">${r.error}</p>`); return; }
+  const list = browseSort(r.assets.filter((a) => creatorMatch(a, q.get('creator'))), q.get('sort'));
+  const side = html`<div class="box small">Use anything here in your games: in Studio, open the <b>Toolbox</b> (the <b>Library</b> tab),
+      or copy an ID into a Decal's Texture / a Sound's File.
+      <form class="row" data-form="assetGo" style="margin-top:8px"><input type="text" name="id" placeholder="Got an ID? (like 123)" style="flex:1;min-width:0">
+        <button class="btn small">Go</button></form></div>`;
+  show(html`${head}${browsePage({ title: 'Library', cats: LIBRARY_CATS, cat, heading: LIBRARY_CATS.find((c) => c[0] === cat)[1],
+    shown: browseSlice(list).map((a) => browseCard(a, '#/library/' + assetNum(a), a.price > 0 ? bolts(a.price) : raw('<span class="free">Free</span>'))),
+    total: list.length, filters: [creatorFilter()], side })}`);
   view.querySelectorAll('img[data-decal]').forEach(decalPicture);
   loadThumbs();
 }
@@ -758,9 +848,10 @@ pages.library = async (id = '') => {
     audio: 'In Studio, select a Sound and paste the ID into its File (SoundId). Scripts can use it too: sound.SoundId = "' + assetNum(a) + '"',
     model: 'In Studio, open the Toolbox, pick the Library tab and search for it to insert it into your game.',
     plugin: 'In Studio, open the Toolbox\'s Plugins tab and install it from there.',
+    animation: 'In Studio\'s Animation Editor, press ... > Import > From the Library and paste its ID (or search for it).',
   }[a.kind] || '';
   const canDelete = signedIn() && (a.creator === me.id || me.staff);
-  show(html`<p><a href="#/create/library?kind=${a.kind}">&lt; Library</a></p>
+  show(html`<p><a href="#/create/library?cat=${a.kind}">&lt; Library</a></p>
     <div class="item-page">
       <h1 class="item-title">${a.name}</h1>
       <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind] || a.kind}${a.access === 'private' ? ' / Private' : ''}</div>
@@ -894,7 +985,8 @@ pages.game = async (id) => {
           <tr><td>Created</td><td>${new Date(g.created * 1000).toLocaleDateString()}</td><td>Updated</td><td>${ago(g.updated || g.created)}</td></tr>
           <tr><td>Server size</td><td>${g.maxPlayers || 12}</td><td>Genre</td><td>${(g.genres || []).join(', ') || 'All'}</td></tr></table>
         <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
-        ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>` : ''}
+        ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>
+          <button class="btn" data-act="editInStudio" data-id="${g.id}" data-name="${g.name}">Edit in Studio</button>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
@@ -905,20 +997,33 @@ pages.game = async (id) => {
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
 };
 
+// The Catalog, laid out like the old one (see browsePage).
+const CATALOG_CATS = [['featured', 'Featured'], ['collectibles', 'Collectibles'], '-', ['all', 'All Categories'],
+  ['clothes', 'Clothing', [['shirt', 'Shirts'], ['tshirt', 'T-Shirts'], ['pants', 'Pants']]],
+  ['body', 'Body Parts', [['face', 'Faces']]], ['gear', 'Gear'],
+  ['accessories', 'Accessories', [['hat', 'Hats'], ['hair', 'Hair'], ['faceacc', 'Face'], ['neck', 'Neck'], ['shoulder', 'Shoulder'], ['waist', 'Waist']]]];
+const CATALOG_PICK = {
+  featured: (a) => a.creatorStaff, collectibles: (a) => !!a.limited, all: () => true,
+  clothes: (a) => ['shirt', 'tshirt', 'pants'].includes(a.kind), body: (a) => a.kind === 'face', accessories: (a) => ACCESSORIES.includes(a.kind),
+};
+const PRICES = { free: [0, 0], '1-100': [1, 100], '101-1000': [101, 1000], over: [1001, Infinity] };
 pages.catalog = async () => {
-  const q = new URLSearchParams(location.hash.split('?')[1] || '');
-  const kind = q.get('kind') || 'clothing', query = q.get('q') || '';
-  const r = await pageCall('list', { kind, query, limit: 100 });
-  const tab = (k, label) => html`<a class="btn ${kind === k ? 'blue' : ''}" href="#/catalog?kind=${k}">${label}</a>`;
-  show(html`<h1>Catalog</h1>
-    <div class="tabs">${tab('clothing', 'Everything')}${tab('hat', 'Hats')}${tab('hair', 'Hair')}${tab('face', 'Faces')}${tab('faceacc', 'Face Accessories')}${tab('neck', 'Neck')}
-      ${tab('shoulder', 'Shoulder')}${tab('waist', 'Waist')}${tab('shirt', 'Shirts')}${tab('tshirt', 'T-Shirts')}${tab('pants', 'Pants')}${tab('gear', 'Gear')}</div>
-    <form class="row" data-form="catalogSearch"><input type="hidden" name="kind" value="${kind}">
-      <input type="search" name="q" placeholder="Search the catalog" value="${query}" style="max-width:280px">
-      <button class="btn blue">Search</button></form><br>
-    ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(itemCard)}</div>` : html`<p class="muted">Nothing here yet.</p>`)
-      : html`<p class="error">${r.error}</p>`}`);
-  upgradeItemPictures();
+  const q = hashParams();
+  const flat = CATALOG_CATS.flatMap((c) => c === '-' ? [] : [c, ...(c[2] || [])]);
+  let cat = q.get('cat') || q.get('kind') || 'all';
+  if (!flat.some((c) => c[0] === cat)) cat = 'all';
+  const r = await listAll({ kind: 'clothing', query: q.get('q') || '' });
+  if (!r.ok) { show(html`<h1>Catalog</h1><p class="error">${r.error}</p>`); return; }
+  const pick = CATALOG_PICK[cat] || ((a) => a.kind === cat);
+  const price = PRICES[q.get('price')];
+  const list = browseSort(r.assets.filter((a) => pick(a) && creatorMatch(a, q.get('creator')) &&
+    (!price || ((a.price || 0) >= price[0] && (a.price || 0) <= price[1]))), q.get('sort'));
+  const priceOf = (a) => a.limited && a.limited.left <= 0 ? (a.limited.lowest ? html`from ${bolts(a.limited.lowest)}` : raw('<span class="muted">Sold out</span>'))
+    : a.offsale ? raw('<span class="muted">Off sale</span>') : a.price > 0 ? bolts(a.price) : raw('<span class="free">Free</span>');
+  show(browsePage({ title: 'Catalog', cats: CATALOG_CATS, cat, heading: flat.find((c) => c[0] === cat)[1],
+    shown: browseSlice(list).map((a) => browseCard(a, '#/item/' + a.id, priceOf(a))), total: list.length,
+    filters: [{ title: 'Price', key: 'price', options: [['', 'Any Price'], ['free', 'Free'], ['1-100', '1 - 100'], ['101-1000', '101 - 1,000'], ['over', 'Over 1,000']] },
+      creatorFilter()] }));
 };
 
 pages.item = async (id) => {
@@ -1121,7 +1226,8 @@ pages.create = async (tab = 'games') => {
         ${a.kind === 'decal' || a.kind === 'audio' ? html` · ID ${assetNum(a)}` : ''}</span></div>
       ${a.kind === 'decal' || a.kind === 'audio' ? html`<button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy ID</button>` : ''}
       ${a.kind === 'game' ? html`<a class="btn small" href="#/game/${a.id}">View</a>
-        <a class="btn small blue" href="#/configure/${a.id}">Configure</a>` : ''}
+        <a class="btn small blue" href="#/configure/${a.id}">Configure</a>
+        <button class="btn small" data-act="editInStudio" data-id="${a.id}" data-name="${a.name}">Edit in Studio</button>` : ''}
       <button class="btn small red" data-act="deleteAsset" data-id="${a.id}" data-name="${a.name}">Delete</button></div>`;
   show(html`${head}<div class="box">${costs}</div>
     ${kind === 'game' ? html`<h2>My published games</h2>` : html`<h2>My ${KINDS[kind]}${kind === 'pants' ? '' : 's'}</h2>`}
@@ -1887,6 +1993,16 @@ const actions = {
     launchGame(d.id, d.name, '');
   },
   pickGuest(d) { launchGame(d.id, d.name, d.guest); },
+  // Edit in Studio: the app (Player) downloads the game and opens Studio on it.
+  editInStudio(d) {
+    const url = 'gutsandbolts://edit/' + encodeURIComponent(d.id);
+    popup(html`<h1 class="popup-title">Opening Studio...</h1>
+      <div class="launch-spin" aria-hidden="true"></div>
+      <p>Opening <b>${d.name}</b> in Guts&amp;Bolts Studio. The Guts&amp;Bolts app gets the game, then starts Studio.</p>
+      <p class="small muted">If your browser asks, choose <b>Open Guts&amp;Bolts</b>. Studio runs on Windows, Mac and Linux (not phones).</p>
+      <p class="popup-buttons"><a class="btn green" href="${url}">Try again</a> <a class="btn" href="../#download">Download the app</a></p>`);
+    location.href = url;
+  },
   joinServer(d) {
     if (!signedIn()) { guestPicker(d.id, d.name); return; }
     launchGame(d.id, d.name, '', d.server);
@@ -2245,9 +2361,9 @@ const forms = {
   },
   topSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value }); },
   assetGo(f) { const id = f.id.value.trim().replace(/^gb:/, ''); if (id) location.hash = '#/library/' + encodeURIComponent(id); },
-  librarySearch(f) { location.hash = '#/create/library?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
+  browseSearch(f) { location.hash = browseLink({ q: f.q.value.trim(), cat: f.cat.value }); },
+  browseCreator(f) { location.hash = browseLink({ creator: f.name.value.trim() }); },
   gameSearch(f) { location.hash = '#/games?' + new URLSearchParams({ q: f.q.value, sort: f.sort.value, genre: f.genre.value }); },
-  catalogSearch(f) { location.hash = '#/catalog?' + new URLSearchParams({ kind: f.kind.value, q: f.q.value }); },
   peopleSearch(f) { location.hash = '#/people?' + new URLSearchParams({ q: f.q.value }); },
   staffSearch(f) { location.hash = '#/staff?' + new URLSearchParams({ q: f.q.value }); },
   groupSearch(f) { location.hash = '#/groups?' + new URLSearchParams({ q: f.q.value }); },
@@ -2370,6 +2486,9 @@ const forms = {
     if (r.ok) render();
   },
 };
+
+// Drop-downs that go somewhere when you pick (like the catalog's "Sort by").
+document.addEventListener('change', (e) => { if (e.target.matches && e.target.matches('select[data-go]')) location.hash = e.target.value; });
 
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');

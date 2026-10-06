@@ -260,6 +260,7 @@ private:
     void applyGuestLook(int which);    // 0 = boy (black cap), 1 = girl (ponytail)
     // A gutsandbolts:// link to act on once we're online (the website's Play button).
     std::string                    m_linkGame, m_linkGuest, m_linkServer;
+    bool                           m_linkEdit = false;   // the link was "Edit in Studio"
     double                         m_linkPollAt = 0.0;
     void takeLink(const std::string& url);
     void followLink();

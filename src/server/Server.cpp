@@ -251,10 +251,15 @@ json GbServer::meJson(const User& u) const {
     return j;
 }
 
+bool GbServer::canSee(const Asset& a, const User& me) const {
+    return !Online::hasAccess(a.kind) || a.meta.value("access", std::string("public")) != "private" || a.creator == me.id || isStaff(me);
+}
+
 json GbServer::publicAsset(const Asset& a) const {
     json j = {{"id", a.id}, {"num", a.num}, {"kind", a.kind}, {"name", a.name}, {"description", a.description},
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
               {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
+    if (Online::hasAccess(a.kind)) j["access"] = a.meta.value("access", std::string("public"));
     if (a.kind == "game") { j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL); }
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
@@ -658,6 +663,13 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         meta.erase("allowGear");
         if (kind == "gear")
             if (std::string problem = Online::gearProblem(data); !problem.empty()) return fail(problem);
+        if (kind == "animation") {   // from Studio's Animation Editor (worker/server.js has the same)
+            json anim = json::parse(data, nullptr, false);
+            if (!anim.is_object() || anim.value("format", std::string()) != "gbanim" || !anim.contains("clip") || !anim["clip"].is_object())
+                return fail("That isn't a Guts&Bolts animation.");
+        }
+        meta.erase("access");
+        if (Online::hasAccess(kind)) meta["access"] = str("access") == "private" ? "private" : "public";
         if (Online::isAccessory(kind) && !data.empty()) {   // made in Studio's Accessory window
             json acc = json::parse(data, nullptr, false);
             if (!acc.is_object() || acc.value("format", std::string()) != "gbaccessory")
@@ -831,6 +843,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (ownedOnly && !me.owned.count(a.id)) continue;
             if (!creator.empty() && a.creator != creator) continue;
             if (!q.empty() && lower(a.name).find(q) == std::string::npos) continue;
+            if (!canSee(a, me)) continue;
             found.push_back(&a);
         }
         std::sort(found.begin(), found.end(), [&](const Asset* x, const Asset* y) {
@@ -877,7 +890,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         std::string id = Online::cleanText(str("id"), 80);
         if (id.rfind("gb:", 0) == 0) id = id.substr(3);
         auto it = findAsset(id);
-        if (it == m_assets.end()) return fail("There's nothing with that ID (or it's private).");
+        if (it == m_assets.end() || !canSee(it->second, me)) return fail("There's nothing with that ID (or it's private).");
         json r = okay(); r["asset"] = publicAsset(it->second); r["owned"] = me.owned.count(id) > 0; return r;
     }
     if (name == "get") {
@@ -887,6 +900,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         const bool mine = me.owned.count(a.id) || a.creator == me.id;
         if (a.price > 0 && !mine && !isStaff(me) && (a.kind == "plugin" || a.kind == "audio" || a.kind == "gear"))
             return fail("Buy it first.");
+        if (!canSee(a, me)) return fail(a.kind == "animation" ? "This animation is private." : "This model is private.");
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
         if (a.kind == "game") { rememberPlayed(me, a.id); saveUsers(); }   // "Continue playing"

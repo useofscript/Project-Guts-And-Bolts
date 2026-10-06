@@ -68,6 +68,8 @@ public:
     std::function<void(SceneNode*, glm::vec3, SceneNode*, glm::vec3)> onConnect;
     // The mode menu in the Viewport's corner asks for a new mode.
     std::function<void(StudioMode)> onMode;
+    // Right-clicking the view (without turning the camera): draws the menu's items.
+    std::function<void()> contextMenu;
 
 private:
     // The navmesh view: its own look at the parts, rebaked when they change.

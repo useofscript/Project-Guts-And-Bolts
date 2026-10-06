@@ -36,9 +36,10 @@ std::string unescape(const std::string& s) {
 } // namespace
 
 bool parse(const std::string& url, Link& out) {
-    const std::string prefix = "gutsandbolts://play/";
-    if (url.compare(0, prefix.size(), prefix) != 0) return false;
-    std::string rest = url.substr(prefix.size());
+    const std::string play = "gutsandbolts://play/", edit = "gutsandbolts://edit/";
+    const bool editing = url.compare(0, edit.size(), edit) == 0;
+    if (!editing && url.compare(0, play.size(), play) != 0) return false;
+    std::string rest = url.substr(editing ? edit.size() : play.size());
     std::string query;
     if (size_t q = rest.find('?'); q != std::string::npos) { query = rest.substr(q + 1); rest = rest.substr(0, q); }
     while (!rest.empty() && rest.back() == '/') rest.pop_back();
@@ -46,6 +47,7 @@ bool parse(const std::string& url, Link& out) {
     if (rest.empty() || rest.size() > 100) return false;
     for (char c : rest) if (!safeChar(c)) return false;   // ids only: nothing that could reach a shell or a path
     out.game = rest;
+    out.edit = editing;
     out.guest.clear();
     out.server.clear();
     std::stringstream qs(query);

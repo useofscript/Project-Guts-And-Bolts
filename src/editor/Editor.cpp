@@ -79,6 +79,21 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
         if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Ungroup", "Ctrl+U"))
             m_deferred = [this] { ungroupSelected(); };
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_deferred = [this] { duplicateSelected(); };
+        publishMenuItem();
+    };
+    // Right-clicking the 3D view: the same things for what's selected.
+    m_viewport->contextMenu = [this] {
+        const bool any = m_scene->selected() != nullptr;
+        if (!any) ImGui::TextDisabled("Click something to select it first.");
+        ImGui::BeginDisabled(!any);
+        if (ImGui::MenuItem("Group", "Ctrl+G")) m_deferred = [this] { groupSelected(); };
+        SceneNode* sel = m_scene->selected();
+        if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Ungroup", "Ctrl+U"))
+            m_deferred = [this] { ungroupSelected(); };
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_deferred = [this] { duplicateSelected(); };
+        if (ImGui::MenuItem("Zoom To", "F")) m_deferred = [this] { m_viewport->focusSelected(); };
+        ImGui::EndDisabled();
+        publishMenuItem();
     };
     m_properties   = std::make_unique<PropertiesPanel>(scene, open);
     m_properties->m_editMesh = [this](SceneNode* n) {

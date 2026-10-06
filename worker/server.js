@@ -30,9 +30,9 @@ const EXAMPLE_GAMES = [
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
 const kCreatorSharePercent = 70;
-const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt', 'gear'];
+const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt', 'gear', 'animation'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
-  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10, gear: 0 };
+  hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10, gear: 0, animation: 0 };
 // Accessories: things worn on the body, made (and placed on a mannequin) in Studio's
 // Accessory window. Verified creators only. Faces are pictures, and only Guts makes them.
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
@@ -42,9 +42,13 @@ const canBeLimited = (k) => isAccessory(k) || k === 'face';
 // Models (objects published from Studio to the Library) are public or private. Verified
 // creators can make as many public as they like; everyone else 5 a week.
 const kPublicModelsPerWeek = 5;
+// Animations (published from Studio's Animation Editor) are public or private too, so other
+// creators can use them, or not. They're free and have no weekly limit.
+// Things that are public or private: games, models and animations.
+const hasAccess = (k) => k === 'game' || k === 'model' || k === 'animation';
 const weekOf = (t) => Math.floor(t / (7 * 86400));
 const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 << 20, shirt: 1 << 20, pants: 1 << 20, model: 4 << 20,
-  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20, gear: 4 << 20 };
+  hat: 1 << 20, hair: 1 << 20, faceacc: 1 << 20, neck: 1 << 20, shoulder: 1 << 20, waist: 1 << 20, face: 1 << 20, tshirt: 1 << 20, gear: 4 << 20, animation: 1 << 20 };
 // Gear: a Tool (made in Studio) sold in the catalog, like Roblox's old gear. Only staff
 // make gear. You can have up to kMostGear equipped, and you get them in games whose
 // creator ticked "Allow gear". (src/server has the same rules.)
@@ -73,7 +77,7 @@ function tshirtProblem(data) {
   return '';
 }
 // Decals and audio are free-use assets: anyone can put them in their games.
-const alwaysFree = (k) => k === 'decal' || k === 'audio';
+const alwaysFree = (k) => k === 'decal' || k === 'audio' || k === 'animation';
 // Why an account was banned (staff pick one). Shown to the banned player.
 const BAN_REASONS = {
   sexual: 'Sexual content',
@@ -754,7 +758,7 @@ export class GbServerObject extends DurableObject {
     return { id: a.id, num: a.num || 0, kind: a.kind, name: a.name, description: a.description, creator: a.creator, price: a.price,
       created: a.created, sales: a.sales, plays: a.plays, size: a.size, meta: a.meta || {},
       creatorName: c ? c.name : (a.builtin ? 'Guts' : '?'), creatorVerified: !!c && this.isVerified(c), creatorStaff: !!c && this.isStaff(c), thumb: a.thumb || 0,
-      icon: a.icon || 0, access: a.kind === 'game' || a.kind === 'model' ? (a.access || 'public') : undefined,
+      icon: a.icon || 0, access: hasAccess(a.kind) ? (a.access || 'public') : undefined,
       badges: a.kind === 'game' ? (a.badges || []) : undefined,
       genres: a.kind === 'game' ? (a.genres || []) : undefined, allowGear: a.kind === 'game' ? !!a.allowGear : undefined, maxPlayers: a.kind === 'game' ? (a.maxPlayers || kDefaultMax) : undefined,
       likes: a.kind === 'game' ? (a.likes || 0) : undefined, dislikes: a.kind === 'game' ? (a.dislikes || 0) : undefined,
@@ -787,7 +791,7 @@ export class GbServerObject extends DurableObject {
   }
   // Can `me` see and play this game? (Other kinds of things are always visible.)
   canPlay(a, me) {
-    if ((a.kind !== 'game' && a.kind !== 'model') || !a.access || a.access === 'public') return true;
+    if (!hasAccess(a.kind) || !a.access || a.access === 'public') return true;
     if (a.creator === me.id || this.isStaff(me)) return true;
     if (a.access === 'friends') return me.friends.includes(a.creator);
     return false;
@@ -795,6 +799,7 @@ export class GbServerObject extends DurableObject {
   noPlay(a) {
     const c = this.users.get(a.creator);
     if (a.kind === 'model') return 'This model is private.';
+    if (a.kind === 'animation') return 'This animation is private.';
     return a.access === 'friends' ? 'Only ' + (c ? c.name : 'the creator') + '\'s friends can play this game.' : 'This game is private.';
   }
   publicGroup(g) {
@@ -1345,6 +1350,12 @@ export class GbServerObject extends DurableObject {
         access = str(args, 'access') === 'private' ? 'private' : 'public';
         if (access === 'public' && !this.publicModelOk(me)) return fail(this.publicModelLimitText());
       }
+      if (kind === 'animation') {
+        let anim = null;
+        try { anim = JSON.parse(new TextDecoder().decode(data)); } catch { anim = null; }
+        if (!anim || anim.format !== 'gbanim' || !anim.clip || typeof anim.clip !== 'object') return fail('That isn\'t a Guts&Bolts animation.');
+        access = str(args, 'access') === 'private' ? 'private' : 'public';
+      }
       delete meta.image; delete meta.model;
       if (isAccessory(kind)) {
         // Made in Studio: the model and where it sits on the body. (Old-style hats have no data.)
@@ -1381,7 +1392,7 @@ export class GbServerObject extends DurableObject {
       this.dirty.ids = true;
       const a = { id: String(assetNo), num: assetNo, kind, name: title, description: desc, creator: me.id, price, created: t,
         sales: 0, plays: 0, size: data.length, meta };
-      if (access) { a.access = access; if (access === 'public') this.countPublicModel(me); }
+      if (access) { a.access = access; if (access === 'public' && kind === 'model') this.countPublicModel(me); }
       this.writeFile(a.id, data);
       if ((kind === 'face' || kind === 'tshirt') && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }   // its own picture
       this.assets.set(a.id, a);
@@ -1547,10 +1558,10 @@ export class GbServerObject extends DurableObject {
     if (name === 'model.access') {
       // Make one of your Library models public or private.
       const a = this.assets.get(str(args, 'id'));
-      if (!a || a.kind !== 'model') return fail('That model doesn\'t exist (any more).');
+      if (!a || (a.kind !== 'model' && a.kind !== 'animation')) return fail('That model doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only change your own models.');
       const access = str(args, 'access') === 'private' ? 'private' : 'public';
-      if (access === 'public' && a.access !== 'public') {
+      if (access === 'public' && a.access !== 'public' && a.kind === 'model') {
         if (!this.publicModelOk(me)) return fail(this.publicModelLimitText());
         this.countPublicModel(me);
       }

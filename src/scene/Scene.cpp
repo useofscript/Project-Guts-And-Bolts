@@ -197,6 +197,32 @@ SceneNode* Scene::findById(uint64_t id) {
     return it != m_index.end() ? it->second : nullptr;
 }
 
+const std::vector<const char*>& Scene::serviceNames() {
+    static const std::vector<const char*> names = {"ReplicatedFirst", "ReplicatedStorage", "ServerScriptService", "ServerStorage",
+                                                   "StarterGui", "StarterPack", "Teams", "SoundService", "Chat", "TextChatService"};
+    return names;
+}
+
+bool Scene::isServiceName(const std::string& name) {
+    for (const char* n : serviceNames()) if (name == n) return true;
+    return false;
+}
+
+bool Scene::isServiceFolder(const SceneNode* node) const {
+    return node && node->parent == m_root.get() && node->kind == NodeKind::Model && isServiceName(node->name);
+}
+
+SceneNode* Scene::serviceFolder(const std::string& name, bool create) {
+    if (!isServiceName(name)) return nullptr;
+    for (auto& c : m_root->children)
+        if (c->name == name && c->kind == NodeKind::Model) return c.get();
+    if (!create) return nullptr;
+    auto folder = std::make_unique<SceneNode>(name, NodeKind::Model);
+    // Only the game UI shows in the world; the rest are storage (templates, scripts, sounds).
+    if (name != "StarterGui") folder->visible = false;
+    return insert(std::move(folder), nullptr);
+}
+
 bool Scene::isProtected(const SceneNode* node) const {
     return node == m_root.get() || (m_player && node && node->id == m_player->rootId());
 }

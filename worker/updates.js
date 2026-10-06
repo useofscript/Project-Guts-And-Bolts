@@ -10,6 +10,22 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'window-shopping', name: 'Window Shopping', time: 1791249962, tag: 'Studio',
+    summary: 'The Catalog and Library look like the old catalog, gear is held the classic way, and Studio can publish models and animations from a right-click.',
+    items: [
+      'Catalog and Library (website and Player): a search bar with a category box, Browse by Category down the left, Price and Creators filters, Sort by, and a little info box when you point at an item',
+      'The Library has a new Animations section',
+      'Gear is held like classic Roblox: arm straight out, the sword pointing up',
+      'Studio: right-click what you selected (in the Explorer or the 3D view) and pick Publish to Guts&Bolts to share it as a public or private model',
+      'Animation Editor: a "..." menu like Roblox\'s (Load, Save, Save As, Import, Export, Create New, Set Animation Priority), Roblox-style play buttons, and Space plays or pauses',
+      'Publish animations to Guts&Bolts as public (other creators can use them) or private (only you), and import them back by ID',
+      'Studio\'s Explorer shows Roblox\'s services (ReplicatedStorage, ServerScriptService, StarterPack and more); game:GetService knows them too',
+      'The website\'s My Games has an Edit in Studio button that opens your game straight in Studio',
+      'Fixed: an error on the Player\'s Create > Library page',
+      'The website parts are live now; the Player and Studio parts come with the next app update',
+    ],
+  },
+  {
     id: 'home-delivery', name: 'Home Delivery', version: '0.6.6', time: 1791248400, tag: 'Website',
     summary: 'Download Guts&Bolts straight from gutsandbolts.net, and it updates itself from there too.',
     items: [

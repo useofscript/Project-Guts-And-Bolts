@@ -498,3 +498,60 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 .feed-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .feed-item:last-child { border-bottom: 0; }
 .feed-pic { flex: none; width: 40px; height: 50px; display: flex; align-items: center; justify-content: center; }
+
+/* The old catalog look (Catalog and Library): search on top, categories on the left, tiles on the right. */
+.btop { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.btop h1 { margin: 0; font-size: 30px; font-weight: normal; }
+.bsearch { display: flex; gap: 4px; flex: 0 1 470px; min-width: 0; }
+.bsearch input[type=search] { flex: 1; min-width: 0; }
+.bsearch select { width: auto; max-width: 150px; }
+.browse { display: grid; grid-template-columns: 160px 1fr; gap: 18px; align-items: start; }
+.bside { min-width: 0; }
+.bcats { border: 1px solid #8a9099; background: var(--panel2); }
+.bcats-head { background: linear-gradient(#5a5f66, #3b3f45); color: #fff; font-weight: bold; font-size: 15px; line-height: 1.05; padding: 5px 7px 4px; }
+.bcats-head small { display: block; font-size: 10px; }
+.bcats hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+.bcat { position: relative; }
+.bcat > a, .bkids a { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; color: var(--text); font-size: 12px; }
+.bcat > a:hover, .bkids a:hover { background: var(--panel); text-decoration: none; }
+.bcat a.on { background: var(--line); font-weight: bold; }
+.bcat .arrow { font-size: 9px; color: var(--muted); }
+.bkids { display: none; }
+.bcat.open .bkids { display: block; }
+.bcat.open .bkids a { padding-left: 18px; }
+/* Pointing at a group (on a computer) shows what's in it off to the side, like the old one. */
+@media (hover: hover) {
+  .bcat:not(.open):hover .bkids { display: block; position: absolute; left: 100%; top: -1px; z-index: 5; min-width: 130px;
+    background: var(--panel2); border: 1px solid #8a9099; box-shadow: 2px 2px 6px rgba(0,0,0,.2); }
+}
+.bfilters-head { font-size: 26px; font-weight: normal; margin: 16px 0 6px; }
+.bfilter { margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.bfilter b { display: block; font-size: 13px; margin-bottom: 4px; }
+.filt { display: flex; align-items: center; gap: 6px; color: var(--text); padding: 2px 0; }
+.filt .dot { width: 11px; height: 11px; border: 1px solid #7d8591; background: var(--panel); border-radius: 2px; flex: none; }
+.filt.on { font-weight: bold; }
+.filt.on .dot { background: var(--blue); box-shadow: inset 0 0 0 2px var(--panel); }
+.bcreator { margin-top: 4px; gap: 4px; }
+.bcreator input { flex: 1; min-width: 0; }
+.bmain { min-width: 0; border-left: 1px solid var(--line); padding-left: 18px; }
+.bhead { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.bcaps { text-transform: uppercase; font-size: 13px; }
+.bhead select { width: auto; }
+.bgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 16px 14px; }
+.bcard .pic { border-color: #d3d7dc; }
+.bcard .name { display: block; font-weight: normal; margin-top: 5px; line-height: 1.3; }
+.bprice .price, .bprice .bolt { color: var(--green); }
+.bprice .free { color: var(--text); font-weight: bold; }
+/* The little info box when you point at a tile. */
+.btip { display: none; position: absolute; left: -6px; right: -6px; top: calc(100% - 2px); z-index: 6; padding: 5px 7px; font-size: 11px;
+  color: var(--muted); background: var(--panel); border: 1px solid #c3c8cf; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
+.btip a { font-size: 11px; }
+@media (hover: hover) { .bcard:hover .btip { display: block; } }
+.bpager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 18px 0 4px; }
+@media (max-width: 640px) {
+  .browse { grid-template-columns: 1fr; }
+  .bmain { border-left: 0; padding-left: 0; }
+  .bsearch { flex: 1 1 100%; }
+  .bfilters-head { font-size: 20px; }
+  .bgrid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+}
