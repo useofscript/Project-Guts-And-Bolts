@@ -68,6 +68,18 @@ public:
     void markBadge(const std::string& player, const std::string& badge) { m_knownBadges.insert(player + "\n" + badge); }
     bool knowsBadge(const std::string& player, const std::string& badge) const { return m_knownBadges.count(player + "\n" + badge) > 0; }
     void queueBadge(const std::string& player, const std::string& badge) { m_badgeAwards.push_back({player, badge}); }
+    // Game passes (MarketplaceService). The engine asks the server who owns which by
+    // itself; a purchase prompt needs the app: it takes them, shows the player a Buy
+    // window (or sends it to that player's computer) and says how it went.
+    void lookUpPasses(int userId);                       // ask the server (once per player)
+    void setPlayerAccount(int userId, const std::string& accountId) { m_playerAccounts[userId] = accountId; }
+    bool passesReady(int userId) const { return m_passReady.count(userId) > 0; }
+    bool ownsPass(int userId, const std::string& pass) const;
+    void queuePassPrompt(int userId, const std::string& pass) { m_passPrompts.push_back({userId, pass}); }
+    std::vector<std::pair<int, std::string>> takePassPrompts() { return std::move(m_passPrompts); }
+    void passPromptDone(int userId, const std::string& pass, bool bought);   // fires PromptGamePassPurchaseFinished
+    struct PassResult { int userId; std::string pass; bool bought; };
+    std::vector<PassResult> takePassResults() { return std::move(m_passResults); }
     // Players' objects (outside the world) and what's in their leaderstats folder.
     uint64_t playerNode(const std::string& name);
     std::vector<std::pair<std::string, std::string>> leaderstats(const std::string& playerName);
@@ -113,6 +125,12 @@ private:
     nlohmann::json m_saveData;                // loaded on first use
     std::vector<std::pair<std::string, std::string>> m_badgeAwards;
     std::set<std::string> m_knownBadges;      // "player\nbadge"
+    std::map<int, std::set<std::string>> m_passOwned;   // user number -> pass ids and numbers they own
+    std::set<int> m_passReady, m_passAsked;
+    std::map<int, std::string> m_playerAccounts;   // script UserId -> account (the local player is 1: us)
+    std::vector<std::pair<int, std::string>> m_passPrompts;
+    std::vector<PassResult> m_passResults;
+    std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);   // replies after the engine is gone are ignored
     bool     m_saveLoaded = false;
     std::filesystem::path saveFile() const;
     struct Waiting {

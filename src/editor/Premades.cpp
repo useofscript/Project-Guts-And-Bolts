@@ -668,6 +668,7 @@ const std::vector<PremadeInfo>& premadeList() {
         {Premade::GearGravityCoil,      "Gravity Coil",    "Gear: hold it to jump really high"},
         {Premade::GearBomb,             "Bomb",            "Gear: drop a bomb that goes off after 3 seconds"},
         {Premade::DepthCharge,          "Depth Charge",    "Drop it in water: a column of spray and, in big water, a tsunami"},
+        {Premade::WaterWheel,           "Water Wheel",     "A wheel in a flowing river: the current turns it (change the river's Flow)"},
         {Premade::LampPost,             "Lamp Post",       "A street lamp with a real light (try it at night)"},
         {Premade::DiscoFloor,           "Disco Floor",     "Tiles and a light that change colour"},
     };
@@ -757,6 +758,38 @@ SceneNode* buildPremade(Scene& scene, Premade kind, const glm::vec3& at) {
             makeConstraint(scene, ConstraintType::Weld, b1, hub, b2, hub, {1, 0, 0}, false);
             SceneNode* m = makeConstraint(scene, ConstraintType::Hinge, post, hub, b1, hub, {0, 0, 1}, true);
             m->motorSpeed = 1.2f;
+            break;
+        }
+        case Premade::WaterWheel: {
+            // A river with a current (its "Flow"), and a wheel of paddles on a hinge. Nothing
+            // drives it: the water pushes on the paddles that dip into it.
+            n = scene.insert(std::make_unique<SceneNode>("WaterWheel", NodeKind::Model));
+            SceneNode* bed = addPart(scene, "RiverBed", Cube, at + glm::vec3(0, 0.25f, 0), {10, 0.5f, 18}, {0.45f, 0.38f, 0.28f}, Material::Concrete);
+            SceneNode* river = addPart(scene, "Water", Cube, at + glm::vec3(0, 1.5f, 0), {10, 2.0f, 18}, {0.13f, 0.45f, 0.62f}, Material::Glass);
+            river->transparency = 0.45f;
+            river->canCollide = false;
+            river->castShadow = false;
+            river->tags = {"Water"};
+            Attribute flow; flow.name = "Flow"; flow.type = Attribute::Vector3; flow.v = glm::vec3(0, 0, 8); river->attributes.push_back(flow);
+            Attribute drag; drag.name = "Drag"; drag.type = Attribute::Number; drag.n = 1.0; river->attributes.push_back(drag);
+            const glm::vec3 hub = at + glm::vec3(0, 4.6f, 0);
+            SceneNode* postL = addPart(scene, "PostLeft", Cube, at + glm::vec3(-1.6f, 3.0f, 0), {0.6f, 5.0f, 0.6f}, {0.4f, 0.28f, 0.18f}, Material::Wood);
+            SceneNode* postR = addPart(scene, "PostRight", Cube, at + glm::vec3(1.6f, 3.0f, 0), {0.6f, 5.0f, 0.6f}, {0.4f, 0.28f, 0.18f}, Material::Wood);
+            SceneNode* axle = addPart(scene, "Axle", PrimitiveType::Cylinder, hub, {1.0f, 2.6f, 1.0f}, {0.3f, 0.3f, 0.32f}, Material::Metal);
+            axle->transform.rotation = {0, 0, 90};   // lying along x
+            axle->anchored = false;
+            for (SceneNode* p : {bed, river, postL, postR, axle}) scene.reparent(p, n);
+            const int paddles = 8;
+            for (int i = 0; i < paddles; ++i) {
+                const float a = 6.2831853f * i / paddles;
+                const glm::vec3 dir(0.0f, std::cos(a), std::sin(a));
+                SceneNode* pad = addPart(scene, "Paddle", Cube, hub + dir * 2.3f, {2.2f, 2.6f, 0.25f}, {0.62f, 0.45f, 0.26f}, Material::Wood);
+                pad->transform.rotation = {glm::degrees(a), 0, 0};   // standing out from the axle like a spoke
+                pad->anchored = false;
+                scene.reparent(pad, n);
+                makeConstraint(scene, ConstraintType::Weld, axle, hub, pad, hub, {1, 0, 0}, false);
+            }
+            makeConstraint(scene, ConstraintType::Hinge, postL, hub, axle, hub, {1, 0, 0}, false);
             break;
         }
         case Premade::Seesaw: {

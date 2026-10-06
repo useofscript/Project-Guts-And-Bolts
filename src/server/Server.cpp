@@ -132,7 +132,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"pass.list", "pass.owned", "list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list",
                                                     "get", "servers.play", "relay.host", "relay.join"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -740,6 +740,79 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         else saveUsers();
         log(me.name + " uploaded " + kind + " \"" + title + "\" (" + std::to_string(data.size()) + " bytes)");
         json r = okay(); r["asset"] = publicAsset(a); r["me"] = meJson(me); r["fee"] = fee; return r;
+    }
+    // --- Game passes: perks a game's creator sells for Bolts (worker/server.js has the same).
+    if (name == "pass.create" || name == "pass.edit") {
+        const bool creating = name == "pass.create";
+        Asset* pass = nullptr;
+        if (!creating) {
+            auto it = findAsset(str("id"));
+            if (it == m_assets.end() || it->second.kind != "gamepass") return fail("That pass doesn't exist (any more).");
+            pass = &it->second;
+        }
+        auto git = findAsset(creating ? str("game") : pass->meta.value("game", std::string()));
+        if (git == m_assets.end() || git->second.kind != "game") return fail("That game doesn't exist (any more).");
+        const Asset& g = git->second;
+        if (g.creator != me.id && !isStaff(me)) return fail("Only the game's creator can make or change its passes.");
+        if (creating) {
+            int count = 0;
+            for (const auto& [id, x] : m_assets) count += x.kind == "gamepass" && x.meta.value("game", std::string()) == g.id;
+            if (count >= Online::kMostPasses) return fail("A game can have at most " + std::to_string(Online::kMostPasses) + " passes.");
+        }
+        const std::string title = creating || args.contains("name") ? Online::cleanText(str("name"), 50) : pass->name;
+        if (title.empty()) return fail("Give the pass a name.");
+        const long long price = creating || args.contains("price") ? std::clamp(num("price"), 0LL, 1000000LL) : pass->price;
+        if (price > 0 && !isVerified(me) && !isStaff(me))
+            return fail("Only Verified creators can sell passes. Make it free for now, or get Verified!");
+        std::string icon;
+        if (!str("icon").empty()) {
+            if (!Online::base64Decode(str("icon"), icon)) return fail("The picture got scrambled. Try again.");
+            const bool png = icon.size() > 8 && icon.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0;
+            const bool jpg = icon.size() > 3 && (unsigned char)icon[0] == 0xFF && (unsigned char)icon[1] == 0xD8;
+            if (!png && !jpg) return fail("Pass pictures must be .png or .jpg.");
+            if (icon.size() > 400 * 1024) return fail("That picture is too big (400 KB at most).");
+        }
+        const long long t = Online::unixNow();
+        if (creating) {
+            Asset a;
+            a.num = m_nextAssetNum++;
+            a.id = std::to_string(a.num);
+            m_assetNums[a.id] = a.id;
+            saveIds();
+            a.kind = "gamepass"; a.creator = g.creator; a.created = t;
+            a.meta = {{"game", g.id}};
+            writeFile(blobPath(a.id), "");
+            m_assets[a.id] = a;
+            pass = &m_assets[a.id];
+            if (User* owner = findUser(g.creator)) { owner->owned.insert(a.id); saveUsers(); }   // creators have their own passes
+        }
+        pass->name = title;
+        pass->price = price;
+        if (args.contains("description")) pass->description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("offsale")) pass->meta["offsaleAt"] = args["offsale"] == true ? 1LL : 0LL;
+        if (!icon.empty() && writeFile(m_opts.data / "files" / ("thumb-" + pass->id), icon)) pass->thumb = t;
+        saveAssets();
+        json r = okay(); r["asset"] = publicAsset(*pass); return r;
+    }
+    if (name == "pass.list") {
+        const std::string game = str("game");
+        std::vector<const Asset*> found;
+        for (const auto& [id, x] : m_assets)
+            if (x.kind == "gamepass" && x.meta.value("game", std::string()) == game) found.push_back(&x);
+        std::sort(found.begin(), found.end(), [](const Asset* x, const Asset* y) { return x->created < y->created; });
+        json list = json::array();
+        for (const Asset* x : found) { json j = publicAsset(*x); j["owned"] = me.owned.count(x->id) > 0; list.push_back(j); }
+        json r = okay(); r["passes"] = list; return r;
+    }
+    if (name == "pass.owned") {   // which of a game's passes someone owns (UserOwnsGamePassAsync); a user number or account id
+        const std::string game = str("game");
+        User* who = args.contains("user") && args["user"].is_number() ? findUserId(args["user"].get<long long>()) : findUser(str("user"));
+        json list = json::array();
+        if (who)
+            for (const auto& [id, x] : m_assets)
+                if (x.kind == "gamepass" && x.meta.value("game", std::string()) == game && who->owned.count(x.id))
+                    list.push_back({{"id", x.id}, {"num", x.num}});
+        json r = okay(); r["passes"] = list; return r;
     }
     // --- Game badges: creators make them on their game's page, game scripts award them.
     if (name == "gamebadge.create" || name == "gamebadge.delete") {

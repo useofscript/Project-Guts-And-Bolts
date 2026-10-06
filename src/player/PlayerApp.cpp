@@ -1190,6 +1190,7 @@ void drawHeadshot(ImDrawList* dl, ImVec2 c, float r, const nlohmann::json& av) {
 } // namespace
 
 void PlayerApp::drawServerCards(const std::string& gameKey, const std::string& title) {
+    drawGamePasses(gameKey);
     ImGui::SeparatorText("Servers");
     if (!Online::online()) return;
     if (gameKey != m_gameServersKey || ImGui::GetTime() - m_gameServersAt > 10.0) {   // keep it fresh
@@ -1647,6 +1648,8 @@ void PlayerApp::drawGame(float dt) {
     if (m_loadingT <= 0.3f) drawChat(pos, max);   // not over the loading screen
     if (ImGui::IsKeyPressed(ImGuiKey_F9, false)) m_devConsole = !m_devConsole;
     drawDevConsole();
+    updatePassPrompts();
+    drawPassPrompt();
 
     // "+5 Bolts for playing!" popup, top middle.
     if (ImGui::GetTime() < m_boltsToastUntil) {

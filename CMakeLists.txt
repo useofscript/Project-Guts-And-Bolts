@@ -398,7 +398,7 @@ endif()
 if(GB_MOBILE)
     # Phones and tablets get the Player only. On Android it's a library that
     # SDL's Java activity loads (it must be called "main").
-    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/ItemRenders.cpp src/player/PlayerMail.cpp src/player/PlayerLibrary.cpp src/player/PlayerDevConsole.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/LaunchLink.cpp)
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/ItemRenders.cpp src/player/PlayerMail.cpp src/player/PlayerLibrary.cpp src/player/PlayerDevConsole.cpp src/player/PlayerPasses.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/LaunchLink.cpp)
     if(ANDROID)
         add_library(main SHARED ${PLAYER_SOURCES})
         target_link_libraries(main PRIVATE gb_engine)
@@ -487,6 +487,7 @@ set(PLAYER_SOURCES
     src/player/PlayerMail.cpp
     src/player/PlayerLibrary.cpp
     src/player/PlayerDevConsole.cpp
+    src/player/PlayerPasses.cpp
     src/player/PlayerFriends.cpp
     src/player/PlayerLogin.cpp
     src/player/LaunchLink.cpp

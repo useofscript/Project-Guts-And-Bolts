@@ -292,6 +292,17 @@ private:
     std::string m_devFilter, m_devCommand;
     std::string m_gameOwner;   // the account that made the game we're hosting
     void drawDevConsole();
+    // Game passes: the Buy window a game's script asked for (PlayerPasses.cpp).
+    std::string    m_passPrompt, m_passMsg;   // the pass being offered ("" = none)
+    nlohmann::json m_passInfo;
+    bool           m_passForHost = false, m_passBusy = false, m_passOwned = false;
+    void updatePassPrompts();
+    void openPassPrompt(const std::string& pass, bool forHost);
+    void finishPassPrompt(bool bought);
+    void drawPassPrompt();
+    std::string    m_passesKey;               // the game whose passes we have (its page)
+    nlohmann::json m_passes = nlohmann::json::array();
+    void drawGamePasses(const std::string& gameKey);
     bool devServerAccess() const;
     // The leaderboard: folded away or not (Tab), and the little menu you get by
     // clicking someone's name (Add Friend / Follow).

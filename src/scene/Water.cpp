@@ -80,6 +80,8 @@ void WaterSystem::scan(Scene& scene) {
         b.clarity = std::clamp(0.2f + n->transparency, 0.0f, 1.0f);
         if (const Attribute* a = attr(n, "Clarity", Attribute::Number)) b.clarity = std::clamp((float)a->n, 0.0f, 1.0f);
         if (const Attribute* a = attr(n, "Flow", Attribute::Vector3)) b.flow = a->v;
+        b.drag = 1.0f;
+        if (const Attribute* a = attr(n, "Drag", Attribute::Number)) b.drag = std::clamp((float)a->n, 0.0f, 20.0f);
         b.color = n->color;
         buildFlowMap(b, scene);
         b.transparency = n->transparency;
@@ -254,6 +256,11 @@ float WaterSystem::surfaceOf(const SceneNode* water, float x, float z) const {
     const Body* b = water ? find(water->id) : nullptr;
     if (!b) return water ? Physics::worldBounds(water).max.y : 0.0f;
     return b->max.y + heightAt(*b, x, z) + swellAt(*b, x, z);
+}
+
+float WaterSystem::dragAt(const glm::vec3& p) const {
+    const Body* b = bodyAt(p);
+    return b ? b->drag : 1.0f;
 }
 
 bool WaterSystem::at(const glm::vec3& p, float* surface, glm::vec3* flow) const {

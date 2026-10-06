@@ -246,13 +246,19 @@ bool hasDynamicAncestorPart(const SceneNode* n) {
 // How heavy water is compared to Plastic (1.0). Wood, ice, plastic and neon
 // float; glass, concrete and metal sink.
 constexpr float kWaterDensity = Physics::kWaterDensity;
-constexpr float kWaterDrag    = 1.6f;   // how much water slows things moving through it
+constexpr float kWaterDrag    = 0.6f;   // how much water slows anything moving through it (all round)
+constexpr float kWaterPush    = 1.2f;   // how hard it pushes on a flat side moving through it (or a current on it)
 
 // Floating: the body is checked at 27 points spread through it. Each point
 // under the surface is pushed up by the weight of the water it pushes aside
 // (Archimedes!) and slowed by the water. Because the pushes happen at the
 // points, a lopsided object tips over until it floats the right way up, and
 // waves rock boats.
+//
+// Water also pushes on the sides of things, the way it does on a paddle: a flat
+// side moving through it (or facing a current) gets a big push, an edge slicing
+// through gets very little. That's what turns a water wheel in a river and lets
+// a paddle push a boat along. A water part's "Drag" makes it thicker or thinner.
 void floatIn(Body& b, WaterSystem& water, float g, float h, Scene& scene) {
     if (!water.maybeWet(b.aabbMin, b.aabbMax)) return;
 
@@ -274,6 +280,10 @@ void floatIn(Body& b, WaterSystem& water, float g, float h, Scene& scene) {
     const float mass = 1.0f / b.invMass;
     const float layer = std::max(0.05f, (b.aabbMax.y - b.aabbMin.y) / N);   // how thick each point's slice is
     const glm::mat3 R = b.R();
+    // The area of each pair of sides (facing x, y, z in the body's own space).
+    const glm::vec3 area = b.sphere ? glm::vec3(3.14159f * b.radius * b.radius)
+                                    : glm::vec3(4.0f * b.half.y * b.half.z, 4.0f * b.half.x * b.half.z, 4.0f * b.half.x * b.half.y);
+    const float thick = water.dragAt(b.pos);
     float submerged = 0.0f;
     for (int n = 0; n < count; ++n) {
         glm::vec3 p = b.pos + R * pts[n];
@@ -286,7 +296,16 @@ void floatIn(Body& b, WaterSystem& water, float g, float h, Scene& scene) {
         float waterMass = kWaterDensity * volume * share;
         glm::vec3 imp(0.0f, waterMass * g * h, 0.0f);
         glm::vec3 vrel = b.velocityAt(p) - flow;
-        imp -= vrel * std::min(kWaterDrag * h * waterMass, 0.5f * mass / count);
+        const float cap = 0.5f * mass / count;   // never more than it takes to stop this point (no wobbling)
+        imp -= vrel * std::min(kWaterDrag * thick * h * waterMass, cap);
+        // The push on its sides, in the body's own directions: big for a flat side, small for an edge.
+        const glm::vec3 local = glm::transpose(R) * vrel;
+        glm::vec3 side(0.0f);
+        for (int i = 0; i < 3; ++i) {
+            const float k = kWaterPush * thick * kWaterDensity * area[i] * frac / count * (0.5f + std::abs(local[i])) * h;
+            side[i] = -local[i] * std::min(k, cap);
+        }
+        imp += R * side;
         applyImpulse(b, p - b.pos, imp);
         submerged += share;
     }
