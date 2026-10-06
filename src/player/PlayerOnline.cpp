@@ -2,6 +2,7 @@
 // catalog, uploads (the Create page), published games and staff tools.
 #include "PlayerApp.h"
 #include "SiteUi.h"
+#include "BrowseUi.h"
 #include "../core/Account.h"
 #include "../core/FileDialog.h"
 #include "../core/Paths.h"
@@ -141,70 +142,105 @@ void PlayerApp::onlinePlayTick(float dt) {
 // Catalog
 // ---------------------------------------------------------------------------
 
+// The Catalog, laid out like the old one (BrowseUi.h; the website's is the same).
+namespace {
+const std::vector<Browse::Cat>& catalogCats() {
+    static const std::vector<Browse::Cat> cats = {
+        {"featured", "Featured", {}}, {"collectibles", "Collectibles", {}},
+        {"all", "All Categories", {}, true},
+        {"clothes", "Clothing", {{"shirt", "Shirts"}, {"tshirt", "T-Shirts"}, {"pants", "Pants"}}},
+        {"body", "Body Parts", {{"face", "Faces"}}},
+        {"gear", "Gear", {}},
+        {"accessories", "Accessories", {{"hat", "Hats"}, {"hair", "Hair"}, {"faceacc", "Face"}, {"neck", "Neck"}, {"shoulder", "Shoulder"}, {"waist", "Waist"}}},
+    };
+    return cats;
+}
+bool inCatalogCat(const json& a, const std::string& cat) {
+    const std::string k = a.value("kind", std::string());
+    if (cat == "featured") return a.value("creatorStaff", false);
+    if (cat == "collectibles") return a.contains("limited") && a["limited"].is_object();
+    if (cat == "all") return true;
+    if (cat == "clothes") return k == "shirt" || k == "tshirt" || k == "pants";
+    if (cat == "body") return k == "face";
+    if (cat == "accessories") return k == "hat" || k == "hair" || k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
+    return k == cat;
+}
+bool matchesQuery(const json& a, const std::string& q) {
+    if (q.empty()) return true;
+    const std::string want = Browse::lower(q);
+    return Browse::lower(a.value("name", std::string())).find(want) != std::string::npos ||
+           Browse::lower(a.value("description", std::string())).find(want) != std::string::npos;
+}
+} // namespace
+
 void PlayerApp::drawOnlineCatalog() {
     if (m_loaded.find("catalog") == std::string::npos) refreshOnline("catalog");
-    ImGui::SetWindowFontScale(1.5f);
-    ImGui::TextUnformatted("Catalog");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextDisabled("Hats, hair, faces, accessories, clothes and gear made by the Guts&Bolts community.");
-    ImGui::Spacing();
-    // "Accessories" covers face, neck, shoulder and waist accessories.
-    const char* tabs[] = {"All", "Hats", "Hair", "Faces", "Accessories", "Shirts", "T-Shirts", "Pants", "Gear"};
-    const char* kinds[] = {"", "hat", "hair", "face", "acc", "shirt", "tshirt", "pants", "gear"};
-    const int nTabs = 9;
-    float tabW = std::min(100.0f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f);
-    float rowRight = ImGui::GetContentRegionMax().x;
-    for (int i = 0; i < nTabs; ++i) {
-        if (i > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + tabW <= ImGui::GetWindowPos().x + rowRight) ImGui::SameLine();
-        bool on = m_itemType == i - 1;
-        if (on ? Classic::button(tabs[i], Classic::kBlue, ImVec2(tabW, 28)) : ImGui::Button(tabs[i], ImVec2(tabW, 28)))
-            m_itemType = i - 1;
-    }
-    bool roomForCreate = ImGui::GetItemRectMax().x + 160 <= ImGui::GetWindowPos().x + rowRight;
-    if (portraitScreen() || !roomForCreate) ImGui::Spacing(); else ImGui::SameLine(rowRight - 140);
-    if (Classic::button("Create", Classic::kPlay, ImVec2(140, 28))) m_page = Page::Create;
-    ImGui::Separator();
+    static Browse::State s{"all"};
+    const auto& cats = catalogCats();
+    Browse::top("Catalog", s, cats);
     ImGui::Spacing();
 
-    std::vector<int> list;
-    for (int i = 0; i < (int)m_onlineItems.size(); ++i) {
-        std::string k = m_onlineItems[i].value("kind", std::string());
-        const std::string want = m_itemType < 0 ? "" : kinds[m_itemType + 1];
-        bool acc = k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
-        if (want.empty() || k == want || (want == "acc" && acc)) list.push_back(i);
+    const bool wide = Browse::sideBySide();
+    const float sideW = 165;
+    if (wide) ImGui::BeginGroup();
+    Browse::side(s, cats, true, wide ? sideW : ImGui::GetContentRegionAvail().x);
+    if (Classic::button("Create", Classic::kPlay, ImVec2(wide ? sideW : 140, 28))) m_page = Page::Create;
+    if (wide) { ImGui::EndGroup(); ImGui::SameLine(0, 22); ImGui::BeginGroup(); }
+    else ImGui::Spacing();
+
+    std::vector<const json*> list;
+    for (const json& a : m_onlineItems)
+        if (inCatalogCat(a, s.cat) && matchesQuery(a, s.query) && Browse::passes(a, s)) list.push_back(&a);
+    Browse::sortList(list, s.sort);
+    std::string heading = "All Categories";
+    for (const auto& c : cats) {
+        if (s.cat == c.key) heading = c.label;
+        for (auto& k : c.kids) if (s.cat == k.first) heading = k.second;
     }
-    if (list.empty()) {
-        ImGui::Dummy(ImVec2(0, 30));
-        ImGui::TextDisabled(Online::pending() ? "Loading..." : "Nothing here yet - be the first to make something on the Create page!");
-        return;
-    }
-    const float tile = 150.0f;
-    int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 14) / (tile + 14)));
-    for (size_t k = 0; k < list.size(); ++k) {
-        const json& a = m_onlineItems[list[k]];
+    Browse::head(heading.c_str(), (int)list.size(), s);
+    if (list.empty()) ImGui::TextDisabled(Online::pending() ? "Loading..." : "Nothing here yet.");
+
+    const float gap = 14, avail = ImGui::GetContentRegionAvail().x;
+    const int perRow = std::max(2, (int)((avail + gap) / (118 + gap)));
+    const float tile = std::min(150.0f, (avail - gap * (perRow - 1)) / perRow);
+    const size_t from = (size_t)s.page * Browse::kPerPage, to = std::min(list.size(), from + Browse::kPerPage);
+    for (size_t k = from; k < to; ++k) {
+        const json& a = *list[k];
+        const int index = (int)(list[k] - &m_onlineItems[0]);
         Catalog::Item it = Catalog::fromServer(a);
-        if (k % perRow != 0) ImGui::SameLine(0, 14);
-        ImGui::PushID(list[k]);
+        if ((k - from) % perRow != 0) ImGui::SameLine(0, gap);
+        ImGui::PushID(index);
         ImGui::BeginGroup();
         ImVec2 p = ImGui::GetCursorScreenPos();
-        if (ImGui::InvisibleButton("##item", ImVec2(tile, tile))) { m_openOnlineItem = list[k]; m_onlineMsg.clear(); }
-        bool hover = ImGui::IsItemHovered();
+        if (ImGui::InvisibleButton("##item", ImVec2(tile, tile))) { m_openOnlineItem = index; m_onlineMsg.clear(); }
+        const bool hover = ImGui::IsItemHovered();
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
-        dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), hover ? IM_COL32(40, 120, 230, 255) : IM_COL32(160, 165, 175, 255),
-                    0, 0, hover ? 2.0f : 1.0f);
+        dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), hover ? IM_COL32(245, 184, 0, 255) : IM_COL32(211, 215, 220, 255), 0, 0, hover ? 2.0f : 1.0f);
         itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
-        if (itemOn(it)) dl->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(20, 140, 60, 255), it.type == Catalog::Type::Gear ? "Equipped" : "Wearing");
+        const json lim = a.value("limited", json());
+        auto tag = [&](const char* t, ImU32 col) {
+            ImVec2 ts = ImGui::CalcTextSize(t);
+            dl->AddRectFilled(ImVec2(p.x + 5, p.y + 5), ImVec2(p.x + 13 + ts.x, p.y + 9 + ts.y), col, 2);
+            dl->AddText(ImVec2(p.x + 9, p.y + 7), IM_COL32(255, 255, 255, 255), t);
+        };
+        if (lim.is_object()) tag("LIMITED", IM_COL32(26, 127, 55, 255));
+        else if (a.value("offsaleAt", 0LL) > 0) tag(a.value("offsale", false) ? "OFF SALE" : "TIMED", IM_COL32(217, 98, 11, 255));
+        if (itemOn(it)) dl->AddText(ImVec2(p.x + 6, p.y + tile - 20), IM_COL32(20, 140, 60, 255), it.type == Catalog::Type::Gear ? "Equipped" : "Wearing");
+        if (hover) Browse::tip(a, ago(a.value("updated", a.value("created", 0LL))));
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
         ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
         ImGui::PopTextWrapPos();
-        byLine(a);
         if (Online::owns(it.id) && it.price > 0) ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "Owned");
+        else if (lim.is_object() && lim.value("left", 0) <= 0) ImGui::TextDisabled("Sold out");
+        else if (a.value("offsale", false)) ImGui::TextDisabled("Off sale");
         else if (it.price > 0) Bolts::amount(it.price);
-        else ImGui::TextColored(ImVec4(0.1f, 0.55f, 0.2f, 1), "Free");
+        else ImGui::TextUnformatted("Free");
         ImGui::EndGroup();
         ImGui::PopID();
     }
+    Browse::pager((int)list.size(), s);
+    if (wide) ImGui::EndGroup();
 }
 
 void PlayerApp::drawOnlineItemDialog() {

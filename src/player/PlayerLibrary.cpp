@@ -5,9 +5,11 @@
 
 #include "PlayerApp.h"
 #include "SiteUi.h"
+#include "BrowseUi.h"
 #include "SocialUi.h"
 #include "../core/Audio.h"
 #include "../core/Paths.h"
+#include "../game/Bolts.h"
 #include "../online/AssetCache.h"
 #include "../online/OnlineClient.h"
 #include "../online/Protocol.h"
@@ -23,9 +25,6 @@ using json = nlohmann::json;
 using namespace Site;
 
 namespace {
-const char* const kLibKinds[]  = {"model", "decal", "audio", "plugin"};
-const char* const kLibTitles[] = {"Models", "Decals", "Audio", "Plugins"};
-
 // A picture fitted into a box, keeping its shape (on white).
 void fitPicture(ImVec2 p, float w, float h, unsigned tex, int tw, int th) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -117,50 +116,63 @@ void PlayerApp::drawLibrary() {
     if (!m_assetId.empty()) { drawAsset(); return; }
     stopAssetSound();
 
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Everything people made public. Open one to listen to it or look at it, and copy its ID "
-                        "to paste into a Decal's Texture or a Sound's File in Studio.");
-    ImGui::PopTextWrapPos();
-    // The kinds, then search, then "got an ID?".
-    // (Own IDs: the Create page's tabs above have buttons with the same names.)
-    ImGui::PushID("libkinds");
-    for (int i = 0; i < 4; ++i) {
-        if (i) ImGui::SameLine();
-        ImGui::PushID(i);
-        const bool on = m_libKind == kLibKinds[i];
-        if (on ? Classic::button(kLibTitles[i], Classic::kBlue, ImVec2(90, 26)) : ImGui::Button(kLibTitles[i], ImVec2(90, 26))) {
-            m_libKind = kLibKinds[i];
-            m_libLoaded.clear();
-        }
-        ImGui::PopID();
-    }
-    ImGui::PopID();
-    ImGui::SetNextItemWidth(std::min(260.0f, ImGui::GetContentRegionAvail().x - 90));
-    const bool enter = ImGui::InputTextWithHint("##libq", "Search the Library", &m_libQuery, ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::SameLine();
-    if (ImGui::Button("Search") || enter) m_libLoaded.clear();
-    ImGui::SetNextItemWidth(std::min(260.0f, ImGui::GetContentRegionAvail().x - 90));
-    const bool go = ImGui::InputTextWithHint("##libid", "Got an ID? (like 123)", &m_libIdInput, ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::SameLine();
-    if ((ImGui::Button("Go") || go) && !m_libIdInput.empty()) { openAsset(m_libIdInput); m_libIdInput.clear(); return; }
+    // Laid out like the old catalog (BrowseUi.h). Kept in m_libKind / m_libQuery so other pages can open a kind.
+    static Browse::State s{"model"};
+    static const std::vector<Browse::Cat> cats = {{"model", "Models", {}}, {"decal", "Decals", {}}, {"audio", "Audio", {}}, {"plugin", "Plugins", {}}};
+    s.cat = m_libKind;
+    ImGui::PushID("library");
+    Browse::top("Library", s, cats);
+    m_libKind = s.cat;
+    m_libQuery = s.query;
     ImGui::Spacing();
+
+    const bool wide = Browse::sideBySide();
+    const float sideW = 165;
+    if (wide) ImGui::BeginGroup();
+    Browse::side(s, cats, false, wide ? sideW : ImGui::GetContentRegionAvail().x);
+    m_libKind = s.cat;
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (wide ? sideW : ImGui::GetContentRegionAvail().x));
+    ImGui::TextDisabled("Use anything here in your games: in Studio, open the Toolbox (the Library tab), or copy an ID "
+                        "into a Decal's Texture / a Sound's File.");
+    ImGui::PopTextWrapPos();
+    ImGui::SetNextItemWidth((wide ? sideW : 220.0f) - 44);
+    const bool go = ImGui::InputTextWithHint("##libid", "Got an ID?", &m_libIdInput, ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SameLine(0, 4);
+    if ((ImGui::Button("Go##id", ImVec2(40, 0)) || go) && !m_libIdInput.empty()) {
+        openAsset(m_libIdInput);
+        m_libIdInput.clear();
+        if (wide) ImGui::EndGroup();
+        ImGui::PopID();
+        return;
+    }
+    if (wide) { ImGui::EndGroup(); ImGui::SameLine(0, 22); ImGui::BeginGroup(); }
+    else ImGui::Spacing();
 
     const std::string key = m_libKind + "|" + m_libQuery;
     if (m_libLoaded != key) {
         m_libLoaded = key;
         m_libList = json::array();
-        Online::request("list", {{"kind", m_libKind}, {"query", m_libQuery}, {"sort", "popular"}, {"limit", 60}}, [this, key](const json& r) {
+        Online::request("list", {{"kind", m_libKind}, {"query", m_libQuery}, {"sort", "popular"}, {"limit", 100}}, [this, key](const json& r) {
             if (m_libLoaded == key && r.value("ok", false)) m_libList = r.value("assets", json::array());
         });
     }
-    if (m_libList.empty()) { ImGui::TextDisabled("Nothing here yet."); return; }
+    std::vector<const json*> list;
+    for (const json& a : m_libList) if (Browse::passes(a, s)) list.push_back(&a);
+    Browse::sortList(list, s.sort);
+    const char* heading = "Models";
+    for (const auto& c : cats) if (m_libKind == c.key) heading = c.label;
+    Browse::head(heading, (int)list.size(), s);
+    if (list.empty()) ImGui::TextDisabled("Nothing here yet.");
 
-    // Tiles: picture (or speaker), name, creator. Click to open.
-    const float tile = 132.0f;
-    const int perRow = std::max(1, (int)((ImGui::GetContentRegionAvail().x + 12) / (tile + 12)));
-    for (size_t i = 0; i < m_libList.size(); ++i) {
-        const json& a = m_libList[i];
-        if (i % perRow) ImGui::SameLine(0, 12);
+    // Tiles: picture (or speaker), name, "Free". Point at one for who made it; click to open.
+    const float gap = 14, avail = ImGui::GetContentRegionAvail().x;
+    const int perRow = std::max(2, (int)((avail + gap) / (118 + gap)));
+    const float tile = std::min(150.0f, (avail - gap * (perRow - 1)) / perRow);
+    const size_t from = (size_t)s.page * Browse::kPerPage, to = std::min(list.size(), from + Browse::kPerPage);
+    for (size_t i = from; i < to; ++i) {
+        const json& a = *list[i];
+        if ((i - from) % perRow) ImGui::SameLine(0, gap);
         ImGui::PushID((int)i);
         ImGui::BeginGroup();
         ImVec2 p = ImGui::GetCursorScreenPos();
@@ -176,14 +188,21 @@ void PlayerApp::drawLibrary() {
             ImVec2 ts = ImGui::CalcTextSize(t);
             ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + (tile - ts.x) * 0.5f, p.y + (tile - ts.y) * 0.5f), IM_COL32(120, 125, 135, 255), t);
         }
-        if (hover) ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(29, 111, 216, 255), 0.0f, 0, 2.0f);
+        if (hover) {
+            ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(245, 184, 0, 255), 0.0f, 0, 2.0f);
+            Browse::tip(a, dateText(a.value("updated", a.value("created", 0LL))), kind == "model" ? "Taken" : "Sales");
+        }
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
         ImGui::TextColored(Classic::kLink, "%s", a.value("name", std::string()).c_str());
-        ImGui::TextDisabled("by %s", a.value("creatorName", std::string("?")).c_str());
         ImGui::PopTextWrapPos();
+        if (a.value("price", 0LL) > 0) Bolts::amount(a.value("price", 0LL));
+        else ImGui::TextUnformatted("Free");
         ImGui::EndGroup();
         ImGui::PopID();
     }
+    Browse::pager((int)list.size(), s);
+    if (wide) ImGui::EndGroup();
+    ImGui::PopID();
 }
 
 void PlayerApp::drawAsset() {
