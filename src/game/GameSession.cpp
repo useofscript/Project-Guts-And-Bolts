@@ -388,13 +388,20 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
 void GameSession::guiEvents(const std::vector<GameGui::Event>& events) {
     if (!m_running) return;
     for (const GameGui::Event& e : events) {
-        if (m_role == Role::Client) {   // the host runs the scripts: tell it about clicks
+        if (m_role == Role::Client) {   // the host runs the scripts: tell it about clicks and typing
             if (e.kind == GameGui::EventKind::Click && onGuiClick) onGuiClick(e.id);
+            if (e.kind == GameGui::EventKind::FocusLost && onGuiText)
+                if (SceneNode* box = m_scene->findById(e.id)) onGuiText(e.id, box->gui.text, e.enter);
             continue;
         }
-        SignalKind kind = e.kind == GameGui::EventKind::Click ? SignalKind::GuiClick
-                        : e.kind == GameGui::EventKind::Enter ? SignalKind::GuiEnter : SignalKind::GuiLeave;
-        m_scripts.fireGui(kind, e.id);
+        switch (e.kind) {
+            case GameGui::EventKind::Click:       m_scripts.fireGui(SignalKind::GuiClick, e.id); break;
+            case GameGui::EventKind::Enter:       m_scripts.fireGui(SignalKind::GuiEnter, e.id); break;
+            case GameGui::EventKind::Leave:       m_scripts.fireGui(SignalKind::GuiLeave, e.id); break;
+            case GameGui::EventKind::Focused:     m_scripts.fireGui(SignalKind::GuiFocused, e.id); break;
+            case GameGui::EventKind::FocusLost:   m_scripts.fireFocusLost(e.id, e.enter); break;
+            case GameGui::EventKind::TextChanged: m_scripts.firePropertyChanged(e.id, "Text"); break;
+        }
     }
 }
 

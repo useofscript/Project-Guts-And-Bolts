@@ -742,6 +742,19 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "guiclick") {
         uint64_t id = m.value("id", (uint64_t)0);
         if (SceneNode* b = m_scene->findById(id); b && b->isGuiButton()) m_session->scripts().fireGui(SignalKind::GuiClick, id);
+    } else if (t == "guitext") {   // they typed in a TextBox (and it lost focus)
+        if (c.guest) return;           // (it shows for everyone, like chat, so guests don't)
+        uint64_t id = m.value("id", (uint64_t)0);
+        SceneNode* box = m_scene->findById(id);
+        if (!box || !box->isGui() || box->gui.type != GuiType::TextBox || !box->gui.editable) return;
+        std::string text = m.value("text", std::string());
+        if (text.size() > 10000) text.resize(10000);
+        for (char& ch : text) if ((unsigned char)ch < 32 && ch != '\n') ch = ' ';
+        if (text != box->gui.text) {
+            box->gui.text = text;
+            m_session->scripts().firePropertyChanged(id, "Text");
+        }
+        m_session->scripts().fireFocusLost(id, m.value("enter", false));
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
@@ -960,6 +973,7 @@ void NetClient::disconnect() {
         m_session->onTouch = nullptr;
         m_session->onClick = nullptr;
         m_session->onGuiClick = nullptr;
+        m_session->onGuiText = nullptr;
         m_session->onToolRequest = nullptr;
         if (Player* p = m_scene->player()) p->clearTools();
         m_toolSeen.clear();
@@ -1109,6 +1123,9 @@ void NetClient::handle(const std::string& text) {
         m_session->onClick = [this](uint64_t part) { reportClick(part); };
         m_session->onGuiClick = [this](uint64_t button) {   // a game UI button: the host's scripts hear it
             if (m_conn && button < kLocalIdBase) m_conn->send(json{{"t", "guiclick"}, {"id", button}}.dump());
+        };
+        m_session->onGuiText = [this](uint64_t box, const std::string& text, bool enter) {   // a TextBox: the host's scripts read it
+            if (m_conn && box < kLocalIdBase) m_conn->send(json{{"t", "guitext"}, {"id", box}, {"text", text}, {"enter", enter}}.dump());
         };
         m_session->onToolRequest = [this](const std::string& what, uint64_t tool, bool down) {   // the host has our tools
             if (m_conn) m_conn->send(json{{"t", "tool"}, {"do", what}, {"id", tool}, {"down", down}}.dump());

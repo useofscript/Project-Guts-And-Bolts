@@ -6,8 +6,9 @@
 class Scene;
 class SceneNode;
 
-// Game UI made of ScreenGui / Frame / TextLabel / TextButton / ImageLabel /
-// ImageButton objects (with UICorner, UIStroke, UIShadow and UIBlur inside them), drawn over the
+// Game UI made of ScreenGui / Frame / TextLabel / TextButton / TextBox / ImageLabel /
+// ImageButton / ScrollingFrame objects (with UICorner, UIStroke, UIShadow, UIBlur,
+// UIPadding, UIListLayout and UIGridLayout inside them), drawn over the
 // 3D view like Roblox's. Used by the Player app, Studio's Play and Studio's
 // viewport (so you see the UI while you build it).
 namespace GameGui {
@@ -16,10 +17,14 @@ namespace GameGui {
 struct Input {
     uint64_t hovered = 0;   // the button under the pointer
     uint64_t pressed = 0;   // the button the mouse went down on
+    uint64_t dragging = 0;  // a ScrollingFrame being dragged (its bar, or a finger on it)
+    bool     dragBar = false;
+    float    dragFrom = 0.0f;   // (dragging the bar) where on the thumb it was grabbed
 };
 
-enum class EventKind { Click, Enter, Leave };
-struct Event { EventKind kind; uint64_t id; };
+// Focused / FocusLost / TextChanged are a TextBox's (`enter`: FocusLost because Enter was pressed).
+enum class EventKind { Click, Enter, Leave, Focused, FocusLost, TextChanged };
+struct Event { EventKind kind; uint64_t id; bool enter = false; };
 
 // Draw every enabled ScreenGui in the scene over [min, max]. Also works out each
 // object's AbsolutePosition / AbsoluteSize. `selected` gets a highlight (Studio).
@@ -30,6 +35,19 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const Input* inp
 // over the UI, so the click shouldn't also reach the 3D world.
 bool handle(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 pointer, bool inside, bool down, bool up, bool tapped,
             Input& input, std::vector<Event>& events);
+
+// TextBoxes: after draw(), in the same ImGui window, this puts the typing box over the
+// TextBox that has focus (clicked, or box:CaptureFocus()), so you get a cursor,
+// selection, copy and paste and the phone keyboard. While it's up ImGui's
+// WantTextInput is set, so typing doesn't also walk the character around.
+void textInput(Scene& scene, std::vector<Event>& events);
+uint64_t focused();                         // the TextBox being typed in (0 = none)
+void focus(uint64_t id, bool enter = false); // CaptureFocus (0 = ReleaseFocus: `enter` is its `submitted`)
+
+// Is the pointer over something that scrolls (so the mouse wheel scrolls it, not the camera)?
+bool overScroller(Scene& scene, ImVec2 p);
+// Where the ScrollingFrames are on screen (touch controls leave fingers there alone).
+std::vector<std::pair<ImVec2, ImVec2>> scrollerRects(Scene& scene);
 
 // The topmost UI object under `p` (Studio picks these like parts), or null.
 SceneNode* pick(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 p, bool buttonsOnly = false);

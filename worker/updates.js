@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'type-and-scroll', name: 'Type and Scroll', time: 1791311000, tag: 'Engine',
+    summary: 'Game UI gets text boxes, scrolling lists and automatic layouts, like Roblox.',
+    items: [
+      'TextBox: players can type in your game. FocusLost tells your script when they press Enter',
+      'ScrollingFrame: lists longer than the screen scroll with the mouse wheel, the scroll bar or a finger',
+      'UIListLayout and UIGridLayout line things up for you, so shops and inventories are easy to build',
+      'UIPadding keeps things away from the edges, and LayoutOrder picks what comes first',
+      'Works for players who joined someone else\'s game too, and in Roblox files you import or export',
+    ],
+  },
+  {
     id: 'shared-vault', name: 'Shared Vault', time: 1791307400, tag: 'Server',
     summary: 'Saved game data (DataStores) now lives on the Guts&Bolts server, so it follows players to every server of a game.',
     items: [

@@ -19,7 +19,9 @@ inline void setDefaults(SceneNode& n) {
         case GuiType::UICorner:   g.corner = {0, 8, 0, 0}; break;
         case GuiType::UIStroke:   g.borderColor = {0, 0, 0}; g.bgTransparency = 0; g.thickness = 1; break;
         case GuiType::UIShadow:   g.bg = {0, 0, 0}; g.bgTransparency = 0.5f; break;
-        default: break;   // Frame / ImageLabel / ImageButton: 100 x 100
+        case GuiType::TextBox:    g.size = {0, 200, 0, 50}; g.placeholder = "Type here"; break;
+        case GuiType::UIGridLayout: g.fill = 1; g.padding = {0, 5, 0, 5}; break;
+        default: break;   // Frame / ImageLabel / ImageButton / ScrollingFrame: 100 x 100
     }
 }
 

@@ -194,7 +194,7 @@ void ViewportPanel::handleInput(float dt) {
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
             PlayCamera::turn(m_camera, io.MouseDelta.x, io.MouseDelta.y);
         }
-        PlayCamera::zoom(m_camera, io.MouseWheel);
+        if (!GameGui::overScroller(*m_scene, ImGui::GetMousePos())) PlayCamera::zoom(m_camera, io.MouseWheel);   // (else the wheel scrolls the UI)
         return;
     }
 
@@ -698,6 +698,11 @@ void ViewportPanel::render(float dt) {
             }
             Hud::drawNameTags(dl, imgPos, imgMax, *m_scene, proj * view, m_camera.position());
             GameGui::draw(dl, imgPos, imgMax, *m_scene, &m_guiInput);
+            {
+                std::vector<GameGui::Event> typed;   // a TextBox being typed in
+                GameGui::textInput(*m_scene, typed);
+                m_session->guiEvents(typed);
+            }
             Hud::draw(dl, imgPos, imgMax, *m_scene, m_session->gui());
             if (int slot = Hud::drawHotbar(dl, imgPos, imgMax, *m_scene); slot >= 0 && m_hovered) m_session->selectToolSlot(slot);
             // The leaderboard, once the game gives the player some leaderstats.

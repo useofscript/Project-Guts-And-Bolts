@@ -480,8 +480,9 @@ counters and title screens.
 
 - **Insert** (Ctrl+I) a **ScreenGui**. It goes in the **StarterGui** folder.
   Then insert **Frame**, **TextLabel**, **TextButton**, **ImageLabel** or
-  **ImageButton** into it. Put a **UICorner** inside one to round its corners,
-  or a **UIStroke** to give it an outline.
+  **ImageButton**, **TextBox** or **ScrollingFrame** into it. Put a
+  **UICorner** inside one to round its corners, or a **UIStroke** to give it
+  an outline.
 - The UI shows in the viewport while you build. Click it to pick it, drag it to
   move it, and drag the blue corner to resize it. Everything else is in
   **Properties**.
@@ -517,8 +518,48 @@ Buttons have `MouseButton1Click` (also called `Activated`), `MouseEnter` and
 (`TextStrokeTransparency`) and bold fonts (`Enum.Font.SourceSansBold`).
 `player.PlayerGui` and `game.StarterGui` are the same folder.
 
+**Typing, scrolling and lining things up:**
+
+- **TextBox**: a box players type in. `PlaceholderText` shows greyed out while
+  it's empty. `FocusLost` fires when they press Enter (`enterPressed` is true)
+  or click away. Scripts can also call `box:CaptureFocus()` and
+  `box:ReleaseFocus()`. While someone's typing, their keys don't move the
+  character.
+- **ScrollingFrame**: holds more than fits. `CanvasSize` is how big the inside
+  is, or set `AutomaticCanvasSize` to grow it to fit. Scroll with the mouse
+  wheel, drag the bar, or drag with a finger on phones. `CanvasPosition` is how
+  far it's scrolled.
+- **UIListLayout**: put it next to some objects and they line up one after
+  another, down (or across with `FillDirection`), `Padding` apart. Lower
+  `LayoutOrder` comes first.
+- **UIGridLayout**: the same, but in a grid of `CellSize` cells.
+- **UIPadding**: keeps what's inside away from the edges.
+
+```lua
+local box = Instance.new("TextBox")
+box.Size = UDim2.fromOffset(300, 40)
+box.PlaceholderText = "Type your name"
+box.Parent = gui
+box.FocusLost:Connect(function(enterPressed)
+    if enterPressed then print("Hello, " .. box.Text) end
+end)
+
+local shop = Instance.new("ScrollingFrame")
+shop.Size = UDim2.fromOffset(260, 300)
+shop.AutomaticCanvasSize = Enum.AutomaticSize.Y
+shop.Parent = gui
+Instance.new("UIListLayout", shop).Padding = UDim.new(0, 6)
+for i = 1, 20 do
+    local item = Instance.new("TextButton")
+    item.Size = UDim2.new(1, -12, 0, 36)
+    item.Text = "Item " .. i
+    item.Parent = shop
+end
+```
+
 In multiplayer, everyone sees the same UI. When anyone clicks a button, the
-host's scripts hear about it. Roblox files keep their UI: ScreenGuis in a
+host's scripts hear about it, and the same goes for what they type in a TextBox
+(when they press Enter or click away). Roblox files keep their UI: ScreenGuis in a
 place's StarterGui are imported, and exported back to Roblox.
 
 ## Animations (the Animation Editor)

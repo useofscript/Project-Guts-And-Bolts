@@ -525,10 +525,11 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Gui:
             switch (n.gui.type) {
                 case GuiType::ScreenGui:  return Id::ScreenGui;
-                case GuiType::TextLabel:  return Id::GuiText;
+                case GuiType::TextLabel: case GuiType::TextBox: return Id::GuiText;
                 case GuiType::TextButton: case GuiType::ImageButton: return Id::GuiButton;
                 case GuiType::ImageLabel: return Id::GuiImage;
-                case GuiType::UICorner: case GuiType::UIStroke: case GuiType::UIShadow: case GuiType::UIBlur: return Id::GuiCorner;
+                case GuiType::UICorner: case GuiType::UIStroke: case GuiType::UIShadow: case GuiType::UIBlur:
+                case GuiType::UIListLayout: case GuiType::UIGridLayout: case GuiType::UIPadding: return Id::GuiCorner;
                 default:                  return Id::GuiFrame;
             }
         default: break;

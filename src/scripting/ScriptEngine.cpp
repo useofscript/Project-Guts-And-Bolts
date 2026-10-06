@@ -1786,6 +1786,13 @@ void ScriptEngine::runScriptsIn(SceneNode* root) {
 
 void ScriptEngine::fireTool(SignalKind kind, uint64_t toolId) { fire(kind, toolId, nullptr); }
 void ScriptEngine::fireGui(SignalKind kind, uint64_t id) { fire(kind, id, nullptr); }
+void ScriptEngine::fireFocusLost(uint64_t id, bool enter) {
+    fire(SignalKind::GuiFocusLost, id, [enter](lua_State* co) { lua_pushboolean(co, enter); return 1; });
+}
+void ScriptEngine::firePropertyChanged(uint64_t id, const char* property) {
+    std::string name = property;
+    fire(SignalKind::Changed, id, [name](lua_State* co) { lua_pushstring(co, name.c_str()); return 1; });
+}
 
 void ScriptEngine::fireAnimationEvents() {
     std::vector<Anim::Animator::Event> events;

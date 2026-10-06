@@ -291,6 +291,9 @@ void PlayerApp::run() {
                     if (t == 64) io.AddMouseButtonEvent(0, false);
                 }
             }
+            if (!m_opts.testType.empty() && m_frame == 90) ImGui::GetIO().AddInputCharactersUTF8(m_opts.testType.c_str());
+            if (!m_opts.testType.empty() && (m_frame == 94 || m_frame == 96)) ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, m_frame == 94);
+            if (m_opts.testWheel != 0.0f && m_frame == 70) ImGui::GetIO().AddMouseWheelEvent(0.0f, m_opts.testWheel);
             if (!m_opts.holdKey.empty() && m_frame > 3) {
                 ImGuiKey k = m_opts.holdKey == "Space" ? ImGuiKey_Space
                            : m_opts.holdKey == "Shift" ? ImGuiKey_LeftShift
@@ -1587,7 +1590,7 @@ void PlayerApp::drawGame(float dt) {
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
             PlayCamera::turn(m_camera, io.MouseDelta.x, io.MouseDelta.y);
         }
-        PlayCamera::zoom(m_camera, io.MouseWheel);
+        if (!GameGui::overScroller(*m_scene, ImGui::GetMousePos())) PlayCamera::zoom(m_camera, io.MouseWheel);   // (else the wheel scrolls the UI)
     }
     if (Player* p = m_scene->player()) {
         PlayCamera::follow(m_camera, *p, dt, m_shiftLock);
@@ -1644,6 +1647,11 @@ void PlayerApp::drawGame(float dt) {
         labelsAt = chatShowing ? (m_chatOpen ? 216.0f : 156.0f) : 58.0f;   // under the chat box when it's up
     }
     GameGui::draw(dl, pos, max, *m_scene, &m_guiInput);
+    {
+        std::vector<GameGui::Event> typed;   // a TextBox being typed in
+        GameGui::textInput(*m_scene, typed);
+        m_session->guiEvents(typed);
+    }
     Hud::draw(dl, pos, max, *m_scene, m_session->gui(), labelsAt);
     if (int slot = Hud::drawHotbar(dl, pos, max, *m_scene, tapped && onHotbar ? &tapAt : nullptr); slot >= 0 && acceptInput)
         m_session->selectToolSlot(slot);
@@ -2166,7 +2174,9 @@ void PlayerApp::drawPauseMenu() {
 void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
     const float scale = GraphicsSettings::get().touchSize;
     m_touch.begin(min, max, scale);
-    m_touch.setBlocked({{m_chatMin, m_chatMax}});
+    std::vector<std::pair<ImVec2, ImVec2>> blocked = GameGui::scrollerRects(*m_scene);   // fingers there scroll the UI
+    blocked.push_back({m_chatMin, m_chatMax});
+    m_touch.setBlocked(std::move(blocked));
     if (m_window->hasTouchScreen()) {
         // A real touch screen: every finger counts (thumbstick + look + jump at once).
         std::vector<TouchControls::Finger> f;

@@ -104,7 +104,8 @@ nlohmann::json guiToJson(const GuiProps& g) {
     json j = {{"class", kGuiClassNames[(int)g.type]}, {"pos", ud(g.pos)}, {"size", ud(g.size)},
               {"anchor", json::array({g.anchor.x, g.anchor.y})}, {"bg", vec(g.bg)}, {"bgT", g.bgTransparency},
               {"borderColor", vec(g.borderColor)}, {"border", g.border}, {"z", g.zIndex}, {"clips", g.clips}};
-    if (g.type == GuiType::TextLabel || g.type == GuiType::TextButton) {
+    if (g.layoutOrder) j["order2"] = g.layoutOrder;
+    if (guiHasText(g.type)) {
         j["text"] = g.text; j["textColor"] = vec(g.textColor); j["textSize"] = g.textSize;
         j["scaled"] = g.textScaled; j["wrapped"] = g.textWrapped; j["bold"] = g.bold;
         j["xAlign"] = g.xAlign; j["yAlign"] = g.yAlign; j["textT"] = g.textTransparency;
@@ -128,6 +129,24 @@ nlohmann::json guiToJson(const GuiProps& g) {
     }
     if (g.type == GuiType::UIBlur) j["blurSize"] = g.blurSize;
     if (g.type == GuiType::UIStroke) j["thickness"] = g.thickness;
+    if (g.type == GuiType::TextBox) {
+        j["placeholder"] = g.placeholder; j["placeholderColor"] = vec(g.placeholderColor);
+        j["clearOnFocus"] = g.clearOnFocus; j["editable"] = g.editable; j["multiLine"] = g.multiLine;
+    }
+    if (g.type == GuiType::ScrollingFrame) {
+        j["canvasSize"] = ud(g.canvasSize); j["canvasPos"] = json::array({g.canvasPos.x, g.canvasPos.y});
+        j["scrollBar"] = g.scrollBar; j["scrollColor"] = vec(g.scrollColor); j["scrollT"] = g.scrollTransparency;
+        j["scrollDir"] = g.scrollDir; j["autoCanvas"] = g.autoCanvas; j["scrolling"] = g.scrolling;
+    }
+    if (isGuiLayout(g.type)) {
+        j["fill"] = g.fill; j["padding"] = ud(g.padding); j["hAlign"] = g.hAlign; j["vAlign"] = g.vAlign;
+        j["sortByName"] = g.sortByName;
+        if (g.type == GuiType::UIGridLayout) { j["cellSize"] = ud(g.cellSize); j["maxCells"] = g.maxCells; }
+    }
+    if (g.type == GuiType::UIPadding) {
+        j["padScale"] = json::array({g.padScale.x, g.padScale.y, g.padScale.z, g.padScale.w});
+        j["padPx"] = json::array({g.padPx.x, g.padPx.y, g.padPx.z, g.padPx.w});
+    }
     return j;
 }
 
@@ -178,6 +197,30 @@ void guiFromJson(GuiProps& g, const nlohmann::json& j) {
     g.shadowBlur = std::clamp(get<float>(j, "shadowBlur", g.shadowBlur), 0.0f, 100.0f);
     g.shadowSpread = std::clamp(get<float>(j, "shadowSpread", g.shadowSpread), -100.0f, 100.0f);
     g.blurSize = std::clamp(get<float>(j, "blurSize", g.blurSize), 0.0f, 100.0f);
+    g.layoutOrder = get<int>(j, "order2", g.layoutOrder);
+    g.placeholder = get<std::string>(j, "placeholder", g.placeholder);
+    g.placeholderColor = vec(j, "placeholderColor", g.placeholderColor);
+    g.clearOnFocus = get<bool>(j, "clearOnFocus", g.clearOnFocus);
+    g.editable = get<bool>(j, "editable", g.editable);
+    g.multiLine = get<bool>(j, "multiLine", g.multiLine);
+    g.canvasSize = ud("canvasSize", g.canvasSize);
+    if (j.contains("canvasPos") && j["canvasPos"].is_array() && j["canvasPos"].size() == 2)
+        try { g.canvasPos = {j["canvasPos"][0].get<float>(), j["canvasPos"][1].get<float>()}; } catch (...) {}
+    g.scrollBar = std::clamp(get<int>(j, "scrollBar", g.scrollBar), 0, 100);
+    g.scrollColor = vec(j, "scrollColor", g.scrollColor);
+    g.scrollTransparency = get<float>(j, "scrollT", g.scrollTransparency);
+    g.scrollDir = std::clamp(get<int>(j, "scrollDir", g.scrollDir), 1, 3);
+    g.autoCanvas = std::clamp(get<int>(j, "autoCanvas", g.autoCanvas), 0, 3);
+    g.scrolling = get<bool>(j, "scrolling", g.scrolling);
+    g.fill = std::clamp(get<int>(j, "fill", g.fill), 0, 1);
+    g.padding = ud("padding", g.padding);
+    g.cellSize = ud("cellSize", g.cellSize);
+    g.hAlign = std::clamp(get<int>(j, "hAlign", g.hAlign), 0, 2);
+    g.vAlign = std::clamp(get<int>(j, "vAlign", g.vAlign), 0, 2);
+    g.sortByName = get<bool>(j, "sortByName", g.sortByName);
+    g.maxCells = std::max(0, get<int>(j, "maxCells", g.maxCells));
+    v4("padScale", g.padScale);
+    v4("padPx", g.padPx);
 }
 } // namespace Serializer
 

@@ -32,14 +32,21 @@ enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment,
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
 // buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
 // UICorner, UIStroke, UIShadow and UIBlur go inside a Frame / label / button and change
-// how it's drawn (a "modifier", not a box of its own).
-enum class GuiType { ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke, UIShadow, UIBlur };
-inline constexpr int kGuiTypeCount = 10;
+// how it's drawn (a "modifier", not a box of its own). UIListLayout / UIGridLayout line
+// up the things next to them, and UIPadding keeps them away from the edges.
+// A TextBox is a label you can type in; a ScrollingFrame holds more than fits and scrolls.
+enum class GuiType { ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke, UIShadow, UIBlur,
+                     TextBox, ScrollingFrame, UIListLayout, UIGridLayout, UIPadding };
+inline constexpr int kGuiTypeCount = 15;
 inline const char* const kGuiClassNames[kGuiTypeCount] = {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel",
-                                                          "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur"};
+                                                          "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur",
+                                                          "TextBox", "ScrollingFrame", "UIListLayout", "UIGridLayout", "UIPadding"};
 inline bool isGuiModifier(GuiType t) {
-    return t == GuiType::UICorner || t == GuiType::UIStroke || t == GuiType::UIShadow || t == GuiType::UIBlur;
+    return t == GuiType::UICorner || t == GuiType::UIStroke || t == GuiType::UIShadow || t == GuiType::UIBlur ||
+           t == GuiType::UIListLayout || t == GuiType::UIGridLayout || t == GuiType::UIPadding;
 }
+inline bool isGuiLayout(GuiType t) { return t == GuiType::UIListLayout || t == GuiType::UIGridLayout; }
+inline bool guiHasText(GuiType t) { return t == GuiType::TextLabel || t == GuiType::TextButton || t == GuiType::TextBox; }
 struct UDim2 {
     float xs = 0.0f, xo = 0.0f, ys = 0.0f, yo = 0.0f;   // X scale, X offset (pixels), Y scale, Y offset
     bool operator==(const UDim2& o) const { return xs == o.xs && xo == o.xo && ys == o.ys && yo == o.yo; }
@@ -82,8 +89,35 @@ struct GuiProps {
     // UIBlur.Size: how blurry the world behind it looks (pixels).
     float     blurSize = 12.0f;
     float     thickness = 1.0f;                     // UIStroke.Thickness
+    int       layoutOrder = 0;                      // LayoutOrder: UIListLayout / UIGridLayout put lower ones first
+    // TextBox
+    std::string placeholder;                        // PlaceholderText (shown greyed out while it's empty)
+    glm::vec3 placeholderColor{0.7f};               // PlaceholderColor3
+    bool      clearOnFocus = true;                  // ClearTextOnFocus
+    bool      editable = true;                      // TextEditable
+    bool      multiLine = false;                    // MultiLine (Enter makes a new line instead of finishing)
+    // ScrollingFrame: what's inside is laid out on a canvas CanvasSize big, and
+    // CanvasPosition is how far it's scrolled (pixels).
+    UDim2     canvasSize{0.0f, 0.0f, 2.0f, 0.0f};
+    glm::vec2 canvasPos{0.0f};
+    int       scrollBar = 12;                       // ScrollBarThickness (pixels)
+    glm::vec3 scrollColor{0.0f};                    // ScrollBarImageColor3
+    float     scrollTransparency = 0.0f;            // ScrollBarImageTransparency
+    int       scrollDir = 3;                        // ScrollingDirection: 1 = X, 2 = Y, 3 = XY
+    int       autoCanvas = 0;                       // AutomaticCanvasSize: 0 None, 1 X, 2 Y, 3 XY (grows to fit)
+    bool      scrolling = true;                     // ScrollingEnabled
+    // UIListLayout / UIGridLayout
+    int       fill = 0;                             // FillDirection: 0 = Vertical, 1 = Horizontal
+    UDim2     padding;                              // Padding (list: xs, xo) / CellPadding (grid)
+    UDim2     cellSize{0.0f, 100.0f, 0.0f, 100.0f}; // UIGridLayout.CellSize
+    int       hAlign = 0, vAlign = 0;               // HorizontalAlignment / VerticalAlignment: 0 Left/Top, 1 Center, 2 Right/Bottom
+    bool      sortByName = false;                   // SortOrder: Name (else LayoutOrder)
+    int       maxCells = 0;                         // UIGridLayout.FillDirectionMaxCells (0 = as many as fit)
+    // UIPadding: PaddingLeft, PaddingTop, PaddingRight, PaddingBottom (scale, pixels)
+    glm::vec4 padScale{0.0f}, padPx{0.0f};
     // Where it was last drawn (AbsolutePosition / AbsoluteSize). Runtime only.
     glm::vec2 absPos{0.0f}, absSize{0.0f};
+    glm::vec2 contentSize{0.0f};                    // layouts: AbsoluteContentSize. Runtime only.
 };
 
 // Sides of a part, in Roblox's NormalId order.

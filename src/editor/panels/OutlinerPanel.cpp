@@ -212,7 +212,8 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
         {"Water", {"Water", "WaterSource", "FluidVolume", "FluidSystem", "FluidEmitter"}},
         {"Constraints", {"Attachment", "LinearVelocity", "AlignPosition", "AlignOrientation", "AngularVelocity", "VectorForce", "Torque"}},
         {"Body Movers (classic)", {"BodyVelocity", "BodyPosition", "BodyGyro", "BodyAngularVelocity", "BodyThrust", "BodyForce"}},
-        {"User Interface", {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur"}},
+        {"User Interface", {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "TextBox", "ScrollingFrame",
+                            "UICorner", "UIStroke", "UIShadow", "UIBlur", "UIListLayout", "UIGridLayout", "UIPadding"}},
         {"Values", {"IntValue", "NumberValue", "StringValue", "BoolValue"}},
     };
     for (const Group& g : groups) {

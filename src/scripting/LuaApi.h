@@ -38,6 +38,8 @@ enum class SignalKind : int {
     GuiClick,      // button.MouseButton1Click / .Activated  ()
     GuiEnter,      // guiObject.MouseEnter            ()
     GuiLeave,      // guiObject.MouseLeave            ()
+    GuiFocused,    // textBox.Focused                 ()
+    GuiFocusLost,  // textBox.FocusLost               (enterPressed)
     MoveToFinished, // humanoid.MoveToFinished        (reached)   (id = character)
 };
 

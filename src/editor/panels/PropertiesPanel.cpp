@@ -69,9 +69,49 @@ bool editUDim2(const char* label, UDim2& u, float scaleStep = 0.005f) {
 
 void PropertiesPanel::renderGui(SceneNode* node) {
     GuiProps& g = node->gui;
-    const bool hasEnabled = g.type == GuiType::ScreenGui || (isGuiModifier(g.type) && g.type != GuiType::UICorner);
-    if (g.type != GuiType::UICorner)
+    const bool noSwitch = g.type == GuiType::UICorner || g.type == GuiType::UIPadding || isGuiLayout(g.type);   // (always on)
+    const bool hasEnabled = g.type == GuiType::ScreenGui || (isGuiModifier(g.type) && !noSwitch);
+    if (!noSwitch)
         ImGui::Checkbox(hasEnabled ? "Enabled" : "Visible", hasEnabled ? &node->enabled : &node->visible);
+    static const char* const kH[] = {"Left", "Center", "Right"};
+    static const char* const kV[] = {"Top", "Center", "Bottom"};
+    if (isGuiLayout(g.type)) {
+        const bool grid = g.type == GuiType::UIGridLayout;
+        ImGui::SeparatorText(grid ? "UIGridLayout" : "UIListLayout");
+        const char* dirs[] = {"Vertical", "Horizontal"};
+        ImGui::Combo("FillDirection", &g.fill, dirs, 2);
+        ImGui::Combo("HorizontalAlignment", &g.hAlign, kH, 3);
+        ImGui::Combo("VerticalAlignment", &g.vAlign, kV, 3);
+        int sort = g.sortByName ? 1 : 0;
+        const char* sorts[] = {"LayoutOrder", "Name"};
+        if (ImGui::Combo("SortOrder", &sort, sorts, 2)) g.sortByName = sort == 1;
+        if (grid) {
+            editUDim2("CellSize", g.cellSize);
+            editUDim2("CellPadding", g.padding);
+            ImGui::InputInt("FillDirectionMaxCells", &g.maxCells);
+            if (g.maxCells < 0) g.maxCells = 0;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How many in a row (0 = as many as fit).");
+        } else {
+            ImGui::DragFloat2("Padding (scale, pixels)", &g.padding.xs, 0.5f, 0.0f, 0.0f, "%.2f");
+            g.padding.ys = g.padding.xs; g.padding.yo = g.padding.xo;
+        }
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(grid ? "Puts everything next to it in a grid of same-size cells (their Position and Size are ignored)."
+                                 : "Lines up everything next to it, one after another (their Position is ignored). "
+                                   "Lower LayoutOrder comes first.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+    if (g.type == GuiType::UIPadding) {
+        ImGui::SeparatorText("UIPadding");
+        static const char* const kSides[4] = {"PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom"};
+        for (int i = 0; i < 4; ++i) {
+            float v[2] = {g.padScale[i], g.padPx[i]};
+            if (ImGui::DragFloat2(kSides[i], v, 0.5f, 0.0f, 0.0f, "%.2f")) { g.padScale[i] = v[0]; g.padPx[i] = v[1]; }
+        }
+        ImGui::TextDisabled("Keeps what's inside away from the edges (scale, pixels).");
+        return;
+    }
     if (g.type == GuiType::ScreenGui) {
         ImGui::InputInt("DisplayOrder", &g.displayOrder);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("ScreenGuis with a higher number are drawn on top.");
@@ -145,6 +185,8 @@ void PropertiesPanel::renderGui(SceneNode* node) {
     ImGui::DragFloat2("AnchorPoint", &g.anchor.x, 0.01f, 0.0f, 1.0f, "%.2f");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Which point of it sits at Position: 0,0 = top-left, 0.5,0.5 = middle.");
     ImGui::InputInt("ZIndex", &g.zIndex);
+    ImGui::InputInt("LayoutOrder", &g.layoutOrder);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("With a UIListLayout or UIGridLayout: lower numbers come first.");
     ImGui::Checkbox("ClipsDescendants", &g.clips);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hide the parts of things inside it that stick out.");
     ImGui::TextDisabled("Scale 1 = the whole of the parent; pixels are added on top.");
@@ -155,7 +197,21 @@ void PropertiesPanel::renderGui(SceneNode* node) {
     ImGui::ColorEdit3("BorderColor3", &g.borderColor.x);
     ImGui::SliderInt("BorderSizePixel", &g.border, 0, 10);
 
-    if (g.type == GuiType::TextLabel || g.type == GuiType::TextButton) {
+    if (g.type == GuiType::ScrollingFrame) {
+        ImGui::SeparatorText("Scrolling");
+        editUDim2("CanvasSize", g.canvasSize);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How big the inside is. Scale 2 on Y = twice as tall as the frame.");
+        const char* axes[] = {"None", "X", "Y", "XY"};
+        ImGui::Combo("AutomaticCanvasSize", &g.autoCanvas, axes, 4);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Grow the canvas to fit what's inside.");
+        int dir = g.scrollDir - 1;
+        if (ImGui::Combo("ScrollingDirection", &dir, axes + 1, 3)) g.scrollDir = dir + 1;
+        ImGui::DragFloat2("CanvasPosition", &g.canvasPos.x, 1.0f, 0.0f, 100000.0f, "%.0f");
+        ImGui::SliderInt("ScrollBarThickness", &g.scrollBar, 0, 30);
+        ImGui::ColorEdit3("ScrollBarImageColor3", &g.scrollColor.x);
+        ImGui::Checkbox("ScrollingEnabled", &g.scrolling);
+    }
+    if (guiHasText(g.type)) {
         ImGui::SeparatorText("Text");
         ImGui::InputTextMultiline("Text", &g.text, ImVec2(-1, ImGui::GetTextLineHeight() * 3));
         ImGui::ColorEdit3("TextColor3", &g.textColor.x);
@@ -174,6 +230,20 @@ void PropertiesPanel::renderGui(SceneNode* node) {
         ImGui::ColorEdit3("TextStrokeColor3", &g.strokeColor.x);
         ImGui::SliderFloat("TextStrokeTransparency", &g.strokeTransparency, 0.0f, 1.0f);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = a solid outline around the letters, 1 = none.");
+    }
+    if (g.type == GuiType::TextBox) {
+        ImGui::SeparatorText("TextBox");
+        ImGui::InputText("PlaceholderText", &g.placeholder);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shown greyed out while nothing's typed.");
+        ImGui::ColorEdit3("PlaceholderColor3", &g.placeholderColor.x);
+        ImGui::Checkbox("ClearTextOnFocus", &g.clearOnFocus);
+        ImGui::SameLine();
+        ImGui::Checkbox("TextEditable", &g.editable);
+        ImGui::SameLine();
+        ImGui::Checkbox("MultiLine", &g.multiLine);
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("In a script: box.FocusLost:Connect(function(enterPressed) print(box.Text) end)");
+        ImGui::PopTextWrapPos();
     }
     if (g.type == GuiType::ImageLabel || g.type == GuiType::ImageButton) {
         ImGui::SeparatorText("Image");

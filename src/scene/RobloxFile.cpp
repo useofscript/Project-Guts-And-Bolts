@@ -832,7 +832,8 @@ struct Converter {
             node->value.b = in.num("Value", 0.0) != 0.0;
             node->value.s = in.str("Value");
         } else if (GuiType gt; Guis::typeFromName(c, gt) || c == "BillboardGui" || c == "SurfaceGui") {
-            // Game UI (ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke).
+            // Game UI (ScreenGui, Frame, TextLabel, TextButton, TextBox, ImageLabel, ImageButton, ScrollingFrame,
+            // UICorner, UIStroke, UIListLayout, UIGridLayout, UIPadding).
             if (c == "BillboardGui" || c == "SurfaceGui") {
                 note(c + "s aren't supported yet (only ScreenGui UI is).");
                 return nullptr;
@@ -856,7 +857,49 @@ struct Converter {
             g.zIndex = (int)in.num("ZIndex", g.zIndex);
             g.clips = in.flag("ClipsDescendants", false);
             node->visible = in.flag("Visible", true);
-            if (gt == GuiType::TextLabel || gt == GuiType::TextButton) {
+            g.layoutOrder = (int)in.num("LayoutOrder", 0);
+            auto udim = [&](const char* k, float& s, float& o) {
+                if (const Value* v = in.get(k); v && v->kind == Value::UDim) { s = v->q.x; o = v->q.y; }
+            };
+            // Roblox's enum numbers -> ours.
+            if (isGuiLayout(gt)) {
+                g.fill = (int)in.num("FillDirection", gt == GuiType::UIGridLayout ? 0 : 1) == 0 ? 1 : 0;   // Horizontal 0, Vertical 1
+                const int ha = (int)in.num("HorizontalAlignment", 1), va = (int)in.num("VerticalAlignment", 1);   // Center 0, Left/Top 1, Right/Bottom 2
+                g.hAlign = ha == 0 ? 1 : ha == 2 ? 2 : 0;
+                g.vAlign = va == 0 ? 1 : va == 2 ? 2 : 0;
+                g.sortByName = (int)in.num("SortOrder", 2) == 0;   // Name 0, LayoutOrder 2
+                if (gt == GuiType::UIListLayout) { udim("Padding", g.padding.xs, g.padding.xo); g.padding.ys = g.padding.xs; g.padding.yo = g.padding.xo; }
+                else {
+                    u2("CellSize", g.cellSize);
+                    u2("CellPadding", g.padding);
+                    g.maxCells = std::max(0, (int)in.num("FillDirectionMaxCells", 0));
+                }
+            }
+            if (gt == GuiType::UIPadding) {
+                udim("PaddingLeft", g.padScale.x, g.padPx.x);
+                udim("PaddingTop", g.padScale.y, g.padPx.y);
+                udim("PaddingRight", g.padScale.z, g.padPx.z);
+                udim("PaddingBottom", g.padScale.w, g.padPx.w);
+            }
+            if (gt == GuiType::ScrollingFrame) {
+                u2("CanvasSize", g.canvasSize);
+                if (const Value* v = in.get("CanvasPosition"); v && v->kind == Value::Vec2) g.canvasPos = {v->q.x, v->q.y};
+                g.scrollBar = std::clamp((int)in.num("ScrollBarThickness", 12), 0, 100);
+                col("ScrollBarImageColor3", g.scrollColor);
+                f("ScrollBarImageTransparency", g.scrollTransparency);
+                const int sd = (int)in.num("ScrollingDirection", 4);   // X 1, Y 2, XY 4
+                g.scrollDir = sd == 1 ? 1 : sd == 2 ? 2 : 3;
+                g.autoCanvas = std::clamp((int)in.num("AutomaticCanvasSize", 0), 0, 3);
+                g.scrolling = in.flag("ScrollingEnabled", true);
+            }
+            if (gt == GuiType::TextBox) {
+                g.placeholder = in.str("PlaceholderText");
+                col("PlaceholderColor3", g.placeholderColor);
+                g.clearOnFocus = in.flag("ClearTextOnFocus", true);
+                g.editable = in.flag("TextEditable", true);
+                g.multiLine = in.flag("MultiLine", false);
+            }
+            if (guiHasText(gt)) {
                 g.text = in.str("Text");
                 col("TextColor3", g.textColor);
                 f("TextSize", g.textSize);
@@ -1296,6 +1339,47 @@ struct XmlWriter {
             }
             if (g.type == GuiType::UIStroke) { color3("Color", g.borderColor); flt("Thickness", g.thickness); flt("Transparency", g.bgTransparency); boolean("Enabled", n.enabled); break; }
             if (g.type == GuiType::UIShadow || g.type == GuiType::UIBlur) break;   // (ours; Roblox skips classes it doesn't know)
+            auto udim = [&](const char* k, float s, float off) {
+                o << "<UDim name=\"" << k << "\"><S>" << s << "</S><O>" << (int)std::lround(off) << "</O></UDim>\n";
+            };
+            if (isGuiLayout(g.type)) {
+                token("FillDirection", g.fill ? 0 : 1);
+                token("HorizontalAlignment", g.hAlign == 1 ? 0 : g.hAlign == 2 ? 2 : 1);
+                token("VerticalAlignment", g.vAlign == 1 ? 0 : g.vAlign == 2 ? 2 : 1);
+                token("SortOrder", g.sortByName ? 0 : 2);
+                if (g.type == GuiType::UIListLayout) udim("Padding", g.padding.xs, g.padding.xo);
+                else {
+                    udim2("CellSize", g.cellSize);
+                    udim2("CellPadding", g.padding);
+                    o << "<int name=\"FillDirectionMaxCells\">" << g.maxCells << "</int>\n";
+                }
+                break;
+            }
+            if (g.type == GuiType::UIPadding) {
+                udim("PaddingLeft", g.padScale.x, g.padPx.x);
+                udim("PaddingTop", g.padScale.y, g.padPx.y);
+                udim("PaddingRight", g.padScale.z, g.padPx.z);
+                udim("PaddingBottom", g.padScale.w, g.padPx.w);
+                break;
+            }
+            o << "<int name=\"LayoutOrder\">" << g.layoutOrder << "</int>\n";
+            if (g.type == GuiType::ScrollingFrame) {
+                udim2("CanvasSize", g.canvasSize);
+                vec2("CanvasPosition", g.canvasPos);
+                o << "<int name=\"ScrollBarThickness\">" << g.scrollBar << "</int>\n";
+                color3("ScrollBarImageColor3", g.scrollColor);
+                flt("ScrollBarImageTransparency", g.scrollTransparency);
+                token("ScrollingDirection", g.scrollDir == 1 ? 1 : g.scrollDir == 2 ? 2 : 4);
+                token("AutomaticCanvasSize", g.autoCanvas);
+                boolean("ScrollingEnabled", g.scrolling);
+            }
+            if (g.type == GuiType::TextBox) {
+                str("PlaceholderText", g.placeholder);
+                color3("PlaceholderColor3", g.placeholderColor);
+                boolean("ClearTextOnFocus", g.clearOnFocus);
+                boolean("TextEditable", g.editable);
+                boolean("MultiLine", g.multiLine);
+            }
             udim2("Position", g.pos);
             udim2("Size", g.size);
             vec2("AnchorPoint", g.anchor);
@@ -1306,7 +1390,7 @@ struct XmlWriter {
             o << "<int name=\"ZIndex\">" << g.zIndex << "</int>\n";
             boolean("ClipsDescendants", g.clips);
             boolean("Visible", n.visible);
-            if (g.type == GuiType::TextLabel || g.type == GuiType::TextButton) {
+            if (guiHasText(g.type)) {
                 str("Text", g.text);
                 color3("TextColor3", g.textColor);
                 flt("TextSize", g.textSize);

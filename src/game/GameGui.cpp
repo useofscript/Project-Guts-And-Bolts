@@ -4,6 +4,7 @@
 #include "../renderer/Textures.h"
 
 #include <imgui_internal.h>   // ImGui::ShadeVertsLinearUV (pictures in odd shapes)
+#include <misc/cpp/imgui_stdlib.h>   // InputText into a std::string (TextBox)
 
 #include <algorithm>
 #include <cmath>
@@ -18,6 +19,7 @@ struct Item {
     SceneNode* node;
     ImVec2     a, b;        // its rectangle
     ImVec2     clipA, clipB;
+    bool       bars = false;   // a ScrollingFrame's scroll bars (drawn after what's inside it)
 };
 
 ImU32 rgba(const glm::vec3& c, float transparency) {
@@ -145,6 +147,11 @@ void drawShadow(ImDrawList* dl, ImVec2 a, ImVec2 b, const Radii& radii, const Gu
     }
 }
 
+uint64_t g_focus = 0;           // the TextBox being typed in
+uint64_t g_wantFocus = 0;       // CaptureFocus asked for this one (~0 = ReleaseFocus)
+bool     g_releaseEnter = false;
+int      g_focusAge = 0;        // frames since it got focus (ImGui's box takes a frame to wake up)
+
 unsigned g_backdrop[8] = {};
 int      g_backdropCount = 0;
 
@@ -157,24 +164,168 @@ bool anyBlur(const SceneNode* n) {
     return false;
 }
 
-// Lay out one object and everything inside it, in drawing order.
-void layout(SceneNode* n, ImVec2 pa, ImVec2 pb, ImVec2 clipA, ImVec2 clipB, std::vector<Item>& out) {
-    if (!n->isGuiObject() || !n->visible) return;
-    const GuiProps& g = n->gui;
+struct Placed { SceneNode* node; ImVec2 a, b; };
+
+const SceneNode* firstLayout(const SceneNode* n) {
+    for (auto& c : n->children)
+        if (c->isGui() && isGuiLayout(c->gui.type)) return c.get();
+    return nullptr;
+}
+
+// Its rectangle inside [pa, pb] from Position, Size and AnchorPoint.
+void rectIn(const GuiProps& g, ImVec2 pa, ImVec2 pb, ImVec2& a, ImVec2& b) {
     const float pw = pb.x - pa.x, ph = pb.y - pa.y;
     const float w = pw * g.size.xs + g.size.xo, h = ph * g.size.ys + g.size.yo;
     const float x = pa.x + pw * g.pos.xs + g.pos.xo - g.anchor.x * w;
     const float y = pa.y + ph * g.pos.ys + g.pos.yo - g.anchor.y * h;
-    Item it{n, ImVec2(x, y), ImVec2(x + w, y + h), clipA, clipB};
-    n->gui.absPos = {x, y};
-    n->gui.absSize = {w, h};
-    out.push_back(it);
-    ImVec2 ca = clipA, cb = clipB;
-    if (g.clips) { ca = ImVec2(std::max(ca.x, it.a.x), std::max(ca.y, it.a.y)); cb = ImVec2(std::min(cb.x, it.b.x), std::min(cb.y, it.b.y)); }
+    a = ImVec2(x, y);
+    b = ImVec2(x + w, y + h);
+}
+
+// UIListLayout / UIGridLayout: line `kids` up inside [pa, pb] (instead of their Position).
+void arrange(SceneNode* lay, std::vector<SceneNode*> kids, ImVec2 pa, ImVec2 pb, std::vector<Placed>& out) {
+    GuiProps& L = lay->gui;
+    std::stable_sort(kids.begin(), kids.end(), [&](SceneNode* l, SceneNode* r) {
+        return L.sortByName ? l->name < r->name : l->gui.layoutOrder < r->gui.layoutOrder;
+    });
+    const float W = pb.x - pa.x, H = pb.y - pa.y;
+    const bool across = L.fill == 1;   // Horizontal
+    auto put = [&](SceneNode* n, float x, float y, float w, float h) {
+        out.push_back(Placed{n, ImVec2(x, y), ImVec2(x + w, y + h)});
+    };
+    if (L.type == GuiType::UIListLayout) {
+        const float gap = across ? W * L.padding.xs + L.padding.xo : H * L.padding.xs + L.padding.xo;
+        std::vector<ImVec2> sizes;
+        float total = 0.0f, widest = 0.0f;
+        for (SceneNode* k : kids) {
+            ImVec2 a, b;
+            rectIn(k->gui, pa, pb, a, b);
+            sizes.emplace_back(b.x - a.x, b.y - a.y);
+            total += across ? sizes.back().x : sizes.back().y;
+            widest = std::max(widest, across ? sizes.back().y : sizes.back().x);
+        }
+        if (!kids.empty()) total += gap * (float)(kids.size() - 1);
+        L.contentSize = across ? glm::vec2(total, widest) : glm::vec2(widest, total);
+        float at = across ? pa.x + (W - total) * 0.5f * L.hAlign : pa.y + (H - total) * 0.5f * L.vAlign;
+        for (size_t i = 0; i < kids.size(); ++i) {
+            const ImVec2 s = sizes[i];
+            if (across) { put(kids[i], at, pa.y + (H - s.y) * 0.5f * L.vAlign, s.x, s.y); at += s.x + gap; }
+            else        { put(kids[i], pa.x + (W - s.x) * 0.5f * L.hAlign, at, s.x, s.y); at += s.y + gap; }
+        }
+        return;
+    }
+    // A grid of CellSize cells, CellPadding apart, filling rows (or columns) in turn.
+    const float cw = W * L.cellSize.xs + L.cellSize.xo, ch = H * L.cellSize.ys + L.cellSize.yo;
+    const float px = W * L.padding.xs + L.padding.xo, py = H * L.padding.ys + L.padding.yo;
+    int per = across ? (int)std::floor((W + px) / std::max(1.0f, cw + px)) : (int)std::floor((H + py) / std::max(1.0f, ch + py));
+    per = std::max(1, per);
+    if (L.maxCells > 0) per = std::min(per, L.maxCells);
+    const int n = (int)kids.size();
+    const int lines = n ? (n + per - 1) / per : 0, inLine = std::min(n, per);
+    const int cols = across ? inLine : lines, rows = across ? lines : inLine;
+    const float bw = cols ? cols * (cw + px) - px : 0.0f, bh = rows ? rows * (ch + py) - py : 0.0f;
+    L.contentSize = {bw, bh};
+    const float x0 = pa.x + (W - bw) * 0.5f * L.hAlign, y0 = pa.y + (H - bh) * 0.5f * L.vAlign;
+    for (int i = 0; i < n; ++i) {
+        const int c = across ? i % per : i / per, r = across ? i / per : i % per;
+        put(kids[i], x0 + c * (cw + px), y0 + r * (ch + py), cw, ch);
+    }
+}
+
+void place(SceneNode* n, ImVec2 a, ImVec2 b, ImVec2 clipA, ImVec2 clipB, std::vector<Item>& out);
+
+// Everything inside `parent`, laid out in [pa, pb] (its inside), in drawing order.
+void layoutChildren(SceneNode* parent, ImVec2 pa, ImVec2 pb, ImVec2 clipA, ImVec2 clipB, std::vector<Item>& out) {
     std::vector<SceneNode*> kids;
-    for (auto& c : n->children) if (c->isGuiObject()) kids.push_back(c.get());
-    std::stable_sort(kids.begin(), kids.end(), [](SceneNode* l, SceneNode* r) { return l->gui.zIndex < r->gui.zIndex; });
-    for (SceneNode* c : kids) layout(c, it.a, it.b, ca, cb, out);
+    for (auto& c : parent->children) if (c->isGuiObject() && c->visible) kids.push_back(c.get());
+    std::vector<Placed> rects;
+    if (SceneNode* lay = const_cast<SceneNode*>(firstLayout(parent))) {
+        arrange(lay, kids, pa, pb, rects);
+    } else {
+        for (SceneNode* k : kids) {
+            Placed p{k, {}, {}};
+            rectIn(k->gui, pa, pb, p.a, p.b);
+            rects.push_back(p);
+        }
+    }
+    // Drawn by ZIndex (ties: the order they're in).
+    std::vector<size_t> order(rects.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](size_t l, size_t r) {
+        if (rects[l].node->gui.zIndex != rects[r].node->gui.zIndex) return rects[l].node->gui.zIndex < rects[r].node->gui.zIndex;
+        return std::find(kids.begin(), kids.end(), rects[l].node) < std::find(kids.begin(), kids.end(), rects[r].node);
+    });
+    for (size_t i : order) place(rects[i].node, rects[i].a, rects[i].b, clipA, clipB, out);
+}
+
+// The inside of an object: its rectangle less any UIPadding.
+void insideOf(const SceneNode* n, ImVec2& a, ImVec2& b) {
+    for (auto& c : n->children) {
+        if (!c->isGui() || c->gui.type != GuiType::UIPadding) continue;
+        const GuiProps& p = c->gui;
+        const float w = b.x - a.x, h = b.y - a.y;
+        a = ImVec2(a.x + w * p.padScale.x + p.padPx.x, a.y + h * p.padScale.y + p.padPx.y);
+        b = ImVec2(b.x - w * p.padScale.z - p.padPx.z, b.y - h * p.padScale.w - p.padPx.w);
+        if (b.x < a.x) b.x = a.x;
+        if (b.y < a.y) b.y = a.y;
+        return;
+    }
+}
+
+// ScrollingFrame: how big its canvas is (pixels) for a view of `view` pixels.
+glm::vec2 canvasFor(SceneNode* n, ImVec2 ia, ImVec2 ib) {
+    GuiProps& g = n->gui;
+    const float vw = ib.x - ia.x, vh = ib.y - ia.y;
+    glm::vec2 c(vw * g.canvasSize.xs + g.canvasSize.xo, vh * g.canvasSize.ys + g.canvasSize.yo);
+    if (g.autoCanvas) {   // AutomaticCanvasSize: big enough for what's inside
+        std::vector<Item> trial;
+        layoutChildren(n, ia, ImVec2(ia.x + std::max(c.x, vw), ia.y + std::max(c.y, vh)), ia, ib, trial);
+        glm::vec2 most(0.0f);
+        for (const Item& it : trial)
+            if (it.node->parent == n) most = glm::max(most, glm::vec2(it.b.x - ia.x, it.b.y - ia.y));
+        if (const SceneNode* lay = firstLayout(n)) most = glm::max(most, lay->gui.contentSize);
+        if (g.autoCanvas & 1) c.x = std::max(c.x, most.x);
+        if (g.autoCanvas & 2) c.y = std::max(c.y, most.y);
+    }
+    return glm::max(c, glm::vec2(0.0f));
+}
+
+void place(SceneNode* n, ImVec2 a, ImVec2 b, ImVec2 clipA, ImVec2 clipB, std::vector<Item>& out) {
+    GuiProps& g = n->gui;
+    g.absPos = {a.x, a.y};
+    g.absSize = {b.x - a.x, b.y - a.y};
+    out.push_back(Item{n, a, b, clipA, clipB});
+    ImVec2 ca = clipA, cb = clipB;
+    const bool scroller = g.type == GuiType::ScrollingFrame;
+    if (g.clips || scroller) { ca = ImVec2(std::max(ca.x, a.x), std::max(ca.y, a.y)); cb = ImVec2(std::min(cb.x, b.x), std::min(cb.y, b.y)); }
+    ImVec2 ia = a, ib = b;
+    insideOf(n, ia, ib);
+    if (!scroller) { layoutChildren(n, ia, ib, ca, cb, out); return; }
+    // What's inside sits on the canvas, moved by how far it's scrolled.
+    const glm::vec2 canvas = canvasFor(n, ia, ib);
+    g.contentSize = canvas;   // (AbsoluteCanvasSize)
+    const glm::vec2 most = glm::max(glm::vec2(0.0f), canvas - glm::vec2(ib.x - ia.x, ib.y - ia.y));
+    g.canvasPos = glm::clamp(g.canvasPos, glm::vec2(0.0f), most);
+    const ImVec2 o(ia.x - g.canvasPos.x, ia.y - g.canvasPos.y);
+    layoutChildren(n, o, ImVec2(o.x + std::max(canvas.x, ib.x - ia.x), o.y + std::max(canvas.y, ib.y - ia.y)), ca, cb, out);
+    Item bars{n, a, b, clipA, clipB};
+    bars.bars = true;
+    out.push_back(bars);
+}
+
+// Where a ScrollingFrame's bars are: false if it has none that way (everything fits).
+bool scrollThumb(const SceneNode* n, bool vertical, ImVec2& ta, ImVec2& tb) {
+    const GuiProps& g = n->gui;
+    if (g.scrollBar <= 0 || !(g.scrollDir & (vertical ? 2 : 1))) return false;
+    const ImVec2 a(g.absPos.x, g.absPos.y), b(a.x + g.absSize.x, a.y + g.absSize.y);
+    const float view = vertical ? g.absSize.y : g.absSize.x, canvas = vertical ? g.contentSize.y : g.contentSize.x;
+    if (canvas <= view + 0.5f || view <= 0) return false;
+    const float len = std::max(16.0f, view * view / canvas), travel = view - len;
+    const float at = travel * std::clamp((vertical ? g.canvasPos.y : g.canvasPos.x) / (canvas - view), 0.0f, 1.0f);
+    const float t = (float)g.scrollBar;
+    if (vertical) { ta = ImVec2(b.x - t, a.y + at); tb = ImVec2(b.x, a.y + at + len); }
+    else          { ta = ImVec2(a.x + at, b.y - t); tb = ImVec2(a.x + at + len, b.y); }
+    return true;
 }
 
 void findScreens(SceneNode* n, std::vector<SceneNode*>& out) {
@@ -198,10 +349,9 @@ std::vector<Item> items(Scene& scene, ImVec2 min, ImVec2 max) {
         if (!s->enabled) continue;
         s->gui.absPos = {min.x, min.y};
         s->gui.absSize = {max.x - min.x, max.y - min.y};
-        std::vector<SceneNode*> kids;
-        for (auto& c : s->children) if (c->isGuiObject()) kids.push_back(c.get());
-        std::stable_sort(kids.begin(), kids.end(), [](SceneNode* l, SceneNode* r) { return l->gui.zIndex < r->gui.zIndex; });
-        for (SceneNode* c : kids) layout(c, min, max, min, max, out);
+        ImVec2 ia = min, ib = max;
+        insideOf(s, ia, ib);
+        layoutChildren(s, ia, ib, min, max, out);
     }
     return out;
 }
@@ -209,6 +359,7 @@ std::vector<Item> items(Scene& scene, ImVec2 min, ImVec2 max) {
 ImVec2 g_lastMin(0, 0), g_lastMax(1280, 720);   // the screen we last drew on
 
 bool inside(const Item& it, ImVec2 p) {
+    if (it.bars) return false;
     ImVec2 a(std::max(it.a.x, it.clipA.x), std::max(it.a.y, it.clipA.y));
     ImVec2 b(std::min(it.b.x, it.clipB.x), std::min(it.b.y, it.clipB.y));
     return p.x >= a.x && p.x < b.x && p.y >= a.y && p.y < b.y;
@@ -216,11 +367,20 @@ bool inside(const Item& it, ImVec2 p) {
 
 // Does this object catch the pointer (so clicks don't go through to the world)?
 bool blocks(const SceneNode* n) {
-    if (n->isGuiButton()) return true;
+    if (n->isGuiButton() || n->gui.type == GuiType::TextBox || n->gui.type == GuiType::ScrollingFrame) return true;
     return n->gui.bgTransparency < 0.95f || ((n->gui.type == GuiType::ImageLabel) && !n->gui.image.empty());
 }
 
-void drawText(ImDrawList* dl, const Item& it, const GuiProps& g, float radius) {
+void drawText(ImDrawList* dl, const Item& it, const GuiProps& gIn, float radius) {
+    GuiProps shown;
+    const GuiProps* gp = &gIn;
+    if (gIn.type == GuiType::TextBox && gIn.text.empty() && !gIn.placeholder.empty()) {   // PlaceholderText, greyed out
+        shown = gIn;
+        shown.text = gIn.placeholder;
+        shown.textColor = gIn.placeholderColor;
+        gp = &shown;
+    }
+    const GuiProps& g = *gp;
     if (g.text.empty() || g.textTransparency >= 1.0f) return;
     ImFont* font = ImGui::GetFont();
     const float w = it.b.x - it.a.x, h = it.b.y - it.a.y;
@@ -277,6 +437,15 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const Input* inp
         ImVec2 cb(std::min(it.clipB.x, max.x), std::min(it.clipB.y, max.y));
         if (cb.x <= ca.x || cb.y <= ca.y) continue;
         dl->PushClipRect(ca, cb, true);
+        if (it.bars) {   // a ScrollingFrame's bars, over what's inside it
+            const ImU32 col = rgba(g.scrollColor, std::max(g.scrollTransparency, 0.35f));
+            for (bool vertical : {true, false}) {
+                ImVec2 ta, tb;
+                if (scrollThumb(n, vertical, ta, tb)) dl->AddRectFilled(ta, tb, col, (float)g.scrollBar * 0.5f);
+            }
+            dl->PopClipRect();
+            continue;
+        }
         const float w = it.b.x - it.a.x, h = it.b.y - it.a.y;
         const Radii radii = radiiOf(n, w, h);
         const float radius = std::max(std::max(radii.r[0], radii.r[1]), std::max(radii.r[2], radii.r[3]));
@@ -311,7 +480,7 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const Input* inp
                 imageRounded(dl, tex, it.a, it.b, ImVec2(0, 1), ImVec2(1, 0), rgba(tint, g.imageTransparency), radii);
             }
 
-        drawText(dl, it, g, radius);
+        if (!input || n->id != g_focus) drawText(dl, it, g, radius);   // (the TextBox being typed in shows its own)
 
         // The edge: a UIStroke inside it, else the border.
         if (const SceneNode* s = childOfType(n, GuiType::UIStroke)) {
@@ -353,6 +522,64 @@ bool handle(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 pointer, bool in, bool 
         for (auto it = list.rbegin(); it != list.rend(); ++it)
             if (inside(*it, pointer) && blocks(it->node)) { top = it->node; break; }
     }
+    // Scrolling: the wheel scrolls the innermost ScrollingFrame under the pointer that can
+    // still go that way; dragging its bar (or a finger on it) moves it too.
+    ImGuiIO& io = ImGui::GetIO();
+    if (in && (io.MouseWheel != 0.0f || io.MouseWheelH != 0.0f)) {
+        const std::vector<Item> list = items(scene, min, max);
+        for (auto it = list.rbegin(); it != list.rend(); ++it) {
+            SceneNode* s = it->node;
+            if (it->bars || s->gui.type != GuiType::ScrollingFrame || !s->gui.scrolling || !inside(*it, pointer)) continue;
+            GuiProps& g = s->gui;
+            const glm::vec2 old = g.canvasPos;
+            const glm::vec2 most = glm::max(glm::vec2(0.0f), g.contentSize - g.absSize);
+            const float step = 48.0f;
+            float dy = -io.MouseWheel * step, dx = -io.MouseWheelH * step;
+            if (!(g.scrollDir & 2) || most.y <= 0.0f) { dx += dy; dy = 0.0f; }   // only sideways: the wheel scrolls that way
+            if (g.scrollDir & 1) g.canvasPos.x = std::clamp(g.canvasPos.x + dx, 0.0f, most.x);
+            if (g.scrollDir & 2) g.canvasPos.y = std::clamp(g.canvasPos.y + dy, 0.0f, most.y);
+            if (g.canvasPos != old) break;
+        }
+    }
+    // (ImGui's own press, not `down`: on phones `down` is off, but a finger is a mouse to ImGui)
+    if (in && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && top && top->gui.type == GuiType::ScrollingFrame && top->gui.scrolling) {
+        input.dragging = top->id;
+        input.dragBar = false;
+        for (bool vertical : {true, false}) {
+            ImVec2 ta, tb;
+            if (scrollThumb(top, vertical, ta, tb) && pointer.x >= ta.x - 4 && pointer.x <= tb.x + 4 && pointer.y >= ta.y - 4 && pointer.y <= tb.y + 4) {
+                input.dragBar = true;
+                input.dragFrom = vertical ? 1.0f : 0.0f;   // (which bar)
+            }
+        }
+    }
+    if (input.dragging) {
+        SceneNode* s = scene.findById(input.dragging);
+        if (!s || !s->isGui() || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) input.dragging = 0;
+        else {
+            GuiProps& g = s->gui;
+            const glm::vec2 most = glm::max(glm::vec2(0.0f), g.contentSize - g.absSize);
+            glm::vec2 d(io.MouseDelta.x, io.MouseDelta.y);
+            if (input.dragBar) {   // the bar moves with the pointer: the canvas moves more
+                const bool vertical = input.dragFrom > 0.5f;
+                const float view = vertical ? g.absSize.y : g.absSize.x, canvas = vertical ? g.contentSize.y : g.contentSize.x;
+                const float len = std::max(16.0f, view * view / std::max(canvas, 1.0f)), travel = std::max(1.0f, view - len);
+                const float k = (canvas - view) / travel;
+                d = vertical ? glm::vec2(0.0f, d.y * k) : glm::vec2(d.x * k, 0.0f);
+            } else {
+                d = -d;   // dragging the content: it follows the finger
+            }
+            if (g.scrollDir & 1) g.canvasPos.x = std::clamp(g.canvasPos.x + d.x, 0.0f, most.x);
+            if (g.scrollDir & 2) g.canvasPos.y = std::clamp(g.canvasPos.y + d.y, 0.0f, most.y);
+        }
+    }
+
+    // TextBoxes: pressing one starts typing in it; pressing anywhere else stops.
+    if ((down || tapped) && in) {
+        if (top && top->gui.type == GuiType::TextBox && top->gui.editable) { if (g_focus != top->id) focus(top->id); }
+        else if (g_focus) focus(0);
+    }
+
     const uint64_t button = top && top->isGuiButton() ? top->id : 0;
     if (button != input.hovered) {
         if (input.hovered) events.push_back({EventKind::Leave, input.hovered});
@@ -370,6 +597,88 @@ bool handle(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 pointer, bool in, bool 
         }
     }
     return top != nullptr;
+}
+
+uint64_t focused() { return g_focus; }
+
+void focus(uint64_t id, bool enter) {
+    if (id == 0) { g_wantFocus = ~0ull; g_releaseEnter = enter; }
+    else g_wantFocus = id;
+}
+
+void textInput(Scene& scene, std::vector<Event>& events) {
+    auto lose = [&](bool enter) {
+        if (g_focus) events.push_back({EventKind::FocusLost, g_focus, enter});
+        g_focus = 0;
+    };
+    if (g_wantFocus) {
+        const uint64_t want = g_wantFocus;
+        g_wantFocus = 0;
+        if (want == ~0ull) lose(g_releaseEnter);
+        else if (want != g_focus) {
+            SceneNode* n = scene.findById(want);
+            if (n && n->isGui() && n->gui.type == GuiType::TextBox) {
+                lose(false);
+                g_focus = want;
+                g_focusAge = 0;
+                if (n->gui.clearOnFocus && !n->gui.text.empty()) {
+                    n->gui.text.clear();
+                    events.push_back({EventKind::TextChanged, want});
+                }
+                events.push_back({EventKind::Focused, want});
+            }
+        }
+    }
+    if (!g_focus) return;
+    SceneNode* n = scene.findById(g_focus);
+    bool shown = n && n->isGui() && n->gui.type == GuiType::TextBox && n->visible && n->gui.editable;
+    for (SceneNode* p = n ? n->parent : nullptr; shown && p && p->isGui(); p = p->parent)
+        shown = p->gui.type == GuiType::ScreenGui ? p->enabled : p->visible;
+    if (!shown || n->gui.absSize.x < 1.0f || n->gui.absSize.y < 1.0f) { lose(false); return; }
+
+    GuiProps& g = n->gui;
+    const ImVec2 a(g.absPos.x, g.absPos.y), b(a.x + g.absSize.x, a.y + g.absSize.y);
+    ImGui::PushFont(nullptr, std::clamp(g.textSize, 6.0f, 200.0f));
+    const float fh = ImGui::GetFontSize();
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, rgba(g.textColor, g.textTransparency));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, g.multiLine ? 4.0f : std::max(0.0f, (b.y - a.y - fh) * 0.5f)));
+    ImGui::SetCursorScreenPos(a);
+    if (g_focusAge == 0) ImGui::SetKeyboardFocusHere();
+    std::string before = g.text;
+    bool enter = false;
+    ImGui::PushID((int)(g_focus & 0x7fffffff));
+    if (g.multiLine) ImGui::InputTextMultiline("##textbox", &g.text, ImVec2(b.x - a.x, b.y - a.y));
+    else {
+        ImGui::SetNextItemWidth(b.x - a.x);
+        enter = ImGui::InputText("##textbox", &g.text, ImGuiInputTextFlags_EnterReturnsTrue);
+    }
+    const bool active = ImGui::IsItemActive();
+    ImGui::PopID();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+    ImGui::PopFont();
+    if (g.text.size() > 10000) g.text.resize(10000);
+    if (g.text != before) events.push_back({EventKind::TextChanged, g_focus});
+    ++g_focusAge;
+    if (enter) lose(true);
+    else if (g_focusAge > 2 && !active) lose(false);   // clicked somewhere else, or Escape
+}
+
+bool overScroller(Scene& scene, ImVec2 p) {
+    for (const Item& it : items(scene, g_lastMin, g_lastMax))
+        if (!it.bars && it.node->gui.type == GuiType::ScrollingFrame && it.node->gui.scrolling && inside(it, p)) return true;
+    return false;
+}
+
+std::vector<std::pair<ImVec2, ImVec2>> scrollerRects(Scene& scene) {
+    std::vector<std::pair<ImVec2, ImVec2>> out;
+    for (const Item& it : items(scene, g_lastMin, g_lastMax))
+        if (!it.bars && it.node->gui.type == GuiType::ScrollingFrame && it.node->gui.scrolling)
+            out.push_back({ImVec2(std::max(it.a.x, it.clipA.x), std::max(it.a.y, it.clipA.y)),
+                           ImVec2(std::min(it.b.x, it.clipB.x), std::min(it.b.y, it.clipB.y))});
+    return out;
 }
 
 } // namespace GameGui

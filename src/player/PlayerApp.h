@@ -58,6 +58,8 @@ struct PlayerOptions {
     int         createTab = 0;         // --create-tab N (tests: which Create tab to open)
     std::string testTools;             // --test-tools "print 1 click 2 drop" (tests: one step every 25 frames in a game)
     std::string testClick;             // --test-click "x,y" (tests: click there 3 times, 0..1 of the window)
+    std::string testType;              // --test-type "text" (tests: type it at frame 90, then press Enter)
+    float       testWheel = 0.0f;      // --test-wheel N (tests: turn the mouse wheel N notches at frame 70)
     std::string launchUrl;             // gutsandbolts://play/<game>?guest=boy (the website's Play button)
 };
 

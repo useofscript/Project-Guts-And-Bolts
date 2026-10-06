@@ -149,6 +149,7 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
         if (n->isGuiObject() && cls == "GuiObject") return true;
         if (n->isGuiButton() && cls == "GuiButton") return true;
         if (isGuiModifier(n->gui.type) && cls == "UIComponent") return true;
+        if (isGuiLayout(n->gui.type) && (cls == "UIGridStyleLayout" || cls == "UILayout")) return true;
     }
     return false;
 }
@@ -525,7 +526,23 @@ int cornerIndex(const char* k) {
     if (is(k, "BottomLeft")) return 3;
     return -1;
 }
-bool hasText(const SceneNode* n) { return n->gui.type == GuiType::TextLabel || n->gui.type == GuiType::TextButton; }
+bool hasText(const SceneNode* n) { return guiHasText(n->gui.type); }
+
+// TextBox methods.
+int box_CaptureFocus(lua_State* L) { GameGui::focus(LuaApi::checkNode(L, 1)->id); return 0; }
+int box_ReleaseFocus(lua_State* L) {
+    if (GameGui::focused() == LuaApi::checkNode(L, 1)->id) GameGui::focus(0, lua_toboolean(L, 2));
+    return 0;
+}
+int box_IsFocused(lua_State* L) { lua_pushboolean(L, GameGui::focused() == LuaApi::checkNode(L, 1)->id); return 1; }
+int gui_ApplyLayout(lua_State* L) { (void)L; GameGui::refresh(*E(L)->scene()); return 0; }
+
+// Layout enums: FillDirection, HorizontalAlignment, VerticalAlignment, ScrollingDirection, AutomaticSize.
+const char* hAlignName(int a) { return a == 1 ? "Center" : a == 2 ? "Right" : "Left"; }
+const char* vAlignName(int a) { return a == 1 ? "Center" : a == 2 ? "Bottom" : "Top"; }
+const char* axesName(int a) { return a == 1 ? "X" : a == 2 ? "Y" : a == 3 ? "XY" : "None"; }
+int parseAxes(const char* s) { return is(s, "X") ? 1 : is(s, "Y") ? 2 : is(s, "XY") ? 3 : 0; }
+void pushUDimOf(lua_State* L, const UDim2& u, bool y) { LuaApi::pushUDim(L, y ? u.ys : u.xs, y ? u.yo : u.xo); }
 bool hasImage(const SceneNode* n) { return n->gui.type == GuiType::ImageLabel || n->gui.type == GuiType::ImageButton; }
 
 // ---- Movers: BodyVelocity, BodyGyro... and LinearVelocity, AlignPosition... -------
@@ -750,6 +767,53 @@ bool guiIndex(lua_State* L, SceneNode* n, const char* k) {
         if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
         return false;
     }
+    if (isGuiLayout(g.type)) {
+        if (is(k, "AbsoluteContentSize")) { GameGui::refresh(*E(L)->scene()); LuaApi::pushVector2(L, g.contentSize); return true; }
+        if (is(k, "FillDirection"))       { lua_pushstring(L, g.fill ? "Horizontal" : "Vertical"); return true; }
+        if (is(k, "HorizontalAlignment")) { lua_pushstring(L, hAlignName(g.hAlign)); return true; }
+        if (is(k, "VerticalAlignment"))   { lua_pushstring(L, vAlignName(g.vAlign)); return true; }
+        if (is(k, "SortOrder"))           { lua_pushstring(L, g.sortByName ? "Name" : "LayoutOrder"); return true; }
+        if (is(k, "ApplyLayout"))         { lua_pushcfunction(L, gui_ApplyLayout); return true; }
+        if (g.type == GuiType::UIListLayout && is(k, "Padding")) { pushUDimOf(L, g.padding, false); return true; }
+        if (g.type == GuiType::UIGridLayout) {
+            if (is(k, "CellSize"))    { LuaApi::pushUDim2(L, g.cellSize); return true; }
+            if (is(k, "CellPadding")) { LuaApi::pushUDim2(L, g.padding); return true; }
+            if (is(k, "FillDirectionMaxCells")) { lua_pushinteger(L, g.maxCells); return true; }
+            if (is(k, "StartCorner")) { lua_pushstring(L, "TopLeft"); return true; }
+        }
+        return false;
+    }
+    if (g.type == GuiType::UIPadding) {
+        static const char* const kSides[4] = {"PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom"};
+        for (int i = 0; i < 4; ++i)
+            if (is(k, kSides[i])) { LuaApi::pushUDim(L, g.padScale[i], g.padPx[i]); return true; }
+        return false;
+    }
+    if (g.type == GuiType::TextBox) {
+        if (is(k, "PlaceholderText"))   { lua_pushstring(L, g.placeholder.c_str()); return true; }
+        if (is(k, "PlaceholderColor3")) { LuaApi::pushColor3(L, g.placeholderColor); return true; }
+        if (is(k, "ClearTextOnFocus"))  { lua_pushboolean(L, g.clearOnFocus); return true; }
+        if (is(k, "TextEditable"))      { lua_pushboolean(L, g.editable); return true; }
+        if (is(k, "MultiLine"))         { lua_pushboolean(L, g.multiLine); return true; }
+        if (is(k, "Focused"))           { LuaApi::pushSignal(L, SignalKind::GuiFocused, n->id); return true; }
+        if (is(k, "FocusLost"))         { LuaApi::pushSignal(L, SignalKind::GuiFocusLost, n->id); return true; }
+        if (is(k, "CaptureFocus"))      { lua_pushcfunction(L, box_CaptureFocus); return true; }
+        if (is(k, "ReleaseFocus"))      { lua_pushcfunction(L, box_ReleaseFocus); return true; }
+        if (is(k, "IsFocused"))         { lua_pushcfunction(L, box_IsFocused); return true; }
+    }
+    if (g.type == GuiType::ScrollingFrame) {
+        if (is(k, "CanvasSize"))        { LuaApi::pushUDim2(L, g.canvasSize); return true; }
+        if (is(k, "CanvasPosition"))    { LuaApi::pushVector2(L, g.canvasPos); return true; }
+        if (is(k, "AbsoluteCanvasSize")) { GameGui::refresh(*E(L)->scene()); LuaApi::pushVector2(L, g.contentSize); return true; }
+        if (is(k, "AbsoluteWindowSize")) { GameGui::refresh(*E(L)->scene()); LuaApi::pushVector2(L, g.absSize); return true; }
+        if (is(k, "ScrollBarThickness")) { lua_pushinteger(L, g.scrollBar); return true; }
+        if (is(k, "ScrollBarImageColor3")) { LuaApi::pushColor3(L, g.scrollColor); return true; }
+        if (is(k, "ScrollBarImageTransparency")) { lua_pushnumber(L, g.scrollTransparency); return true; }
+        if (is(k, "ScrollingDirection")) { lua_pushstring(L, axesName(g.scrollDir)); return true; }
+        if (is(k, "AutomaticCanvasSize")) { lua_pushstring(L, axesName(g.autoCanvas)); return true; }
+        if (is(k, "ScrollingEnabled"))  { lua_pushboolean(L, g.scrolling); return true; }
+    }
+    if (is(k, "LayoutOrder"))      { lua_pushinteger(L, g.layoutOrder); return true; }
     if (is(k, "Position"))         { LuaApi::pushUDim2(L, g.pos); return true; }
     if (is(k, "Size"))             { LuaApi::pushUDim2(L, g.size); return true; }
     if (is(k, "AnchorPoint"))      { LuaApi::pushVector2(L, g.anchor); return true; }
@@ -834,6 +898,62 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
         if (is(k, "ApplyStrokeMode") || is(k, "LineJoinMode")) return true;
         return false;
     }
+    if (isGuiLayout(g.type)) {
+        if (is(k, "FillDirection"))       { g.fill = is(luaL_checkstring(L, 3), "Horizontal") ? 1 : 0; return true; }
+        if (is(k, "HorizontalAlignment")) { g.hAlign = parseAlign(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "VerticalAlignment"))   { g.vAlign = parseAlign(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "SortOrder"))           { g.sortByName = is(luaL_checkstring(L, 3), "Name"); return true; }
+        if (g.type == GuiType::UIListLayout && is(k, "Padding")) {
+            glm::vec2 u = LuaApi::checkUDim(L, 3);
+            g.padding = {u.x, u.y, u.x, u.y};
+            return true;
+        }
+        if (g.type == GuiType::UIGridLayout) {
+            if (is(k, "CellSize"))    { g.cellSize = LuaApi::checkUDim2(L, 3); return true; }
+            if (is(k, "CellPadding")) { g.padding = LuaApi::checkUDim2(L, 3); return true; }
+            if (is(k, "FillDirectionMaxCells")) { g.maxCells = std::max(0, (int)luaL_checkinteger(L, 3)); return true; }
+            if (is(k, "StartCorner")) return true;   // (accepted: always the top left)
+        }
+        if (is(k, "Wraps") || is(k, "HorizontalFlex") || is(k, "VerticalFlex") || is(k, "ItemLineAlignment")) return true;
+        return false;
+    }
+    if (g.type == GuiType::UIPadding) {
+        static const char* const kSides[4] = {"PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom"};
+        for (int i = 0; i < 4; ++i)
+            if (is(k, kSides[i])) {
+                glm::vec2 u = LuaApi::checkUDim(L, 3);
+                g.padScale[i] = u.x;
+                g.padPx[i] = u.y;
+                return true;
+            }
+        return false;
+    }
+    if (g.type == GuiType::TextBox) {
+        if (is(k, "PlaceholderText"))   { g.placeholder = luaL_tolstring(L, 3, nullptr); lua_pop(L, 1); return true; }
+        if (is(k, "PlaceholderColor3")) { g.placeholderColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "ClearTextOnFocus"))  { g.clearOnFocus = lua_toboolean(L, 3); return true; }
+        if (is(k, "TextEditable"))      { g.editable = lua_toboolean(L, 3); return true; }
+        if (is(k, "MultiLine"))         { g.multiLine = lua_toboolean(L, 3); return true; }
+        if (is(k, "Text")) {   // (Changed fires, like when someone types)
+            std::string v = luaL_tolstring(L, 3, nullptr);
+            lua_pop(L, 1);
+            if (v != g.text) { g.text = v; E(L)->firePropertyChanged(n->id, "Text"); }
+            return true;
+        }
+    }
+    if (g.type == GuiType::ScrollingFrame) {
+        if (is(k, "CanvasSize"))        { g.canvasSize = LuaApi::checkUDim2(L, 3); return true; }
+        if (is(k, "CanvasPosition"))    { g.canvasPos = glm::max(glm::vec2(0.0f), LuaApi::checkVector2(L, 3)); return true; }
+        if (is(k, "ScrollBarThickness")) { g.scrollBar = std::clamp((int)luaL_checkinteger(L, 3), 0, 100); return true; }
+        if (is(k, "ScrollBarImageColor3")) { g.scrollColor = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "ScrollBarImageTransparency")) { g.scrollTransparency = t01(); return true; }
+        if (is(k, "ScrollingDirection")) { g.scrollDir = std::max(1, parseAxes(luaL_checkstring(L, 3))); return true; }
+        if (is(k, "AutomaticCanvasSize")) { g.autoCanvas = parseAxes(luaL_checkstring(L, 3)); return true; }
+        if (is(k, "ScrollingEnabled"))  { g.scrolling = lua_toboolean(L, 3); return true; }
+        if (is(k, "ElasticBehavior") || is(k, "VerticalScrollBarInset") || is(k, "HorizontalScrollBarInset") ||
+            is(k, "TopImage") || is(k, "MidImage") || is(k, "BottomImage") || is(k, "VerticalScrollBarPosition")) return true;
+    }
+    if (is(k, "LayoutOrder"))      { g.layoutOrder = (int)luaL_checkinteger(L, 3); return true; }
     if (is(k, "Position"))         { g.pos = LuaApi::checkUDim2(L, 3); return true; }
     if (is(k, "Size"))             { g.size = LuaApi::checkUDim2(L, 3); return true; }
     if (is(k, "AnchorPoint"))      { g.anchor = LuaApi::checkVector2(L, 3); return true; }
