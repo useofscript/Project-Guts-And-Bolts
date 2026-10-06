@@ -1,3 +1,26 @@
+# Guts&Bolts 0.6.7: Window Shopping (October 6, 2026)
+
+## New
+- **Catalog and Library like the old catalog** (website and Player): a search
+  bar with a category box, Browse by Category on the left, Price and Creators
+  filters, Sort by, and an info box when you point at an item. The Library has
+  a new **Animations** section.
+- **Gear held the classic way**: arm straight out, the sword pointing up.
+- **Studio right-click > Publish to Guts&Bolts**: share what you selected as a
+  public or private model, from the Explorer or the 3D view.
+- **Animation Editor like Roblox's**: a "..." menu (Load, Save, Save As,
+  Import, Export, Create New, Set Animation Priority), Roblox-style play
+  buttons, and Space to play or pause. Publish animations as public (other
+  creators can use them) or private, and import them back by ID.
+- **Explorer services**: ReplicatedStorage, ServerScriptService, StarterPack
+  and Roblox's other services show in Studio's Explorer, and
+  `game:GetService` knows them.
+- **Edit in Studio** from the website's My Games: the app gets the game and
+  opens Studio on it.
+
+## Fixed
+- An error on the Player's Create > Library page.
+
 # Guts&Bolts 0.6.6: Home Delivery (October 6, 2026)
 
 ## New
