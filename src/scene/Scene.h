@@ -36,6 +36,11 @@ struct WorldSettings {
     float      spawnForceField = 4.0f;      // seconds of ForceField after spawning (0 = none)
     bool       playerCollisions = true;     // characters bump into each other (off = walk through)
     int        maxFluidParticles = 100000;  // real liquid: the most drops at once (the oldest are recycled)
+    // The players' camera: orthographic = no perspective (2D, isometric and puzzle
+    // games). orthographicSize = studs from the bottom of the screen to the top
+    // (0 = the mouse wheel zooms like normal).
+    bool       orthographic = false;
+    float      orthographicSize = 0.0f;
 };
 
 // Another player's character in a multiplayer game. On the host, scripts can

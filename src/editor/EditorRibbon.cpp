@@ -282,6 +282,9 @@ void Editor::renderToolbar() {
                     m_state.rotSnapEnabled = !m_state.rotSnapEnabled;
                 if (smallButton("Grid", Icons::Id::Snap, m_state.showGrid, true, "Show the floor grid"))
                     m_state.showGrid = !m_state.showGrid;
+                if (smallButton("Ortho", Icons::Id::Plane, m_state.orthographic, true,
+                                "Orthographic view: no perspective, far things aren't smaller (numpad 5)"))
+                    m_state.orthographic = !m_state.orthographic;
             }
         }
         {
@@ -343,6 +346,9 @@ void Editor::renderToolbar() {
                 ImGui::SetTooltip("Moved parts stop flush against other parts instead of going through them");
             ImGui::SameLine();
             ImGui::Checkbox("Grid", &m_state.showGrid);
+            ImGui::SameLine();
+            ImGui::Checkbox("Ortho", &m_state.orthographic);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Orthographic view: no perspective, far things aren't smaller (numpad 5)");
             ImGui::EndGroup();
             ImGui::SameLine(0, 4);
         }

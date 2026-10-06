@@ -1120,15 +1120,15 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         };
         if (gt == GuiType::ScreenGui) {
             if (!parent || parent == m_scene->root()) parent = uiFolder();
-        } else if (!parent || !parent->isGui() || parent->gui.type == GuiType::UICorner || parent->gui.type == GuiType::UIStroke) {
-            if (gt == GuiType::UICorner || gt == GuiType::UIStroke) { Log::warn("Put a " + what + " inside a Frame, label or button."); return; }
+        } else if (!parent || !parent->isGui() || isGuiModifier(parent->gui.type)) {
+            if (isGuiModifier(gt)) { Log::warn("Put a " + what + " inside a Frame, label or button."); return; }
             SceneNode* screen = nullptr;   // reuse the first ScreenGui, or make one
             for (auto& c : uiFolder()->children) if (c->isGui() && c->gui.type == GuiType::ScreenGui) { screen = c.get(); break; }
             if (!screen) screen = m_scene->insert(make(GuiType::ScreenGui), uiFolder());
             parent = screen;
         }
         auto n = make(gt);
-        if (gt != GuiType::ScreenGui && gt != GuiType::UICorner && gt != GuiType::UIStroke && parent->gui.type == GuiType::ScreenGui) {
+        if (gt != GuiType::ScreenGui && !isGuiModifier(gt) && parent->gui.type == GuiType::ScreenGui) {
             n->gui.pos = {0.5f, 0, 0.5f, 0};   // in the middle of the screen, so you see it
             n->gui.anchor = {0.5f, 0.5f};
         }
@@ -1178,6 +1178,7 @@ void Editor::renderInsertObject() {
         {"ScreenGui", Icons::Id::ScreenGui}, {"Frame", Icons::Id::GuiFrame}, {"TextLabel", Icons::Id::GuiText},
         {"TextButton", Icons::Id::GuiButton}, {"ImageLabel", Icons::Id::GuiImage}, {"ImageButton", Icons::Id::GuiButton},
         {"UICorner", Icons::Id::GuiCorner}, {"UIStroke", Icons::Id::GuiCorner},
+        {"UIShadow", Icons::Id::GuiCorner}, {"UIBlur", Icons::Id::GuiCorner},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;

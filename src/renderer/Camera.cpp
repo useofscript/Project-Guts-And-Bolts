@@ -63,7 +63,18 @@ glm::mat4 Camera::view() const {
     return glm::lookAt(eye, eye + forward(), glm::vec3(0,1,0));
 }
 
+float Camera::viewHeight() const {
+    if (orthoSize > 0.0f) return orthoSize;
+    return std::max(shownDistance(), 0.5f) * 2.0f * std::tan(glm::radians(fov) * 0.5f);
+}
+
 glm::mat4 Camera::projection() const {
     float aspect = (m_h > 0) ? (float)m_w / (float)m_h : 1.0f;
+    if (orthographic) {
+        // The near side reaches back behind the camera too, so nothing between it and
+        // what it looks at gets cut off (with no perspective, nearer isn't bigger).
+        const float h = viewHeight() * 0.5f, w = h * aspect;
+        return glm::ortho(-w, w, -h, h, -500.0f, 1000.0f);
+    }
     return glm::perspective(glm::radians(fov), aspect, 0.1f, 1000.0f);
 }

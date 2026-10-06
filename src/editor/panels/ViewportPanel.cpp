@@ -210,6 +210,10 @@ void ViewportPanel::handleInput(float dt) {
     }
     if (m_hovered && io.MouseWheel != 0.0f) m_camera.zoom(io.MouseWheel);
 
+    // Numpad 5: orthographic / perspective, like Blender.
+    if ((focused || m_hovered) && !io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Keypad5, false))
+        m_state->orthographic = !m_state->orthographic;
+
     // Modeling mode: Home (or numpad .) looks at the picked points, like Blender.
     if (m_state->mode == StudioMode::Modeling && (focused || m_hovered) && !io.WantTextInput &&
         (ImGui::IsKeyPressed(ImGuiKey_Home, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadDecimal, false))) {
@@ -617,9 +621,21 @@ void ViewportPanel::render(float dt) {
             m_camera.resize(w, h);
         }
         bool playing = m_session != nullptr;
+        if (!playing) {   // (while playing, the game's own camera setting counts: PlayCamera)
+            m_camera.orthographic = m_state->orthographic;
+            m_camera.orthoSize = 0.0f;
+        }
         m_renderer.setGridSpacing(m_state->snapEnabled && m_state->snapTranslate >= 0.25f ? m_state->snapTranslate : 1.0f);
         updateNavOverlay();
         m_renderer.render(*m_scene, m_camera, m_fbo, m_state->showGrid && (!playing || m_session->runOnly()));
+        if (GameGui::needsBackdrop(*m_scene)) {   // UIBlur: the world behind the UI, blurred
+            m_renderer.makeBackdrop(m_fbo);
+            unsigned bd[SceneRenderer::kBackdropLevels];
+            for (int i = 0; i < SceneRenderer::kBackdropLevels; ++i) bd[i] = m_renderer.backdrop(i);
+            GameGui::setBackdrop(bd, SceneRenderer::kBackdropLevels);
+        } else {
+            GameGui::setBackdrop(nullptr, 0);
+        }
         Audio::setListener(m_camera.position(), m_camera.forward());
 
         ImVec2 imgPos = ImGui::GetCursorScreenPos();

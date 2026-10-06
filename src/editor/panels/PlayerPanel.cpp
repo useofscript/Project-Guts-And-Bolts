@@ -105,6 +105,18 @@ void drawGameRules(WorldSettings& w) {
         ImGui::SetTooltip("On: players bump into each other (and can stand on each other's heads).\n"
                           "Off: players walk right through each other.");
 
+    ImGui::SeparatorText("Camera");
+    ImGui::Checkbox("Orthographic", &w.orthographic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("No perspective: far things aren't smaller. For 2D, isometric and puzzle games.\n"
+                          "Scripts: workspace.Orthographic = true");
+    if (w.orthographic) {
+        ImGui::DragFloat("Orthographic Size", &w.orthographicSize, 0.5f, 0.0f, 2000.0f, w.orthographicSize > 0 ? "%.1f studs" : "zoom freely");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How many studs tall the screen is. 0 = players zoom with the mouse wheel.\n"
+                              "Scripts: workspace.OrthographicSize = 40");
+    }
+
     ImGui::SeparatorText("Fall damage");
     ImGui::Checkbox("Fall Damage", &w.fallDamage);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn off and players can fall from any height unhurt.");

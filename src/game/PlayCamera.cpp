@@ -27,6 +27,11 @@ float swimLook(const Camera& cam) {
 
 void zoom(Camera& cam, float wheel) {
     if (wheel == 0.0f) return;
+    if (cam.orthographic) {   // no first person with no perspective: just closer / further
+        cam.distance -= wheel * std::max(0.4f, cam.distance * 0.15f);
+        cam.distance = std::clamp(cam.distance, kSnapOut, kMaxZoom);
+        return;
+    }
     if (firstPerson(cam)) {
         if (wheel < 0.0f) cam.distance = kSnapOut;
         return;
@@ -46,7 +51,8 @@ void turn(Camera& cam, float dx, float dy) {
 // wall), and slides back out once the way is clear. See-through parts, parts you
 // can walk through, water and people don't count.
 void keepOutOfWalls(Camera& cam, Player& player, float dt) {
-    if (firstPerson(cam) || cam.distance <= 0.0f) { cam.clip = -1.0f; return; }
+    // (Orthographic: walls between don't hide anything, the view isn't from a point.)
+    if (firstPerson(cam) || cam.distance <= 0.0f || cam.orthographic) { cam.clip = -1.0f; return; }
     Scene* scene = player.scene();
     if (!scene) return;
     SceneNode* me = player.root();
@@ -68,6 +74,11 @@ void keepOutOfWalls(Camera& cam, Player& player, float dt) {
 }
 
 void follow(Camera& cam, Player& player, float dt, bool shiftLock) {
+    if (Scene* scene = player.scene()) {   // the game's camera setting (Workspace.Orthographic)
+        cam.orthographic = scene->world().orthographic;
+        cam.orthoSize = scene->world().orthographicSize;
+        if (cam.orthographic && cam.distance < kSnapOut) cam.distance = 12.0f;   // out of first person
+    }
     glm::vec3 target = player.focusPoint();
     if (shiftLock && !firstPerson(cam)) {
         // Over the right shoulder (Roblox moves the camera 1.75 studs right).
@@ -106,7 +117,7 @@ void fade(Scene& scene, Player& player, const Camera& cam) {
     if (!root) return;
     const float d = firstPerson(cam) ? 0.0f : cam.shownDistance();   // (closer when a wall pulls it in)
     float t = std::clamp((kFadeStart - d) / (kFadeStart - kFadeEnd), 0.0f, 1.0f);
-    if (player.isDead()) t = 0.0f;   // watch yourself fall apart
+    if (player.isDead() || cam.orthographic) t = 0.0f;   // watch yourself fall apart / never in your head
     SceneNode* tool = player.equippedTool();
     std::vector<SceneNode*> stack{root};
     while (!stack.empty()) {

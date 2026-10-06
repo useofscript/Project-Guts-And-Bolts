@@ -68,9 +68,9 @@ bool editUDim2(const char* label, UDim2& u, float scaleStep = 0.005f) {
 
 void PropertiesPanel::renderGui(SceneNode* node) {
     GuiProps& g = node->gui;
+    const bool hasEnabled = g.type == GuiType::ScreenGui || (isGuiModifier(g.type) && g.type != GuiType::UICorner);
     if (g.type != GuiType::UICorner)
-        ImGui::Checkbox(g.type == GuiType::ScreenGui || g.type == GuiType::UIStroke ? "Enabled" : "Visible",
-                        g.type == GuiType::ScreenGui || g.type == GuiType::UIStroke ? &node->enabled : &node->visible);
+        ImGui::Checkbox(hasEnabled ? "Enabled" : "Visible", hasEnabled ? &node->enabled : &node->visible);
     if (g.type == GuiType::ScreenGui) {
         ImGui::InputInt("DisplayOrder", &g.displayOrder);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("ScreenGuis with a higher number are drawn on top.");
@@ -86,6 +86,47 @@ void PropertiesPanel::renderGui(SceneNode* node) {
         ImGui::SeparatorText("UICorner");
         ImGui::DragFloat2("CornerRadius (scale, pixels)", &g.corner.xs, 0.5f, 0.0f, 500.0f, "%.2f");
         ImGui::TextDisabled("Rounds the corners of the object it's in.");
+        // Each corner on its own: tick one to give it its own roundness (0 = a sharp corner).
+        static const char* const kNames[4] = {"TopLeft", "TopRight", "BottomRight", "BottomLeft"};
+        ImGui::SeparatorText("Corners");
+        for (int i = 0; i < 4; ++i) {
+            ImGui::PushID(i);
+            bool own = g.corners[i] >= 0;
+            if (ImGui::Checkbox("##own", &own)) {
+                g.corners[i] = own ? g.corner.xo : -1.0f;
+                g.cornerScales[i] = own ? g.corner.xs : 0.0f;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Round this corner its own way (unticked: the same as CornerRadius).");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!own);
+            float v[2] = {own ? g.cornerScales[i] : g.corner.xs, own ? g.corners[i] : g.corner.xo};
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+            if (ImGui::DragFloat2(kNames[i], v, 0.5f, 0.0f, 500.0f, "%.2f") && own) {
+                g.cornerScales[i] = std::max(0.0f, v[0]);
+                g.corners[i] = std::max(0.0f, v[1]);
+            }
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+        return;
+    }
+    if (g.type == GuiType::UIShadow) {
+        ImGui::SeparatorText("UIShadow");
+        ImGui::ColorEdit3("Color", &g.bg.x);
+        ImGui::SliderFloat("Transparency", &g.bgTransparency, 0.0f, 1.0f);
+        ImGui::DragFloat2("Offset", &g.shadowOffset.x, 0.5f, -200.0f, 200.0f, "%.1f");
+        ImGui::DragFloat("Blur", &g.shadowBlur, 0.5f, 0.0f, 100.0f, "%.1f");
+        ImGui::DragFloat("Spread", &g.shadowSpread, 0.5f, -100.0f, 100.0f, "%.1f");
+        ImGui::TextDisabled("A soft drop shadow under the object it's in.");
+        return;
+    }
+    if (g.type == GuiType::UIBlur) {
+        ImGui::SeparatorText("UIBlur");
+        ImGui::DragFloat("Size", &g.blurSize, 0.5f, 0.0f, 100.0f, "%.1f");
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Blurs the world behind the object it's in (frosted glass). Make its "
+                            "BackgroundTransparency 0.3 - 0.7 to tint the glass.");
+        ImGui::PopTextWrapPos();
         return;
     }
     if (g.type == GuiType::UIStroke) {

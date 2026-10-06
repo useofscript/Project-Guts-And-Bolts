@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'frosted-glass', name: 'Frosted Glass', time: 1791290000, tag: 'Engine',
+    summary: 'Game UI gets soft drop shadows, a real see-through blur, corners you can round one at a time, and games can use an orthographic camera.',
+    items: [
+      'New UIShadow: put it in a Frame, label or button for a soft shadow under it (Color, Transparency, Offset, Blur, Spread)',
+      'New UIBlur: the world behind a Frame turns into frosted glass (Size sets how blurry). It\'s done on the graphics card, no pictures needed',
+      'UICorner can round each corner on its own: TopLeft, TopRight, BottomRight, BottomLeft (0 = a sharp corner)',
+      'Orthographic camera: no perspective, so far things aren\'t smaller. Great for 2D, isometric and puzzle games',
+      'Turn it on in Studio\'s Player tab (Camera), or in scripts: workspace.Orthographic = true and workspace.OrthographicSize = 40',
+      'Studio\'s view can go orthographic too: the Ortho button on the Home tab, or numpad 5 like Blender',
+    ],
+  },
+  {
     id: 'fast-pass', name: 'Fast Pass', time: 1791286900, tag: 'Website',
     summary: 'Game passes: creators sell perks for their games, and players buy them on the game page or right inside the game.',
     items: [

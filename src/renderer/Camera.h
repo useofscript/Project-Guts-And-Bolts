@@ -28,6 +28,12 @@ public:
     float shownDistance() const { return clip >= 0.0f && clip < distance ? clip : distance; }
     glm::vec3 pivot = {0, 0, 0};
     float fov = 60.0f;
+    // Orthographic: no perspective, things don't get smaller further away (2D,
+    // isometric and puzzle games). orthoSize = how many studs tall the view is;
+    // 0 = as much as the perspective view shows at `distance` (so zooming still works).
+    bool  orthographic = false;
+    float orthoSize = 0.0f;
+    float viewHeight() const;   // orthographic: studs from the bottom of the view to the top
 
 private:
     int m_w = 1, m_h = 1;

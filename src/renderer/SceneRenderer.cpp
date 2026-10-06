@@ -157,6 +157,8 @@ SceneRenderer::~SceneRenderer() {
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
     for (auto& b : m_bloom) destroyTarget(b);
+    for (auto& b : m_bdDown) destroyTarget(b);
+    for (auto& b : m_bdUp) destroyTarget(b);
 }
 
 void SceneRenderer::setOverlay(const std::vector<OverlayVertex>& tris, const std::vector<OverlayVertex>& lines) {
@@ -338,6 +340,55 @@ void SceneRenderer::ensureTargets(int w, int h) {
         bw = std::max(1, bw / 2);
         bh = std::max(1, bh / 2);
     }
+}
+
+void SceneRenderer::makeBackdrop(const Framebuffer& target) {
+    const int w = target.width(), h = target.height();
+    if (w <= 0 || h <= 0) return;
+    if (m_bdDown[0].w != std::max(1, w / 2) || m_bdDown[0].h != std::max(1, h / 2) || !m_bdDown[0].fbo) {
+        int bw = w / 2, bh = h / 2;
+        for (int i = 0; i <= kBackdropLevels; ++i) {
+            createTarget(m_bdDown[i], bw, bh, GL_RGBA8, false);
+            if (i < kBackdropLevels) createTarget(m_bdUp[i], bw, bh, GL_RGBA8, false);
+            bw = std::max(1, bw / 2);
+            bh = std::max(1, bh / 2);
+        }
+    }
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glBindVertexArray(m_emptyVao);
+    // Halve it again and again (each step blurs a little)...
+    m_bloomDown->bind();
+    m_bloomDown->setInt("uSrc", 0);
+    unsigned src = target.colorTexture();
+    int sw = w, sh = h;
+    for (int i = 0; i <= kBackdropLevels; ++i) {
+        bindTarget(m_bdDown[i]);
+        bindTex(0, src);
+        m_bloomDown->setVec2("uTexel", glm::vec2(1.0f / sw, 1.0f / sh));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        src = m_bdDown[i].color;
+        sw = m_bdDown[i].w;
+        sh = m_bdDown[i].h;
+    }
+    // ...then smooth each one back up a size, so it doesn't look blocky when stretched.
+    m_bloomUp->bind();
+    m_bloomUp->setInt("uSrc", 0);
+    for (int i = 0; i < kBackdropLevels; ++i) {
+        bindTarget(m_bdUp[i]);
+        bindTex(0, m_bdDown[i + 1].color);
+        m_bloomUp->setVec2("uTexel", glm::vec2(1.0f / m_bdDown[i + 1].w, 1.0f / m_bdDown[i + 1].h));
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+unsigned SceneRenderer::backdrop(int level) const {
+    return m_bdUp[std::clamp(level, 0, kBackdropLevels - 1)].color;
 }
 
 void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target) {
@@ -1448,6 +1499,7 @@ void SceneRenderer::postProcess(Scene& scene, const Camera& camera, Framebuffer&
             bindTex(3, m_hdr.depth);
             m_composite->setInt("uDepth", 3);
             m_composite->setVec2("uDepthParams", glm::vec2(proj[3][2], proj[2][2]));
+            m_composite->setBool("uOrthoDepth", camera.orthographic);
             const glm::vec3 tint = glm::clamp(color, glm::vec3(0.02f), glm::vec3(1.0f));
             m_composite->setVec3("uWaterSigma", 0.035f + 0.1f * -glm::log(tint));
             // The deeper you are, the less light gets down there.

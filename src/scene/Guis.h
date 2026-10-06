@@ -18,6 +18,7 @@ inline void setDefaults(SceneNode& n) {
         case GuiType::TextButton: g.size = {0, 200, 0, 50}; g.text = "Button"; break;
         case GuiType::UICorner:   g.corner = {0, 8, 0, 0}; break;
         case GuiType::UIStroke:   g.borderColor = {0, 0, 0}; g.bgTransparency = 0; g.thickness = 1; break;
+        case GuiType::UIShadow:   g.bg = {0, 0, 0}; g.bgTransparency = 0.5f; break;
         default: break;   // Frame / ImageLabel / ImageButton: 100 x 100
     }
 }

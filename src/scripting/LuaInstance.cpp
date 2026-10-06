@@ -142,11 +142,11 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Value && cls == "ValueBase") return true;
     if (n->kind == NodeKind::Decal && cls == "FaceInstance") return true;
     if (n->isGui()) {
-        if (cls == "GuiBase" || (n->gui.type != GuiType::UICorner && n->gui.type != GuiType::UIStroke && cls == "GuiBase2d")) return true;
+        if (cls == "GuiBase" || (!isGuiModifier(n->gui.type) && cls == "GuiBase2d")) return true;
         if (n->gui.type == GuiType::ScreenGui && (cls == "LayerCollector" || cls == "BasePlayerGui")) return true;
         if (n->isGuiObject() && cls == "GuiObject") return true;
         if (n->isGuiButton() && cls == "GuiButton") return true;
-        if ((n->gui.type == GuiType::UICorner || n->gui.type == GuiType::UIStroke) && cls == "UIComponent") return true;
+        if (isGuiModifier(n->gui.type) && cls == "UIComponent") return true;
     }
     return false;
 }
@@ -508,6 +508,14 @@ int parseAlign(const char* s) {
     if (is(s, "Right") || is(s, "Bottom")) return 2;
     return 1;
 }
+// UICorner's own corners: TopLeft, TopRight, BottomRight, BottomLeft (-1 if `k` isn't one).
+int cornerIndex(const char* k) {
+    if (is(k, "TopLeft")) return 0;
+    if (is(k, "TopRight")) return 1;
+    if (is(k, "BottomRight")) return 2;
+    if (is(k, "BottomLeft")) return 3;
+    return -1;
+}
 bool hasText(const SceneNode* n) { return n->gui.type == GuiType::TextLabel || n->gui.type == GuiType::TextButton; }
 bool hasImage(const SceneNode* n) { return n->gui.type == GuiType::ImageLabel || n->gui.type == GuiType::ImageButton; }
 
@@ -525,6 +533,25 @@ bool guiIndex(lua_State* L, SceneNode* n, const char* k) {
     }
     if (g.type == GuiType::UICorner) {
         if (is(k, "CornerRadius")) { LuaApi::pushUDim(L, g.corner.xs, g.corner.xo); return true; }
+        if (int c = cornerIndex(k); c >= 0) {   // one corner on its own (CornerRadius when it isn't set)
+            if (g.corners[c] < 0) LuaApi::pushUDim(L, g.corner.xs, g.corner.xo);
+            else LuaApi::pushUDim(L, g.cornerScales[c], g.corners[c]);
+            return true;
+        }
+        return false;
+    }
+    if (g.type == GuiType::UIShadow) {
+        if (is(k, "Color"))        { LuaApi::pushColor3(L, g.bg); return true; }
+        if (is(k, "Transparency")) { lua_pushnumber(L, g.bgTransparency); return true; }
+        if (is(k, "Offset"))       { LuaApi::pushVector2(L, g.shadowOffset); return true; }
+        if (is(k, "Blur") || is(k, "Size")) { lua_pushnumber(L, g.shadowBlur); return true; }
+        if (is(k, "Spread"))       { lua_pushnumber(L, g.shadowSpread); return true; }
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
+        return false;
+    }
+    if (g.type == GuiType::UIBlur) {
+        if (is(k, "Size"))         { lua_pushnumber(L, g.blurSize); return true; }
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
         return false;
     }
     if (g.type == GuiType::UIStroke) {
@@ -588,6 +615,26 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
     }
     if (g.type == GuiType::UICorner) {
         if (is(k, "CornerRadius")) { glm::vec2 u = LuaApi::checkUDim(L, 3); g.corner = {u.x, u.y, 0, 0}; return true; }
+        if (int c = cornerIndex(k); c >= 0) {   // a UDim, a number of pixels, or nil (back to CornerRadius)
+            if (lua_isnoneornil(L, 3)) { g.corners[c] = -1; g.cornerScales[c] = 0; }
+            else if (lua_isnumber(L, 3)) { g.corners[c] = std::max(0.0f, num()); g.cornerScales[c] = 0; }
+            else { glm::vec2 u = LuaApi::checkUDim(L, 3); g.cornerScales[c] = std::max(0.0f, u.x); g.corners[c] = std::max(0.0f, u.y); }
+            return true;
+        }
+        return false;
+    }
+    if (g.type == GuiType::UIShadow) {
+        if (is(k, "Color"))        { g.bg = LuaApi::checkColor3(L, 3); return true; }
+        if (is(k, "Transparency")) { g.bgTransparency = t01(); return true; }
+        if (is(k, "Offset"))       { g.shadowOffset = LuaApi::checkVector2(L, 3); return true; }
+        if (is(k, "Blur") || is(k, "Size")) { g.shadowBlur = std::clamp(num(), 0.0f, 100.0f); return true; }
+        if (is(k, "Spread"))       { g.shadowSpread = std::clamp(num(), -100.0f, 100.0f); return true; }
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
+        return false;
+    }
+    if (g.type == GuiType::UIBlur) {
+        if (is(k, "Size"))         { g.blurSize = std::clamp(num(), 0.0f, 100.0f); return true; }
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
         return false;
     }
     if (g.type == GuiType::UIStroke) {
@@ -813,6 +860,8 @@ int inst_index(lua_State* L) {
         if (is(k, "SafeFallSpeed"))   { lua_pushnumber(L, w.fallDamageSpeed); return 1; }
         if (is(k, "FallDamageScale")) { lua_pushnumber(L, w.fallDamageScale); return 1; }
         if (is(k, "PlayerCollisions")) { lua_pushboolean(L, w.playerCollisions); return 1; }
+        if (is(k, "Orthographic"))     { lua_pushboolean(L, w.orthographic); return 1; }
+        if (is(k, "OrthographicSize")) { lua_pushnumber(L, w.orthographicSize); return 1; }
         if (is(k, "BloodColor"))  { LuaApi::pushColor3(L, w.bloodColor); return 1; }
         if (is(k, "BloodAmount")) { lua_pushnumber(L, w.bloodAmount); return 1; }
         if (is(k, "MaxFluidParticles")) { lua_pushinteger(L, w.maxFluidParticles); return 1; }
@@ -1048,6 +1097,8 @@ int inst_newindex(lua_State* L) {
         if (is(k, "SafeFallSpeed"))   { w.fallDamageSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
         if (is(k, "FallDamageScale")) { w.fallDamageScale = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
         if (is(k, "PlayerCollisions")) { w.playerCollisions = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Orthographic"))     { w.orthographic = lua_toboolean(L, 3); return 0; }
+        if (is(k, "OrthographicSize")) { w.orthographicSize = std::clamp((float)luaL_checknumber(L, 3), 0.0f, 2000.0f); return 0; }
         if (is(k, "BloodColor"))  { w.bloodColor = LuaApi::checkColor3(L, 3); return 0; }
         if (is(k, "BloodAmount")) { w.bloodAmount = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 5.0f); return 0; }
         if (is(k, "MaxFluidParticles")) { w.maxFluidParticles = std::clamp((int)luaL_checkinteger(L, 3), 0, 1 << 20); return 0; }
