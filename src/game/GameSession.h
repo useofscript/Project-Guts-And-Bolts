@@ -32,6 +32,9 @@ public:
     std::function<void(uint64_t part, const std::string& limb)> onTouch;
     std::function<void(uint64_t part)>                          onClick;
     std::function<void(uint64_t button)>                        onGuiClick;   // a game UI button
+    // Client mode: tool requests for the host ("equip" with a tool id or 0, "drop",
+    // "use" with down = mouse pressed / let go). The host keeps everyone's tools.
+    std::function<void(const std::string& what, uint64_t tool, bool down)> onToolRequest;
 
     void start();
     void stop();
@@ -54,6 +57,16 @@ public:
     void addGear(std::unique_ptr<SceneNode> tool);
     void dropTool();
 
+    // Hosting: the tools of people who joined (their characters live here, and the
+    // tools' scripts run here). rig = their character's root.
+    void joinerArrived(uint64_t rig);                    // their StarterPack tools
+    void joinerRespawned(uint64_t rig);                  // back to just the StarterPack, like Roblox
+    void joinerEquip(uint64_t rig, uint64_t toolId);     // 0 = put it away
+    void joinerDrop(uint64_t rig);
+    void joinerUse(uint64_t rig, bool down);             // Activated / Deactivated
+    void joinerTouched(uint64_t rig, uint64_t part);     // walking into a tool picks it up
+    std::vector<SceneNode*> joinerTools(uint64_t rig);   // hotbar order, held one included
+
     ScriptEngine& scripts() { return m_scripts; }
     GuiState&     gui()     { return m_scripts.gui(); }
 
@@ -70,9 +83,12 @@ private:
     // Tools
     void setupTools();                         // take StarterPack tools out, hand them out
     void giveStarterTools();
+    bool giveTo(uint64_t rig, SceneNode* tool);          // a joiner's backpack (false if full)
+    void holdTools();                                    // everyone else's held tool, in their hand
     void pickUpTools(const std::vector<TouchEvent>& touches);
     void reachCheckpoints(const std::vector<TouchEvent>& touches);   // parts called "Checkpoint"
     std::vector<std::unique_ptr<SceneNode>> m_starterPack;   // templates (like Roblox's StarterPack)
+    std::vector<std::unique_ptr<SceneNode>> m_gear;          // your own gear (only yours, not joiners')
     std::unordered_map<uint64_t, double> m_noPickupUntil;    // just dropped: don't grab it straight back
     double       m_time = 0.0;
     bool         m_toolDown = false;          // mouse held after activating the tool

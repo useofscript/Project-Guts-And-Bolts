@@ -121,8 +121,9 @@ end
 autoTeam(LocalPlayer)
 
 -- Used by the engine when people join / leave a multiplayer game.
-function __gb_addPlayer(name, character, id)
+function __gb_addPlayer(name, character, id, backpack)
     local p = makePlayer(name, character, id)
+    rawset(p, "Backpack", backpack)
     table.insert(playerList, p)
     autoTeam(p)
     return p
@@ -2026,13 +2027,14 @@ std::vector<std::pair<std::string, std::string>> ScriptEngine::leaderstats(const
     return out;
 }
 
-void ScriptEngine::addPlayer(const std::string& name, uint64_t rootId, int userId) {
+void ScriptEngine::addPlayer(const std::string& name, uint64_t rootId, int userId, uint64_t backpackId) {
     if (!m_L) return;
     lua_getglobal(m_L, "__gb_addPlayer");
     lua_pushstring(m_L, name.c_str());
     LuaApi::pushInstance(m_L, rootId);
     lua_pushinteger(m_L, userId);
-    if (lua_pcall(m_L, 3, 1, 0) != LUA_OK) { lua_pop(m_L, 1); return; }
+    LuaApi::pushInstance(m_L, backpackId);
+    if (lua_pcall(m_L, 4, 1, 0) != LUA_OK) { lua_pop(m_L, 1); return; }
     int ref = luaL_ref(m_L, LUA_REGISTRYINDEX);
     fire(SignalKind::PlayerAdded, 0, [ref](lua_State* co) { lua_rawgeti(co, LUA_REGISTRYINDEX, ref); return 1; });
     if (m_L) luaL_unref(m_L, LUA_REGISTRYINDEX, ref);

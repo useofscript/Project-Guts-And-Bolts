@@ -540,38 +540,45 @@ bool Player::consumeRespawned() {
 // Tools
 // ---------------------------------------------------------------------------
 
-uint64_t Player::backpackId() {
-    SceneNode* r = root();
-    if (!r) return 0;
-    if (SceneNode* b = r->findChild("Backpack")) return b->id;
+SceneNode* Player::backpackOf(Scene& scene, SceneNode* r) {
+    if (!r) return nullptr;
+    if (SceneNode* b = r->findChild("Backpack")) return b;
     auto b = std::make_unique<SceneNode>("Backpack", NodeKind::Model);
     b->visible = false;      // tools in here aren't drawn and don't collide
     b->internal = true;      // (and don't show in the Explorer)
     SceneNode* raw = r->addChild(std::move(b));
-    m_scene->markDirty();
-    return raw->id;
+    scene.markDirty();
+    return raw;
 }
 
-SceneNode* Player::equippedTool() const {
-    SceneNode* r = root();
+SceneNode* Player::heldTool(const SceneNode* r) {
     if (!r) return nullptr;
     for (auto& c : r->children) if (c->isTool()) return c.get();
     return nullptr;
 }
 
-void Player::syncSlots() {
+uint64_t Player::backpackId() {
+    SceneNode* b = backpackOf(*m_scene, root());
+    return b ? b->id : 0;
+}
+
+SceneNode* Player::equippedTool() const { return heldTool(root()); }
+
+void Player::syncSlotList(Scene& scene, std::vector<uint64_t>& slots, SceneNode* r) {
     // Keep the hotbar order stable: tools keep their slot while they're held,
     // new ones go at the end, gone ones leave a gap that closes up.
     std::vector<uint64_t> have;
-    if (SceneNode* t = equippedTool()) have.push_back(t->id);
-    if (SceneNode* b = m_scene->findById(backpackId()))
+    if (SceneNode* t = heldTool(r)) have.push_back(t->id);
+    if (SceneNode* b = r ? backpackOf(scene, r) : nullptr)
         for (auto& c : b->children) if (c->isTool()) have.push_back(c->id);
-    m_slots.erase(std::remove_if(m_slots.begin(), m_slots.end(), [&](uint64_t id) {
+    slots.erase(std::remove_if(slots.begin(), slots.end(), [&](uint64_t id) {
         return std::find(have.begin(), have.end(), id) == have.end();
-    }), m_slots.end());
+    }), slots.end());
     for (uint64_t id : have)
-        if (std::find(m_slots.begin(), m_slots.end(), id) == m_slots.end()) m_slots.push_back(id);
+        if (std::find(slots.begin(), slots.end(), id) == slots.end()) slots.push_back(id);
 }
+
+void Player::syncSlots() { syncSlotList(*m_scene, m_slots, root()); }
 
 std::vector<SceneNode*> Player::tools() {
     syncSlots();
@@ -626,21 +633,44 @@ void Player::toggleSlot(int slot) {
     equip(held == list[(size_t)slot] ? 0 : list[(size_t)slot]->id);
 }
 
-SceneNode* Player::drop() {
-    SceneNode* r = root();
-    SceneNode* held = equippedTool();
-    if (!r || !held || !held->canBeDropped) return nullptr;
-    uint64_t id = held->id;
-    glm::mat4 world = held->worldMatrix();   // keep it where it is, then lay it down in front
+SceneNode* Player::layDown(Scene& scene, SceneNode* r) {
+    SceneNode* held = heldTool(r);
+    if (!r || !held) return nullptr;
     auto owned = r->detachChild(held);
-    if (onToolEquip) onToolEquip(id, false);
     float yaw = glm::radians(r->transform.rotation.y);
     glm::vec3 front = r->transform.position + glm::vec3(std::sin(yaw), 0.0f, std::cos(yaw)) * 2.5f;   // (facing = atan2(x, z))
     owned->transform = Transform{};
     owned->transform.position = glm::vec3(front.x, r->transform.position.y + 0.6f, front.z);
     owned->transform.rotation = glm::vec3(90.0f, r->transform.rotation.y, 0.0f);   // lying on its side
-    (void)world;
-    SceneNode* raw = m_scene->insert(std::move(owned));
+    return scene.insert(std::move(owned));
+}
+
+void Player::equipOn(Scene& scene, SceneNode* r, uint64_t toolId, const std::function<void(uint64_t, bool)>& events) {
+    SceneNode* bag = backpackOf(scene, r);
+    if (!bag) return;
+    SceneNode* held = heldTool(r);
+    if (held && held->id == toolId) return;
+    if (held) {   // put the one in their hand away first
+        const uint64_t id = held->id;
+        auto owned = r->detachChild(held);
+        owned->transform = Transform{};
+        bag->addChild(std::move(owned));
+        if (events) events(id, false);
+    }
+    if (SceneNode* t = toolId ? scene.findById(toolId) : nullptr; t && t->isTool() && t->parent == bag) {
+        r->addChild(bag->detachChild(t));
+        placeInHand(r, t);
+        if (events) events(toolId, true);
+    }
+    scene.markDirty();
+}
+
+SceneNode* Player::drop() {
+    SceneNode* held = equippedTool();
+    if (!root() || !held || !held->canBeDropped) return nullptr;
+    uint64_t id = held->id;
+    SceneNode* raw = layDown(*m_scene, root());
+    if (onToolEquip) onToolEquip(id, false);
     syncSlots();
     return raw;
 }
@@ -659,6 +689,7 @@ void Player::updateGrip() {
     SceneNode* weld = arm->findChild("RightGrip");
     if (!tool) {   // nothing in the hand: no RightGrip
         if (weld) m_scene->removeNode(weld);
+        m_gripMade = 0;
         return;
     }
     SceneNode* handle = tool->findChild("Handle");
@@ -683,6 +714,13 @@ void Player::updateGrip() {
     }
     weld->ref0 = arm->id;
     weld->ref1 = handle->id;
+    placeInHand(r, tool);
+}
+
+void Player::placeInHand(SceneNode* r, SceneNode* tool) {
+    SceneNode* arm = r ? r->findChild("Right Arm") : nullptr;
+    SceneNode* handle = tool ? tool->findChild("Handle") : nullptr;
+    if (!arm || !handle) { if (tool) tool->transform = Transform{}; return; }
     // Roblox's maths: Handle = RightArm * RightGrip.C0 * Tool.Grip:Inverse(), where C0
     // is the hand (the bottom of the arm) turned so +Y points the way the arm's front
     // faces. Our characters face +Z where Roblox's face -Z, hence the arm's -X / +Z / +Y.

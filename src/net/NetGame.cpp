@@ -22,6 +22,7 @@
 #include <cstring>
 #include <chrono>
 #include <cstdio>
+#include <map>
 #include <set>
 
 using json = nlohmann::json;
@@ -335,6 +336,17 @@ void ChatLog::update(float dt) {
 // Server (host)
 // ===========================================================================
 
+namespace {
+// A tool as it is, without where it sits right now (held tools move every frame).
+std::string toolString(SceneNode* t) {
+    const Transform keep = t->transform;
+    t->transform = Transform{};
+    std::string s = Serializer::nodeToString(*t);
+    t->transform = keep;
+    return s;
+}
+} // namespace
+
 struct NetServer::Client {
     std::unique_ptr<Net::Connection> conn;
     int         id = 0;
@@ -349,6 +361,8 @@ struct NetServer::Client {
     std::set<uint64_t> knownChars;   // rigs this client already has
     bool        owner = false;       // owns the game: sees the server's dev console
     unsigned long long logSent = 0;  // Log::count() already sent to them
+    std::string toolsSent;           // the tools they carry, as last sent to them
+    std::map<uint64_t, std::string> heldSent;   // what each other character holds, as last sent
 };
 
 NetServer::NetServer(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
@@ -473,10 +487,14 @@ bool NetServer::sameName(const std::string& a, const std::string& b) {
 void NetServer::dropClient(size_t index, const char* reason) {
     Client& c = *m_clients[index];
     if (c.joined) {
-        if (SceneNode* rig = m_scene->findById(c.rootId)) m_scene->removeNode(rig);
+        if (SceneNode* rig = m_scene->findById(c.rootId)) {
+            m_session->scripts().stopScripts(rig);   // (the tools they carried)
+            m_scene->removeNode(rig);
+        }
         auto& rem = m_scene->remotes();
         rem.erase(std::remove_if(rem.begin(), rem.end(), [&](auto& r) { return r.rootId == c.rootId; }), rem.end());
         m_session->scripts().removePlayer(c.name);
+        for (auto& o : m_clients) o->heldSent.erase(c.rootId);
         m_chat.add("", c.name + " " + reason, true);
         broadcast(json{{"t", "left"}, {"id", c.rootId}, {"name", c.name}}.dump(), &c);
         broadcast(json{{"t", "chat"}, {"from", ""}, {"text", c.name + " " + reason}, {"sys", true}}.dump(), &c);
@@ -654,7 +672,8 @@ void NetServer::handle(Client& c, const std::string& text) {
         if (Player* host = m_scene->player()) c.knownChars.insert(host->rootId());
         for (auto& r : m_scene->remotes()) c.knownChars.insert(r.rootId);
 
-        m_session->scripts().addPlayer(name, rig->id, c.id + 1);
+        m_session->scripts().addPlayer(name, rig->id, c.id + 1, Player::backpackOf(*m_scene, rig)->id);
+        m_session->joinerArrived(rig->id);   // their StarterPack tools
         if (!c.guest && !c.accountId.empty()) m_session->scripts().setPlayerAccount(c.id + 1, c.accountId);   // (game passes)
         if (!m_owner.empty() && c.accountId == m_owner) {   // the game's owner: the server side of the dev console
             c.owner = true;
@@ -687,12 +706,21 @@ void NetServer::handle(Client& c, const std::string& text) {
         } else if (!dead && !rc->alive) {
             rc->alive = true;
             rc->humanoid.health = rc->humanoid.maxHealth;
+            m_session->joinerRespawned(c.rootId);
         }
     } else if (t == "touch") {
         uint64_t part = m.value("part", (uint64_t)0);
         SceneNode* rig = m_scene->findById(c.rootId);
         SceneNode* limb = rig ? rig->findChild(m.value("limb", std::string())) : nullptr;
-        if (limb && m_scene->findById(part)) m_session->scripts().fireTouched(part, limb->id);
+        if (limb && m_scene->findById(part)) {
+            m_session->scripts().fireTouched(part, limb->id);
+            m_session->joinerTouched(c.rootId, part);   // a tool's Handle: they pick it up
+        }
+    } else if (t == "tool") {   // their hotbar: equip / drop / use (the tool's scripts run here)
+        const std::string what = m.value("do", std::string());
+        if (what == "equip") m_session->joinerEquip(c.rootId, m.value("id", (uint64_t)0));
+        else if (what == "drop") m_session->joinerDrop(c.rootId);
+        else if (what == "use") m_session->joinerUse(c.rootId, m.value("down", false));
     } else if (t == "click") {
         uint64_t part = m.value("part", (uint64_t)0);
         if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
@@ -835,7 +863,7 @@ void NetServer::sendTick() {
     json w = json::parse(world);
 
     // Characters: everyone's pose (each client skips its own).
-    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; bool verified; };
+    struct Char { uint64_t id; std::string name; SceneNode* root; bool admin; bool verified; uint64_t held = 0; std::string heldNode; };
     std::vector<Char> chars;
     if (Player* host = m_scene->player())
         if (SceneNode* r = host->root())
@@ -846,6 +874,9 @@ void NetServer::sendTick() {
             for (auto& c : m_clients) if (c->rootId == rc.rootId) { admin = c->admin; ver = c->verified; }
             chars.push_back({rc.rootId, rc.name, r, admin, ver});
         }
+    // The tool in each hand (sent again only when it changes).
+    for (Char& ch : chars)
+        if (SceneNode* t = Player::heldTool(ch.root)) { ch.held = t->id; ch.heldNode = toolString(t); }
 
     for (auto& c : m_clients) {
         if (!c->joined) continue;
@@ -860,6 +891,8 @@ void NetServer::sendTick() {
                 entry["rig"] = Serializer::nodeToString(*ch.root);
                 c->knownChars.insert(ch.id);
             }
+            entry["ti"] = ch.held;
+            if (std::string& was = c->heldSent[ch.id]; was != ch.heldNode) { entry["tn"] = ch.heldNode; was = ch.heldNode; }
             list.push_back(entry);
         }
         msg["chars"] = list;
@@ -869,6 +902,12 @@ void NetServer::sendTick() {
 
         // Things only this player needs to know about their own character.
         if (RemoteCharacter* rc = m_scene->findRemote(c->rootId)) {
+            // The tools they carry (the real ones are here; they show copies).
+            json list = json::array();
+            for (SceneNode* t : m_session->joinerTools(c->rootId)) list.push_back({{"i", t->id}, {"n", toolString(t)}});
+            SceneNode* held = Player::heldTool(m_scene->findById(c->rootId));
+            std::string tools = json{{"t", "tools"}, {"held", held ? held->id : 0}, {"list", list}}.dump();
+            if (tools != c->toolsSent) { c->conn->send(tools); c->toolsSent = std::move(tools); }
             if (rc->humanoidDirty) {
                 c->conn->send(json{{"t", "hum"}, {"h", humanoidJson(rc->humanoid)}}.dump());
                 rc->humanoidDirty = false;
@@ -911,6 +950,9 @@ void NetClient::disconnect() {
         m_session->onTouch = nullptr;
         m_session->onClick = nullptr;
         m_session->onGuiClick = nullptr;
+        m_session->onToolRequest = nullptr;
+        if (Player* p = m_scene->player()) p->clearTools();
+        m_toolSeen.clear();
         m_scene->remotes().clear();
     }
     m_state = State::Idle;
@@ -1052,6 +1094,10 @@ void NetClient::handle(const std::string& text) {
         m_session->onGuiClick = [this](uint64_t button) {   // a game UI button: the host's scripts hear it
             if (m_conn && button < kLocalIdBase) m_conn->send(json{{"t", "guiclick"}, {"id", button}}.dump());
         };
+        m_session->onToolRequest = [this](const std::string& what, uint64_t tool, bool down) {   // the host has our tools
+            if (m_conn) m_conn->send(json{{"t", "tool"}, {"do", what}, {"id", tool}, {"down", down}}.dump());
+        };
+        m_toolSeen.clear();
         m_session->start();
         m_state = State::Joined;
         m_chat.add("", "Joined " + m_title + " as " + m.value("name", std::string("Player")), true);
@@ -1129,8 +1175,11 @@ void NetClient::handle(const std::string& text) {
                 if (!root && ch.contains("rig")) {
                     auto rig = Serializer::nodeFromString(ch["rig"].get<std::string>(), false);
                     if (rig) root = m_scene->insert(std::move(rig));
+                    // Their backpack stays with the host (only what they hold shows).
+                    if (SceneNode* bag = root ? root->findChild("Backpack") : nullptr) m_scene->removeNode(bag);
                 }
                 if (!root) continue;
+                showHeldTool(root, ch);
                 root->name = name;
                 if (!m_scene->findRemote(id)) {
                     RemoteCharacter rc;
@@ -1144,6 +1193,7 @@ void NetClient::handle(const std::string& text) {
         }
         return;
     }
+    if (t == "tools" && me) { showMyTools(m); return; }
     if (t == "passprompt") { m_passPrompt = m.value("pass", std::string()); return; }
     if (t == "hum" && me) {
         humanoidFrom(me->humanoid(), m.value("h", json::object()));
@@ -1163,4 +1213,53 @@ void NetClient::handle(const std::string& text) {
         rem.erase(std::remove_if(rem.begin(), rem.end(), [&](auto& r) { return r.rootId == id; }), rem.end());
         return;
     }
+}
+
+// The tools we carry: the host keeps the real ones (their scripts run there) and
+// tells us what we have; we carry copies so the hotbar, our hand and our swing work.
+void NetClient::showMyTools(const json& m) {
+    Player* me = m_scene->player();
+    if (!me || !me->root() || !m.contains("list") || !m["list"].is_array()) return;
+    std::set<uint64_t> want;
+    for (const auto& e : m["list"]) if (e.is_object()) want.insert(e.value("i", (uint64_t)0));
+    for (SceneNode* t : me->tools())
+        if (!want.count(t->id)) { m_toolSeen.erase(t->id); m_scene->removeNode(t); }
+    auto isMine = [&](SceneNode* n) {
+        for (SceneNode* p = n; p; p = p->parent) if (p == me->root()) return true;
+        return false;
+    };
+    std::vector<uint64_t> order;
+    for (const auto& e : m["list"]) {
+        if (!e.is_object()) continue;
+        const uint64_t id = e.value("i", (uint64_t)0);
+        const std::string node = e.value("n", std::string());
+        if (!id || id >= kLocalIdBase) continue;
+        SceneNode* have = m_scene->findById(id);
+        if (!have || !isMine(have) || m_toolSeen[id] != node) {
+            if (have) m_scene->removeNode(have);
+            auto copy = Serializer::nodeFromString(node, false);
+            if (!copy || !copy->isTool()) continue;
+            SceneNode* raw = m_scene->insert(std::move(copy));
+            if (!me->give(raw)) { m_scene->removeNode(raw); continue; }
+            m_toolSeen[id] = node;
+        }
+        order.push_back(id);
+    }
+    me->setSlotOrder(order);
+    const uint64_t held = m.value("held", (uint64_t)0);
+    SceneNode* now = me->equippedTool();
+    if ((now ? now->id : 0) != held) me->equip(held);
+}
+
+// What someone else holds (sent when it changes): shown in their hand.
+void NetClient::showHeldTool(SceneNode* root, const json& ch) {
+    if (!ch.contains("tn")) return;
+    if (SceneNode* old = Player::heldTool(root)) m_scene->removeNode(old);
+    const std::string node = ch.value("tn", std::string());
+    if (node.empty()) return;
+    auto copy = Serializer::nodeFromString(node, false);
+    if (!copy || !copy->isTool()) return;
+    if (SceneNode* dup = m_scene->findById(copy->id)) m_scene->removeNode(dup);   // (an old copy lying about)
+    SceneNode* raw = m_scene->insert(std::move(copy), root);
+    Player::placeInHand(root, raw);
 }

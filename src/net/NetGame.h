@@ -10,6 +10,7 @@
 #include "../core/Log.h"
 #include "../game/PlayerEntry.h"
 #include "../scene/Player.h"   // CharacterPose
+#include <nlohmann/json.hpp>
 
 class Scene;
 class GameSession;
@@ -177,6 +178,9 @@ private:
     State        m_state = State::Idle;
     std::string  m_error, m_title;
     uint64_t     m_myServerRoot = 0;     // our character on the host (hidden here)
+    std::map<uint64_t, std::string> m_toolSeen;   // our tools (copies of the host's), as the host last sent them
+    void         showMyTools(const nlohmann::json& m);
+    void         showHeldTool(SceneNode* root, const nlohmann::json& ch);
     std::map<uint64_t, std::string> m_charNames;
     std::unordered_map<uint64_t, PoseBuffer> m_poses;   // other players' characters, shown smoothly
     std::vector<PlayerEntry> m_players;

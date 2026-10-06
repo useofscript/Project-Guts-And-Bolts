@@ -87,7 +87,7 @@ public:
     // arrived in the world, like a cloned tool).
     void runScriptsIn(SceneNode* root);
     // Multiplayer: other players joining / leaving (Players.PlayerAdded etc.).
-    void addPlayer(const std::string& name, uint64_t characterRootId, int userId);
+    void addPlayer(const std::string& name, uint64_t characterRootId, int userId, uint64_t backpackId = 0);
     void removePlayer(const std::string& name);
 
     GuiState& gui() { return m_gui; }

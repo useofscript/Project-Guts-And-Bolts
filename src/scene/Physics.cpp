@@ -511,23 +511,29 @@ void Physics::collectTouches(Scene& scene, std::vector<TouchEvent>& out) {
         }
     }
 
-    // The tool in the character's hand vs everything it swings through (a sword's
-    // Handle.Touched fires on what it hits; the thing hit gets Touched too).
+    // The tool in each character's hand vs everything it swings through (a sword's
+    // Handle.Touched fires on what it hits; the thing hit gets Touched too). That's
+    // yours, and (hosting) the ones held by people who joined.
+    std::vector<SceneNode*> held;
     if (charRoot && !player->isDead())
-        if (SceneNode* tool = player->equippedTool()) {
-            std::vector<SceneNode*> stack{tool};
-            while (!stack.empty()) {
-                SceneNode* p = stack.back(); stack.pop_back();
-                for (auto& ch : p->children) stack.push_back(ch.get());
-                if (!p->isPart()) continue;
-                AABB box = worldBounds(p).inflated(0.02f);
-                for (const auto& c : m_colliders) {
-                    if (!box.overlaps(c.box)) continue;
-                    report(p->id, c.node->id, c.node->id);
-                    report(c.node->id, p->id, p->id);
-                }
+        if (SceneNode* tool = player->equippedTool()) held.push_back(tool);
+    for (const RemoteCharacter& rc : scene.remotes())
+        if (rc.alive)
+            if (SceneNode* tool = Player::heldTool(scene.findById(rc.rootId))) held.push_back(tool);
+    for (SceneNode* tool : held) {
+        std::vector<SceneNode*> stack{tool};
+        while (!stack.empty()) {
+            SceneNode* p = stack.back(); stack.pop_back();
+            for (auto& ch : p->children) stack.push_back(ch.get());
+            if (!p->isPart()) continue;
+            AABB box = worldBounds(p).inflated(0.02f);
+            for (const auto& c : m_colliders) {
+                if (!box.overlaps(c.box)) continue;
+                report(p->id, c.node->id, c.node->id);
+                report(c.node->id, p->id, p->id);
             }
         }
+    }
 
     // Unanchored parts vs everything they bump into.
     for (size_t i = 0; i < m_colliders.size(); ++i) {

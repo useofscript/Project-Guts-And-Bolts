@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'pass-the-bat', name: 'Pass the Bat', time: 1791303800, tag: 'Engine',
+    summary: 'People who join someone else\'s game can carry tools now, not just the host.',
+    items: [
+      'Everyone in an online game gets the StarterPack tools when they spawn, and again after they respawn',
+      'Walk into a tool to pick it up, press 1-9 to hold one, click to swing, Backspace to drop it',
+      'The tool\'s scripts run on the game\'s server, so tool.Activated, Equipped, Unequipped and Handle.Touched work for everyone',
+      'You can see what everyone else is holding, and it moves with their hand',
+      'Scripts can give anyone a tool (player.Backpack) and use humanoid:EquipTool on anyone',
+      'Fix: putting a tool away and taking it out again no longer drops it on the ground',
+    ],
+  },
+  {
     id: 'old-faithful', name: 'Old Faithful', version: '0.6.8', time: 1791295000, tag: 'Engine',
     summary: 'The classic BodyMovers are back next to the newer movers, so old vehicles and flying keep their handling. And you can sit down anywhere.',
     items: [

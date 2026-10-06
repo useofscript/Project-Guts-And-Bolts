@@ -1666,18 +1666,36 @@ int hum_breakJoints(lua_State* L) {
     return 0;
 }
 
-// humanoid:EquipTool(tool) / humanoid:UnequipTools() (your own character only)
+// humanoid:EquipTool(tool) / humanoid:UnequipTools(): yours, or (hosting) someone who joined.
 Player* toolPlayer(lua_State* L) {
     Player* p = E(L)->scene()->player();
     return p && p->rootId() == humRoot(L) ? p : nullptr;
 }
+void joinerEquip(lua_State* L, uint64_t toolId) {
+    Scene& scene = *E(L)->scene();
+    RemoteCharacter* rc = scene.findRemote(humRoot(L));
+    SceneNode* r = rc && rc->alive ? scene.findById(rc->rootId) : nullptr;
+    if (!r) return;
+    SceneNode* bag = Player::backpackOf(scene, r);
+    if (SceneNode* t = toolId ? scene.findById(toolId) : nullptr; t && t->isTool() && bag && t->parent != bag) {
+        auto owned = scene.detach(t);   // (one lying about: into their backpack first, like Roblox)
+        if (!owned) return;
+        owned->transform = Transform{};
+        bag->addChild(std::move(owned));
+    }
+    ScriptEngine* e = E(L);
+    Player::equipOn(scene, r, toolId, [e](uint64_t id, bool on) { e->fireTool(on ? SignalKind::Equipped : SignalKind::Unequipped, id); });
+}
 int hum_equipTool(lua_State* L) {
     SceneNode* tool = LuaApi::checkNode(L, 2);
-    if (Player* p = toolPlayer(L); p && tool->isTool()) p->equip(tool->id);
+    if (!tool->isTool()) return 0;
+    if (Player* p = toolPlayer(L)) p->equip(tool->id);
+    else joinerEquip(L, tool->id);
     return 0;
 }
 int hum_unequipTools(lua_State* L) {
     if (Player* p = toolPlayer(L)) p->equip(0);
+    else joinerEquip(L, 0);
     return 0;
 }
 

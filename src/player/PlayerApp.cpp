@@ -265,6 +265,12 @@ void PlayerApp::run() {
                 SceneNode* held = p->equippedTool();
                 glm::vec3 at = p->position();
                 std::printf("TOOLS held=%s slots=%s at=%.1f,%.1f,%.1f\n", held ? held->name.c_str() : "-", names.c_str(), at.x, at.y, at.z);
+                for (const RemoteCharacter& rc : m_scene->remotes())   // (and what everyone else holds)
+                    if (SceneNode* r = m_scene->findById(rc.rootId)) {
+                        SceneNode* t = Player::heldTool(r);
+                        std::printf("OTHER %s held=%s at=%.1f,%.1f,%.1f\n", r->name.c_str(), t ? t->name.c_str() : "-",
+                                    r->transform.position.x, r->transform.position.y, r->transform.position.z);
+                    }
                 std::fflush(stdout);
             }
         }

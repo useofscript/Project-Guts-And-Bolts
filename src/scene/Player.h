@@ -87,6 +87,18 @@ public:
     void       toggleSlot(int slot);                   // 0-based: equip it, or put it away if held
     SceneNode* drop();                                 // the held tool goes on the ground in front of you
     void       clearTools();                           // everything in the backpack and hand, gone
+    // Joined games: the host decides what you carry, in its hotbar order.
+    void       setSlotOrder(const std::vector<uint64_t>& ids) { m_slots = ids; syncSlots(); }
+    // The same for any character: people who joined a game you host (on the host),
+    // and everyone else's held tool (on each screen).
+    static SceneNode* backpackOf(Scene& scene, SceneNode* rig);    // makes it if needed
+    static SceneNode* heldTool(const SceneNode* rig);
+    static void       syncSlotList(Scene& scene, std::vector<uint64_t>& slots, SceneNode* rig);
+    static void       placeInHand(SceneNode* rig, SceneNode* tool);   // its Handle in the right hand (the Grip)
+    static SceneNode* layDown(Scene& scene, SceneNode* rig);           // the held tool on the ground in front (or null)
+    // Hold the tool from their backpack (0 = put it away); `events` hears (tool, equipped).
+    static void       equipOn(Scene& scene, SceneNode* rig, uint64_t toolId,
+                              const std::function<void(uint64_t, bool)>& events);
     void       setCheckpoint(uint64_t partId) { m_checkpoint = partId; }   // respawn on this part (0 = the spawn)
     uint64_t   checkpoint() const { return m_checkpoint; }
     void       swingTool() { if (equippedTool()) m_toolSwing = kToolSwingTime; }   // the "use" animation

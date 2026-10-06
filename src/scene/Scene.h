@@ -55,6 +55,7 @@ struct RemoteCharacter {
     bool        alive = true;
     struct Kill { float force; glm::vec3 impulse; };
     std::vector<Kill> kills;             // violent deaths to send to its owner
+    std::vector<uint64_t> toolSlots;     // their hotbar order (the host keeps their tools)
 };
 
 // A visual effect to show on every player's screen (multiplayer).

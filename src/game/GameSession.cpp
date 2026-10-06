@@ -76,20 +76,21 @@ void GameSession::setupTools() {
 void GameSession::giveStarterTools() {
     Player* p = m_scene->player();
     if (!p) return;
-    for (const auto& tpl : m_starterPack) {
-        SceneNode* copy = m_scene->insert(Serializer::clone(*tpl));
-        if (!p->give(copy)) { m_scene->removeNode(copy); continue; }
-        m_scripts.runScriptsIn(copy);   // (does nothing before the scripts have started)
-    }
+    for (const auto* pack : {&m_starterPack, &m_gear})
+        for (const auto& tpl : *pack) {
+            SceneNode* copy = m_scene->insert(Serializer::clone(*tpl));
+            if (!p->give(copy)) { m_scene->removeNode(copy); continue; }
+            m_scripts.runScriptsIn(copy);   // (does nothing before the scripts have started)
+        }
 }
 
 void GameSession::addGear(std::unique_ptr<SceneNode> tool) {
     if (!m_running || m_role == Role::Client || !tool || !tool->isTool()) return;
     tool->starterTool = false;
-    m_starterPack.push_back(std::move(tool));
+    m_gear.push_back(std::move(tool));
     Player* p = m_scene->player();
     if (!p) return;
-    SceneNode* copy = m_scene->insert(Serializer::clone(*m_starterPack.back()));
+    SceneNode* copy = m_scene->insert(Serializer::clone(*m_gear.back()));
     if (!p->give(copy)) { m_scene->removeNode(copy); return; }
     m_scripts.runScriptsIn(copy);
 }
@@ -130,15 +131,122 @@ void GameSession::reachCheckpoints(const std::vector<TouchEvent>& touches) {
 }
 
 void GameSession::selectToolSlot(int slot) {
-    if (!m_running || m_role == Role::Client) return;
-    if (Player* p = m_scene->player(); p && !p->isDead()) p->toggleSlot(slot);
+    if (!m_running) return;
+    Player* p = m_scene->player();
+    if (!p || p->isDead()) return;
+    if (m_role == Role::Client) {   // the host has the real tools: ask it (it sends back what we hold)
+        auto list = p->tools();
+        if (slot < 0 || slot >= (int)list.size()) return;
+        SceneNode* t = list[(size_t)slot];
+        if (onToolRequest) onToolRequest("equip", t == p->equippedTool() ? 0 : t->id, false);
+        return;
+    }
+    p->toggleSlot(slot);
 }
 
 void GameSession::dropTool() {
-    if (!m_running || m_role == Role::Client) return;
+    if (!m_running) return;
     Player* p = m_scene->player();
     if (!p) return;
+    if (m_role == Role::Client) {
+        if (SceneNode* t = p->equippedTool(); t && t->canBeDropped && onToolRequest) onToolRequest("drop", t->id, false);
+        return;
+    }
     if (SceneNode* t = p->drop()) m_noPickupUntil[t->id] = m_time + 2.0;
+}
+
+// ---------------------------------------------------------------------------
+// People who joined your game: their tools live on their character here, so the
+// tools' scripts run here like everyone else's (tool.Parent is their character).
+// ---------------------------------------------------------------------------
+
+std::vector<SceneNode*> GameSession::joinerTools(uint64_t rig) {
+    std::vector<SceneNode*> out;
+    RemoteCharacter* rc = m_scene->findRemote(rig);
+    SceneNode* r = m_scene->findById(rig);
+    if (!rc || !r) return out;
+    Player::syncSlotList(*m_scene, rc->toolSlots, r);
+    for (uint64_t id : rc->toolSlots) if (SceneNode* t = m_scene->findById(id)) out.push_back(t);
+    return out;
+}
+
+bool GameSession::giveTo(uint64_t rig, SceneNode* tool) {
+    SceneNode* r = m_scene->findById(rig);
+    if (!r || !tool || !tool->isTool()) return false;
+    if ((int)joinerTools(rig).size() >= Player::kMaxTools) return false;
+    SceneNode* bag = Player::backpackOf(*m_scene, r);
+    if (!bag || tool->parent == bag) return false;
+    auto owned = m_scene->detach(tool);
+    if (!owned) return false;
+    owned->transform = Transform{};
+    bag->addChild(std::move(owned));
+    m_scene->markDirty();
+    joinerTools(rig);
+    return true;
+}
+
+void GameSession::joinerArrived(uint64_t rig) {
+    if (!m_running || m_role == Role::Client) return;
+    for (const auto& tpl : m_starterPack) {   // (not your gear: that's yours)
+        SceneNode* copy = m_scene->insert(Serializer::clone(*tpl));
+        if (!giveTo(rig, copy)) { m_scene->removeNode(copy); continue; }
+        m_scripts.runScriptsIn(copy);
+    }
+}
+
+void GameSession::joinerRespawned(uint64_t rig) {
+    if (!m_running || m_role == Role::Client) return;
+    for (SceneNode* t : joinerTools(rig)) {
+        m_scripts.stopScripts(t);
+        m_scene->removeNode(t);
+    }
+    if (RemoteCharacter* rc = m_scene->findRemote(rig)) rc->toolSlots.clear();
+    joinerArrived(rig);
+}
+
+void GameSession::joinerEquip(uint64_t rig, uint64_t toolId) {
+    RemoteCharacter* rc = m_scene->findRemote(rig);
+    SceneNode* r = m_scene->findById(rig);
+    if (!m_running || m_role == Role::Client || !rc || !r || !rc->alive) return;
+    Player::equipOn(*m_scene, r, toolId, [this](uint64_t id, bool on) {
+        if (m_scripts.running()) m_scripts.fireTool(on ? SignalKind::Equipped : SignalKind::Unequipped, id);
+    });
+}
+
+void GameSession::joinerDrop(uint64_t rig) {
+    SceneNode* r = m_scene->findById(rig);
+    SceneNode* held = Player::heldTool(r);
+    if (!m_running || m_role == Role::Client || !held || !held->canBeDropped) return;
+    const uint64_t id = held->id;
+    if (SceneNode* t = Player::layDown(*m_scene, r)) m_noPickupUntil[t->id] = m_time + 2.0;
+    if (m_scripts.running()) m_scripts.fireTool(SignalKind::Unequipped, id);
+    joinerTools(rig);
+}
+
+void GameSession::joinerUse(uint64_t rig, bool down) {
+    RemoteCharacter* rc = m_scene->findRemote(rig);
+    SceneNode* t = Player::heldTool(m_scene->findById(rig));
+    if (!m_running || m_role == Role::Client || !rc || !t || !m_scripts.running()) return;
+    if (down && (!t->enabled || !rc->alive)) return;
+    m_scripts.fireTool(down ? SignalKind::Activated : SignalKind::Deactivated, t->id);
+}
+
+void GameSession::joinerTouched(uint64_t rig, uint64_t partId) {
+    RemoteCharacter* rc = m_scene->findRemote(rig);
+    SceneNode* part = m_scene->findById(partId);
+    if (!m_running || m_role == Role::Client || !rc || !rc->alive || !part) return;
+    if (part->name != "Handle" || !part->parent || !part->parent->isTool()) return;
+    SceneNode* tool = part->parent;
+    if (m_scene->isCharacterPart(tool)) return;   // someone's already got it
+    if (auto it = m_noPickupUntil.find(tool->id); it != m_noPickupUntil.end() && m_time < it->second) return;
+    giveTo(rig, tool);
+}
+
+void GameSession::holdTools() {
+    // Everyone else's held tool follows their hand (their arm moves with their pose).
+    for (const RemoteCharacter& rc : m_scene->remotes())
+        if (SceneNode* r = m_scene->findById(rc.rootId))
+            if (SceneNode* t = Player::heldTool(r)) Player::placeInHand(r, t);
 }
 
 void GameSession::stop() {
@@ -148,6 +256,7 @@ void GameSession::stop() {
     m_scene->animator().clear();
     if (Player* p = m_scene->player()) p->onToolEquip = nullptr;
     m_starterPack.clear();
+    m_gear.clear();
     Audio::stopAll();
     if (Player* p = m_scene->player()) p->endPlay();
     m_physics.reset();
@@ -196,14 +305,17 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
             jump = jump || m_touchJump;
         }
         // Tools: 1-9 picks a slot (again puts it away), Backspace drops the held one.
-        if (!client && acceptInput && !ImGui::GetIO().WantTextInput) {
+        if (acceptInput && !ImGui::GetIO().WantTextInput) {
             for (int i = 0; i < Player::kMaxTools; ++i)
                 if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i), false)) selectToolSlot(i);
             if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) dropTool();
         }
         if (m_toolDown && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             m_toolDown = false;
-            if (SceneNode* t = p->equippedTool()) m_scripts.fireTool(SignalKind::Deactivated, t->id);
+            if (SceneNode* t = p->equippedTool()) {
+                if (client) { if (onToolRequest) onToolRequest("use", t->id, false); }
+                else m_scripts.fireTool(SignalKind::Deactivated, t->id);
+            }
         }
         p->setSwimInput(acceptInput ? swimLook : 0.0f, dive);
         p->update(dt, move, jump, m_physics);
@@ -229,6 +341,8 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
         npcs.died.clear();
         npcs.finished.clear();
     }
+
+    holdTools();
 
     // Waves, ripples and splashes.
     m_scene->water().update(dt, *m_scene);
@@ -286,7 +400,17 @@ void GameSession::guiEvents(const std::vector<GameGui::Event>& events) {
 
 void GameSession::click(uint64_t partId) {
     if (!m_running) return;
-    if (m_role == Role::Client) { if (onClick && partId) onClick(partId); return; }
+    if (m_role == Role::Client) {
+        if (onClick && partId) onClick(partId);
+        // Holding a tool: swing here, and the host fires tool.Activated.
+        if (Player* p = m_scene->player())
+            if (SceneNode* t = p->equippedTool(); t && t->enabled && !p->isDead()) {
+                if (onToolRequest) onToolRequest("use", t->id, true);
+                p->swingTool();
+                m_toolDown = true;
+            }
+        return;
+    }
     m_scripts.fireClicked(partId);
     // Holding a tool: clicking uses it (tool.Activated), like Roblox.
     if (Player* p = m_runOnly ? nullptr : m_scene->player())

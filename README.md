@@ -450,9 +450,10 @@ tool.Equipped:Connect(function() end)      -- also Unequipped, Deactivated
 Also: `tool.Enabled`, `tool.ToolTip`, `tool.CanBeDropped`, `tool.GripPos`,
 `humanoid:EquipTool(tool)`, `humanoid:UnequipTools()` and
 `Players.LocalPlayer.Backpack` (parent a tool there to give it). Try the
-**Bat** in *Demolition Yard*. Tools work in single player and for the host
-of an online game; people who join someone else's game can't carry tools
-yet.
+**Bat** in *Demolition Yard*. Tools work for everyone in an online game,
+not just the host: the real tools (and their scripts) live on the game's
+server, so `tool.Activated` and `Handle.Touched` fire there for whoever is
+holding it, and everyone sees what everyone else is holding.
 
 Tools are held in the right hand the Roblox way: a `RightGrip` weld joins the
 hand to the `Handle`, placed by the tool's **Grip** (`GripPos`, `GripForward`,
