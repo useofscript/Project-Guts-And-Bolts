@@ -24,7 +24,9 @@ struct Input {
 };
 
 // Focused / FocusLost / TextChanged are a TextBox's (`enter`: FocusLost because Enter was pressed).
-enum class EventKind { Click, Enter, Leave, Focused, FocusLost, TextChanged };
+// Prompt* are a ProximityPrompt's (see prompts()).
+enum class EventKind { Click, Enter, Leave, Focused, FocusLost, TextChanged,
+                       PromptShown, PromptHidden, PromptHoldBegan, PromptHoldEnded, PromptTriggered, PromptTriggerEnded };
 struct Event { EventKind kind; uint64_t id; bool enter = false; };
 
 // The camera the world is drawn with (before draw / handle each frame), so BillboardGuis
@@ -67,6 +69,20 @@ void refresh(Scene& scene);
 // draw(). Without them UIBlur draws nothing.
 bool needsBackdrop(Scene& scene);
 void setBackdrop(const unsigned* levels, int count);
+
+// Where a point in the world is on the screen (false: behind the camera, or no camera
+// set), and whether the camera can see it (`part` and its model don't block it).
+bool worldToScreen(const glm::vec3& p, ImVec2 min, ImVec2 max, ImVec2& out);
+bool canSee(Scene& scene, uint64_t key, const glm::vec3& p, const SceneNode* part);
+
+// ProximityPrompts (Prompts.cpp): the "E  Open door" cards that pop up when your
+// character (at `player`; null = nobody, so none) is close to one. Each frame after
+// setCamera(): works out which show, and handles their key and clicks / taps on them,
+// adding Prompt* events. Returns true when the pointer is on one (the click is
+// theirs, not the world's). drawPrompts() draws them (after draw()).
+bool prompts(Scene& scene, ImVec2 min, ImVec2 max, const glm::vec3* player, ImVec2 pointer, bool acceptInput,
+             float dt, std::vector<Event>& events);
+void drawPrompts(ImDrawList* dl);
 
 // Its rectangle on screen as last drawn (min, max). False if it isn't on screen.
 bool rectOf(Scene& scene, ImVec2 min, ImVec2 max, const SceneNode* node, ImVec2& a, ImVec2& b);

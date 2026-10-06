@@ -57,6 +57,9 @@ const char* const kWords[] = {
     // Talking between LocalScripts and Scripts
     "LocalScript", "RemoteEvent", "RemoteFunction", "ReplicatedStorage", "FireServer", "FireClient", "FireAllClients",
     "OnServerEvent", "OnClientEvent", "InvokeServer", "OnServerInvoke", "LocalPlayer",
+    "ProximityPrompt", "ProximityPromptService", "Triggered", "TriggerEnded", "ActionText", "ObjectText",
+    "KeyboardKeyCode", "HoldDuration", "MaxActivationDistance", "RequiresLineOfSight", "PromptButtonHoldBegan",
+    "PromptButtonHoldEnded", "PromptShown", "PromptHidden", "ClickablePrompt",
 };
 
 bool wordChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }

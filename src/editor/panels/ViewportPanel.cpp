@@ -688,8 +688,15 @@ void ViewportPanel::render(float dt) {
             const bool onGui = GameGui::handle(*m_scene, imgPos, imgMax, ImGui::GetMousePos(), m_hovered && !onHotbar,
                                                ImGui::IsMouseClicked(ImGuiMouseButton_Left),
                                                ImGui::IsMouseReleased(ImGuiMouseButton_Left), false, m_guiInput, guiEvents);
+            bool onPrompt = false;   // ProximityPrompts near the character
+            {
+                Player* me = m_scene->player();
+                const glm::vec3 at = me && me->root() && !me->isDead() ? me->position() : glm::vec3(0.0f);
+                onPrompt = GameGui::prompts(*m_scene, imgPos, imgMax, me && me->root() && !me->isDead() ? &at : nullptr,
+                                            ImGui::GetMousePos(), m_hovered && !onGui && !onHotbar, ImGui::GetIO().DeltaTime, guiEvents);
+            }
             m_session->guiEvents(guiEvents);
-            if (m_hovered && !onHotbar && !onGui && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (m_hovered && !onHotbar && !onGui && !onPrompt && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 m = ImGui::GetMousePos();
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
@@ -699,6 +706,7 @@ void ViewportPanel::render(float dt) {
             }
             Hud::drawNameTags(dl, imgPos, imgMax, *m_scene, proj * view, m_camera.position());
             GameGui::draw(dl, imgPos, imgMax, *m_scene, &m_guiInput);
+            GameGui::drawPrompts(dl);
             {
                 std::vector<GameGui::Event> typed;   // a TextBox being typed in
                 GameGui::textInput(*m_scene, typed);

@@ -393,3 +393,33 @@ void ScriptEngine::remoteIn(const json& msg, int fromUserId) {
     RemoteLua::fireWithTable(this, toServer ? SignalKind::RemoteServer : SignalKind::RemoteClient, id, L);
     if (m_L) lua_settop(m_L, top);
 }
+
+void ScriptEngine::firePrompt(SignalKind kind, uint64_t id, int userId) {
+    if (!m_L) return;
+    lua_State* L = m_L;
+    // PromptShown / PromptHidden happen on the computer the card shows on: no player.
+    if (kind == SignalKind::PromptShown || kind == SignalKind::PromptHidden) {
+        const bool shown = kind == SignalKind::PromptShown;
+        fire(kind, id, [shown](lua_State* co) {
+            if (!shown) return 0;
+            lua_pushstring(co, "Keyboard");
+            return 1;
+        });
+        fire(kind, 0, [id, shown](lua_State* co) {   // ProximityPromptService.PromptShown(prompt, inputType)
+            LuaApi::pushInstance(co, id);
+            if (!shown) return 1;
+            lua_pushstring(co, "Keyboard");
+            return 2;
+        });
+        return;
+    }
+    RemoteLua::pushPlayer(L, userId ? userId : m_localUserId, "");
+    const int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    fire(kind, id, [ref](lua_State* co) { lua_rawgeti(co, LUA_REGISTRYINDEX, ref); return 1; });
+    fire(kind, 0, [ref, id](lua_State* co) {   // ProximityPromptService.PromptTriggered(prompt, player)
+        LuaApi::pushInstance(co, id);
+        lua_rawgeti(co, LUA_REGISTRYINDEX, ref);
+        return 2;
+    });
+    if (m_L) luaL_unref(m_L, LUA_REGISTRYINDEX, ref);
+}

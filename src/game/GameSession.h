@@ -33,6 +33,8 @@ public:
     std::function<void(uint64_t part)>                          onClick;
     std::function<void(uint64_t button)>                        onGuiClick;   // a game UI button
     std::function<void(uint64_t box, const std::string& text, bool enter)> onGuiText;   // a TextBox typed in (when it loses focus)
+    // A ProximityPrompt pressed: "t" Triggered, "te" TriggerEnded, "hb" / "he" hold began / ended.
+    std::function<void(uint64_t prompt, const char* what)> onPrompt;
     // Client mode: tool requests for the host ("equip" with a tool id or 0, "drop",
     // "use" with down = mouse pressed / let go). The host keeps everyone's tools.
     std::function<void(const std::string& what, uint64_t tool, bool down)> onToolRequest;

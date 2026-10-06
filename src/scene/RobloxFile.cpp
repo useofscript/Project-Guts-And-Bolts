@@ -34,6 +34,24 @@ namespace {
 
 constexpr float kImportScale = 0.5f;          // Roblox characters are twice our size
 constexpr float kExportScale = 1.0f / kImportScale;
+
+// Roblox's Enum.KeyCode numbers <-> their names (ProximityPrompt keys).
+std::string keyName(int code) {
+    static const char* digits[] = {"Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"};
+    if (code >= 97 && code <= 122) return std::string(1, (char)('A' + code - 97));
+    if (code >= 48 && code <= 57) return digits[code - 48];
+    if (code >= 282 && code <= 293) return "F" + std::to_string(code - 281);
+    switch (code) {
+        case 32: return "Space"; case 13: return "Return"; case 9: return "Tab";
+        case 304: return "LeftShift"; case 306: return "LeftControl"; case 308: return "LeftAlt";
+        default: return "E";
+    }
+}
+int keyCode(const std::string& name) {
+    for (int c = 0; c < 400; ++c)
+        if (keyName(c) == name && !(name == "E" && c != 101)) return c;
+    return 101;   // E
+}
 constexpr float kRobloxGravity = 196.2f;
 // Movers (BodyVelocity, AlignPosition...) in Roblox numbers -> ours. Our world is half
 // the size with gentler gravity (22 vs 196.2), so speeds, spins and forces all shrink.
@@ -976,6 +994,18 @@ struct Converter {
             node->enabled = !in.flag("Disabled", false) && in.flag("Enabled", true);
             node->isLocal = c == "LocalScript";
             ++report.scripts;
+        } else if (c == "ProximityPrompt") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Prompt);
+            PromptProps& p = node->prompt;
+            p.action = in.str("ActionText", "Interact");
+            p.object = in.str("ObjectText");
+            if (const Value* k = in.get("KeyboardKeyCode")) p.key = keyName((int)k->n);
+            p.hold = (float)in.num("HoldDuration", 0.0);
+            p.range = (float)in.num("MaxActivationDistance", 10.0) * kImportScale;
+            p.lineOfSight = in.flag("RequiresLineOfSight", true);
+            p.clickable = in.flag("ClickablePrompt", true);
+            node->enabled = in.flag("Enabled", true);
+            ++report.other;
         } else if (c == "RemoteEvent" || c == "RemoteFunction" || c == "UnreliableRemoteEvent") {
             node = std::make_unique<SceneNode>(name, NodeKind::Remote);
             node->remoteFunction = c == "RemoteFunction";
@@ -1321,6 +1351,7 @@ struct XmlWriter {
             case NodeKind::Model:      cls = "Model"; break;
             case NodeKind::Script:     cls = n.isModule ? "ModuleScript" : n.isLocal ? "LocalScript" : "Script"; break;
             case NodeKind::Remote:     cls = n.remoteFunction ? "RemoteFunction" : "RemoteEvent"; break;
+            case NodeKind::Prompt:     cls = "ProximityPrompt"; break;
             case NodeKind::Light:      cls = n.lightType == LightType::Spot ? "SpotLight" : "PointLight"; break;
             case NodeKind::Sound:      cls = "Sound"; break;
             case NodeKind::Attachment: cls = "Attachment"; break;
@@ -1349,6 +1380,16 @@ struct XmlWriter {
             boolean("CanBeDropped", n.canBeDropped);
             boolean("Enabled", n.enabled);
             str("ToolTip", n.toolTip);
+            break;
+        case NodeKind::Prompt:
+            str("ActionText", n.prompt.action);
+            str("ObjectText", n.prompt.object);
+            token("KeyboardKeyCode", keyCode(n.prompt.key));
+            flt("HoldDuration", n.prompt.hold);
+            flt("MaxActivationDistance", n.prompt.range * kExportScale);
+            boolean("RequiresLineOfSight", n.prompt.lineOfSight);
+            boolean("ClickablePrompt", n.prompt.clickable);
+            boolean("Enabled", n.enabled);
             break;
         case NodeKind::Gui: {
             const GuiProps& g = n.gui;

@@ -384,6 +384,15 @@ function BadgeService:UserHasBadgeAsync(player, badgeId)
 end
 BadgeService.UserHasBadge = BadgeService.UserHasBadgeAsync
 
+-- ProximityPromptService: every ProximityPrompt's events in one place.
+--   ProximityPromptService.PromptTriggered:Connect(function(prompt, player) ... end)
+ProximityPromptService = { Name = "ProximityPromptService", ClassName = "ProximityPromptService", Enabled = true,
+    MaxPromptsVisible = 4, PromptTriggered = __gb_promptTriggered, PromptTriggerEnded = __gb_promptTriggerEnded,
+    PromptButtonHoldBegan = __gb_promptHoldBegan, PromptButtonHoldEnded = __gb_promptHoldEnded,
+    PromptShown = __gb_promptShown, PromptHidden = __gb_promptHidden }
+__gb_promptTriggered, __gb_promptTriggerEnded, __gb_promptHoldBegan = nil, nil, nil
+__gb_promptHoldEnded, __gb_promptShown, __gb_promptHidden = nil, nil, nil
+
 -- Debris: throw something away later, like Roblox's. Debris:AddItem(part, 5)
 Debris = { ClassName = "Debris", Name = "Debris", MaxItems = 1000 }
 function Debris:AddItem(obj, lifetime)
@@ -860,7 +869,8 @@ local services = { Workspace = workspace, PathfindingService = PathfindingServic
                    MarketplaceService = MarketplaceService, GamePassService = GamePassService,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService,
-                   TweenService = TweenService, HttpService = HttpService }
+                   TweenService = TweenService, HttpService = HttpService,
+                   ProximityPromptService = ProximityPromptService }
 -- The container services are folders at the top of the game (Studio shows them in the Explorer).
 local storageNames = { ReplicatedStorage = true, ServerStorage = true, ReplicatedFirst = true, ServerScriptService = true,
                        StarterPack = true, SoundService = true, Chat = true, TextChatService = true }
@@ -868,7 +878,7 @@ local storage = __gb_storage
 -- Services Guts and Bolts doesn't do much with yet: they exist (so scripts written for
 -- Roblox start), their harmless calls do nothing, and anything else says so clearly.
 local quiet = { ContentProvider = { PreloadAsync = true }, LogService = {}, ScriptContext = {}, TestService = {},
-    Stats = {}, GuiService = {}, HapticService = {}, ProximityPromptService = {}, LocalizationService = {},
+    Stats = {}, GuiService = {}, HapticService = {}, LocalizationService = {},
     AnalyticsService = { LogCustomEvent = true, LogEconomyEvent = true, LogProgressionEvent = true },
     PolicyService = {}, SocialService = {}, GroupService = {}, AssetService = {}, TextService = {},
     MaterialService = {}, VoiceChatService = {}, ContextActionService = { UnbindAction = true },
@@ -1691,6 +1701,12 @@ void ScriptEngine::start(bool runScripts) {
     LuaApi::pushSignal(L, SignalKind::PlayerRemoving, 0); lua_setglobal(L, "__gb_playerRemoving");
     LuaApi::pushSignal(L, SignalKind::TagAdded, 0);       lua_setglobal(L, "__gb_tagAdded");
     LuaApi::pushSignal(L, SignalKind::TagRemoved, 0);     lua_setglobal(L, "__gb_tagRemoved");
+    LuaApi::pushSignal(L, SignalKind::PromptTriggered, 0);    lua_setglobal(L, "__gb_promptTriggered");
+    LuaApi::pushSignal(L, SignalKind::PromptTriggerEnded, 0); lua_setglobal(L, "__gb_promptTriggerEnded");
+    LuaApi::pushSignal(L, SignalKind::PromptHoldBegan, 0);    lua_setglobal(L, "__gb_promptHoldBegan");
+    LuaApi::pushSignal(L, SignalKind::PromptHoldEnded, 0);    lua_setglobal(L, "__gb_promptHoldEnded");
+    LuaApi::pushSignal(L, SignalKind::PromptShown, 0);        lua_setglobal(L, "__gb_promptShown");
+    LuaApi::pushSignal(L, SignalKind::PromptHidden, 0);       lua_setglobal(L, "__gb_promptHidden");
 
     lua_register(L, "Explode", l_explode);
     lua_newtable(L);

@@ -402,6 +402,12 @@ void GameSession::guiEvents(const std::vector<GameGui::Event>& events) {
             if (e.kind == GameGui::EventKind::Click && onGuiClick) onGuiClick(e.id);
             if (e.kind == GameGui::EventKind::FocusLost && onGuiText)
                 if (SceneNode* box = m_scene->findById(e.id)) onGuiText(e.id, box->gui.text, e.enter);
+            if (onPrompt) {
+                if (e.kind == GameGui::EventKind::PromptTriggered)    onPrompt(e.id, "t");
+                if (e.kind == GameGui::EventKind::PromptTriggerEnded) onPrompt(e.id, "te");
+                if (e.kind == GameGui::EventKind::PromptHoldBegan)    onPrompt(e.id, "hb");
+                if (e.kind == GameGui::EventKind::PromptHoldEnded)    onPrompt(e.id, "he");
+            }
         }
         switch (e.kind) {
             case GameGui::EventKind::Click:       m_scripts.fireGui(SignalKind::GuiClick, e.id); break;
@@ -410,6 +416,12 @@ void GameSession::guiEvents(const std::vector<GameGui::Event>& events) {
             case GameGui::EventKind::Focused:     m_scripts.fireGui(SignalKind::GuiFocused, e.id); break;
             case GameGui::EventKind::FocusLost:   m_scripts.fireFocusLost(e.id, e.enter); break;
             case GameGui::EventKind::TextChanged: m_scripts.firePropertyChanged(e.id, "Text"); break;
+            case GameGui::EventKind::PromptShown:        m_scripts.firePrompt(SignalKind::PromptShown, e.id); break;
+            case GameGui::EventKind::PromptHidden:       m_scripts.firePrompt(SignalKind::PromptHidden, e.id); break;
+            case GameGui::EventKind::PromptHoldBegan:    m_scripts.firePrompt(SignalKind::PromptHoldBegan, e.id); break;
+            case GameGui::EventKind::PromptHoldEnded:    m_scripts.firePrompt(SignalKind::PromptHoldEnded, e.id); break;
+            case GameGui::EventKind::PromptTriggered:    m_scripts.firePrompt(SignalKind::PromptTriggered, e.id); break;
+            case GameGui::EventKind::PromptTriggerEnded: m_scripts.firePrompt(SignalKind::PromptTriggerEnded, e.id); break;
         }
     }
 }

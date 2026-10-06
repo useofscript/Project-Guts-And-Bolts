@@ -1068,6 +1068,14 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         put(std::move(t));
     }
     else if (what == "Script" || what == "LocalScript") { addScript(parent, what == "LocalScript"); }
+    else if (what == "ProximityPrompt") {
+        // It goes on the part (or attachment, or model) it's for.
+        if (!parent || (!parent->isPart() && parent->kind != NodeKind::Model && parent->kind != NodeKind::Attachment)) {
+            Log::warn("Select a part first: a ProximityPrompt goes inside the part players walk up to.");
+            return;
+        }
+        put(std::make_unique<SceneNode>("ProximityPrompt", NodeKind::Prompt));
+    }
     else if (what == "RemoteEvent" || what == "RemoteFunction") {
         // Both sides need to find it, so it goes in ReplicatedStorage unless you picked a place.
         if (!parent || parent == m_scene->root()) {
@@ -1212,7 +1220,7 @@ void Editor::renderInsertObject() {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::LocalScript}, {"ModuleScript", Icons::Id::ModuleScript},
-        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote},
+        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote}, {"ProximityPrompt", Icons::Id::Prompt},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment},
         {"BodyVelocity", Icons::Id::Constraint}, {"BodyPosition", Icons::Id::Constraint}, {"BodyGyro", Icons::Id::Constraint},

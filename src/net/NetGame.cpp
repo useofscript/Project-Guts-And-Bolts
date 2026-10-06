@@ -147,6 +147,7 @@ std::string nodeState(const SceneNode* n) {
         (int)n->visible, (int)n->canCollide, (int)n->enabled, (int)n->material, (int)n->primitiveType,
         n->brightness, n->range, n->spotAngle);
     if (n->isGui()) return std::string(buf) + Serializer::guiToJson(n->gui).dump();   // text, colours, sizes...
+    if (n->isPrompt()) return std::string(buf) + Serializer::promptToJson(n->prompt, n->enabled).dump();
     return buf;
 }
 
@@ -156,6 +157,7 @@ json nodeUpdate(const SceneNode* n) {
             {"m", (int)n->material}, {"sh", (int)n->primitiveType}, {"b", n->brightness},
             {"rg", n->range}, {"sa", n->spotAngle}};
     if (n->isGui()) u["gui"] = Serializer::guiToJson(n->gui);
+    if (n->isPrompt()) u["pr"] = Serializer::promptToJson(n->prompt, n->enabled);
     return u;
 }
 
@@ -180,6 +182,7 @@ void applyUpdate(SceneNode* n, const json& u) {
         Serializer::guiFromJson(n->gui, u["gui"]);
         n->gui.absPos = absPos; n->gui.absSize = absSize;
     }
+    if (n->isPrompt() && u.contains("pr") && u["pr"].is_object()) Serializer::promptFromJson(u["pr"], n->prompt, n->enabled);
 }
 
 glm::vec3 spawnPoint(Scene& scene) {
@@ -802,6 +805,30 @@ void NetServer::handle(Client& c, const std::string& text) {
         }
         m_session->scripts().fireFocusLost(id, m.value("enter", false));
         m_session->scripts().setJoinerEvent(false);
+    } else if (t == "prompt") {   // they pressed a ProximityPrompt (it must be near them)
+        const uint64_t id = m.value("id", (uint64_t)0);
+        SceneNode* pr = m_scene->findById(id);
+        SceneNode* rig = m_scene->findById(c.rootId);
+        if (!pr || !pr->isPrompt() || !rig || !rc || !rc->alive) return;
+        const std::string what = m.value("do", std::string());
+        static const std::map<std::string, SignalKind> kinds = {
+            {"t", SignalKind::PromptTriggered}, {"te", SignalKind::PromptTriggerEnded},
+            {"hb", SignalKind::PromptHoldBegan}, {"he", SignalKind::PromptHoldEnded}};
+        auto k = kinds.find(what);
+        if (k == kinds.end()) return;
+        // Starting a press needs them close enough (with some slack for lag); letting go always counts.
+        if (what == "t" || what == "hb") {
+            if (!pr->enabled) return;
+            const SceneNode* at = pr->parent;
+            if (at && at->kind == NodeKind::Model)
+                for (auto& ch : at->children) if (ch->isPart()) { at = ch.get(); break; }
+            if (!at) return;
+            const glm::vec3 where(at->worldMatrix()[3]), me(rig->worldMatrix()[3]);
+            if (glm::length(where - me) > pr->prompt.range + 4.0f) return;
+        }
+        m_session->scripts().setJoinerEvent(true);
+        m_session->scripts().firePrompt(k->second, id, c.id + 1);
+        m_session->scripts().setJoinerEvent(false);
     } else if (t == "remote" || t == "invoke") {   // a LocalScript's FireServer / InvokeServer
         // At most about 60 a second each (a burst of 60 is fine), and 64 KB apiece.
         const double now = clockNow();
@@ -1033,6 +1060,7 @@ void NetClient::disconnect() {
         m_session->onGuiClick = nullptr;
         m_session->onGuiText = nullptr;
         m_session->onToolRequest = nullptr;
+        m_session->onPrompt = nullptr;
         m_session->scripts().idToServer = nullptr;
         m_session->scripts().idFromServer = nullptr;
         if (Player* p = m_scene->player()) p->clearTools();
@@ -1188,6 +1216,9 @@ void NetClient::handle(const std::string& text) {
         };
         m_session->onGuiText = [this](uint64_t box, const std::string& text, bool enter) {   // a TextBox: the host's scripts read it
             if (m_conn && box < kLocalIdBase) m_conn->send(json{{"t", "guitext"}, {"id", box}, {"text", text}, {"enter", enter}}.dump());
+        };
+        m_session->onPrompt = [this](uint64_t prompt, const char* what) {   // a ProximityPrompt: the host's scripts hear it
+            if (m_conn && prompt < kLocalIdBase) m_conn->send(json{{"t", "prompt"}, {"id", prompt}, {"do", what}}.dump());
         };
         m_session->onToolRequest = [this](const std::string& what, uint64_t tool, bool down) {   // the host has our tools
             if (m_conn) m_conn->send(json{{"t", "tool"}, {"do", what}, {"id", tool}, {"down", down}}.dump());

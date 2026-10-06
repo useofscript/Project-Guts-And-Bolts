@@ -921,6 +921,9 @@ void textInput(Scene& scene, std::vector<Event>& events) {
     else if (g_focusAge > 2 && !active) lose(false);   // clicked somewhere else, or Escape
 }
 
+bool worldToScreen(const glm::vec3& p, ImVec2 min, ImVec2 max, ImVec2& out) { return g_haveCam && toScreen(p, min, max, out); }
+bool canSee(Scene& scene, uint64_t key, const glm::vec3& p, const SceneNode* part) { return !g_haveCam || seen(scene, key, p, part); }
+
 bool overScroller(Scene& scene, ImVec2 p) {
     for (const Item& it : items(scene, g_lastMin, g_lastMax))
         if (!it.bars && it.node->gui.type == GuiType::ScrollingFrame && it.node->gui.scrolling && inside(it, p)) return true;

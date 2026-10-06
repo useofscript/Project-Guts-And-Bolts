@@ -7,6 +7,7 @@ class Scene;
 class SceneNode;
 struct Environment;
 struct GuiProps;
+struct PromptProps;
 
 // Turns scenes and objects into JSON text and back. Used for:
 //  * File > Save / Open (".gbscene" files)
@@ -22,6 +23,9 @@ std::string                nodeToString(const SceneNode& node);
 // Game UI properties as JSON (saving, and multiplayer updates).
 nlohmann::json             guiToJson(const GuiProps& g);
 void                       guiFromJson(GuiProps& g, const nlohmann::json& j);
+// A ProximityPrompt's settings (and whether it's on), the same way.
+nlohmann::json             promptToJson(const PromptProps& p, bool enabled);
+void                       promptFromJson(const nlohmann::json& j, PromptProps& p, bool& enabled);
 // freshIds = true gives every object a brand-new id (needed for copies).
 std::unique_ptr<SceneNode> nodeFromString(const std::string& text, bool freshIds);
 std::unique_ptr<SceneNode> clone(const SceneNode& node);

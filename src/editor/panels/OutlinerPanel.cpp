@@ -206,7 +206,7 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
     static const Group groups[] = {
         {"Parts", {"Part", "Sphere", "Cylinder", "MeshPart", "TrussPart", "SpawnLocation", "Seat"}},
         {"Scripts", {"Script", "LocalScript", "ModuleScript", "RemoteEvent", "RemoteFunction"}},
-        {"Characters & Tools", {"Tool", "Rig", "Animation", "Team"}},
+        {"Characters & Tools", {"Tool", "Rig", "Animation", "Team", "ProximityPrompt"}},
         {"Containers", {"Model", "Folder"}},
         {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal"}},
         {"Water", {"Water", "WaterSource", "FluidVolume", "FluidSystem", "FluidEmitter"}},
@@ -405,6 +405,7 @@ std::string className(const SceneNode& n) {
         case NodeKind::Model:      return n.parent ? "Model" : "Workspace";
         case NodeKind::Script:     return n.isModule ? "ModuleScript" : n.isLocal ? "LocalScript" : "Script";
         case NodeKind::Remote:     return n.remoteFunction ? "RemoteFunction" : "RemoteEvent";
+        case NodeKind::Prompt:     return "ProximityPrompt";
         case NodeKind::Light:      return n.lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";

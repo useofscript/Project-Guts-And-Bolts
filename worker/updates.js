@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'press-e', name: 'Press E', time: 1791322400, tag: 'Engine',
+    summary: 'ProximityPrompts: walk up to a door and a little "E Open" card pops up, like Roblox.',
+    items: [
+      'Put a ProximityPrompt in a part, and players near it see a card with the key to press',
+      'Pressing the key, or clicking or tapping the card, fires Triggered with the player who did it',
+      'HoldDuration makes players hold the key while a ring fills up',
+      'Works for everyone in multiplayer games, and the server checks they are really close',
+      'Roblox games with ProximityPrompts now import with them working',
+    ],
+  },
+  {
     id: 'pass-the-note', name: 'Pass the Note', time: 1791318200, tag: 'Engine',
     summary: 'LocalScripts run on each player\'s own computer now, and talk to the server with RemoteEvents, like Roblox.',
     items: [

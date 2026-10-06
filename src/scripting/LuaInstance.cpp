@@ -105,6 +105,7 @@ const char* className(lua_State* L, const SceneNode* n) {
             return "Model";
         case NodeKind::Script: return n->isModule ? "ModuleScript" : n->isLocal ? "LocalScript" : "Script";
         case NodeKind::Remote: return n->remoteFunction ? "RemoteFunction" : "RemoteEvent";
+        case NodeKind::Prompt: return "ProximityPrompt";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Tool:       return "Tool";
@@ -1181,6 +1182,28 @@ int inst_index(lua_State* L) {
         if (is(k, "Equipped"))       { LuaApi::pushSignal(L, SignalKind::Equipped, n->id); return 1; }
         if (is(k, "Unequipped"))     { LuaApi::pushSignal(L, SignalKind::Unequipped, n->id); return 1; }
     }
+    if (n->isPrompt()) {
+        const PromptProps& p = n->prompt;
+        if (is(k, "ActionText"))            { lua_pushstring(L, p.action.c_str()); return 1; }
+        if (is(k, "ObjectText"))            { lua_pushstring(L, p.object.c_str()); return 1; }
+        if (is(k, "KeyboardKeyCode"))       { lua_pushstring(L, p.key.c_str()); return 1; }
+        if (is(k, "GamepadKeyCode"))        { lua_pushstring(L, "ButtonX"); return 1; }
+        if (is(k, "HoldDuration"))          { lua_pushnumber(L, p.hold); return 1; }
+        if (is(k, "MaxActivationDistance")) { lua_pushnumber(L, p.range); return 1; }
+        if (is(k, "RequiresLineOfSight"))   { lua_pushboolean(L, p.lineOfSight); return 1; }
+        if (is(k, "ClickablePrompt"))       { lua_pushboolean(L, p.clickable); return 1; }
+        if (is(k, "Enabled"))               { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "Style"))                 { lua_pushstring(L, "Default"); return 1; }
+        if (is(k, "Exclusivity"))           { lua_pushstring(L, "OnePerButton"); return 1; }
+        if (is(k, "AutoLocalize"))          { lua_pushboolean(L, 1); return 1; }
+        if (is(k, "UIOffset"))              { LuaApi::pushVector2(L, glm::vec2(0.0f)); return 1; }
+        if (is(k, "Triggered"))             { LuaApi::pushSignal(L, SignalKind::PromptTriggered, n->id); return 1; }
+        if (is(k, "TriggerEnded"))          { LuaApi::pushSignal(L, SignalKind::PromptTriggerEnded, n->id); return 1; }
+        if (is(k, "PromptButtonHoldBegan")) { LuaApi::pushSignal(L, SignalKind::PromptHoldBegan, n->id); return 1; }
+        if (is(k, "PromptButtonHoldEnded")) { LuaApi::pushSignal(L, SignalKind::PromptHoldEnded, n->id); return 1; }
+        if (is(k, "PromptShown"))           { LuaApi::pushSignal(L, SignalKind::PromptShown, n->id); return 1; }
+        if (is(k, "PromptHidden"))          { LuaApi::pushSignal(L, SignalKind::PromptHidden, n->id); return 1; }
+    }
     if (n->kind == NodeKind::Remote) {
         if (is(k, "OnServerEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteServer, n->id); return 1; }
         if (is(k, "OnClientEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteClient, n->id); return 1; }
@@ -1373,6 +1396,26 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Friction"))   { n->friction = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
         if (is(k, "Elasticity")) { n->elasticity = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
     }
+    if (n->isPrompt()) {
+        PromptProps& p = n->prompt;
+        auto text = [&](size_t max) {
+            std::string s = luaL_tolstring(L, 3, nullptr);
+            lua_pop(L, 1);
+            if (s.size() > max) s.resize(max);
+            return s;
+        };
+        if (is(k, "ActionText"))            { p.action = text(100); return 0; }
+        if (is(k, "ObjectText"))            { p.object = text(100); return 0; }
+        if (is(k, "KeyboardKeyCode"))       { p.key = text(30); return 0; }
+        if (is(k, "HoldDuration"))          { p.hold = std::clamp((float)luaL_checknumber(L, 3), 0.0f, 60.0f); return 0; }
+        if (is(k, "MaxActivationDistance")) { p.range = std::clamp((float)luaL_checknumber(L, 3), 0.0f, 500.0f); return 0; }
+        if (is(k, "RequiresLineOfSight"))   { p.lineOfSight = lua_toboolean(L, 3); return 0; }
+        if (is(k, "ClickablePrompt"))       { p.clickable = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Enabled"))               { n->enabled = lua_toboolean(L, 3); return 0; }
+        // Looks and gamepads: accepted so Roblox scripts run (the card always looks the same).
+        if (is(k, "Style") || is(k, "Exclusivity") || is(k, "GamepadKeyCode") || is(k, "UIOffset") ||
+            is(k, "AutoLocalize") || is(k, "RootLocalizationTable")) return 0;
+    }
     if (n->kind == NodeKind::Remote) {
         if (is(k, "OnServerInvoke")) {
             if (!lua_isnil(L, 3)) luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -1527,6 +1570,8 @@ int inst_new(lua_State* L) {
     } else if (cls == "RemoteEvent" || cls == "RemoteFunction") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Remote);
         n->remoteFunction = cls == "RemoteFunction";
+    } else if (cls == "ProximityPrompt") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Prompt);
     } else if (cls == "Attachment") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Attachment);
     } else if (cls == "RopeConstraint" || cls == "RodConstraint" || cls == "SpringConstraint" ||

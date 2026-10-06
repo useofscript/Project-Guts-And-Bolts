@@ -29,7 +29,9 @@ void PropertiesPanel::render() {
     }
 
     const char* cls = node == m_scene->root()          ? "Workspace"
-                    : node->kind == NodeKind::Script   ? "Script"
+                    : node->kind == NodeKind::Script   ? (node->isModule ? "ModuleScript" : node->isLocal ? "LocalScript" : "Script")
+                    : node->kind == NodeKind::Remote   ? (node->remoteFunction ? "RemoteFunction" : "RemoteEvent")
+                    : node->kind == NodeKind::Prompt   ? "ProximityPrompt"
                     : node->kind == NodeKind::Light    ? (node->lightType == LightType::Spot ? "SpotLight" : "PointLight")
                     : node->kind == NodeKind::Sound    ? "Sound"
                     : node->kind == NodeKind::Attachment ? "Attachment"
@@ -335,6 +337,41 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("Scripts read and change it with .Value (and hear about changes with .Changed). "
                             "Put IntValues in a folder called leaderstats inside a player to show them on the leaderboard.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    if (node->isRemote()) {
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(node->remoteFunction
+            ? "A LocalScript asks the server with :InvokeServer(...), and the server's OnServerInvoke function answers."
+            : "LocalScripts call :FireServer(...) and the server hears it on OnServerEvent; "
+              "the server calls :FireClient(player, ...) or :FireAllClients(...) and players hear it on OnClientEvent.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    if (node->isPrompt()) {
+        PromptProps& p = node->prompt;
+        ImGui::SeparatorText("ProximityPrompt");
+        ImGui::Checkbox("Enabled", &node->enabled);
+        ImGui::InputText("ActionText", &p.action);
+        ImGui::InputText("ObjectText", &p.object);
+        static const char* keys[] = {"E", "F", "Q", "R", "G", "T", "X", "Z", "C", "V", "B", "One", "Two", "Three", "Space", "Return"};
+        if (ImGui::BeginCombo("Key", p.key.c_str())) {
+            for (const char* k : keys)
+                if (ImGui::Selectable(k, p.key == k)) p.key = k;
+            ImGui::EndCombo();
+        }
+        ImGui::DragFloat("HoldDuration", &p.hold, 0.05f, 0.0f, 60.0f, "%.2f s");
+        ImGui::DragFloat("MaxActivationDistance", &p.range, 0.1f, 0.0f, 500.0f, "%.1f");
+        ImGui::Checkbox("RequiresLineOfSight", &p.lineOfSight);
+        ImGui::Checkbox("ClickablePrompt", &p.clickable);
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled("Shows when a player walks up to the part it's in. Pressing the key (or clicking it) "
+                            "fires its Triggered event, with the player who pressed it.");
         ImGui::PopTextWrapPos();
         return;
     }

@@ -43,6 +43,13 @@ enum class SignalKind : int {
     MoveToFinished, // humanoid.MoveToFinished        (reached)   (id = character)
     RemoteServer,  // remoteEvent.OnServerEvent       (player, ...)
     RemoteClient,  // remoteEvent.OnClientEvent       (...)
+    // ProximityPrompts: on the prompt (player), and on ProximityPromptService (id 0: prompt, player)
+    PromptTriggered,     // prompt.Triggered
+    PromptTriggerEnded,  // prompt.TriggerEnded
+    PromptHoldBegan,     // prompt.PromptButtonHoldBegan
+    PromptHoldEnded,     // prompt.PromptButtonHoldEnded
+    PromptShown,         // prompt.PromptShown    (inputType)  (on the computer it shows on)
+    PromptHidden,        // prompt.PromptHidden   ()
 };
 
 namespace LuaApi {

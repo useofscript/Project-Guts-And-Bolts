@@ -50,6 +50,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::FluidEmitter: return "FluidEmitter";
         case NodeKind::Mover:        return "Mover";
         case NodeKind::Remote:       return "Remote";
+        case NodeKind::Prompt:       return "Prompt";
         default:               return "Part";
     }
 }
@@ -70,6 +71,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "FluidEmitter") return NodeKind::FluidEmitter;
     if (s == "Mover")        return NodeKind::Mover;
     if (s == "Remote")       return NodeKind::Remote;
+    if (s == "Prompt")       return NodeKind::Prompt;
     return NodeKind::Part;
 }
 
@@ -101,6 +103,27 @@ Material materialFrom(const std::string& s) {
 
 namespace Serializer {
 // Game UI properties (also sent to other players when they change).
+nlohmann::json promptToJson(const PromptProps& p, bool enabled) {
+    nlohmann::json j = {{"action", p.action}, {"key", p.key}, {"range", p.range}};
+    if (!p.object.empty()) j["object"] = p.object;
+    if (p.hold > 0.0f)     j["hold"] = p.hold;
+    if (!p.lineOfSight)    j["los"] = false;
+    if (!p.clickable)      j["click"] = false;
+    if (!enabled)          j["on"] = false;
+    return j;
+}
+
+void promptFromJson(const nlohmann::json& j, PromptProps& p, bool& enabled) {
+    p.action      = j.value("action", std::string("Interact"));
+    p.object      = j.value("object", std::string());
+    p.key         = j.value("key", std::string("E"));
+    p.hold        = std::clamp(j.value("hold", 0.0f), 0.0f, 60.0f);
+    p.range       = std::clamp(j.value("range", 5.0f), 0.0f, 500.0f);
+    p.lineOfSight = j.value("los", true);
+    p.clickable   = j.value("click", true);
+    enabled       = j.value("on", true);
+}
+
 nlohmann::json guiToJson(const GuiProps& g) {
     auto ud = [](const UDim2& u) { return json::array({u.xs, u.xo, u.ys, u.yo}); };
     json j = {{"class", kGuiClassNames[(int)g.type]}, {"pos", ud(g.pos)}, {"size", ud(g.size)},
@@ -368,6 +391,7 @@ json toJson(const SceneNode& n) {
     if (n.isModule) j["module"]   = true;
     if (n.isLocal)  j["local"]    = true;
     if (n.remoteFunction) j["function"] = true;
+    if (n.isPrompt()) j["prompt"] = Serializer::promptToJson(n.prompt, n.enabled);
     if (n.locked)   j["locked"]   = true;
     if (!n.tags.empty()) j["tags"] = n.tags;
     if (!n.attributes.empty()) {
@@ -549,6 +573,7 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     n->isModule      = get<bool>(j, "module", false);
     n->isLocal       = get<bool>(j, "local", false);
     n->remoteFunction = get<bool>(j, "function", false);
+    if (auto p = j.find("prompt"); p != j.end() && p->is_object()) Serializer::promptFromJson(*p, n->prompt, n->enabled);
     n->locked        = get<bool>(j, "locked", false);
     if (auto t = j.find("tags"); t != j.end() && t->is_array())
         for (auto& v : *t) if (v.is_string()) n->tags.push_back(v.get<std::string>());
@@ -783,6 +808,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.source = src->source;       dst.enabled = src->enabled;
     dst.isModule = src->isModule;   dst.locked = src->locked;
     dst.isLocal = src->isLocal;     dst.remoteFunction = src->remoteFunction;
+    dst.prompt = src->prompt;
     dst.tags = src->tags;           dst.attributes = src->attributes;
     dst.lightType = src->lightType; dst.brightness = src->brightness;
     dst.range = src->range;         dst.spotAngle = src->spotAngle;

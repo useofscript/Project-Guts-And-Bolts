@@ -1625,11 +1625,20 @@ void PlayerApp::drawGame(float dt) {
     // The game's own UI (buttons...) gets the pointer first.
     GameGui::setCamera(m_camera.view(), m_camera.projection(), m_camera.position());   // (UI on parts)
     std::vector<GameGui::Event> guiEvents;
+    bool onGuiPrompt = false;
     const bool onGui = GameGui::handle(*m_scene, pos, max, pointer, acceptInput && (hovered || tapped) && !onHotbar,
                                        !touch && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
                                        !touch && ImGui::IsMouseReleased(ImGuiMouseButton_Left), tapped, m_guiInput, guiEvents);
+    // ProximityPrompts near our character ("E  Open").
+    {
+        Player* me = m_session->runOnly() ? nullptr : m_scene->player();
+        const glm::vec3 at = me && me->root() && !me->isDead() ? me->position() : glm::vec3(0.0f);
+        const bool onPrompt = GameGui::prompts(*m_scene, pos, max, me && me->root() && !me->isDead() ? &at : nullptr, pointer,
+                                               acceptInput && !onGui && !onHotbar, io.DeltaTime, guiEvents);
+        if (onPrompt) onGuiPrompt = true;
+    }
     m_session->guiEvents(guiEvents);
-    if (acceptInput && !onHotbar && !onGui && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
+    if (acceptInput && !onHotbar && !onGui && !onGuiPrompt && (tapped || (!touch && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)))) {
         ImVec2 m = pointer;
         float nx = (m.x - pos.x) / size.x * 2.0f - 1.0f;
         float ny = 1.0f - (m.y - pos.y) / size.y * 2.0f;
@@ -1648,6 +1657,7 @@ void PlayerApp::drawGame(float dt) {
         labelsAt = chatShowing ? (m_chatOpen ? 216.0f : 156.0f) : 58.0f;   // under the chat box when it's up
     }
     GameGui::draw(dl, pos, max, *m_scene, &m_guiInput);
+    GameGui::drawPrompts(dl);
     {
         std::vector<GameGui::Event> typed;   // a TextBox being typed in
         GameGui::textInput(*m_scene, typed);

@@ -681,6 +681,32 @@ A **RemoteFunction** asks and waits for an answer:
 - DataStores only work in Scripts. InvokeClient isn't supported (a player could
   freeze the server by never answering); use a RemoteEvent for that instead.
 
+### ProximityPrompts
+
+A **ProximityPrompt** inside a part shows a little "**E** Open" card when a
+player walks up to it (Insert Object > Characters & Tools > ProximityPrompt, with
+the part selected). Pressing the key, or clicking or tapping the card, fires
+`Triggered` with the player who did it:
+
+```lua
+local prompt = script.Parent.ProximityPrompt
+prompt.ActionText = "Open"
+prompt.ObjectText = "Door"
+prompt.Triggered:Connect(function(player)
+    script.Parent.Transparency = 0.8
+    script.Parent.CanCollide = false
+end)
+```
+
+- `HoldDuration` makes players hold the key while a ring fills up
+  (`PromptButtonHoldBegan` / `PromptButtonHoldEnded` tell you when they start and stop).
+- `KeyboardKeyCode` picks the key (`Enum.KeyCode.F`), `MaxActivationDistance` how
+  close they need to be, and `RequiresLineOfSight` hides it behind walls.
+- `ProximityPromptService.PromptTriggered:Connect(function(prompt, player) ... end)`
+  hears every prompt in the game at once.
+- In a multiplayer game the server checks the player really is close before
+  `Triggered` fires.
+
 ### Your character's moves (the Animate script)
 
 Every character gets a 2011-style **Animate** script: idle, walk, run, jump,

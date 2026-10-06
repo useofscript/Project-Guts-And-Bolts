@@ -17,6 +17,8 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //            LocalScript (isLocal) runs on each player's own computer instead.
 //   Remote — a RemoteEvent / RemoteFunction: how LocalScripts and the game's
 //            server Scripts send each other messages
+//   Prompt — a ProximityPrompt: "E  Open" pops up when a player walks up to the
+//            part it's in; pressing the key (or tapping it) fires Triggered
 //   Light  — a PointLight / SpotLight, usually placed inside a part
 //   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
 //   Sound  — a sound effect or music (inside a part = it comes from there)
@@ -30,7 +32,18 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
 enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui,
-                      FluidSystem, FluidEmitter, Mover, Remote };
+                      FluidSystem, FluidEmitter, Mover, Remote, Prompt };
+
+// A ProximityPrompt's settings (kind == Prompt; `enabled` switches it off).
+struct PromptProps {
+    std::string action = "Interact";   // ActionText: what pressing it does
+    std::string object;                // ObjectText: what it's on (shown above, smaller)
+    std::string key = "E";             // KeyboardKeyCode
+    float       hold = 0.0f;           // HoldDuration: seconds to hold the key (0 = just press)
+    float       range = 5.0f;          // MaxActivationDistance (Roblox's default 10 studs)
+    bool        lineOfSight = true;    // RequiresLineOfSight: hidden behind walls
+    bool        clickable = true;      // ClickablePrompt: can be clicked / tapped too
+};
 
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
 // buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
@@ -277,6 +290,7 @@ public:
     bool        isModule = false;         // ModuleScript: only runs when require()d
     bool        isLocal = false;          // LocalScript: runs on each player's computer, not the game's server
     bool        remoteFunction = false;   // (kind == Remote) a RemoteFunction, else a RemoteEvent
+    PromptProps prompt;                   // (kind == Prompt)
 
     // Anything
     std::vector<Attribute>   attributes;
@@ -399,6 +413,7 @@ public:
     bool isConstraint() const { return kind == NodeKind::Constraint; }
     bool isMover() const { return kind == NodeKind::Mover; }
     bool isRemote() const { return kind == NodeKind::Remote; }
+    bool isPrompt() const { return kind == NodeKind::Prompt; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;
