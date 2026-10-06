@@ -27,7 +27,7 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
 enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui,
-                      FluidSystem, FluidEmitter };
+                      FluidSystem, FluidEmitter, Mover };
 
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
 // buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
@@ -94,6 +94,62 @@ enum class ConstraintType { Rope, Rod, Spring, Weld, Hinge };
 inline const char* const kConstraintNames[5] = {"Rope", "Rod", "Spring", "Weld", "Hinge"};
 
 enum class LightType { Point, Spot };
+
+// Things that push a part around (kind == Mover). The classic BodyMovers go straight
+// inside a part; the newer constraint ones use Attachment0 (an Attachment in the part).
+// Both kinds work, so old games keep their handling and new ones can use either.
+enum class MoverType {
+    BodyVelocity, BodyPosition, BodyGyro, BodyAngularVelocity, BodyThrust, BodyForce,         // classic
+    LinearVelocity, AlignPosition, AlignOrientation, AngularVelocity, VectorForce, Torque,  // constraints
+};
+inline constexpr int kMoverTypeCount = 12;
+inline const char* const kMoverClassNames[kMoverTypeCount] = {
+    "BodyVelocity", "BodyPosition", "BodyGyro", "BodyAngularVelocity", "BodyThrust", "BodyForce",
+    "LinearVelocity", "AlignPosition", "AlignOrientation", "AngularVelocity", "VectorForce", "Torque"};
+inline bool isBodyMover(MoverType t) { return (int)t <= (int)MoverType::BodyForce; }
+
+// A mover's settings. Which ones count depends on the type (Roblox's names in brackets).
+struct MoverProps {
+    MoverType type = MoverType::BodyVelocity;
+    // The main value: BodyVelocity / LinearVelocity [Velocity / VectorVelocity],
+    // BodyPosition / AlignPosition [Position], BodyAngularVelocity / AngularVelocity
+    // [AngularVelocity], BodyForce / BodyThrust / VectorForce [Force], Torque [Torque].
+    glm::vec3 value{0.0f};
+    // Classic movers: how hard it may push along each world axis [MaxForce] or turn
+    // around it [MaxTorque] (0 on an axis = leave that axis alone).
+    glm::vec3 maxAxes{4000.0f};
+    // Constraint movers: the most force [MaxForce] or turn [MaxTorque] in any direction.
+    float     maxForce = 10000.0f;
+    float     p = 10000.0f, d = 1250.0f;     // BodyPosition / BodyGyro / BodyVelocity: spring [P] and damping [D]
+    glm::vec3 rotation{0.0f};                // BodyGyro / AlignOrientation [CFrame]: the way to face (Euler degrees)
+    glm::vec3 location{0.0f};                // BodyThrust [Location]: where it pushes (the part's own space)
+    float     responsiveness = 10.0f;        // AlignPosition / AlignOrientation: how quickly it gets there
+    float     maxVelocity = 0.0f;            // AlignPosition [MaxVelocity] / AlignOrientation [MaxAngularVelocity] (0 = no limit)
+    bool      relativeToAttachment = false;  // LinearVelocity / AngularVelocity / VectorForce / Torque [RelativeTo]: Attachment0's own space
+    bool      atCenterOfMass = false;        // VectorForce [ApplyAtCenterOfMass]
+    bool      rigid = false;                 // AlignPosition / AlignOrientation [RigidityEnabled]: as hard and fast as it can
+};
+
+// Roblox's starting values for each mover.
+inline MoverProps moverDefaults(MoverType t) {
+    MoverProps m;
+    m.type = t;
+    switch (t) {
+        case MoverType::BodyVelocity:        m.value = {0, 2, 0}; m.maxAxes = glm::vec3(4000); m.p = 1250; break;
+        case MoverType::BodyPosition:        m.value = {0, 50, 0}; m.maxAxes = glm::vec3(4000); m.p = 10000; m.d = 1250; break;
+        case MoverType::BodyGyro:            m.maxAxes = {400000, 0, 400000}; m.p = 3000; m.d = 500; break;
+        case MoverType::BodyAngularVelocity: m.value = {0, 2, 0}; m.maxAxes = glm::vec3(4000); m.p = 1250; break;
+        case MoverType::BodyThrust:
+        case MoverType::BodyForce:           break;
+        case MoverType::LinearVelocity:      m.maxForce = 1000; break;
+        case MoverType::AlignPosition:       m.maxForce = 10000; break;
+        case MoverType::AlignOrientation:    m.maxForce = 10000; break;
+        case MoverType::AngularVelocity:     m.maxForce = 1000; break;
+        case MoverType::VectorForce:         m.value = {1000, 0, 0}; m.relativeToAttachment = true; break;
+        case MoverType::Torque:              m.value = {1000, 0, 0}; m.relativeToAttachment = true; break;
+    }
+    return m;
+}
 
 // Surface look, à la Roblox materials — affects shading in the lit shader.
 enum class Material { Plastic, Metal, Neon, Wood, Glass, Concrete, Ice };
@@ -239,6 +295,10 @@ public:
     glm::vec3   fluidVelocity{0.0f, -10.0f, 0.0f};   // FluidEmitter: how fast (and which way) it pours
     uint64_t    fluidSystem    = 0;        // FluidEmitter: its FluidSystem (0 = plain water)
 
+    // Mover (kind == Mover): BodyVelocity, AlignPosition... `enabled` is Enabled
+    // (constraint movers); ref0 / ref1 are Attachment0 / Attachment1.
+    MoverProps  mover;
+
     // Runtime-only physics state (not saved).
     glm::vec3   angularVelocity = {0.0f, 0.0f, 0.0f};
     float       sleepTime = 0.0f;
@@ -283,6 +343,7 @@ public:
     std::string valueText() const;   // for showing it (the leaderboard, Properties)
     bool isAttachment() const { return kind == NodeKind::Attachment; }
     bool isConstraint() const { return kind == NodeKind::Constraint; }
+    bool isMover() const { return kind == NodeKind::Mover; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;

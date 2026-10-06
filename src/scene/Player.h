@@ -219,9 +219,12 @@ public:
     // VehicleSeat or tagged "Seat"; an attribute Disabled = true switches it off.
     static bool isSeat(const SceneNode* n);
     static bool seatDisabled(const SceneNode* n);
-    bool        sitting() const { return m_seatId != 0; }
+    bool        sitting() const { return m_seatId != 0 || m_sitHere; }
     uint64_t    seatId() const { return m_seatId; }
     void        sit(SceneNode* seat);        // (scripts: Seat:Sit(humanoid))
+    // Sit down right where you stand, no seat needed (Humanoid.Sit = true, or "/e sit").
+    // In the air you sit as soon as you land. Jump to get up.
+    void        sitDown();
     void        standUp(bool jumpOff = false);
 private:
     bool     m_respawnedFlag = false;
@@ -278,6 +281,14 @@ private:
     std::unordered_map<uint64_t, CustomClip> m_customClips;
     bool applyCustomAnimation(const char* state, float dt);
     void  sitStep(float dt, bool jump);   // while sitting: stay on the seat
+    void  sitHereStep(float dt, bool jump);   // while sitting on the floor
+    bool      m_sitHere = false;     // sitting on the floor (not a seat)
+    bool      m_sitPending = false;  // asked to sit in the air: sit on landing
+    glm::vec3 m_sitSpot{0.0f};       // where our feet were when we sat down
+    // BodyVelocity, BodyGyro... inside the character (flying, jetpacks).
+    void  characterMovers(float dt);
+    bool  m_gyro = false;            // a BodyGyro / AlignOrientation holds our tilt
+    float m_gyroTilt = 0.0f;         // ...at this (degrees, + = leaning forward)
     float m_wet = 0.0f;              // seconds you stay slippery after leaving a stream of liquid (a wet slide)
     int   m_stepSound = 0;      // the looping footsteps sound while running (0 = quiet)
 

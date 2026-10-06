@@ -7,16 +7,19 @@
 //  * boxes and balls that overlap produce contact points
 //  * a "sequential impulse" solver nudges velocities, over and over, until
 //    contacts stop pushing into each other and constraints are satisfied
+//  * movers (BodyVelocity, AlignPosition...) push whole welded assemblies
 //  * finally positions and rotations move by the velocities
 #include "Physics.h"
 #include "Scene.h"
 #include "SceneNode.h"
 #include "Water.h"
+#include "Movers.h"
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/euler_angles.hpp>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <set>
 #include <unordered_map>
 
@@ -334,6 +337,117 @@ struct Joint {
     float          accMotor = 0.0f;
 };
 
+// A mover (BodyVelocity, AlignOrientation...) and the body it pushes.
+struct ActiveMover {
+    SceneNode* node;
+    int        body;
+    SceneNode* att0 = nullptr;   // constraint movers: Attachment0 / Attachment1
+    SceneNode* att1 = nullptr;
+};
+
+// Parts welded together move as one: an "assembly". Movers push the whole thing.
+struct Assembly {
+    std::vector<int> bodies;
+    float     mass = 0.0f;
+    float     inertia = 0.0f;   // (one number: how hard it is to spin, roughly, any way round)
+    glm::vec3 center{0.0f};
+};
+
+glm::vec3 assemblyVelocity(const std::vector<Body>& bodies, const Assembly& a) {
+    glm::vec3 p(0.0f);
+    for (int i : a.bodies) p += bodies[i].v / bodies[i].invMass;
+    return a.mass > 0.0f ? p / a.mass : glm::vec3(0.0f);
+}
+
+void pushAssembly(std::vector<Body>& bodies, const Assembly& a, const glm::vec3& dv) {
+    for (int i : a.bodies) bodies[i].v += dv;
+}
+
+void spinAssembly(std::vector<Body>& bodies, const Assembly& a, const glm::vec3& dw) {
+    for (int i : a.bodies) {
+        bodies[i].w += dw;
+        bodies[i].v += glm::cross(dw, bodies[i].pos - a.center);   // (spinning about the middle)
+    }
+}
+
+// One step (h seconds) of a mover on its assembly.
+void applyMover(const ActiveMover& am, std::vector<Body>& bodies, const Assembly& a, float h) {
+    using namespace Movers;
+    const MoverProps& m = am.node->mover;
+    Body& B = bodies[am.body];
+    const float M = std::max(a.mass, 1e-4f), I = std::max(a.inertia, 1e-4f);
+    const glm::quat attRot = am.att0 ? worldRot(am.att0) : B.rot;
+    const glm::vec3 attPos = am.att0 ? glm::vec3(am.att0->worldMatrix()[3]) : B.pos;
+    const float huge = 1e30f;
+    switch (m.type) {
+        case MoverType::BodyForce:
+            pushAssembly(bodies, a, m.value * h / M);
+            break;
+        case MoverType::BodyThrust:   // pushes along the part's own directions, at Location
+            applyImpulse(B, B.rot * m.location, (B.rot * m.value) * h);
+            break;
+        case MoverType::VectorForce: {
+            const glm::vec3 f = m.relativeToAttachment ? attRot * m.value : m.value;
+            applyImpulse(B, m.atCenterOfMass ? glm::vec3(0.0f) : attPos - B.pos, f * h);
+            break;
+        }
+        case MoverType::Torque: {
+            const glm::vec3 t = m.relativeToAttachment ? attRot * m.value : m.value;
+            spinAssembly(bodies, a, t * h / I);
+            break;
+        }
+        case MoverType::BodyVelocity: {   // reach Velocity on each axis it has force for
+            const glm::vec3 dv = m.value - assemblyVelocity(bodies, a);
+            pushAssembly(bodies, a, clampAxes(dv, m.maxAxes * h / M));
+            break;
+        }
+        case MoverType::LinearVelocity: {
+            const glm::vec3 want = m.relativeToAttachment ? attRot * m.value : m.value;
+            pushAssembly(bodies, a, clampLength(want - assemblyVelocity(bodies, a), m.maxForce * h / M));
+            break;
+        }
+        case MoverType::BodyPosition: {   // a spring to Position (P) with damping (D)
+            const glm::vec3 v = assemblyVelocity(bodies, a), x = m.value - B.pos;
+            glm::vec3 dv;
+            for (int i = 0; i < 3; ++i) dv[i] = springDv(x[i], v[i], m.p, m.d, M, h);
+            pushAssembly(bodies, a, clampAxes(dv, m.maxAxes * h / M));
+            break;
+        }
+        case MoverType::AlignPosition: {   // head for the target, quicker the further away
+            const glm::vec3 target = am.att1 ? glm::vec3(am.att1->worldMatrix()[3]) : m.value;
+            const float resp = m.rigid ? 0.5f / h : m.responsiveness;
+            glm::vec3 want = (target - attPos) * resp;
+            if (m.maxVelocity > 0.0f && !m.rigid) want = clampLength(want, m.maxVelocity);
+            const glm::vec3 dv = want - assemblyVelocity(bodies, a);
+            pushAssembly(bodies, a, clampLength(dv, (m.rigid ? huge : m.maxForce) * h / M));
+            break;
+        }
+        case MoverType::BodyAngularVelocity:
+            spinAssembly(bodies, a, clampAxes(m.value - B.w, m.maxAxes * h / I));
+            break;
+        case MoverType::AngularVelocity: {
+            const glm::vec3 want = m.relativeToAttachment ? attRot * m.value : m.value;
+            spinAssembly(bodies, a, clampLength(want - B.w, m.maxForce * h / I));
+            break;
+        }
+        case MoverType::BodyGyro: {   // a turning spring towards CFrame
+            const glm::vec3 e = rotationError(B.rot, eulerQuat(m.rotation));
+            glm::vec3 dw;
+            for (int i = 0; i < 3; ++i) dw[i] = springDv(e[i], B.w[i], m.p, m.d, I, h);
+            spinAssembly(bodies, a, clampAxes(dw, m.maxAxes * h / I));
+            break;
+        }
+        case MoverType::AlignOrientation: {
+            const glm::quat target = am.att1 ? worldRot(am.att1) : eulerQuat(m.rotation);
+            const float resp = m.rigid ? 0.5f / h : m.responsiveness;
+            glm::vec3 want = rotationError(attRot, target) * resp;
+            if (m.maxVelocity > 0.0f && !m.rigid) want = clampLength(want, m.maxVelocity);
+            spinAssembly(bodies, a, clampLength(want - B.w, (m.rigid ? huge : m.maxForce) * h / I));
+            break;
+        }
+    }
+}
+
 } // namespace
 
 // ============================================================================
@@ -342,13 +456,14 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
     // ---- 1. Bodies ------------------------------------------------------------
     std::vector<Body> bodies;
     std::unordered_map<uint64_t, int> index;
-    std::vector<SceneNode*> constraintNodes;
+    std::vector<SceneNode*> constraintNodes, moverNodes;
     std::vector<SceneNode*> stack{scene.root()};
     while (!stack.empty()) {
         SceneNode* n = stack.back();
         stack.pop_back();
         // "Visible" only hides drawing for constraints; hidden parts are switched off.
         if (n->isConstraint()) { if (n->enabled) constraintNodes.push_back(n); continue; }
+        if (n->isMover()) { if (n->enabled) moverNodes.push_back(n); continue; }
         if (!n->visible) continue;
         if (scene.isCharacterPart(n)) continue;
         for (auto& c : n->children) stack.push_back(c.get());
@@ -423,6 +538,63 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
         joints.push_back(j);
     }
 
+    // ---- 2b. Movers, and the welded assemblies they push ---------------------------
+    std::vector<ActiveMover> movers;
+    for (SceneNode* mn : moverNodes) {
+        ActiveMover am{mn, -1};
+        SceneNode* part = mn->parent;
+        if (!isBodyMover(mn->mover.type)) {
+            am.att0 = mn->ref0 ? scene.findById(mn->ref0) : nullptr;
+            am.att1 = mn->ref1 ? scene.findById(mn->ref1) : nullptr;
+            if (am.att0 && !am.att0->isAttachment()) am.att0 = nullptr;
+            if (am.att1 && !am.att1->isAttachment()) am.att1 = nullptr;
+            if (am.att0) part = am.att0->parent;   // (no Attachment0: the part it's in)
+        }
+        // Parts inside a loose part ride along with it: push that one.
+        for (; part; part = part->parent) {
+            auto it = index.find(part->id);
+            if (it != index.end()) { am.body = it->second; break; }
+        }
+        if (am.body < 0 || !bodies[am.body].dynamic) continue;
+        movers.push_back(am);
+    }
+    std::vector<int> group(bodies.size(), -1);
+    std::vector<Assembly> assemblies;
+    if (!movers.empty()) {
+        std::vector<int> link(bodies.size());
+        for (int i = 0; i < (int)link.size(); ++i) link[i] = i;
+        std::function<int(int)> top = [&](int i) { return link[i] == i ? i : link[i] = top(link[i]); };
+        for (const Joint& j : joints)
+            if (j.type == ConstraintType::Weld && bodies[j.a].dynamic && bodies[j.b].dynamic) link[top(j.a)] = top(j.b);
+        std::unordered_map<int, int> which;
+        for (const ActiveMover& am : movers) {
+            const int t = top(am.body);
+            if (which.count(t)) continue;
+            which[t] = (int)assemblies.size();
+            assemblies.emplace_back();
+        }
+        for (int i = 0; i < (int)bodies.size(); ++i) {
+            if (!bodies[i].dynamic) continue;
+            auto it = which.find(top(i));
+            if (it == which.end()) continue;
+            group[i] = it->second;
+            Assembly& a = assemblies[it->second];
+            a.bodies.push_back(i);
+            const float m = 1.0f / bodies[i].invMass;
+            a.mass += m;
+            a.center += bodies[i].pos * m;
+        }
+        for (Assembly& a : assemblies) {
+            if (a.mass > 0.0f) a.center /= a.mass;
+            for (int i : a.bodies) {
+                const Body& b = bodies[i];
+                const glm::vec3 il = 1.0f / b.invInertiaLocal;
+                a.inertia += (il.x + il.y + il.z) / 3.0f + glm::dot(b.pos - a.center, b.pos - a.center) / b.invMass;
+            }
+            for (int i : a.bodies) { bodies[i].awake = true; bodies[i].node->sleepTime = 0.0f; }   // (pushed things don't nod off)
+        }
+    }
+
     const float g = scene.world().gravity;
     const int   substeps = 2;
     const float h = dt / substeps;
@@ -438,6 +610,8 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
                 b.v.y -= g * h;
                 b.w *= std::max(0.0f, 1.0f - 0.05f * h);        // a little rolling resistance
             }
+        for (const ActiveMover& am : movers)
+            if (group[am.body] >= 0) applyMover(am, bodies, assemblies[group[am.body]], h);
         for (auto& j : joints) {
             if (j.type != ConstraintType::Spring) continue;
             Body &A = bodies[j.a], &B = bodies[j.b];
