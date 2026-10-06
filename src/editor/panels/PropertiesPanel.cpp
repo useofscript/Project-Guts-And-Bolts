@@ -33,6 +33,8 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Remote   ? (node->remoteFunction ? "RemoteFunction" : "RemoteEvent")
                     : node->kind == NodeKind::Prompt   ? "ProximityPrompt"
                     : node->kind == NodeKind::Highlight ? "Highlight"
+                    : node->kind == NodeKind::Trail    ? "Trail"
+                    : node->kind == NodeKind::Beam     ? "Beam"
                     : node->kind == NodeKind::Light    ? (node->lightType == LightType::Spot ? "SpotLight" : "PointLight")
                     : node->kind == NodeKind::Sound    ? "Sound"
                     : node->kind == NodeKind::Attachment ? "Attachment"
@@ -391,6 +393,68 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled(h.onTop ? "Colours the part or model it's in, with an outline round it, seen even through walls."
                                     : "Colours the part or model it's in, with an outline round it, only where you can see it.");
+        ImGui::PopTextWrapPos();
+        return;
+    }
+
+    if (node->isEffect()) {
+        EffectProps& e = node->effect;
+        const bool beam = node->kind == NodeKind::Beam;
+        ImGui::SeparatorText(beam ? "Beam" : "Trail");
+        ImGui::Checkbox("Enabled", &node->enabled);
+        // Its two Attachments: pick from every Attachment in the game.
+        std::vector<SceneNode*> atts;
+        m_scene->forEach([&](SceneNode* n) { if (n->isAttachment()) atts.push_back(n); });
+        auto label = [](const SceneNode* a) { return a ? (a->parent ? a->parent->name + "." + a->name : a->name) : std::string("(none)"); };
+        auto pick = [&](const char* name, uint64_t& id) {
+            SceneNode* cur = id ? m_scene->findById(id) : nullptr;
+            if (ImGui::BeginCombo(name, label(cur).c_str())) {
+                if (ImGui::Selectable("(none)", !cur)) id = 0;
+                for (SceneNode* a : atts) {
+                    ImGui::PushID(a);
+                    if (ImGui::Selectable(label(a).c_str(), a == cur)) id = a->id;
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+        };
+        pick("Attachment0", e.a0);
+        pick("Attachment1", e.a1);
+        // Colour and see-through at each end (scripts can use more keypoints).
+        glm::vec3 c0 = e.color.front().c, c1 = e.color.back().c;
+        bool colEdit = ImGui::ColorEdit3("Color (start)", &c0.x);
+        colEdit |= ImGui::ColorEdit3("Color (end)", &c1.x);
+        if (colEdit) e.color = {{0.0f, c0}, {1.0f, c1}};
+        float t0 = e.transparency.front().v, t1 = e.transparency.back().v;
+        bool trEdit = ImGui::SliderFloat("Transparency (start)", &t0, 0.0f, 1.0f, "%.2f");
+        trEdit |= ImGui::SliderFloat("Transparency (end)", &t1, 0.0f, 1.0f, "%.2f");
+        if (trEdit) e.transparency = {{0.0f, t0}, {1.0f, t1}};
+        ImGui::SliderFloat("LightEmission", &e.lightEmission, 0.0f, 1.0f, "%.2f");
+        ImGui::Checkbox("FaceCamera", &e.faceCamera);
+        ImGui::InputText("Texture", &e.texture);
+        if (beam) {
+            ImGui::DragFloat("Width0", &e.width0, 0.02f, 0.0f, 1000.0f, "%.2f");
+            ImGui::DragFloat("Width1", &e.width1, 0.02f, 0.0f, 1000.0f, "%.2f");
+            ImGui::DragFloat("CurveSize0", &e.curve0, 0.05f, -1000.0f, 1000.0f, "%.2f");
+            ImGui::DragFloat("CurveSize1", &e.curve1, 0.05f, -1000.0f, 1000.0f, "%.2f");
+            ImGui::DragInt("Segments", &e.segments, 0.2f, 1, 1000);
+            int mode = e.textureWrap ? 1 : 0;
+            if (ImGui::Combo("TextureMode", &mode, "Stretch\0Wrap\0")) e.textureWrap = mode == 1;
+            ImGui::DragFloat("TextureLength", &e.textureLength, 0.02f, 0.001f, 10000.0f, "%.2f");
+            ImGui::DragFloat("TextureSpeed", &e.textureSpeed, 0.02f, -1000.0f, 1000.0f, "%.2f");
+        } else {
+            ImGui::DragFloat("Lifetime", &e.lifetime, 0.02f, 0.0f, 20.0f, "%.2f s");
+            ImGui::DragFloat("MinLength", &e.minLength, 0.01f, 0.0f, 1000.0f, "%.2f");
+            ImGui::DragFloat("MaxLength", &e.maxLength, 0.1f, 0.0f, 10000.0f, e.maxLength > 0.0f ? "%.1f" : "no limit");
+            float w0 = e.widthScale.front().v, w1 = e.widthScale.back().v;
+            bool wEdit = ImGui::DragFloat("WidthScale (new)", &w0, 0.01f, 0.0f, 100.0f, "%.2f");
+            wEdit |= ImGui::DragFloat("WidthScale (old)", &w1, 0.01f, 0.0f, 100.0f, "%.2f");
+            if (wEdit) e.widthScale = {{0.0f, w0}, {1.0f, w1}};
+        }
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(beam ? "A ribbon between its two Attachments. CurveSize bends it along each Attachment's X axis."
+                                 : "Leaves a ribbon behind between its two Attachments as they move, fading over Lifetime seconds.");
         ImGui::PopTextWrapPos();
         return;
     }

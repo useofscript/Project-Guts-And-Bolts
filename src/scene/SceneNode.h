@@ -21,6 +21,10 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //            part it's in; pressing the key (or tapping it) fires Triggered
 //   Highlight — colours a part or model and draws an outline round it, even
 //            through walls (to show teammates, the thing you're aiming at...)
+//   Trail  — a ribbon left behind between two Attachments as they move (a sword
+//            swing, a speed streak)
+//   Beam   — a ribbon (straight or curved) between two Attachments: lasers,
+//            ropes of light, waterfalls...
 //   Light  — a PointLight / SpotLight, usually placed inside a part
 //   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
 //   Sound  — a sound effect or music (inside a part = it comes from there)
@@ -34,7 +38,7 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
 enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui,
-                      FluidSystem, FluidEmitter, Mover, Remote, Prompt, Highlight };
+                      FluidSystem, FluidEmitter, Mover, Remote, Prompt, Highlight, Trail, Beam };
 
 // A ProximityPrompt's settings (kind == Prompt; `enabled` switches it off).
 struct PromptProps {
@@ -45,6 +49,36 @@ struct PromptProps {
     float       range = 5.0f;          // MaxActivationDistance (Roblox's default 10 studs)
     bool        lineOfSight = true;    // RequiresLineOfSight: hidden behind walls
     bool        clickable = true;      // ClickablePrompt: can be clicked / tapped too
+};
+
+// ColorSequence / NumberSequence: a colour or number that changes along something
+// (a Trail's age, a Beam's length), as keypoints from t = 0 to 1.
+struct ColorKey  { float t; glm::vec3 c; };
+struct NumberKey { float t; float v; };
+glm::vec3 sampleSequence(const std::vector<ColorKey>& keys, float t);
+float     sampleSequence(const std::vector<NumberKey>& keys, float t);
+
+// A Trail's or Beam's settings (kind == Trail / Beam; `enabled` switches it off).
+// Defaults are Roblox's.
+struct EffectProps {
+    uint64_t a0 = 0, a1 = 0;                                   // Attachment0, Attachment1
+    std::vector<ColorKey>  color{{0.0f, glm::vec3(1.0f)}, {1.0f, glm::vec3(1.0f)}};
+    std::vector<NumberKey> transparency{{0.0f, 0.5f}, {1.0f, 0.5f}};
+    std::string texture;                                       // a picture along it ("" = plain)
+    float lightEmission = 0.0f;                                // 1 = glows (adds its light)
+    bool  faceCamera = false;                                  // always turned to face you
+    // Trail
+    float lifetime = 2.0f;                                     // seconds a piece lasts
+    float minLength = 0.1f;                                    // studs moved before a new piece
+    float maxLength = 0.0f;                                    // longest it gets (0 = no limit)
+    std::vector<NumberKey> widthScale{{0.0f, 1.0f}, {1.0f, 1.0f}};   // width over its age
+    int   clears = 0;                                          // trail:Clear() counts up (not saved)
+    // Beam
+    float width0 = 1.0f, width1 = 1.0f;                        // at each end
+    float curve0 = 0.0f, curve1 = 0.0f;                        // CurveSize0/1: bends it along each Attachment's axis
+    int   segments = 10;
+    float textureLength = 1.0f, textureSpeed = 1.0f;
+    bool  textureWrap = false;                                 // TextureMode: Wrap (per stud) / Stretch (repeats TextureLength times)
 };
 
 // A Highlight's settings (kind == Highlight; `enabled` switches it off). Like Roblox's
@@ -305,6 +339,7 @@ public:
     bool        remoteFunction = false;   // (kind == Remote) a RemoteFunction, else a RemoteEvent
     PromptProps prompt;                   // (kind == Prompt)
     HighlightProps highlight;             // (kind == Highlight)
+    EffectProps effect;                   // (kind == Trail / Beam)
 
     // Anything
     std::vector<Attribute>   attributes;
@@ -429,6 +464,7 @@ public:
     bool isRemote() const { return kind == NodeKind::Remote; }
     bool isPrompt() const { return kind == NodeKind::Prompt; }
     bool isHighlight() const { return kind == NodeKind::Highlight; }
+    bool isEffect() const { return kind == NodeKind::Trail || kind == NodeKind::Beam; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;

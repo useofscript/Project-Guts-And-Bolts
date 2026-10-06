@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'light-streaks', name: 'Light Streaks', time: 1791324400, tag: 'Engine',
+    summary: 'Trails and Beams: swords leave streaks behind them, and lasers join two points, like Roblox.',
+    items: [
+      'A Trail leaves a fading ribbon behind two Attachments as they move',
+      'A Beam joins two Attachments with a ribbon that can curve, glow and scroll a picture',
+      'ColorSequence and NumberSequence let colours, see-through and width change along them',
+      'Add them in Studio from Insert Object, with their settings in Properties',
+      'They show for everyone in multiplayer, and Roblox games with them now import with them',
+    ],
+  },
+  {
     id: 'glow-up', name: 'Glow Up', time: 1791323500, tag: 'Engine',
     summary: 'Highlights: colour a part or a whole character and give it an outline, even through walls, like Roblox.',
     items: [

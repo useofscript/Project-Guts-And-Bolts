@@ -730,6 +730,39 @@ h.Parent = player.Character      -- see them through walls
 - Up to 31 show at once. Highlights put on characters by the server show for
   everyone in a multiplayer game.
 
+### Trails and Beams
+
+Both are ribbons that run between two **Attachments** (Insert Object > Effects &
+Lights). A **Trail** leaves a ribbon behind as its attachments move, fading out
+over `Lifetime` seconds: put two attachments in a sword's blade or a car's back and
+it streaks. A **Beam** joins two attachments right now: lasers, zip lines, light
+rays. `CurveSize0` / `CurveSize1` bend it along each attachment's X axis.
+
+```lua
+local trail = Instance.new("Trail")
+trail.Attachment0 = blade.TipAttachment
+trail.Attachment1 = blade.BaseAttachment
+trail.Color = ColorSequence.new(Color3.new(1, 0.8, 0), Color3.new(1, 0, 0))
+trail.Transparency = NumberSequence.new(0, 1)      -- fades out as it gets older
+trail.Lifetime = 0.5
+trail.Parent = blade
+
+local beam = Instance.new("Beam")
+beam.Attachment0 = gun.Muzzle
+beam.Attachment1 = target.Attachment
+beam.Width0, beam.Width1 = 0.2, 0.2
+beam.LightEmission = 1                            -- glows
+beam.Parent = gun
+```
+
+- `ColorSequence` and `NumberSequence` work like Roblox's: one value, a start and an
+  end, or a list of `ColorSequenceKeypoint.new(time, color)` /
+  `NumberSequenceKeypoint.new(time, value)`.
+- Trails also have `WidthScale`, `MinLength`, `MaxLength` and `:Clear()`; Beams have
+  `Width0`, `Width1`, `Segments`, `Texture`, `TextureSpeed` (scrolling) and `TextureMode`.
+- `FaceCamera` keeps either one turned towards you.
+- In multiplayer they show for everyone, including ones the server puts on characters.
+
 ### Your character's moves (the Animate script)
 
 Every character gets a 2011-style **Animate** script: idle, walk, run, jump,

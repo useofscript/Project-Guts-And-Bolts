@@ -35,6 +35,32 @@ end })
 task = { wait = __gb_wait, spawn = __gb_spawn, delay = __gb_delay, defer = __gb_spawn }
 wait, spawn, delay = task.wait, task.spawn, task.delay
 
+-- ColorSequence / NumberSequence: a colour or number that changes along a Trail or
+-- Beam. ColorSequence.new(c), .new(c0, c1) or .new({ ColorSequenceKeypoint.new(t, c), ... })
+local function keypoint(kind)
+    local meta = { __type = kind, __tostring = function(k) return tostring(k.Time) .. " " .. tostring(k.Value) end }
+    return { new = function(t, v, envelope)
+        return setmetatable({ Time = tonumber(t) or 0, Value = v, Envelope = envelope or 0 }, meta)
+    end }
+end
+ColorSequenceKeypoint, NumberSequenceKeypoint = keypoint("ColorSequenceKeypoint"), keypoint("NumberSequenceKeypoint")
+local function sequence(kind, Key)
+    local meta = { __type = kind, __tostring = function(q)
+        local t = {}
+        for i, k in ipairs(q.Keypoints) do t[i] = tostring(k) end
+        return table.concat(t, " ")
+    end }
+    return { new = function(a, b)
+        local kp
+        if type(a) == "table" and getmetatable(a) == nil then kp = a                 -- a list of keypoints
+        elseif b ~= nil then kp = { Key.new(0, a), Key.new(1, b) }                 -- from a to b
+        else kp = { Key.new(0, a), Key.new(1, a) } end                              -- the same all along
+        return setmetatable({ Keypoints = kp }, meta)
+    end }
+end
+ColorSequence = sequence("ColorSequence", ColorSequenceKeypoint)
+NumberSequence = sequence("NumberSequence", NumberSequenceKeypoint)
+
 -- Players are tables with an object behind them (__node), so `player.leaderstats`
 -- and `folder.Parent = player` work like Roblox.
 local playerNode, setRespawn = __gb_playerNode, __gb_setRespawn

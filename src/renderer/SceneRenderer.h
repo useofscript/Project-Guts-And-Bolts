@@ -46,6 +46,7 @@ private:
     void postProcess(Scene& scene, const Camera& camera, Framebuffer& target);
     void renderLiquid(Scene& scene, const Camera& camera);   // real liquid (Liquid.cpp)
     void drawHighlights(Scene& scene, const Camera& camera, Framebuffer& target);   // Highlight objects
+    void drawRibbons(Scene& scene, const Camera& camera);   // Trails and Beams
     void ensureTargets(int w, int h);
     void buildGrid();
 public:
@@ -64,6 +65,12 @@ private:
     std::unique_ptr<Shader> m_water;   // water parts (see Shaders::waterFrag)
     std::unique_ptr<Shader> m_hlMask, m_hl;   // Highlights (see Shaders::highlightFrag)
     Target m_hlTarget;                        // a Highlight's shape on screen
+    std::unique_ptr<Shader> m_ribbon;         // Trails and Beams
+    unsigned int m_ribbonVao = 0, m_ribbonVbo = 0;
+    // Each Trail's pieces: where its two attachments were, and when.
+    struct TrailPoint { glm::vec3 a, b; double time; };
+    struct TrailState { std::vector<TrailPoint> points; double seen = 0.0; int clears = 0; };
+    std::unordered_map<uint64_t, TrailState> m_trails;
     std::unique_ptr<Shader> m_fluidDepth, m_fluidThick, m_fluidColor, m_fluidBlur, m_fluidShade, m_fluidSimple;
     Target m_waterCopy;   // water parts: the solid scene behind them (colour and depth)
     struct FlowTex { unsigned tex = 0; int version = -1; };

@@ -187,7 +187,7 @@ private:
     void         showMyTools(const nlohmann::json& m);
     void         showHeldTool(SceneNode* root, const nlohmann::json& ch);
     std::map<uint64_t, std::string> m_charNames;
-    std::map<uint64_t, std::vector<uint64_t>> m_charHl;   // Highlights we put on each character (as the host said)
+    std::map<uint64_t, std::vector<uint64_t>> m_charFx;   // Highlights / Trails / Beams we put on each character (as the host said)
     std::unordered_map<uint64_t, PoseBuffer> m_poses;   // other players' characters, shown smoothly
     std::vector<PlayerEntry> m_players;
     std::string  m_nonce;                 // we ask the host to sign this, to prove who it is

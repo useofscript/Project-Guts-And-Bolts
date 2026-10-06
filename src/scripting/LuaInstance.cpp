@@ -107,6 +107,8 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Remote: return n->remoteFunction ? "RemoteFunction" : "RemoteEvent";
         case NodeKind::Prompt: return "ProximityPrompt";
         case NodeKind::Highlight: return "Highlight";
+        case NodeKind::Trail:     return "Trail";
+        case NodeKind::Beam:      return "Beam";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Tool:       return "Tool";
@@ -1049,6 +1051,86 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
 
 // seat:Sit(humanoid): put that character on the seat (our own character only;
 // other players sit by touching it themselves).
+// ColorSequence / NumberSequence <-> keypoints (the Lua side is in the prelude).
+void pushColorSequence(lua_State* L, const std::vector<ColorKey>& keys) {
+    lua_getglobal(L, "ColorSequence");
+    lua_getfield(L, -1, "new");
+    lua_remove(L, -2);
+    lua_createtable(L, (int)keys.size(), 0);
+    for (size_t i = 0; i < keys.size(); ++i) {
+        lua_getglobal(L, "ColorSequenceKeypoint");
+        lua_getfield(L, -1, "new");
+        lua_remove(L, -2);
+        lua_pushnumber(L, keys[i].t);
+        LuaApi::pushColor3(L, keys[i].c);
+        lua_call(L, 2, 1);
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    lua_call(L, 1, 1);
+}
+void pushNumberSequence(lua_State* L, const std::vector<NumberKey>& keys) {
+    lua_getglobal(L, "NumberSequence");
+    lua_getfield(L, -1, "new");
+    lua_remove(L, -2);
+    lua_createtable(L, (int)keys.size(), 0);
+    for (size_t i = 0; i < keys.size(); ++i) {
+        lua_getglobal(L, "NumberSequenceKeypoint");
+        lua_getfield(L, -1, "new");
+        lua_remove(L, -2);
+        lua_pushnumber(L, keys[i].t);
+        lua_pushnumber(L, keys[i].v);
+        lua_call(L, 2, 1);
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    lua_call(L, 1, 1);
+}
+// Reads a sequence's keypoints at idx (or a plain Color3 / number: the same all along).
+template <typename Key, typename Read>
+std::vector<Key> readSequence(lua_State* L, int idx, const char* what, Read read) {
+    std::vector<Key> keys;
+    if (lua_istable(L, idx)) {
+        lua_getfield(L, idx, "Keypoints");
+        if (lua_istable(L, -1)) {
+            const int n = std::min((int)lua_rawlen(L, -1), 20);
+            for (int i = 1; i <= n; ++i) {
+                lua_rawgeti(L, -1, i);
+                if (lua_istable(L, -1)) {
+                    lua_getfield(L, -1, "Time");
+                    lua_getfield(L, -2, "Value");
+                    keys.push_back({std::clamp((float)lua_tonumber(L, -2), 0.0f, 1.0f), read(L, lua_gettop(L))});
+                    lua_pop(L, 2);
+                }
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);
+    } else {
+        keys.push_back({0.0f, read(L, idx)});
+        keys.push_back({1.0f, read(L, idx)});
+    }
+    if (keys.empty()) luaL_error(L, "expected a %s", what);
+    std::stable_sort(keys.begin(), keys.end(), [](const Key& a, const Key& b) { return a.t < b.t; });
+    return keys;
+}
+std::vector<ColorKey> checkColorSequence(lua_State* L, int idx) {
+    return readSequence<ColorKey>(L, idx, "ColorSequence", [](lua_State* L, int i) { return glm::clamp(LuaApi::checkColor3(L, i), 0.0f, 1.0f); });
+}
+std::vector<NumberKey> checkNumberSequence(lua_State* L, int idx, float lo, float hi) {
+    return readSequence<NumberKey>(L, idx, "NumberSequence", [lo, hi](lua_State* L, int i) { return std::clamp((float)luaL_checknumber(L, i), lo, hi); });
+}
+SceneNode* attachmentArg(lua_State* L, int idx) {
+    if (lua_isnoneornil(L, idx)) return nullptr;
+    SceneNode* a = LuaApi::checkNode(L, idx);
+    if (!a->isAttachment()) luaL_error(L, "%s is not an Attachment", a->name.c_str());
+    return a;
+}
+int trail_Clear(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    if (n->kind == NodeKind::Trail) ++n->effect.clears;
+    return 0;
+}
+int noop(lua_State*) { return 0; }
+
 int seat_sit(lua_State* L) {
     SceneNode* seat = LuaApi::checkNode(L, 1);
     uint64_t who = 0;
@@ -1214,6 +1296,39 @@ int inst_index(lua_State* L) {
         if (is(k, "DepthMode"))           { lua_pushstring(L, h.onTop ? "AlwaysOnTop" : "Occluded"); return 1; }
         if (is(k, "Enabled"))             { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "Adornee"))             { if (h.adornee && E(L)->scene()->findById(h.adornee)) LuaApi::pushInstance(L, h.adornee); else lua_pushnil(L); return 1; }
+    }
+    if (n->isEffect()) {
+        const EffectProps& e = n->effect;
+        const bool beam = n->kind == NodeKind::Beam;
+        auto att = [&](uint64_t id) { if (id && E(L)->scene()->findById(id)) LuaApi::pushInstance(L, id); else lua_pushnil(L); return 1; };
+        if (is(k, "Attachment0"))   return att(e.a0);
+        if (is(k, "Attachment1"))   return att(e.a1);
+        if (is(k, "Color"))         { pushColorSequence(L, e.color); return 1; }
+        if (is(k, "Transparency"))  { pushNumberSequence(L, e.transparency); return 1; }
+        if (is(k, "Texture"))       { lua_pushstring(L, e.texture.c_str()); return 1; }
+        if (is(k, "LightEmission")) { lua_pushnumber(L, e.lightEmission); return 1; }
+        if (is(k, "LightInfluence")) { lua_pushnumber(L, 1.0 - e.lightEmission); return 1; }
+        if (is(k, "Brightness"))    { lua_pushnumber(L, 1); return 1; }
+        if (is(k, "FaceCamera"))    { lua_pushboolean(L, e.faceCamera); return 1; }
+        if (is(k, "Enabled"))       { lua_pushboolean(L, n->enabled); return 1; }
+        if (is(k, "TextureMode"))   { lua_pushstring(L, e.textureWrap ? "Wrap" : "Stretch"); return 1; }
+        if (is(k, "TextureLength")) { lua_pushnumber(L, e.textureLength); return 1; }
+        if (is(k, "ZOffset"))       { lua_pushnumber(L, 0); return 1; }
+        if (!beam) {
+            if (is(k, "Lifetime"))   { lua_pushnumber(L, e.lifetime); return 1; }
+            if (is(k, "MinLength"))  { lua_pushnumber(L, e.minLength); return 1; }
+            if (is(k, "MaxLength"))  { lua_pushnumber(L, e.maxLength); return 1; }
+            if (is(k, "WidthScale")) { pushNumberSequence(L, e.widthScale); return 1; }
+            if (is(k, "Clear"))      { lua_pushcfunction(L, trail_Clear); return 1; }
+        } else {
+            if (is(k, "Width0"))       { lua_pushnumber(L, e.width0); return 1; }
+            if (is(k, "Width1"))       { lua_pushnumber(L, e.width1); return 1; }
+            if (is(k, "CurveSize0"))   { lua_pushnumber(L, e.curve0); return 1; }
+            if (is(k, "CurveSize1"))   { lua_pushnumber(L, e.curve1); return 1; }
+            if (is(k, "Segments"))     { lua_pushinteger(L, e.segments); return 1; }
+            if (is(k, "TextureSpeed")) { lua_pushnumber(L, e.textureSpeed); return 1; }
+            if (is(k, "SetTextureOffset")) { lua_pushcfunction(L, noop); return 1; }
+        }
     }
     if (n->kind == NodeKind::Remote) {
         if (is(k, "OnServerEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteServer, n->id); return 1; }
@@ -1442,6 +1557,40 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Enabled"))             { n->enabled = lua_toboolean(L, 3); return 0; }
         if (is(k, "Adornee"))             { SceneNode* a = lua_isnoneornil(L, 3) ? nullptr : LuaApi::checkNode(L, 3); h.adornee = a ? a->id : 0; return 0; }
     }
+    if (n->isEffect()) {
+        EffectProps& e = n->effect;
+        const bool beam = n->kind == NodeKind::Beam;
+        auto num = [&](float lo, float hi) { return std::clamp((float)luaL_checknumber(L, 3), lo, hi); };
+        if (is(k, "Attachment0"))   { SceneNode* a = attachmentArg(L, 3); e.a0 = a ? a->id : 0; return 0; }
+        if (is(k, "Attachment1"))   { SceneNode* a = attachmentArg(L, 3); e.a1 = a ? a->id : 0; return 0; }
+        if (is(k, "Color"))         { e.color = checkColorSequence(L, 3); return 0; }
+        if (is(k, "Transparency"))  { e.transparency = checkNumberSequence(L, 3, 0.0f, 1.0f); return 0; }
+        if (is(k, "Texture"))       { e.texture = Online::assetRef(luaL_checkstring(L, 3)); return 0; }
+        if (is(k, "LightEmission")) { e.lightEmission = num(0.0f, 1.0f); return 0; }
+        if (is(k, "FaceCamera"))    { e.faceCamera = lua_toboolean(L, 3); return 0; }
+        if (is(k, "Enabled"))       { n->enabled = lua_toboolean(L, 3); return 0; }
+        if (is(k, "TextureMode")) {   // Enum.TextureMode.Wrap / Stretch / Static
+            std::string m = luaL_tolstring(L, 3, nullptr);
+            lua_pop(L, 1);
+            e.textureWrap = m.find("Stretch") == std::string::npos;
+            return 0;
+        }
+        if (is(k, "TextureLength")) { e.textureLength = num(0.001f, 10000.0f); return 0; }
+        if (is(k, "LightInfluence") || is(k, "Brightness") || is(k, "ZOffset")) return 0;   // (looks the same)
+        if (!beam) {
+            if (is(k, "Lifetime"))   { e.lifetime = num(0.0f, 20.0f); return 0; }
+            if (is(k, "MinLength"))  { e.minLength = num(0.0f, 1000.0f); return 0; }
+            if (is(k, "MaxLength"))  { e.maxLength = num(0.0f, 10000.0f); return 0; }
+            if (is(k, "WidthScale")) { e.widthScale = checkNumberSequence(L, 3, 0.0f, 100.0f); return 0; }
+        } else {
+            if (is(k, "Width0"))       { e.width0 = num(0.0f, 1000.0f); return 0; }
+            if (is(k, "Width1"))       { e.width1 = num(0.0f, 1000.0f); return 0; }
+            if (is(k, "CurveSize0"))   { e.curve0 = num(-1000.0f, 1000.0f); return 0; }
+            if (is(k, "CurveSize1"))   { e.curve1 = num(-1000.0f, 1000.0f); return 0; }
+            if (is(k, "Segments"))     { e.segments = (int)num(1.0f, 1000.0f); return 0; }
+            if (is(k, "TextureSpeed")) { e.textureSpeed = num(-1000.0f, 1000.0f); return 0; }
+        }
+    }
     if (n->kind == NodeKind::Remote) {
         if (is(k, "OnServerInvoke")) {
             if (!lua_isnil(L, 3)) luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -1600,6 +1749,8 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Prompt);
     } else if (cls == "Highlight") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Highlight);
+    } else if (cls == "Trail" || cls == "Beam") {
+        n = std::make_unique<SceneNode>(cls, cls == "Trail" ? NodeKind::Trail : NodeKind::Beam);
     } else if (cls == "Attachment") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Attachment);
     } else if (cls == "RopeConstraint" || cls == "RodConstraint" || cls == "SpringConstraint" ||

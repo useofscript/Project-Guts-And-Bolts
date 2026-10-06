@@ -76,7 +76,7 @@ bool endsWith(const std::string& s, const std::string& e) {
 // ===========================================================================
 
 struct Value {
-    enum Kind { None, Str, Bool, Num, Vec3, CFrame, Color, Ref, Token, UDim, UDim2, Vec2 } kind = None;
+    enum Kind { None, Str, Bool, Num, Vec3, CFrame, Color, Ref, Token, UDim, UDim2, Vec2, NumSeq, ColorSeq } kind = None;
     std::string s;
     bool        b = false;
     double      n = 0.0;
@@ -84,6 +84,7 @@ struct Value {
     glm::mat3   r{1.0f};          // CFrame rotation (columns = right, up, back)
     int64_t     ref = -1;
     glm::vec4   q{0.0f};          // UDim2 (x scale, x offset, y scale, y offset), UDim (scale, offset), Vector2 (x, y)
+    std::vector<float> seq;       // NumberSequence (time, value)..., ColorSequence (time, r, g, b)...
 };
 
 struct Inst {
@@ -369,6 +370,21 @@ bool readBinary(const std::vector<uint8_t>& data, Document& doc) {
                 for (size_t i = 0; i < n; ++i) { Value v; v.kind = Value::Ref; v.ref = a[i]; set(i, v); }
                 break;
             }
+            case 0x15:                                             // NumberSequence
+            case 0x16: {                                           // ColorSequence
+                const bool color = type == 0x16;
+                for (size_t i = 0; i < n && !r.bad; ++i) {
+                    Value v; v.kind = color ? Value::ColorSeq : Value::NumSeq;
+                    const uint32_t count = r.u32();
+                    for (uint32_t k = 0; k < count && !r.bad; ++k) {
+                        const float t = r.f32();
+                        if (color) { const float R = r.f32(), G = r.f32(), B = r.f32(); r.f32(); if (k < 20) v.seq.insert(v.seq.end(), {t, R, G, B}); }
+                        else       { const float val = r.f32(); r.f32(); if (k < 20) v.seq.insert(v.seq.end(), {t, val}); }
+                    }
+                    set(i, v);
+                }
+                break;
+            }
             case 0x1A: {                                           // Color3uint8
                 const uint8_t* R = r.take(n); const uint8_t* G = r.take(n); const uint8_t* B = r.take(n);
                 if (!R || !G || !B) break;
@@ -567,6 +583,20 @@ void readXmlItem(const XmlNode& x, Inst* parent, Document& doc, std::map<std::st
                 if (p->child("R")) v.v = {fnum(p->child("R")), fnum(p->child("G")), fnum(p->child("B"))};
                 else { uint32_t c = (uint32_t)std::strtoul(text.c_str(), nullptr, 10);
                        v.v = glm::vec3((c >> 16) & 255, (c >> 8) & 255, c & 255) / 255.0f; }
+            } else if (t == "NumberSequence" || t == "ColorSequence") {   // "t v envelope ..." / "t r g b envelope ..."
+                const bool color = t == "ColorSequence";
+                v.kind = color ? Value::ColorSeq : Value::NumSeq;
+                std::vector<float> all;
+                for (const char* c = text.c_str(); *c && all.size() < 200;) {
+                    char* end = nullptr;
+                    const float f = std::strtof(c, &end);
+                    if (end == c) { ++c; continue; }
+                    all.push_back(f);
+                    c = end;
+                }
+                const size_t step = color ? 5 : 3;
+                for (size_t k = 0; k + step <= all.size(); k += step)
+                    v.seq.insert(v.seq.end(), all.begin() + k, all.begin() + k + step - 1);
             } else if (t == "Color3uint8") {
                 uint32_t c = (uint32_t)std::strtoul(text.c_str(), nullptr, 10);
                 v.kind = Value::Color; v.v = glm::vec3((c >> 16) & 255, (c >> 8) & 255, c & 255) / 255.0f;
@@ -1006,6 +1036,43 @@ struct Converter {
             p.clickable = in.flag("ClickablePrompt", true);
             node->enabled = in.flag("Enabled", true);
             ++report.other;
+        } else if (c == "Trail" || c == "Beam") {
+            const bool beam = c == "Beam";
+            node = std::make_unique<SceneNode>(name, beam ? NodeKind::Beam : NodeKind::Trail);
+            EffectProps& e = node->effect;
+            if (const Value* v = in.get("Color"); v && v->kind == Value::ColorSeq && v->seq.size() >= 4) {
+                e.color.clear();
+                for (size_t k = 0; k + 4 <= v->seq.size(); k += 4)
+                    e.color.push_back({std::clamp(v->seq[k], 0.0f, 1.0f), glm::clamp(glm::vec3(v->seq[k + 1], v->seq[k + 2], v->seq[k + 3]), 0.0f, 1.0f)});
+            }
+            auto numSeq = [&](const char* key, std::vector<NumberKey>& out, float lo, float hi) {
+                const Value* v = in.get(key);
+                if (!v || v->kind != Value::NumSeq || v->seq.size() < 2) return;
+                out.clear();
+                for (size_t k = 0; k + 2 <= v->seq.size(); k += 2)
+                    out.push_back({std::clamp(v->seq[k], 0.0f, 1.0f), std::clamp(v->seq[k + 1], lo, hi)});
+            };
+            numSeq("Transparency", e.transparency, 0.0f, 1.0f);
+            e.texture = in.str("Texture");
+            e.lightEmission = std::clamp((float)in.num("LightEmission", 0.0), 0.0f, 1.0f);
+            e.faceCamera = in.flag("FaceCamera", false);
+            e.textureWrap = (int)in.num("TextureMode", 0.0) != 0;   // 0 Stretch, 1 Wrap, 2 Static
+            e.textureLength = std::max(0.001f, (float)in.num("TextureLength", 1.0) * (e.textureWrap ? kImportScale : 1.0f));
+            if (beam) {
+                e.width0 = (float)in.num("Width0", 1.0) * kImportScale;
+                e.width1 = (float)in.num("Width1", 1.0) * kImportScale;
+                e.curve0 = (float)in.num("CurveSize0", 0.0) * kImportScale;
+                e.curve1 = (float)in.num("CurveSize1", 0.0) * kImportScale;
+                e.segments = std::clamp((int)in.num("Segments", 10.0), 1, 1000);
+                e.textureSpeed = (float)in.num("TextureSpeed", 1.0);
+            } else {
+                e.lifetime = std::clamp((float)in.num("Lifetime", 2.0), 0.0f, 20.0f);
+                e.minLength = (float)in.num("MinLength", 0.1) * kImportScale;
+                e.maxLength = (float)in.num("MaxLength", 0.0) * kImportScale;
+                numSeq("WidthScale", e.widthScale, 0.0f, 100.0f);
+            }
+            node->enabled = in.flag("Enabled", true);
+            ++report.other;
         } else if (c == "Highlight") {
             node = std::make_unique<SceneNode>(name, NodeKind::Highlight);
             HighlightProps& h = node->highlight;
@@ -1230,6 +1297,17 @@ struct Converter {
         std::unordered_map<int64_t, SceneNode*> byRef;
         for (auto& [inst, node] : made) byRef[inst->referent] = node;
         for (auto& [inst, node] : made) {
+            if (node->isEffect()) {   // (a Trail's / Beam's Attachments)
+                auto att = [&](const char* key) -> uint64_t {
+                    const Value* v = inst->get(key);
+                    if (!v || v->kind != Value::Ref) return 0;
+                    auto it = byRef.find(v->ref);
+                    return it == byRef.end() ? 0 : it->second->id;
+                };
+                node->effect.a0 = att("Attachment0");
+                node->effect.a1 = att("Attachment1");
+                continue;
+            }
             if (node->isHighlight()) {   // (its Adornee)
                 const Value* v = inst->get("Adornee");
                 if (v && v->kind == Value::Ref)
@@ -1369,6 +1447,8 @@ struct XmlWriter {
             case NodeKind::Remote:     cls = n.remoteFunction ? "RemoteFunction" : "RemoteEvent"; break;
             case NodeKind::Prompt:     cls = "ProximityPrompt"; break;
             case NodeKind::Highlight:  cls = "Highlight"; break;
+            case NodeKind::Trail:      cls = "Trail"; break;
+            case NodeKind::Beam:       cls = "Beam"; break;
             case NodeKind::Light:      cls = n.lightType == LightType::Spot ? "SpotLight" : "PointLight"; break;
             case NodeKind::Sound:      cls = "Sound"; break;
             case NodeKind::Attachment: cls = "Attachment"; break;
@@ -1398,6 +1478,44 @@ struct XmlWriter {
             boolean("Enabled", n.enabled);
             str("ToolTip", n.toolTip);
             break;
+        case NodeKind::Trail:
+        case NodeKind::Beam: {
+            const EffectProps& e = n.effect;
+            const bool beam = n.kind == NodeKind::Beam;
+            refProp("Attachment0", e.a0);
+            refProp("Attachment1", e.a1);
+            {
+                std::ostringstream c;
+                for (const ColorKey& k : e.color) c << k.t << " " << k.c.r << " " << k.c.g << " " << k.c.b << " 0 ";
+                o << "<ColorSequence name=\"Color\">" << c.str() << "</ColorSequence>\n";
+            }
+            auto seq = [&](const char* name, const std::vector<NumberKey>& keys) {
+                std::ostringstream c;
+                for (const NumberKey& k : keys) c << k.t << " " << k.v << " 0 ";
+                o << "<NumberSequence name=\"" << name << "\">" << c.str() << "</NumberSequence>\n";
+            };
+            seq("Transparency", e.transparency);
+            str("Texture", e.texture);
+            flt("LightEmission", e.lightEmission);
+            boolean("FaceCamera", e.faceCamera);
+            token("TextureMode", e.textureWrap ? 1 : 0);
+            flt("TextureLength", e.textureLength * (e.textureWrap ? kExportScale : 1.0f));
+            if (beam) {
+                flt("Width0", e.width0 * kExportScale);
+                flt("Width1", e.width1 * kExportScale);
+                flt("CurveSize0", e.curve0 * kExportScale);
+                flt("CurveSize1", e.curve1 * kExportScale);
+                o << "<int name=\"Segments\">" << e.segments << "</int>\n";
+                flt("TextureSpeed", e.textureSpeed);
+            } else {
+                flt("Lifetime", e.lifetime);
+                flt("MinLength", e.minLength * kExportScale);
+                flt("MaxLength", e.maxLength * kExportScale);
+                seq("WidthScale", e.widthScale);
+            }
+            boolean("Enabled", n.enabled);
+            break;
+        }
         case NodeKind::Highlight:
             color3("FillColor", n.highlight.fill);
             color3("OutlineColor", n.highlight.outline);

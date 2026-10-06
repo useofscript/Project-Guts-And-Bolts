@@ -16,6 +16,7 @@
 #include "MeshLibrary.h"
 
 #include "GL.h"
+#include <cstddef>
 #include <cstring>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -129,6 +130,7 @@ SceneRenderer::SceneRenderer() {
     m_water       = std::make_unique<Shader>(waterVert, waterFrag);
     m_hlMask      = std::make_unique<Shader>(highlightMaskVert, highlightMaskFrag);
     m_hl          = std::make_unique<Shader>(fullscreenVert, highlightFrag);
+    m_ribbon      = std::make_unique<Shader>(ribbonVert, ribbonFrag);
     m_fluidDepth  = std::make_unique<Shader>(fluidVert, fluidDepthFrag);
     m_fluidThick  = std::make_unique<Shader>(fluidVert, fluidThickFrag);
     m_fluidColor  = std::make_unique<Shader>(fluidVert, fluidColorFrag);
@@ -155,6 +157,8 @@ SceneRenderer::~SceneRenderer() {
     if (m_fluidVbo) glDeleteBuffers(1, &m_fluidVbo);
     if (m_fluidVao) glDeleteVertexArrays(1, &m_fluidVao);
     destroyTarget(m_fDepth); destroyTarget(m_fTmp); destroyTarget(m_fThick); destroyTarget(m_fColor); destroyTarget(m_sceneCopy); destroyTarget(m_waterCopy); destroyTarget(m_hlTarget);
+    if (m_ribbonVbo) glDeleteBuffers(1, &m_ribbonVbo);
+    if (m_ribbonVao) glDeleteVertexArrays(1, &m_ribbonVao);
     destroyTarget(m_hdr);
     destroyTarget(m_ao);
     destroyTarget(m_ldr);
@@ -1287,7 +1291,175 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
         }
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
+
+    drawRibbons(scene, camera);
+    m_lit->bind();
     glDepthMask(GL_TRUE);
+}
+
+namespace {
+struct RibbonVertex { glm::vec3 pos; glm::vec2 uv; glm::vec4 color; };
+// A strip of quads from pairs of edge points (a[i], b[i]).
+void addStrip(std::vector<RibbonVertex>& out, const std::vector<RibbonVertex>& a, const std::vector<RibbonVertex>& b) {
+    for (size_t i = 1; i < a.size() && i < b.size(); ++i) {
+        out.push_back(a[i - 1]); out.push_back(b[i - 1]); out.push_back(b[i]);
+        out.push_back(a[i - 1]); out.push_back(b[i]);     out.push_back(a[i]);
+    }
+}
+glm::vec3 axisOf(const SceneNode* att, int i) {   // an Attachment's own axis, in the world
+    glm::vec3 v(att->worldMatrix()[i]);
+    float l = glm::length(v);
+    return l > 1e-6f ? v / l : glm::vec3(i == 0, i == 1, i == 2);
+}
+} // namespace
+
+// Trails and Beams: ribbons between two Attachments. A Trail remembers where its
+// attachments have been for Lifetime seconds; a Beam joins them
+// now, bent by CurveSize0/1 along each attachment's axis.
+void SceneRenderer::drawRibbons(Scene& scene, const Camera& camera) {
+    std::vector<SceneNode*> items;
+    scene.forEach([&](SceneNode* n) { if (n->isEffect()) items.push_back(n); });
+    const double tNow = now();
+    // Forget trails that are gone.
+    for (auto it = m_trails.begin(); it != m_trails.end();) {
+        if (tNow - it->second.seen > 1.0) it = m_trails.erase(it);
+        else ++it;
+    }
+    if (items.empty()) return;
+
+    if (!m_ribbonVao) {
+        glGenVertexArrays(1, &m_ribbonVao);
+        glGenBuffers(1, &m_ribbonVbo);
+        glBindVertexArray(m_ribbonVao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_ribbonVbo);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(RibbonVertex), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(RibbonVertex), (void*)offsetof(RibbonVertex, uv));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(RibbonVertex), (void*)offsetof(RibbonVertex, color));
+    }
+    const Environment& env = scene.environment();
+    const glm::vec3 light = glm::clamp(env.ambientColor * env.ambientIntensity +
+                                       env.sunColor * std::max(0.0f, env.sunIntensity) * std::max(env.sunDirection().y, 0.0f),
+                                       glm::vec3(0.05f), glm::vec3(1.2f));
+    const glm::vec3 eye = camera.position();
+    m_ribbon->bind();
+    m_ribbon->setMat4("uViewProj", camera.projection() * camera.view());
+    m_ribbon->setVec3("uLight", light);
+    m_ribbon->setInt("uTex", 5);
+    glBindVertexArray(m_ribbonVao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_ribbonVbo);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glDepthMask(GL_FALSE);
+
+    std::vector<RibbonVertex> verts, edgeA, edgeB;
+    auto shown = [](const SceneNode* n) {
+        for (const SceneNode* p = n; p; p = p->parent) if (!p->visible) return false;
+        return true;
+    };
+    for (SceneNode* n : items) {
+        const EffectProps& e = n->effect;
+        SceneNode* a0 = e.a0 ? scene.findById(e.a0) : nullptr;
+        SceneNode* a1 = e.a1 ? scene.findById(e.a1) : nullptr;
+        const bool attached = a0 && a1 && a0->isAttachment() && a1->isAttachment();
+        edgeA.clear(); edgeB.clear(); verts.clear();
+        auto edge = [&](glm::vec3 c, glm::vec3 half, float u, float t) {
+            const glm::vec4 col(sampleSequence(e.color, t), 1.0f - sampleSequence(e.transparency, t));
+            edgeA.push_back({c - half, {u, 0.0f}, col});
+            edgeB.push_back({c + half, {u, 1.0f}, col});
+        };
+
+        if (n->kind == NodeKind::Trail) {
+            if (m_viewDist > 0.0f && attached && tooFar(glm::vec3(a0->worldMatrix()[3]), 0.0f)) continue;
+            TrailState& st = m_trails[n->id];
+            st.seen = tNow;
+            if (st.clears != e.clears) { st.points.clear(); st.clears = e.clears; }   // trail:Clear()
+            const bool live = attached && n->enabled && shown(n);
+            glm::vec3 ha, hb;
+            if (live) {
+                ha = glm::vec3(a0->worldMatrix()[3]);
+                hb = glm::vec3(a1->worldMatrix()[3]);
+                const glm::vec3 mid = (ha + hb) * 0.5f;
+                if (st.points.empty() || glm::length(mid - (st.points.back().a + st.points.back().b) * 0.5f) >= std::max(0.01f, e.minLength))
+                    st.points.push_back({ha, hb, tNow});
+            }
+            const double life = std::max(0.01f, e.lifetime);
+            st.points.erase(std::remove_if(st.points.begin(), st.points.end(), [&](const TrailPoint& p) { return tNow - p.time > life; }),
+                            st.points.end());
+            if (st.points.size() > 2000) st.points.erase(st.points.begin(), st.points.begin() + (st.points.size() - 2000));
+            // Newest first: the attachments now, then where they were.
+            std::vector<TrailPoint> pts;
+            if (live) pts.push_back({ha, hb, tNow});
+            for (auto it = st.points.rbegin(); it != st.points.rend(); ++it) pts.push_back(*it);
+            if (e.maxLength > 0.0f) {   // no longer than MaxLength
+                float len = 0.0f;
+                for (size_t i = 1; i < pts.size(); ++i) {
+                    len += glm::length((pts[i].a + pts[i].b) * 0.5f - (pts[i - 1].a + pts[i - 1].b) * 0.5f);
+                    if (len > e.maxLength) { pts.resize(i + 1); break; }
+                }
+            }
+            if (pts.size() < 2) continue;
+            for (size_t i = 0; i < pts.size(); ++i) {
+                const float age = (float)std::clamp((tNow - pts[i].time) / life, 0.0, 1.0);
+                const glm::vec3 c = (pts[i].a + pts[i].b) * 0.5f;
+                glm::vec3 half = (pts[i].b - pts[i].a) * 0.5f;
+                if (e.faceCamera) {
+                    const glm::vec3 along = i + 1 < pts.size() ? (pts[i + 1].a + pts[i + 1].b) * 0.5f - c : c - (pts[i - 1].a + pts[i - 1].b) * 0.5f;
+                    glm::vec3 side = glm::cross(along, eye - c);
+                    const float l = glm::length(side);
+                    if (l > 1e-6f) half = side / l * glm::length(half);
+                }
+                edge(c, half * sampleSequence(e.widthScale, age), age, age);
+            }
+        } else {   // Beam
+            if (!attached || !n->enabled || !shown(n)) continue;
+            const glm::vec3 p0(a0->worldMatrix()[3]), p3(a1->worldMatrix()[3]);
+            if (tooFar((p0 + p3) * 0.5f, glm::length(p3 - p0) * 0.5f + std::max(e.width0, e.width1))) continue;
+            const glm::vec3 p1 = p0 + axisOf(a0, 0) * e.curve0, p2 = p3 - axisOf(a1, 0) * e.curve1;
+            const glm::vec3 z0 = axisOf(a0, 2), z1 = axisOf(a1, 2);
+            const int segs = std::clamp(e.segments, 1, 1000);
+            std::vector<glm::vec3> pos(segs + 1);
+            for (int i = 0; i <= segs; ++i) {
+                const float t = (float)i / segs, u = 1.0f - t;
+                pos[i] = u * u * u * p0 + 3.0f * u * u * t * p1 + 3.0f * u * t * t * p2 + t * t * t * p3;
+            }
+            float dist = 0.0f;
+            const float total = [&] { float l = 0.0f; for (int i = 1; i <= segs; ++i) l += glm::length(pos[i] - pos[i - 1]); return l; }();
+            const float scroll = (float)(tNow - m_startTime) * e.textureSpeed;
+            for (int i = 0; i <= segs; ++i) {
+                const float t = (float)i / segs;
+                if (i) dist += glm::length(pos[i] - pos[i - 1]);
+                glm::vec3 tangent = pos[std::min(i + 1, segs)] - pos[std::max(i - 1, 0)];
+                const float tl = glm::length(tangent);
+                tangent = tl > 1e-6f ? tangent / tl : glm::vec3(1, 0, 0);
+                glm::vec3 side = e.faceCamera ? glm::cross(tangent, eye - pos[i]) : glm::mix(z0, z1, t);
+                side -= tangent * glm::dot(side, tangent);
+                if (glm::length(side) < 1e-5f) side = glm::cross(tangent, std::abs(tangent.y) < 0.99f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0));
+                side = glm::normalize(side);
+                const float u = (e.textureWrap ? dist / e.textureLength : (total > 0.0f ? dist / total : t) * e.textureLength) - scroll;
+                edge(pos[i], side * glm::mix(e.width0, e.width1, t) * 0.5f, u, t);
+            }
+        }
+
+        addStrip(verts, edgeA, edgeB);
+        if (verts.empty()) continue;
+        const unsigned tex = e.texture.empty() ? 0 : Textures::get(e.texture);
+        if (tex) {
+            bindTex(5, tex);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);   // (beams scroll their picture)
+        }
+        m_ribbon->setBool("uHasTex", tex != 0);
+        m_ribbon->setFloat("uGlow", e.lightEmission);
+        glBlendFunc(GL_SRC_ALPHA, e.lightEmission >= 0.5f ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(verts.size() * sizeof(RibbonVertex)), verts.data(), GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts.size());
+    }
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
 }
 
 void SceneRenderer::renderLiquid(Scene& scene, const Camera& camera) {

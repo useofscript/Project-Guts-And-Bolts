@@ -558,6 +558,42 @@ inline const char* depthFrag = R"(#version 410 core
 void main() {}
 )";
 
+// Trails and Beams: flat ribbons, coloured along their length, with an optional
+// picture (scrolling for beams). Not lit; LightEmission makes them glow.
+inline const char* ribbonVert = R"(#version 410 core
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec2 aUV;
+layout(location=2) in vec4 aColor;
+uniform mat4 uViewProj;
+out vec2 vUV;
+out vec4 vColor;
+void main() {
+    vUV = aUV;
+    vColor = aColor;
+    gl_Position = uViewProj * vec4(aPos, 1.0);
+}
+)";
+
+inline const char* ribbonFrag = R"(#version 410 core
+in vec2 vUV;
+in vec4 vColor;
+uniform sampler2D uTex;
+uniform bool  uHasTex;
+uniform float uGlow;          // LightEmission
+uniform vec3  uLight;         // the scene's light (unlit ribbons still dim at night)
+out vec4 FragColor;
+void main() {
+    vec4 c = vec4(pow(vColor.rgb, vec3(2.2)), vColor.a);
+    if (uHasTex) {
+        vec4 t = texture(uTex, vUV);
+        c *= vec4(pow(t.rgb, vec3(2.2)), t.a);
+    }
+    c.rgb *= mix(uLight, vec3(1.5), uGlow);
+    if (c.a < 0.003) discard;
+    FragColor = c;
+}
+)";
+
 // Highlights, step 1: the highlighted parts' shape on screen. Red = covered, green =
 // covered and not behind anything else (compared with the scene's depth).
 inline const char* highlightMaskVert = R"(#version 410 core

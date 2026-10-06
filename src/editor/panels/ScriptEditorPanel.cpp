@@ -62,6 +62,9 @@ const char* const kWords[] = {
     "PromptButtonHoldEnded", "PromptShown", "PromptHidden", "ClickablePrompt",
     "Highlight", "FillColor", "OutlineColor", "FillTransparency", "OutlineTransparency", "DepthMode",
     "HighlightDepthMode", "AlwaysOnTop", "Occluded", "Adornee",
+    "Trail", "Beam", "Attachment0", "Attachment1", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence",
+    "NumberSequenceKeypoint", "Keypoints", "Lifetime", "MinLength", "MaxLength", "WidthScale", "LightEmission",
+    "FaceCamera", "Width0", "Width1", "CurveSize0", "CurveSize1", "Segments", "TextureSpeed", "TextureLength", "TextureMode",
 };
 
 bool wordChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }

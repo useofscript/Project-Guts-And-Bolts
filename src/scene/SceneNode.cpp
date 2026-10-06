@@ -8,6 +8,24 @@ namespace { uint64_t g_nextId = 1; }
 uint64_t SceneNode::newId() { return g_nextId++; }
 void SceneNode::reserveId(uint64_t used) { if (used >= g_nextId) g_nextId = used + 1; }
 
+namespace {
+template <typename Key, typename V>
+V sampleKeys(const std::vector<Key>& keys, float t, V Key::*val, V fallback) {
+    if (keys.empty()) return fallback;
+    if (t <= keys.front().t) return keys.front().*val;
+    for (size_t i = 1; i < keys.size(); ++i)
+        if (t <= keys[i].t) {
+            const float span = keys[i].t - keys[i - 1].t;
+            const float f = span > 1e-6f ? (t - keys[i - 1].t) / span : 1.0f;
+            return keys[i - 1].*val + (keys[i].*val - keys[i - 1].*val) * f;
+        }
+    return keys.back().*val;
+}
+} // namespace
+
+glm::vec3 sampleSequence(const std::vector<ColorKey>& keys, float t) { return sampleKeys(keys, t, &ColorKey::c, glm::vec3(1.0f)); }
+float sampleSequence(const std::vector<NumberKey>& keys, float t) { return sampleKeys(keys, t, &NumberKey::v, 0.0f); }
+
 glm::mat4 Transform::matrix() const {
     // Rotation order Z * Y * X (applied X first) to match how ImGuizmo composes
     // and decomposes Euler angles, so the gizmo stays in sync with the inspector.

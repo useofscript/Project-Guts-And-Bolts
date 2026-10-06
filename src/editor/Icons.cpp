@@ -117,6 +117,13 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
         dl->AddRectFilled(ImVec2(c.x - s * 0.3f, c.y - s * 0.3f), ImVec2(c.x + s * 0.3f, c.y + s * 0.3f), rgb(240, 70, 70), s * 0.06f);
         dl->AddRect(ImVec2(c.x - s * 0.38f, c.y - s * 0.38f), ImVec2(c.x + s * 0.38f, c.y + s * 0.38f), rgb(255, 255, 255), s * 0.1f, 0, s * 0.09f);
         break;
+    case Id::Ribbon:   // a wavy streak, fading out
+        for (int i = 0; i < 6; ++i) {
+            const float x0 = c.x - s * 0.4f + s * 0.8f * i / 6.0f, x1 = c.x - s * 0.4f + s * 0.8f * (i + 1) / 6.0f;
+            const float y0 = c.y + std::sin(i * 1.1f) * s * 0.18f, y1 = c.y + std::sin((i + 1) * 1.1f) * s * 0.18f;
+            dl->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), rgb(255, 170 - i * 15, 60, 255 - i * 30), s * (0.22f - i * 0.025f));
+        }
+        break;
     case Id::Remote:   // a little envelope
         dl->AddRectFilled(ImVec2(c.x - s * 0.4f, c.y - s * 0.26f), ImVec2(c.x + s * 0.4f, c.y + s * 0.26f), rgb(250, 200, 80), s * 0.05f);
         dl->AddLine(ImVec2(c.x - s * 0.4f, c.y - s * 0.24f), ImVec2(c.x, c.y + s * 0.06f), rgb(150, 100, 30), s * 0.07f);
@@ -530,6 +537,8 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Remote:     return Id::Remote;
         case NodeKind::Prompt:     return Id::Prompt;
         case NodeKind::Highlight:  return Id::Highlight;
+        case NodeKind::Trail:
+        case NodeKind::Beam:       return Id::Ribbon;
         case NodeKind::Light:      return Id::Light;
         case NodeKind::Sound:      return Id::Sound;
         case NodeKind::Attachment: return Id::Attachment;

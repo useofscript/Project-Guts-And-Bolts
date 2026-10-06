@@ -1084,6 +1084,28 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         }
         put(std::make_unique<SceneNode>("Highlight", NodeKind::Highlight));
     }
+    else if (what == "Trail" || what == "Beam") {
+        // They run between two Attachments: a Trail in a part gets one at its top and
+        // one at its bottom; a Beam gets its start here, and you pick where it ends.
+        auto fx = std::make_unique<SceneNode>(what, what == "Trail" ? NodeKind::Trail : NodeKind::Beam);
+        if (parent && parent->isPart()) {
+            auto add = [&](const char* name, glm::vec3 at) {
+                auto a = std::make_unique<SceneNode>(name, NodeKind::Attachment);
+                a->transform.position = at;
+                return m_scene->insert(std::move(a), parent)->id;
+            };
+            if (what == "Trail") {
+                fx->effect.a0 = add("TrailTop", {0.0f, 0.5f, 0.0f});
+                fx->effect.a1 = add("TrailBottom", {0.0f, -0.5f, 0.0f});
+            } else {
+                fx->effect.a0 = add("BeamStart", {0.0f, 0.5f, 0.0f});
+                Log::info("Pick the Beam's Attachment1 in Properties: it's where the beam ends.");
+            }
+        } else {
+            Log::warn("Put a " + what + " inside a part: it runs between Attachments (set them in Properties).");
+        }
+        put(std::move(fx));
+    }
     else if (what == "RemoteEvent" || what == "RemoteFunction") {
         // Both sides need to find it, so it goes in ReplicatedStorage unless you picked a place.
         if (!parent || parent == m_scene->root()) {
@@ -1228,7 +1250,7 @@ void Editor::renderInsertObject() {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::LocalScript}, {"ModuleScript", Icons::Id::ModuleScript},
-        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote}, {"ProximityPrompt", Icons::Id::Prompt}, {"Highlight", Icons::Id::Highlight},
+        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote}, {"ProximityPrompt", Icons::Id::Prompt}, {"Highlight", Icons::Id::Highlight}, {"Trail", Icons::Id::Ribbon}, {"Beam", Icons::Id::Ribbon},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment},
         {"BodyVelocity", Icons::Id::Constraint}, {"BodyPosition", Icons::Id::Constraint}, {"BodyGyro", Icons::Id::Constraint},

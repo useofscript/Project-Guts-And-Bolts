@@ -52,6 +52,8 @@ const char* kindName(NodeKind k) {
         case NodeKind::Remote:       return "Remote";
         case NodeKind::Prompt:       return "Prompt";
         case NodeKind::Highlight:    return "Highlight";
+        case NodeKind::Trail:        return "Trail";
+        case NodeKind::Beam:         return "Beam";
         default:               return "Part";
     }
 }
@@ -74,6 +76,8 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Remote")       return NodeKind::Remote;
     if (s == "Prompt")       return NodeKind::Prompt;
     if (s == "Highlight")    return NodeKind::Highlight;
+    if (s == "Trail")        return NodeKind::Trail;
+    if (s == "Beam")         return NodeKind::Beam;
     return NodeKind::Part;
 }
 
@@ -149,6 +153,81 @@ void highlightFromJson(const nlohmann::json& j, HighlightProps& h, bool& enabled
     h.onTop               = !j.value("occluded", false);
     h.adornee             = j.value("adornee", (uint64_t)0);
     enabled               = j.value("on", true);
+}
+
+nlohmann::json effectToJson(const EffectProps& e, bool enabled, bool beam) {
+    json col = json::array(), tr = json::array();
+    for (const ColorKey& k : e.color) col.push_back({k.t, k.c.r, k.c.g, k.c.b});
+    for (const NumberKey& k : e.transparency) tr.push_back({k.t, k.v});
+    json j = {{"a0", e.a0}, {"a1", e.a1}, {"color", col}, {"transparency", tr}};
+    if (!e.texture.empty())     j["texture"] = e.texture;
+    if (e.lightEmission > 0.0f) j["glow"] = e.lightEmission;
+    if (e.faceCamera)           j["faceCamera"] = true;
+    if (!enabled)               j["on"] = false;
+    if (beam) {
+        j["width"] = {e.width0, e.width1};
+        j["curve"] = {e.curve0, e.curve1};
+        j["segments"] = e.segments;
+        j["texLength"] = e.textureLength;
+        j["texSpeed"] = e.textureSpeed;
+        if (e.textureWrap) j["texWrap"] = true;
+    } else {
+        json ws = json::array();
+        for (const NumberKey& k : e.widthScale) ws.push_back({k.t, k.v});
+        j["lifetime"] = e.lifetime;
+        j["minLength"] = e.minLength;
+        j["maxLength"] = e.maxLength;
+        j["widthScale"] = ws;
+    }
+    return j;
+}
+
+void effectFromJson(const nlohmann::json& j, EffectProps& e, bool& enabled) {
+    auto num = [&](const char* key, float fallback, float lo, float hi) {
+        auto it = j.find(key);
+        return it != j.end() && it->is_number() ? std::clamp(it->get<float>(), lo, hi) : fallback;
+    };
+    auto pair = [&](const char* key, float& a, float& b, float lo, float hi) {
+        auto it = j.find(key);
+        if (it == j.end() || !it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) return;
+        a = std::clamp((*it)[0].get<float>(), lo, hi);
+        b = std::clamp((*it)[1].get<float>(), lo, hi);
+    };
+    auto numbers = [&](const char* key, std::vector<NumberKey>& out, float lo, float hi) {
+        auto it = j.find(key);
+        if (it == j.end() || !it->is_array() || it->empty()) return;
+        std::vector<NumberKey> keys;
+        for (auto& k : *it)
+            if (k.is_array() && k.size() == 2 && k[0].is_number() && k[1].is_number() && keys.size() < 20)
+                keys.push_back({std::clamp(k[0].get<float>(), 0.0f, 1.0f), std::clamp(k[1].get<float>(), lo, hi)});
+        if (!keys.empty()) out = keys;
+    };
+    e = EffectProps{};
+    e.a0 = j.value("a0", (uint64_t)0);
+    e.a1 = j.value("a1", (uint64_t)0);
+    if (auto it = j.find("color"); it != j.end() && it->is_array() && !it->empty()) {
+        std::vector<ColorKey> keys;
+        for (auto& k : *it)
+            if (k.is_array() && k.size() == 4 && k[0].is_number() && k[1].is_number() && k[2].is_number() && k[3].is_number() && keys.size() < 20)
+                keys.push_back({std::clamp(k[0].get<float>(), 0.0f, 1.0f),
+                                glm::clamp(glm::vec3(k[1].get<float>(), k[2].get<float>(), k[3].get<float>()), 0.0f, 1.0f)});
+        if (!keys.empty()) e.color = keys;
+    }
+    numbers("transparency", e.transparency, 0.0f, 1.0f);
+    numbers("widthScale", e.widthScale, 0.0f, 100.0f);
+    if (auto it = j.find("texture"); it != j.end() && it->is_string()) e.texture = it->get<std::string>();
+    e.lightEmission = num("glow", 0.0f, 0.0f, 1.0f);
+    e.faceCamera = j.value("faceCamera", false);
+    e.lifetime = num("lifetime", 2.0f, 0.0f, 20.0f);
+    e.minLength = num("minLength", 0.1f, 0.0f, 1000.0f);
+    e.maxLength = num("maxLength", 0.0f, 0.0f, 10000.0f);
+    pair("width", e.width0, e.width1, 0.0f, 1000.0f);
+    pair("curve", e.curve0, e.curve1, -1000.0f, 1000.0f);
+    e.segments = (int)num("segments", 10.0f, 1.0f, 1000.0f);
+    e.textureLength = num("texLength", 1.0f, 0.001f, 10000.0f);
+    e.textureSpeed = num("texSpeed", 1.0f, -1000.0f, 1000.0f);
+    e.textureWrap = j.value("texWrap", false);
+    enabled = j.value("on", true);
 }
 
 nlohmann::json guiToJson(const GuiProps& g) {
@@ -420,6 +499,7 @@ json toJson(const SceneNode& n) {
     if (n.remoteFunction) j["function"] = true;
     if (n.isPrompt()) j["prompt"] = Serializer::promptToJson(n.prompt, n.enabled);
     if (n.isHighlight()) j["highlight"] = Serializer::highlightToJson(n.highlight, n.enabled);
+    if (n.isEffect()) j["effect"] = Serializer::effectToJson(n.effect, n.enabled, n.kind == NodeKind::Beam);
     if (n.locked)   j["locked"]   = true;
     if (!n.tags.empty()) j["tags"] = n.tags;
     if (!n.attributes.empty()) {
@@ -603,6 +683,7 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     n->remoteFunction = get<bool>(j, "function", false);
     if (auto p = j.find("prompt"); p != j.end() && p->is_object()) Serializer::promptFromJson(*p, n->prompt, n->enabled);
     if (auto h = j.find("highlight"); h != j.end() && h->is_object()) Serializer::highlightFromJson(*h, n->highlight, n->enabled);
+    if (auto e = j.find("effect"); e != j.end() && e->is_object()) Serializer::effectFromJson(*e, n->effect, n->enabled);
     n->locked        = get<bool>(j, "locked", false);
     if (auto t = j.find("tags"); t != j.end() && t->is_array())
         for (auto& v : *t) if (v.is_string()) n->tags.push_back(v.get<std::string>());
@@ -838,6 +919,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.isModule = src->isModule;   dst.locked = src->locked;
     dst.isLocal = src->isLocal;     dst.remoteFunction = src->remoteFunction;
     dst.prompt = src->prompt;       dst.highlight = src->highlight;
+    dst.effect = src->effect;
     dst.tags = src->tags;           dst.attributes = src->attributes;
     dst.lightType = src->lightType; dst.brightness = src->brightness;
     dst.range = src->range;         dst.spotAngle = src->spotAngle;
@@ -890,6 +972,10 @@ void remapRefs(SceneNode& n, const std::unordered_map<uint64_t, uint64_t>& map) 
         if (auto it = map.find(n.gui.adornee); it != map.end()) n.gui.adornee = it->second;
     if (n.isHighlight() && n.highlight.adornee)   // (the same for a copied Highlight)
         if (auto it = map.find(n.highlight.adornee); it != map.end()) n.highlight.adornee = it->second;
+    if (n.isEffect()) {   // (a copied Trail / Beam uses the copied attachments)
+        if (auto it = map.find(n.effect.a0); it != map.end()) n.effect.a0 = it->second;
+        if (auto it = map.find(n.effect.a1); it != map.end()) n.effect.a1 = it->second;
+    }
     if (n.kind == NodeKind::FluidEmitter)   // (a copied emitter uses the copied liquid, if it came along)
         if (auto it = map.find(n.fluidSystem); it != map.end()) n.fluidSystem = it->second;
     for (auto& c : n.children) remapRefs(*c, map);
