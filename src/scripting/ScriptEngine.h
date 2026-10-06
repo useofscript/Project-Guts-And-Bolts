@@ -74,6 +74,9 @@ public:
     int  dataStart(const std::string& kind, const std::string& store, const std::string& key, double delta);
     bool dataDone(int ticket, nlohmann::json& value);
     void dataSet(const std::string& store, const std::string& key, const nlohmann::json& value);
+    // require(ID): a model from the Library, fetched once per game. 0 = still getting it,
+    // 1 = ready (module = its MainModule), 2 = couldn't (error says why).
+    int  libraryModule(const std::string& assetId, uint64_t& module, std::string& error);
     // BadgeService:AwardBadge calls waiting to be sent to the server: (player name, badge id).
     // The app sends them (only the host of a published game's server can award).
     std::vector<std::pair<std::string, std::string>> takeBadgeAwards() { return std::move(m_badgeAwards); }
@@ -198,6 +201,8 @@ private:
     int         m_dataNext = 1, m_dataGen = 0;
     std::vector<DataJob> m_dataQueue;              // waiting for dataDecide
     std::map<int, nlohmann::json> m_dataDone;      // ticket -> value
+    struct LibraryModule { int state = 0; uint64_t module = 0; std::string error; };
+    std::map<std::string, LibraryModule> m_libraryModules;   // require(ID): asset ID -> what we got
     std::map<std::string, DataCached> m_dataCache; // "store\nkey" -> what we last saw or wrote
     std::filesystem::path saveFile() const;
     struct Waiting {

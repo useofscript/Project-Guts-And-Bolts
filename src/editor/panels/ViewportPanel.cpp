@@ -726,7 +726,7 @@ void ViewportPanel::render(float dt) {
             if (auto stats = m_session->scripts().leaderstats(m_session->scripts().playerName()); !stats.empty())
             {
                 static bool listOpen = true;   // (the arrow on its title folds it away)
-                Hud::drawPlayerList(dl, imgPos, imgMax, {{m_session->scripts().playerName(), false, false, stats}}, listOpen);
+                Hud::drawPlayerList(dl, imgPos, imgMax, {{m_session->scripts().playerName(), false, false, stats, true}}, listOpen);
             }
             // Green frame = the game is running.
             dl->AddRect(imgPos, imgMax, IM_COL32(60, 200, 90, 255), 0.0f, 0, 3.0f);

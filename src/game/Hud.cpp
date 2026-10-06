@@ -163,6 +163,17 @@ int hotbarCount(Scene& scene) {
     Player* p = scene.player();
     return p && !p->isDead() ? (int)p->tools().size() : 0;
 }
+
+// The game creator's hammer: a wooden handle leaning right, with a steel head on top.
+void drawHammer(ImDrawList* dl, ImVec2 c, float size) {
+    const float u = size / 14.0f;
+    auto P = [&](float x, float y) { return ImVec2(c.x + x * u, c.y + y * u); };
+    dl->AddLine(P(-5, 6), P(2, -1), IM_COL32(0, 0, 0, 110), 3.6f * u);         // shadow so it reads on bright skies
+    dl->AddLine(P(-5, 6), P(2, -1), IM_COL32(214, 150, 84, 255), 2.4f * u);     // handle
+    ImVec2 head[] = {P(7.6f, -0.2f), P(4.8f, 2.6f), P(-1.6f, -3.8f), P(1.2f, -6.6f)};   // the head, across the handle
+    dl->AddConvexPolyFilled(head, 4, IM_COL32(205, 212, 222, 255));
+    dl->AddPolyline(head, 4, IM_COL32(0, 0, 0, 140), ImDrawFlags_Closed, 1.0f * u);
+}
 } // namespace
 
 bool overHotbar(ImVec2 min, ImVec2 max, Scene& scene, ImVec2 p) {
@@ -286,9 +297,21 @@ std::string drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::ve
         }
         dl->AddText(ImVec2(tx, y), p.admin ? IM_COL32(255, 225, 120, 255) : IM_COL32(255, 255, 255, 230),
                     p.name.c_str());
+        float after = tx + ImGui::CalcTextSize(p.name.c_str()).x + 3;   // where the next little icon goes
         if (p.verified || p.admin) {   // blue check after Verified names (staff are always verified)
-            float nw = ImGui::CalcTextSize(p.name.c_str()).x;
-            Badges::drawCheck(dl, ImVec2(tx + nw + 9, y + ImGui::GetFontSize() * 0.5f + 1), 13.0f);
+            Badges::drawCheck(dl, ImVec2(after + 6, y + ImGui::GetFontSize() * 0.5f + 1), 13.0f);
+            after += 15;
+        }
+        if (p.creator) {   // a little hammer: they made this game
+            const ImVec2 c(after + 8, y + ImGui::GetFontSize() * 0.5f + 1);
+            drawHammer(dl, c, 14.0f);
+            if (ImGui::IsMouseHoveringRect(ImVec2(c.x - 7, c.y - 7), ImVec2(c.x + 7, c.y + 7))) {
+                const char* tip = "Made this game";
+                ImVec2 ts = ImGui::CalcTextSize(tip);
+                ImVec2 t0(c.x - ts.x * 0.5f - 6, c.y - ts.y - 18);
+                dl->AddRectFilled(t0, ImVec2(t0.x + ts.x + 12, t0.y + ts.y + 6), IM_COL32(20, 22, 28, 230), 4.0f);
+                dl->AddText(ImVec2(t0.x + 6, t0.y + 3), IM_COL32(255, 255, 255, 255), tip);
+            }
         }
         for (size_t c = 0; c < cols.size(); ++c)
             for (const auto& [k, v] : p.stats)

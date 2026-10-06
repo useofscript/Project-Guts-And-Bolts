@@ -370,6 +370,9 @@ What you can use:
 - **Tags:** `obj:AddTag("Lava")`, `:HasTag`, `:RemoveTag`, `:GetTags`, and `CollectionService:GetTagged("Lava")`,
   `:GetInstanceAddedSignal("Lava")` / `:GetInstanceRemovedSignal` (or add tags in the Properties panel)
 - **Modules:** `require(workspace.MyModule)` runs a ModuleScript once and hands back what it returns
+  (a module can `wait()` while it starts; anyone else asking waits for it). On the server,
+  `require(1234)` gets model 1234 from the Library and requires its ModuleScript named
+  **MainModule**, like Roblox (public models, or your own private ones)
 - **Game rules:** `workspace.Gravity`, `workspace.DeathStyle = "Classic" | "Ragdoll"`, `workspace.Gore = "Off" | "Oil" | "Blood"`
 - **Rays:** `workspace:Raycast(origin, direction, params)` gives back `Instance`, `Position`, `Normal` and
   `Distance` (or nil). `RaycastParams.new()` with `FilterDescendantsInstances` and `FilterType`
@@ -1268,10 +1271,19 @@ Press **F9** (or type **/devconsole** in the chat) for the Developer Console,
 like Roblox's. The **Client** tab shows what happened on your own computer
 (errors in red, warnings in yellow), with a search box.
 
-The **Server** tab is only for the game's **owner** (the account that published
+The **Server** tab is only for the game's **creator** (the account that published
 it). It shows the server's log, including what the game's scripts `print()`,
 and has a command bar that runs Lua on the server. The host checks who you are
-before sending you any of it, so other players never see that tab.
+(with your account's signature) before sending you any of it, and ignores
+commands from anyone else, so other players never see or use that tab. Playing
+someone else's game alone doesn't show it either.
+
+The command bar runs like a script: `wait()` works, and so does `require`,
+both for ModuleScripts in the game and Library models by ID
+(`require(1234).load("YourName")`). Type an expression (`workspace.Gravity`)
+and its value gets printed.
+
+On the leaderboard, the game's creator has a little **hammer** next to their name.
 
 ### Player collisions
 

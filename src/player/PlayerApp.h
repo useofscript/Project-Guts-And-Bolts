@@ -31,6 +31,7 @@ struct PlayerOptions {
     std::string join;              // --join host[:port]
     bool        host = false;      // --host (with a game file)
     std::string say;               // --say <text>  (tests: chat once joined)
+    std::string devCommand;        // --dev-command <lua>  (tests: the dev console's server command bar)
     bool        guest = false;     // --guest  (tests: press "Play as Guest")
     std::string screenshot;        // --screenshot <out.ppm> (tests)
     int         frames = 120;
@@ -300,6 +301,7 @@ private:
     int         m_devTab = 0;
     std::string m_devFilter, m_devCommand;
     std::string m_gameOwner;   // the account that made the game we're hosting
+    bool        m_iMadeThis = false;   // the game we're in is ours (or a file on this computer)
     void drawDevConsole();
     // Game passes: the Buy window a game's script asked for (PlayerPasses.cpp).
     std::string    m_passPrompt, m_passMsg;   // the pass being offered ("" = none)
@@ -313,6 +315,7 @@ private:
     nlohmann::json m_passes = nlohmann::json::array();
     void drawGamePasses(const std::string& gameKey);
     bool devServerAccess() const;
+    void runDevCommand(const std::string& code);   // the server command bar's Enter
     // The leaderboard: folded away or not (Tab), and the little menu you get by
     // clicking someone's name (Add Friend / Follow).
     bool        m_listOpen = true;

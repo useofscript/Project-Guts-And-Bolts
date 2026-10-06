@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'hammer-time', name: 'Hammer Time', time: 1791325965, tag: 'Player',
+    summary: 'Game creators get a hammer on the leaderboard, and the server dev console can require modules.',
+    items: [
+      'A little hammer shows next to the game creator\'s name on the leaderboard',
+      'require works in the server side of the dev console, even for modules that wait() while they start',
+      'require(ID) loads a model from the Library and runs its MainModule, like Roblox (server only)',
+      'The server side of the dev console stays for the game\'s creator only, now in solo play too',
+    ],
+  },
+  {
     id: 'pick-up-and-play', name: 'Pick Up and Play', time: 1791325100, tag: 'Player',
     summary: 'Controller support: play any game with an Xbox, PlayStation or Switch controller.',
     items: [

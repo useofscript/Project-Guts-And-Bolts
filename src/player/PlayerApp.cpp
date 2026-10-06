@@ -343,6 +343,10 @@ void PlayerApp::run() {
         if (std::getenv("GB_TRACE_POS") && m_scene)   // test: the character's height every frame
             if (Player* p = m_scene->player()) std::printf("TRACE %d %.3f %.3f\n", m_frame, p->position().z, p->position().y);
         if (!m_opts.say.empty() && m_frame == 90 && m_page == Page::Game) sendChat(m_opts.say);
+        if (!m_opts.devCommand.empty() && m_frame == 100 && m_page == Page::Game) {
+            if (devServerAccess()) runDevCommand(m_opts.devCommand);
+            else Log::info("Dev console: the Server tab isn't available to this player");
+        }
         bool shoot = !m_opts.screenshot.empty() && m_frame == m_opts.frames;
         if (shoot && m_scene) {   // test output: where everyone's character ended up
             if (Player* p = m_scene->player()) {
@@ -412,6 +416,7 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
         return;
     }
     Online::fetchSounds(*m_scene);   // server audio ("gb:" sounds) this game uses
+    m_iMadeThis = gameKey.empty() || (!m_gameOwner.empty() && m_gameOwner == Account::id());
     Profile& me = Profile::get();
     if (Player* p = m_scene->player()) {
         me.applyTo(*p);
@@ -1985,7 +1990,7 @@ std::vector<PlayerEntry> PlayerApp::currentPlayers() const {
     if (m_server) return m_server->players();
     if (m_client) return m_client->players();
     return {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
-             m_session->scripts().leaderstats(Online::playerName())}};
+             m_session->scripts().leaderstats(Online::playerName()), m_iMadeThis}};
 }
 
 // The in-game menu, laid out like Roblox's: tabs along the top (Players,

@@ -2,6 +2,8 @@
 #include "../core/Pad.h"
 #include "../core/Account.h"
 #include "../online/OnlineClient.h"
+#include "../online/AssetCache.h"
+#include "../scene/Serializer.h"
 #include <cctype>
 #include <sstream>
 #include <fstream>
@@ -1070,6 +1072,38 @@ do
         end)
     end
 end
+-- require(module): runs a ModuleScript once; everyone who asks gets what it returned.
+-- require(ID) (server only), like Roblox's require(1234567): gets that model from the
+-- Library and requires its ModuleScript named MainModule. Works in the dev console too.
+do
+    local moduleLoad, moduleSave, libraryModel, wait = __gb_moduleLoad, __gb_moduleSave, __gb_libraryModel, task.wait
+    function require(m)
+        if type(m) == "number" or type(m) == "string" then
+            while true do
+                local state, v = libraryModel(tostring(m))
+                if state == "ok" then m = v break end
+                if state == "fail" then error(v, 2) end
+                wait()
+            end
+        end
+        while true do
+            local fine, done, v = pcall(moduleLoad, m)
+            if not fine then error((tostring(done):gsub("^prelude:%d+: ", "")), 2) end   -- (point at their line)
+            if done then return v end
+            if done == false then return moduleSave(m, pcall(v)) end
+            wait()   -- another script is running it right now
+        end
+    end
+end
+-- The command bar: an expression's values get printed.
+function __gb_cmdRun(fn)
+    local r = table.pack(fn())
+    if r.n == 0 then return end
+    local out = {}
+    for i = 1, r.n do out[i] = tostring(r[i]) end
+    print(table.concat(out, "  "))
+end
+__gb_moduleLoad, __gb_moduleSave, __gb_libraryModel = nil, nil, nil
 __gb_remoteMode, __gb_remoteSend, __gb_remoteFire, __gb_invokeStart, __gb_invokeDone = nil, nil, nil, nil, nil
 __gb_takeInvokes, __gb_invokeReply, __gb_invokers, __gb_localUserId = nil, nil, nil, nil
 
@@ -1183,22 +1217,41 @@ int l_delay(lua_State* L) {
     return 0;
 }
 
-// require(moduleScript) — runs a ModuleScript once and returns what it returns.
-int l_require(lua_State* L) {
+// require() is written in Lua (see the prelude) so a module may wait() while it starts.
+// __gb_moduleLoad(module) -> true, value (already ran) | false, fn (run it, then save) |
+//                            nil (another script is running it right now: try again)
+int l_moduleLoad(lua_State* L) {
     SceneNode* m = LuaApi::checkNode(L, 1);
     if (!m->isScript()) return luaL_error(L, "require() needs a ModuleScript, got %s", m->name.c_str());
-    lua_getfield(L, LUA_REGISTRYINDEX, "__gb_modules");
-    if (lua_isnil(L, -1)) {
-        lua_pop(L, 1);
-        lua_newtable(L);
-        lua_pushvalue(L, -1);
-        lua_setfield(L, LUA_REGISTRYINDEX, "__gb_modules");
-    }
+    auto table = [L](const char* key) {
+        lua_getfield(L, LUA_REGISTRYINDEX, key);
+        if (lua_isnil(L, -1)) {
+            lua_pop(L, 1);
+            lua_newtable(L);
+            lua_pushvalue(L, -1);
+            lua_setfield(L, LUA_REGISTRYINDEX, key);
+        }
+    };
+    table("__gb_modules");
     lua_rawgeti(L, -1, (lua_Integer)m->id);
-    if (!lua_isnil(L, -1)) return 1;                      // already loaded
+    if (!lua_isnil(L, -1)) { lua_pushboolean(L, 1); lua_insert(L, -2); return 2; }   // already loaded
+    lua_pop(L, 2);
+    table("__gb_modulesLoading");
+    lua_rawgeti(L, -1, (lua_Integer)m->id);
+    if (lua_toboolean(L, -1)) return 0;                                          // someone's running it
+    lua_pop(L, 1);
+    lua_pushboolean(L, 1);
+    lua_rawseti(L, -2, (lua_Integer)m->id);
     lua_pop(L, 1);
     std::string chunk = "=" + m->fullName();
-    if (luaL_loadbuffer(L, m->source.data(), m->source.size(), chunk.c_str()) != LUA_OK) return lua_error(L);
+    lua_pushboolean(L, 0);
+    if (luaL_loadbuffer(L, m->source.data(), m->source.size(), chunk.c_str()) != LUA_OK) {
+        table("__gb_modulesLoading");
+        lua_pushnil(L);
+        lua_rawseti(L, -2, (lua_Integer)m->id);
+        lua_pop(L, 1);
+        return lua_error(L);
+    }
     // Its own globals (falling back to the shared ones), with `script` = the module.
     lua_newtable(L);
     lua_newtable(L);
@@ -1208,11 +1261,44 @@ int l_require(lua_State* L) {
     LuaApi::pushInstance(L, m->id);
     lua_setfield(L, -2, "script");
     lua_setupvalue(L, -2, 1);
-    lua_call(L, 0, 1);
-    if (lua_isnil(L, -1)) { lua_pop(L, 1); lua_pushboolean(L, 1); }
-    lua_pushvalue(L, -1);
-    lua_rawseti(L, -3, (lua_Integer)m->id);              // cache it
+    return 2;
+}
+
+// __gb_moduleSave(module, ok, result): remember what it returned (or pass its error on).
+int l_moduleSave(lua_State* L) {
+    SceneNode* m = LuaApi::checkNode(L, 1);
+    const bool ok = lua_toboolean(L, 2);
+    lua_settop(L, 3);
+    lua_getfield(L, LUA_REGISTRYINDEX, "__gb_modulesLoading");
+    if (lua_istable(L, -1)) { lua_pushnil(L); lua_rawseti(L, -2, (lua_Integer)m->id); }
+    lua_pop(L, 1);
+    if (!ok) return lua_error(L);                       // the module's own error, as it was
+    if (lua_isnil(L, 3)) { lua_pop(L, 1); lua_pushboolean(L, 1); }
+    lua_getfield(L, LUA_REGISTRYINDEX, "__gb_modules");
+    lua_pushvalue(L, 3);
+    lua_rawseti(L, -2, (lua_Integer)m->id);              // cache it
+    lua_pop(L, 1);
     return 1;
+}
+
+// __gb_libraryModel(id) -> "wait" | "ok", MainModule | "fail", why   (require(ID), in the prelude)
+int l_libraryModel(lua_State* L) {
+    ScriptEngine* e = LuaApi::engine(L);
+    if (e->runMode() == ScriptEngine::RunMode::Client)
+        return luaL_error(L, "require(ID) only works on the server (in a Script or the server's dev console)");
+    std::string id = luaL_checkstring(L, 1);
+    for (const char* prefix : {"gb:", "rbxassetid://"})
+        if (id.rfind(prefix, 0) == 0) id = id.substr(std::strlen(prefix));
+    const bool digits = !id.empty() && id.size() <= 20 &&
+                        std::all_of(id.begin(), id.end(), [](char c) { return std::isdigit((unsigned char)c); });
+    if (!digits) { lua_pushstring(L, "fail"); lua_pushfstring(L, "require: \"%s\" isn't a Library ID (it's a number, like 1234)", id.c_str()); return 2; }
+    uint64_t module = 0;
+    std::string err;
+    switch (e->libraryModule(id, module, err)) {
+        case 0: lua_pushstring(L, "wait"); return 1;
+        case 1: lua_pushstring(L, "ok"); LuaApi::pushInstance(L, module); return 2;
+        default: lua_pushstring(L, "fail"); lua_pushstring(L, err.c_str()); return 2;
+    }
 }
 
 int l_time(lua_State* L) { lua_pushnumber(L, LuaApi::engine(L)->time()); return 1; }
@@ -1720,7 +1806,9 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "print", l_print);
     lua_register(L, "warn",  l_warn);
     lua_register(L, "time",  l_time);
-    lua_register(L, "require", l_require);
+    lua_register(L, "__gb_moduleLoad", l_moduleLoad);
+    lua_register(L, "__gb_moduleSave", l_moduleSave);
+    lua_register(L, "__gb_libraryModel", l_libraryModel);
     lua_register(L, "tick",  l_tick);
     lua_register(L, "__gb_wait",  l_wait);
     lua_register(L, "__gb_spawn", l_spawn);
@@ -1813,6 +1901,10 @@ void ScriptEngine::start(bool runScripts) {
     lua_setfield(L, LUA_REGISTRYINDEX, "GB.attrSignal");
     lua_pushnil(L);
     lua_setglobal(L, "__gb_attrSignal");
+    lua_getglobal(L, "__gb_cmdRun");
+    lua_setfield(L, LUA_REGISTRYINDEX, "GB.cmdRun");
+    lua_pushnil(L);
+    lua_setglobal(L, "__gb_cmdRun");
 
     if (!runScripts) return;
     // Collect first, then run: scripts may add or remove objects as they start.
@@ -1839,37 +1931,18 @@ bool ScriptEngine::runCommand(const std::string& code, std::string& error) {
             return false;
         }
     }
-    if (!expr) {
-        // Statements run like a script's body, so wait() works in them (errors go to Output).
-        lua_State* co = lua_newthread(L);
-        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-        lua_xmove(L, co, 1);
-        resume(co, ref, 0, L);
-        return true;
+    if (expr) {   // run it through the printer
+        lua_getfield(L, LUA_REGISTRYINDEX, "GB.cmdRun");
+        lua_insert(L, -2);
     }
-    m_resumeStart = nowSeconds();
-    ++m_depth;
-    int top = lua_gettop(L) - 1;
-    int status = lua_pcall(L, 0, LUA_MULTRET, 0);
-    --m_depth;
-    if (status != LUA_OK) {
-        error = lua_tostring(L, -1) ? lua_tostring(L, -1) : "error";
-        lua_settop(L, top);
-        return false;
-    }
-    int n = lua_gettop(L) - top;
-    if (expr && n > 0) {
-        std::string out;
-        for (int i = 1; i <= n; ++i) {
-            size_t len;
-            const char* t = luaL_tolstring(L, top + i, &len);
-            if (i > 1) out += "  ";
-            out.append(t, len);
-            lua_pop(L, 1);
-        }
-        Log::info(out);
-    }
-    lua_settop(L, top);
+    // Commands run like a script's body, so wait() and require(ID) work in them (errors go to Output).
+    const uint64_t was = m_current;
+    m_current = 0;
+    lua_State* co = lua_newthread(L);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_xmove(L, co, expr ? 2 : 1);
+    resume(co, ref, expr ? 1 : 0, L);
+    m_current = was;
     return true;
 }
 
@@ -2028,6 +2101,7 @@ void ScriptEngine::stop() {
     m_dataQueue.clear();
     m_dataDone.clear();
     m_dataCache.clear();
+    m_libraryModules.clear();
     m_current = 0;
     m_detached.clear();
     m_gui = GuiState{};
@@ -2321,6 +2395,69 @@ void ScriptEngine::dataRun(const DataJob& job) {
         if (!v.is_null()) { DataCached& c = m_dataCache[ck]; c.value = v; c.at = nowSeconds(); }
         m_dataDone[ticket] = v;
     });
+}
+
+int ScriptEngine::libraryModule(const std::string& assetId, uint64_t& module, std::string& error) {
+    auto it = m_libraryModules.find(assetId);
+    if (it != m_libraryModules.end()) {
+        if (it->second.state == 1 && !resolve(it->second.module)) {   // it was destroyed: get a fresh copy
+            m_libraryModules.erase(it);
+        } else {
+            module = it->second.module;
+            error = it->second.error;
+            return it->second.state;
+        }
+    }
+    if (!Online::online()) { error = "require(" + assetId + "): not connected to Guts&Bolts, so the Library can't be reached"; return 2; }
+    m_libraryModules[assetId] = LibraryModule{};
+    std::weak_ptr<bool> alive = m_alive;
+    const int gen = m_dataGen;
+    auto ours = [this, alive, gen] { return !alive.expired() && gen == m_dataGen; };
+    auto fail = [this, assetId](const std::string& why) {
+        LibraryModule& l = m_libraryModules[assetId];
+        l.state = 2;
+        l.error = "require(" + assetId + "): " + why;
+    };
+    // Only models (anyone's public ones, or your own): not games, plugins and the rest.
+    Online::request("asset.info", {{"id", assetId}}, [this, ours, fail, assetId](const nlohmann::json& r) {
+        if (!ours()) return;
+        if (!r.value("ok", false)) { fail(r.value("error", std::string("couldn't look that up"))); return; }
+        const nlohmann::json a = r.value("asset", nlohmann::json::object());
+        if (a.value("kind", std::string()) != "model") { fail("that isn't a model from the Library"); return; }
+        const std::string name = a.value("name", std::string("Model"));
+        Online::download(assetId, [this, ours, fail, assetId, name](bool ok, const std::filesystem::path& f, const nlohmann::json& info) {
+            if (!ours()) return;
+            if (!ok) { fail(info.value("error", std::string("the download failed"))); return; }
+            std::ifstream in(f, std::ios::binary);
+            std::stringstream ss; ss << in.rdbuf();
+            nlohmann::json model = nlohmann::json::parse(ss.str(), nullptr, false);
+            if (!model.is_object() || !model.contains("nodes") || !model["nodes"].is_array()) { fail("that model looks broken"); return; }
+            // A fresh copy with Parent = nil (scripts can move it into the game if they like).
+            auto root = std::make_unique<SceneNode>(name, NodeKind::Model);
+            for (const nlohmann::json& nj : model["nodes"])
+                if (auto n = Serializer::nodeFromString(nj.dump(), true)) root->addChild(std::move(n));
+            SceneNode* main = nullptr;
+            int modules = 0;
+            SceneNode* only = nullptr;
+            std::vector<SceneNode*> stack{root.get()};
+            while (!stack.empty()) {
+                SceneNode* n = stack.back(); stack.pop_back();
+                if (n->isScript() && n->isModule) {
+                    ++modules; only = n;
+                    if (!main && n->name == "MainModule") main = n;
+                }
+                for (auto& c : n->children) stack.push_back(c.get());
+            }
+            if (!main && modules == 1) main = only;
+            if (!main) { fail("that model has no ModuleScript named MainModule"); return; }
+            LibraryModule& l = m_libraryModules[assetId];
+            l.state = 1;
+            l.module = main->id;
+            adopt(std::move(root));
+            Log::system("Loaded " + name + " (" + assetId + ") from the Library");
+        }, true);
+    });
+    return 0;
 }
 
 int ScriptEngine::dataStart(const std::string& kind, const std::string& store, const std::string& key, double delta) {

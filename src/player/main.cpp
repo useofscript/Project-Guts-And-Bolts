@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-tools"))     opts.testTools = next();
         else if (!std::strcmp(argv[i], "--camera-yaw"))     opts.cameraYaw = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--say"))        opts.say        = next();
+        else if (!std::strcmp(argv[i], "--dev-command")) opts.devCommand = next();
         else if (!std::strcmp(argv[i], "--guest"))      opts.guest      = true;
         else if (!std::strcmp(argv[i], "--test-click")) opts.testClick  = next();
         else if (!std::strcmp(argv[i], "--test-type"))  opts.testType   = next();

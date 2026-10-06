@@ -1,7 +1,8 @@
 // The Developer Console, like Roblox's: F9 (or typing /devconsole in the chat)
 // opens it. "Client" is what happened on this computer. "Server" is the game's
 // server log plus a command bar that runs Lua on the server, and only the game's
-// owner gets that tab (the host checks who they are, so nobody else sees it).
+// creator gets that tab (the host checks who they are with their account's
+// signature, and ignores commands from anyone else).
 
 #include "PlayerApp.h"
 #include "../core/Log.h"
@@ -38,7 +39,18 @@ void drawLines(const std::vector<Log::Entry>& lines, const std::string& filter, 
 bool PlayerApp::devServerAccess() const {
     if (m_server) return m_server->iAmOwner();
     if (m_client) return m_client->devOwner();
-    return true;   // playing alone: it's all yours
+    return m_iMadeThis;   // playing alone: only in your own games
+}
+
+void PlayerApp::runDevCommand(const std::string& code) {
+    if (!devServerAccess()) return;
+    if (m_client) m_client->devCommand(code);
+    else if (m_server) m_server->devCommand(code);
+    else {
+        Log::system("> " + code);
+        std::string err;
+        if (!m_session->scripts().runCommand(code, err)) Log::error(err);
+    }
 }
 
 void PlayerApp::drawDevConsole() {
@@ -70,13 +82,7 @@ void PlayerApp::drawDevConsole() {
                 ImGui::SetNextItemWidth(-1);
                 if (ImGui::InputTextWithHint("##cmd", "Run a command on the server (Lua), then press Enter", &m_devCommand,
                                              ImGuiInputTextFlags_EnterReturnsTrue) && !m_devCommand.empty()) {
-                    if (m_client) m_client->devCommand(m_devCommand);
-                    else if (m_server) m_server->devCommand(m_devCommand);
-                    else {
-                        Log::system("> " + m_devCommand);
-                        std::string err;
-                        if (!m_session->scripts().runCommand(m_devCommand, err)) Log::error(err);
-                    }
+                    runDevCommand(m_devCommand);
                     m_devCommand.clear();
                     m_devFollow = true;
                     ImGui::SetKeyboardFocusHere(-1);
