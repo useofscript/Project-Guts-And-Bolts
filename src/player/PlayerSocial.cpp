@@ -294,7 +294,8 @@ void PlayerApp::drawProfile() {
         else ImGui::TextDisabled("[ Offline ]");
     }
     std::string fs = m_profile.value("friendship", std::string("none"));
-    if (fs != "self") {
+    const bool blocked = m_profile.value("blocked", false);
+    if (fs != "self" && !blocked) {
         ImGui::SameLine(0, 16); friendButton(id, fs);
         if (!Online::isGuest()) {
             ImGui::SameLine(0, 8);
@@ -302,6 +303,24 @@ void PlayerApp::drawProfile() {
             if (ImGui::Button("Send Message", ImVec2(0, 28))) openNewMessage(num > 0 ? "#" + std::to_string(num) : id);
         }
     }
+    if (fs != "self" && canReport() && m_profile.contains("blocked")) {   // (older servers don't know blocking)
+        ImGui::SameLine(0, 8);
+        if (ImGui::Button(blocked ? "Unblock" : "Block", ImVec2(0, 28))) {
+            if (blocked) setBlocked(id, false);
+            else ImGui::OpenPopup("Block##profile");
+        }
+        ImGui::SameLine(0, 8);
+        if (ImGui::Button("Report", ImVec2(0, 28))) openReport("user", id, name, id);
+        if (ImGui::BeginPopupModal("Block##profile", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Block %s?", name.c_str());
+            ImGui::TextDisabled("You won't be friends any more, and you can't message, follow, trade with or join each other.");
+            if (Classic::button("Block", ImVec4(0.78f, 0.2f, 0.2f, 1), ImVec2(100, 28))) { setBlocked(id, true); ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100, 28))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+    if (blocked) ImGui::TextColored(ImVec4(0.15f, 0.3f, 0.6f, 1), "You blocked %s. You can't message, friend, follow, trade with or join each other.", name.c_str());
     if (m_profile.contains("playing") && m_profile["playing"].is_object()) {
         const json& pl = m_profile["playing"];
         ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Playing %s", pl.value("title", std::string()).c_str());
@@ -795,6 +814,10 @@ void PlayerApp::drawGroup() {
         ImGui::EndDisabled();
     } else if (!owner) {
         if (ImGui::Button("Leave group", ImVec2(120, 28))) act("groups.leave", json::object());
+    }
+    if (!owner && canReport()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Report##group")) openReport("group", g.value("id", std::string()), g.value("name", std::string()));
     }
     ImGui::EndGroup();
     ImGui::SetCursorScreenPos(ImVec2(p.x, std::max(p.y + 118, ImGui::GetItemRectMax().y + 8)));

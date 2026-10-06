@@ -146,6 +146,11 @@ void PlayerApp::drawMessages() {
             }
             if (ImGui::Button("Profile", ImVec2(80, 26))) openProfile(otherKey);
             ImGui::SameLine();
+            if (!sent && canReport()) {
+                if (ImGui::Button("Report", ImVec2(80, 26)))
+                    openReport("message", id, other.value("name", std::string("?")), other.value("id", std::string()));
+                ImGui::SameLine();
+            }
             if (Classic::button("Delete", ImVec4(0.75f, 0.15f, 0.15f, 1), ImVec2(80, 26))) {
                 Online::request("message.delete", {{"id", id}, {"box", sent ? "sent" : "inbox"}}, [this](const json&) { m_messagesAt = -100.0; });
                 m_messages.erase(m_messages.begin() + (long)i);

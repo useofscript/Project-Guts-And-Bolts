@@ -1611,6 +1611,8 @@ them). Blocking ends your friendship and follows, removes their messages from
 your inbox, cancels open trades between you, and after that you can't message,
 friend, follow, trade with or join each other, or see each other online. Staff
 can't be blocked. *Settings > Blocked people* lists them, with **Unblock**.
+All of this works the same in the Player app (blocked people are under
+*Avatar > Your account*).
 
 **Following** is one way: no asking. Press **Follow** on a profile (or click
 a name on the in-game player list). Profiles show followers and following.

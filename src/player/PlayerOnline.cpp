@@ -270,6 +270,10 @@ void PlayerApp::drawOnlineItemDialog() {
     else if (owned) ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.4f, 1), "You own this");
     else Bolts::amount(it.price, 20.0f);
     ImGui::TextDisabled("%lld sold  -  made %s", a.value("sales", 0LL), ago(a.value("created", 0LL)).c_str());
+    if (canReport() && a.value("creator", std::string()) != Online::me().value("id", std::string()) && ImGui::SmallButton("Report##item")) {
+        m_openOnlineItem = -1;
+        openReport("item", it.id, it.name);
+    }
     const json lim = a.value("limited", json());
     const bool soldOut = lim.is_object() && lim.value("left", 0) <= 0;
     if (lim.is_object()) {
@@ -965,6 +969,10 @@ void PlayerApp::drawOnlineGameDialog() {
         if (fav ? Classic::button(star.c_str(), ImVec4(0.85f, 0.62f, 0.05f, 1), ImVec2(0, 26)) : ImGui::Button(star.c_str(), ImVec2(0, 26)))
             setFavorite(g.value("id", std::string()), !fav);
     }
+    if (canReport() && g.value("creator", std::string()) != Online::me().value("id", std::string())) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Report##game")) { m_openOnlineGame = -1; openReport("game", g.value("id", std::string()), g.value("name", std::string())); }
+    }
     ImGui::PushTextWrapPos(0);
     ImGui::TextUnformatted(g.value("description", std::string()).c_str());
     ImGui::PopTextWrapPos();
@@ -1083,6 +1091,7 @@ void PlayerApp::drawOnlineBolts() {
 // ---------------------------------------------------------------------------
 
 void PlayerApp::drawOnlineStaff() {
+    drawReportsBox();
     ImGui::SeparatorText("People on the server");
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("Find someone by name or user number (#5) and verify them right here - "

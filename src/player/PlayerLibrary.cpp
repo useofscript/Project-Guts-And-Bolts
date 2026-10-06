@@ -281,6 +281,10 @@ void PlayerApp::drawAsset() {
         ImGui::SetClipboardText(gbId.c_str());
         m_copiedAt = ImGui::GetTime();
     }
+    if (canReport() && a.value("creator", std::string()) != Online::me().value("id", std::string())) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Report")) openReport("item", a.value("id", std::string()), a.value("name", std::string()));
+    }
     if (ImGui::GetTime() - m_copiedAt < 3.0) ImGui::TextColored(ImVec4(0.05f, 0.5f, 0.2f, 1), "Copied %s", gbId.c_str());
     if (kind == "decal") ImGui::TextDisabled("Paste it into a Decal's (or Part's) Texture in Studio, or in a script: decal.Texture = \"%s\"", gbId.c_str());
     else if (kind == "audio") ImGui::TextDisabled("Paste it into a Sound's File in Studio, or in a script: sound.SoundId = \"%s\"", gbId.c_str());

@@ -736,6 +736,7 @@ void PlayerApp::frame(float dt) {
     drawOnlineItemDialog();
     drawOnlineGameDialog();
     drawNotice();
+    drawReportDialog();
     Classic::popLight();
     if (m_page != Page::Game && UpdateToast::draw("GutsAndBoltsPlayer")) m_window->close();
     drawModeration();   // last: the ban screen covers everything
@@ -2244,6 +2245,8 @@ void PlayerApp::drawAccount() {
         static const char* kJoin[] = {"Everyone", "Friends only", "No one"};
         pick("Who sees me online##pvs", "status", kSee);
         pick("Who can join me##pvj", "join", kJoin);
+        pick("Who can message me##pvm", "messages", kJoin);
+        drawBlockedList();
     }
     ImGui::Text("Account ID: %s...", Account::shortId().c_str());
     ImGui::SameLine();
@@ -2488,12 +2491,14 @@ void PlayerApp::drawNotice() {
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(620), 0));
     if (ImGui::BeginPopupModal("Guts&Bolts##notice", nullptr, ImGuiWindowFlags_NoResize)) {
-        if (tappedOutside()) { m_notice.clear(); ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+        if (tappedOutside()) { m_notice.clear(); m_noticePlain = false; ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
         ImGui::TextWrapped("%s", m_notice.c_str());
         ImGui::Spacing();
-        if (ImGui::Button("Copy my account ID", ImVec2(200, 32))) ImGui::SetClipboardText(Account::id().c_str());
-        ImGui::SameLine();
-        if (bigButton("OK", kGreen, ImVec2(100, 32))) { m_notice.clear(); ImGui::CloseCurrentPopup(); }
+        if (!m_noticePlain) {
+            if (ImGui::Button("Copy my account ID", ImVec2(200, 32))) ImGui::SetClipboardText(Account::id().c_str());
+            ImGui::SameLine();
+        }
+        if (bigButton("OK", kGreen, ImVec2(100, 32))) { m_notice.clear(); m_noticePlain = false; ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
 }

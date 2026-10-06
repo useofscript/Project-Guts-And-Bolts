@@ -19,6 +19,8 @@ export const BUILT_IN_UPDATES = [
       'Blocking ends your friendship and follows, and you can\'t message, friend, follow, trade with or join each other. You won\'t see each other online',
       'See and unblock the people you blocked in Settings',
       'The Staff page has a Reports box: what was reported, why, a copy of reported messages, and Done / Nothing wrong buttons',
+      'All of it works in the Player app too: Report and Block buttons, Blocked people under Avatar > Your account, and the Reports list on the Staff page',
+      'The app\'s privacy settings can also choose who can send you messages, like the website',
     ],
   },
   {
