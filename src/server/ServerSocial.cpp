@@ -96,7 +96,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
             std::vector<json> all;
             for (const std::string& id : ids) {
                 auto it = m_users.find(id);
-                if (it == m_users.end() || it->second.banned || !it->second.posts.is_array()) continue;
+                if (it == m_users.end() || it->second.banned || blocks(me, it->second) || !it->second.posts.is_array()) continue;
                 const User& u = it->second;
                 for (size_t k = 0; k < u.posts.size() && k < 5; ++k)
                     all.push_back({{"text", u.posts[k].value("text", std::string())}, {"at", u.posts[k].value("at", 0LL)},
@@ -222,7 +222,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         User* them = number && want != "#" ? findUserId(std::atoll(want.c_str() + (want[0] == '#' ? 1 : 0))) : findPerson(want);
         if (!them || them->userId == 0) return fail("There's no account with that ID on this server.");
         if (them->id == me.id) return fail("You can't send a message to yourself.");
-        if (them->banned) return fail("You can't send messages to that account.");
+        if (them->banned || blocks(me, *them)) return fail("You can't send messages to that account.");
         const std::string& setting = them->privacyMessages;
         if (setting == "nobody" || (setting == "friends" && !them->friends.count(me.id)))
             return fail(setting == "friends" ? them->name + " only gets messages from friends." : them->name + " doesn't get messages.");

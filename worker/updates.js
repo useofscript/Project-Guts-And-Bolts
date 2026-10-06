@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'bouncer', name: 'The Bouncer', time: 1791302600, tag: 'Website',
+    summary: 'Report anything that breaks the rules, and block people you don\'t want to hear from. Staff get a list of reports to work through.',
+    items: [
+      'A Report link on profiles, messages, games, catalog items, Library items and groups. Pick what\'s wrong and tell staff what happened',
+      'The person you report isn\'t told who reported them. Reporting a message sends staff a copy, so deleting it doesn\'t hide it',
+      'Block someone from their profile (or tick "Block them too" when you report them)',
+      'Blocking ends your friendship and follows, and you can\'t message, friend, follow, trade with or join each other. You won\'t see each other online',
+      'See and unblock the people you blocked in Settings',
+      'The Staff page has a Reports box: what was reported, why, a copy of reported messages, and Done / Nothing wrong buttons',
+    ],
+  },
+  {
     id: 'old-faithful', name: 'Old Faithful', version: '0.6.8', time: 1791295000, tag: 'Engine',
     summary: 'The classic BodyMovers are back next to the newer movers, so old vehicles and flying keep their handling. And you can sit down anywhere.',
     items: [

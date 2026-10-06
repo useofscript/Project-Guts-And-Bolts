@@ -73,6 +73,9 @@ private:
         std::string blurb;                                   // "About me"
         nlohmann::json posts = nlohmann::json::array();     // "Right now I'm..." {text, at}, newest first
         std::string statusDay; int statusesToday = 0;
+        // ServerSafety.cpp: people you blocked, and how many reports you sent today.
+        std::vector<std::string> blocked;
+        std::string reportDay; int reportsToday = 0;
     };
     struct Asset {
         std::string id, kind, name, description, creator;
@@ -133,6 +136,13 @@ private:
     void  loadIds();
     nlohmann::json friendOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerFriends.cpp
     nlohmann::json socialOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerSocial.cpp
+    // ServerSafety.cpp: blocking people and reporting things to staff.
+    nlohmann::json safetyOp(const std::string& name, User& me, const nlohmann::json& args);
+    bool blocks(const User& a, const User& b) const;   // has either of them blocked the other?
+    nlohmann::json reportsJson(const std::string& status) const;   // for the Staff page
+    nlohmann::json closeReport(const User& staff, const std::string& id, const std::string& outcome);
+    void saveReports();
+    void loadReports();
     void rememberPlayed(User& me, const std::string& gameId);                                 // ServerSocial.cpp
     nlohmann::json playerBadgesOf(const User& u) const;                                       // ServerSocial.cpp
     static nlohmann::json allPlayerBadges();                                                  // ServerSocial.cpp
@@ -189,6 +199,8 @@ private:
     std::map<std::string, Asset>::const_iterator findAsset(const std::string& id) const;
     void numberAssets();
     std::map<std::string, Group> m_groups;
+    // What players reported (ServerSafety.cpp): {id, from, kind, target, about, reason, note, copy, at, status, ...}, newest last.
+    nlohmann::json m_reports = nlohmann::json::array();
     std::map<std::string, Session> m_sessions;
     // A server whose host left: its players get a while to move to a new one, which one of them hosts.
     struct Moved {

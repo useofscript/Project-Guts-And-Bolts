@@ -1599,6 +1599,19 @@ same server.
   only, or No one (you look offline to everybody else);
 - **Who can join me:** Everyone, Friends only, or No one.
 
+**Reporting and blocking.** Profiles, messages, games, catalog and Library items
+and groups have a **Report** link: pick what's wrong and (if you like) say what
+happened. Nobody is told who reported them, and a reported message is copied for
+staff, so deleting it doesn't hide it. Staff work through reports in the
+**Reports** box on the Staff page (**Done** or **Nothing wrong**; closing one closes
+every report about the same thing). Each account can send 20 reports a day.
+
+**Block** someone from their profile (or tick *Block them too* when reporting
+them). Blocking ends your friendship and follows, removes their messages from
+your inbox, cancels open trades between you, and after that you can't message,
+friend, follow, trade with or join each other, or see each other online. Staff
+can't be blocked. *Settings > Blocked people* lists them, with **Unblock**.
+
 **Following** is one way: no asking. Press **Follow** on a profile (or click
 a name on the in-game player list). Profiles show followers and following.
 Like Builderman back in the day, **Guts follows everybody**.

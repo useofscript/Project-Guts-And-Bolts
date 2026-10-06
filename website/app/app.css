@@ -562,3 +562,13 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 .pass-pic { width: 100%; aspect-ratio: 1; border: 1px solid var(--line); background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .pass-mini { display: inline-flex; width: 44px; height: 44px; border: 1px solid var(--line); background: #fff; overflow: hidden; flex: none; }
 .pass-mini img, .pass-pic img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Reports (the Report link, and the Staff page's list) */
+.report-link { color: var(--muted); }
+.report-link:hover { color: var(--red); }
+.reports { display: flex; flex-direction: column; }
+.report { padding: 8px 0; border-top: 1px solid var(--line); }
+.report:first-child { border-top: 0; }
+.report p { margin: 4px 0; }
+.report-note { font-style: italic; white-space: pre-wrap; }
+.report-copy { background: var(--stripe); border: 1px solid var(--line); padding: 6px 8px; white-space: pre-wrap; margin: 4px 0; }

@@ -22,6 +22,7 @@ set(GB_SERVER_SOURCES
     src/server/ServerSocial.cpp
     src/server/ServerAccounts.cpp
     src/server/ServerRelay.cpp
+    src/server/ServerSafety.cpp
     src/online/Protocol.cpp
     src/core/Account.cpp
     src/core/Paths.cpp
