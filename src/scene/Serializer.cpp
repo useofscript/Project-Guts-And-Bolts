@@ -113,7 +113,18 @@ nlohmann::json guiToJson(const GuiProps& g) {
     }
     if (g.type == GuiType::TextButton || g.type == GuiType::ImageButton) j["autoColor"] = g.autoButtonColor;
     if (g.type == GuiType::ScreenGui) j["order"] = g.displayOrder;
-    if (g.type == GuiType::UICorner) j["corner"] = ud(g.corner);
+    if (g.type == GuiType::UICorner) {
+        j["corner"] = ud(g.corner);
+        if (g.corners != glm::vec4(-1.0f)) {
+            j["corners"] = json::array({g.corners.x, g.corners.y, g.corners.z, g.corners.w});
+            j["cornerScales"] = json::array({g.cornerScales.x, g.cornerScales.y, g.cornerScales.z, g.cornerScales.w});
+        }
+    }
+    if (g.type == GuiType::UIShadow) {
+        j["shadowOffset"] = json::array({g.shadowOffset.x, g.shadowOffset.y});
+        j["shadowBlur"] = g.shadowBlur; j["shadowSpread"] = g.shadowSpread;
+    }
+    if (g.type == GuiType::UIBlur) j["blurSize"] = g.blurSize;
     if (g.type == GuiType::UIStroke) j["thickness"] = g.thickness;
     return j;
 }
@@ -154,6 +165,17 @@ void guiFromJson(GuiProps& g, const nlohmann::json& j) {
     g.displayOrder = get<int>(j, "order", g.displayOrder);
     g.corner = ud("corner", g.corner);
     g.thickness = get<float>(j, "thickness", g.thickness);
+    auto v4 = [&](const char* k, glm::vec4& out) {
+        if (j.contains(k) && j[k].is_array() && j[k].size() == 4)
+            try { out = {j[k][0].get<float>(), j[k][1].get<float>(), j[k][2].get<float>(), j[k][3].get<float>()}; } catch (...) {}
+    };
+    v4("corners", g.corners);
+    v4("cornerScales", g.cornerScales);
+    if (j.contains("shadowOffset") && j["shadowOffset"].is_array() && j["shadowOffset"].size() == 2)
+        try { g.shadowOffset = {j["shadowOffset"][0].get<float>(), j["shadowOffset"][1].get<float>()}; } catch (...) {}
+    g.shadowBlur = std::clamp(get<float>(j, "shadowBlur", g.shadowBlur), 0.0f, 100.0f);
+    g.shadowSpread = std::clamp(get<float>(j, "shadowSpread", g.shadowSpread), -100.0f, 100.0f);
+    g.blurSize = std::clamp(get<float>(j, "blurSize", g.blurSize), 0.0f, 100.0f);
 }
 } // namespace Serializer
 
@@ -503,7 +525,8 @@ json settingsJson(Scene& scene) {
                   {"fallDamageSpeed", ws.fallDamageSpeed}, {"spawnForceField", ws.spawnForceField},
                   {"fallDamageScale", ws.fallDamageScale}, {"bloodColor", vec(ws.bloodColor)},
                   {"bloodAmount", ws.bloodAmount}, {"bloodStay", ws.bloodStay},
-                  {"playerCollisions", ws.playerCollisions}, {"maxFluidParticles", ws.maxFluidParticles}};
+                  {"playerCollisions", ws.playerCollisions}, {"maxFluidParticles", ws.maxFluidParticles},
+                  {"orthographic", ws.orthographic}, {"orthographicSize", ws.orthographicSize}};
     if (Player* p = scene.player()) {
         const Humanoid& h = p->humanoid();
         j["player"] = {
@@ -540,6 +563,8 @@ void applySettings(Scene& scene, const json& j) {
         w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
         w.fallDamageScale   = get<float>(j["world"], "fallDamageScale", w.fallDamageScale);
         w.playerCollisions  = get<bool>(j["world"], "playerCollisions", w.playerCollisions);
+        w.orthographic      = get<bool>(j["world"], "orthographic", w.orthographic);
+        w.orthographicSize  = std::clamp(get<float>(j["world"], "orthographicSize", w.orthographicSize), 0.0f, 2000.0f);
         w.maxFluidParticles = std::clamp(get<int>(j["world"], "maxFluidParticles", w.maxFluidParticles), 0, 1 << 20);
         w.bloodColor        = vec(j["world"], "bloodColor", w.bloodColor);
         w.bloodAmount       = get<float>(j["world"], "bloodAmount", w.bloodAmount);

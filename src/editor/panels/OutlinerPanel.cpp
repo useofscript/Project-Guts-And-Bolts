@@ -211,7 +211,7 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
         {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal"}},
         {"Water", {"Water", "WaterSource", "FluidVolume", "FluidSystem", "FluidEmitter"}},
         {"Constraints", {"Attachment"}},
-        {"User Interface", {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke"}},
+        {"User Interface", {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur"}},
         {"Values", {"IntValue", "NumberValue", "StringValue", "BoolValue"}},
     };
     for (const Group& g : groups) {

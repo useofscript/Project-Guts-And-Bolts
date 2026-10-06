@@ -527,7 +527,7 @@ Id forNode(const SceneNode& n) {
                 case GuiType::TextLabel:  return Id::GuiText;
                 case GuiType::TextButton: case GuiType::ImageButton: return Id::GuiButton;
                 case GuiType::ImageLabel: return Id::GuiImage;
-                case GuiType::UICorner: case GuiType::UIStroke: return Id::GuiCorner;
+                case GuiType::UICorner: case GuiType::UIStroke: case GuiType::UIShadow: case GuiType::UIBlur: return Id::GuiCorner;
                 default:                  return Id::GuiFrame;
             }
         default: break;

@@ -23,6 +23,13 @@ public:
 
     void render(Scene& scene, const Camera& camera, Framebuffer& target, bool showGrid);
 
+    // Blurred copies of what render() just drew into `target`, for game UI that blurs
+    // the world behind it (UIBlur). Only made when something asks (it's a few tiny
+    // passes). backdrop(0) is a little blurry, backdrop(kBackdropLevels - 1) very.
+    static constexpr int kBackdropLevels = 4;
+    void makeBackdrop(const Framebuffer& target);
+    unsigned backdrop(int level) const;
+
     // Offscreen buffer with a colour texture and (optionally) a depth texture.
     struct Target {
         unsigned int fbo = 0, color = 0, depth = 0;
@@ -77,6 +84,7 @@ private:
 
     static constexpr int kBloomLevels = 6;
     Target m_hdr, m_ao, m_ldr, m_bloom[kBloomLevels];
+    Target m_bdDown[kBackdropLevels + 1], m_bdUp[kBackdropLevels];   // makeBackdrop()
 
     unsigned int m_gridVao = 0, m_gridVbo = 0;
     std::unique_ptr<Shader> m_overlay;

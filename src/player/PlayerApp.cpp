@@ -1589,6 +1589,14 @@ void PlayerApp::drawGame(float dt) {
     m_view.resize((int)px.x, (int)px.y);
     m_camera.resize((int)px.x, (int)px.y);
     m_renderer->render(*m_scene, m_camera, m_view, false);
+    if (GameGui::needsBackdrop(*m_scene)) {   // UIBlur: the world behind the UI, blurred
+        m_renderer->makeBackdrop(m_view);
+        unsigned bd[SceneRenderer::kBackdropLevels];
+        for (int i = 0; i < SceneRenderer::kBackdropLevels; ++i) bd[i] = m_renderer->backdrop(i);
+        GameGui::setBackdrop(bd, SceneRenderer::kBackdropLevels);
+    } else {
+        GameGui::setBackdrop(nullptr, 0);
+    }
     Audio::setListener(m_camera.position(), m_camera.forward());
     ImGui::Image((ImTextureID)(intptr_t)m_view.colorTexture(), size, ImVec2(0, 1), ImVec2(1, 0));
 

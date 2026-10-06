@@ -773,6 +773,10 @@ std::string NetServer::worldMessage(bool) {
 
     std::string env = Serializer::environmentToString(m_scene->environment());
     if (env != m_lastEnv) { msg["env"] = env; m_lastEnv = env; }
+    // The camera setting (scripts can change Workspace.Orthographic while playing).
+    const WorldSettings& ws = m_scene->world();
+    json cam = {{"ortho", ws.orthographic}, {"size", ws.orthographicSize}};
+    if (cam.dump() != m_lastCam) { msg["cam"] = cam; m_lastCam = cam.dump(); }
 
     const GuiState& gui = m_session->gui();
     json g = {{"labels", gui.labels}, {"msg", gui.message}, {"time", gui.message.empty() ? 0.0f : gui.messageTime}};
@@ -1096,6 +1100,10 @@ void NetClient::handle(const std::string& text) {
                 if (SceneNode* n = m_scene->findById(d.get<uint64_t>()))
                     if (!m_scene->isCharacterPart(n)) m_scene->removeNode(n);
         if (m.contains("env")) Serializer::environmentFromString(m_scene->environment(), m["env"].get<std::string>());
+        if (m.contains("cam") && m["cam"].is_object()) {
+            m_scene->world().orthographic = m["cam"].value("ortho", false);
+            m_scene->world().orthographicSize = std::clamp(m["cam"].value("size", 0.0f), 0.0f, 2000.0f);
+        }
         if (m.contains("gui")) {
             GuiState& g = m_session->gui();
             g.labels.clear();

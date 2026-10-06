@@ -1202,6 +1202,7 @@ struct XmlWriter {
                 break;
             }
             if (g.type == GuiType::UIStroke) { color3("Color", g.borderColor); flt("Thickness", g.thickness); flt("Transparency", g.bgTransparency); boolean("Enabled", n.enabled); break; }
+            if (g.type == GuiType::UIShadow || g.type == GuiType::UIBlur) break;   // (ours; Roblox skips classes it doesn't know)
             udim2("Position", g.pos);
             udim2("Size", g.size);
             vec2("AnchorPoint", g.anchor);

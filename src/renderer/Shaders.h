@@ -702,6 +702,7 @@ uniform bool  uLumaAlpha;   // store luma in alpha for the FXAA pass
 uniform bool  uUnderwater;
 uniform sampler2D uDepth;
 uniform vec2  uDepthParams;    // proj[3][2], proj[2][2]: distance from the depth picture
+uniform bool  uOrthoDepth;     // ...for an orthographic camera (depth is already even)
 uniform vec3  uWaterSigma;     // how much each colour fades per stud
 uniform vec3  uWaterFog;       // the colour far-away things fade into
 uniform float uTime;
@@ -757,7 +758,7 @@ void main() {
     vec3 c;
     if (uUnderwater) {
         float ndc = texture(uDepth, uv).r * 2.0 - 1.0;
-        float dist = ndc > 0.9999 ? 1e4 : uDepthParams.x / (ndc + uDepthParams.y);
+        float dist = ndc > 0.9999 ? 1e4 : uOrthoDepth ? (uDepthParams.x - ndc) / uDepthParams.y : uDepthParams.x / (ndc + uDepthParams.y);
         // Things further away go blurry, and the colours split a little at the edges of
         // the view (like looking through a diving mask).
         float blur = clamp(dist * 0.00035, 0.0, 0.004);
@@ -1054,11 +1055,13 @@ out vec4 FragColor;
 #pragma gb_common
 vec3 eyePos(vec2 uv, float d) {
     vec2 ndc = uv * 2.0 - 1.0;
+    if (uProj[3][3] > 0.5) return vec3(ndc.x / uProj[0][0], ndc.y / uProj[1][1], -d);   // orthographic camera
     return vec3(ndc.x * d / uProj[0][0], ndc.y * d / uProj[1][1], -d);
 }
 // Distance to the solid scene in a pixel (from the depth picture).
 float sceneDist(vec2 uv) {
     float ndc = texture(uSceneDepth, uv).r * 2.0 - 1.0;
+    if (uProj[3][3] > 0.5) return (uProj[3][2] - ndc) / uProj[2][2];   // orthographic camera
     return uProj[3][2] / (ndc + uProj[2][2]);
 }
 const float kIor = 1.333;       // water bends light this much (Snell's law)
@@ -1315,6 +1318,7 @@ const float kIor = 1.333;
 // View-space distance to the solid scene in a pixel.
 float sceneZ(vec2 uv) {
     float ndc = texture(uSceneDepth, uv).r * 2.0 - 1.0;
+    if (uProj[3][3] > 0.5) return (uProj[3][2] - ndc) / uProj[2][2];   // orthographic camera
     return uProj[3][2] / (ndc + uProj[2][2]);
 }
 vec2 toScreen(vec3 w) {

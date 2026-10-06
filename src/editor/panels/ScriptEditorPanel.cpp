@@ -48,7 +48,7 @@ const char* const kWords[] = {
     "Gui.Label", "Gui.Message", "Effects.Blood", "Effects.Oil", "Effects.Gibs", "Effects.Sparks", "Sounds.Play",
     // Game UI
     "UDim2.new", "UDim2.fromScale", "UDim2.fromOffset", "UDim.new", "Vector2.new", "StarterGui", "PlayerGui",
-    "ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke",
+    "ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur",
     "AnchorPoint", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel", "BorderColor3", "ZIndex",
     "Visible", "Text", "TextColor3", "TextSize", "TextScaled", "TextWrapped", "TextXAlignment", "TextYAlignment",
     "TextTransparency", "TextStrokeTransparency", "TextStrokeColor3", "Image", "ImageColor3", "ImageTransparency",

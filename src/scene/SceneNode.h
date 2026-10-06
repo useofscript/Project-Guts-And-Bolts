@@ -31,10 +31,15 @@ enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment,
 
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
 // buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
-enum class GuiType { ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke };
-inline constexpr int kGuiTypeCount = 8;
-inline const char* const kGuiClassNames[kGuiTypeCount] = {"ScreenGui", "Frame", "TextLabel", "TextButton",
-                                                          "ImageLabel", "ImageButton", "UICorner", "UIStroke"};
+// UICorner, UIStroke, UIShadow and UIBlur go inside a Frame / label / button and change
+// how it's drawn (a "modifier", not a box of its own).
+enum class GuiType { ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke, UIShadow, UIBlur };
+inline constexpr int kGuiTypeCount = 10;
+inline const char* const kGuiClassNames[kGuiTypeCount] = {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel",
+                                                          "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur"};
+inline bool isGuiModifier(GuiType t) {
+    return t == GuiType::UICorner || t == GuiType::UIStroke || t == GuiType::UIShadow || t == GuiType::UIBlur;
+}
 struct UDim2 {
     float xs = 0.0f, xo = 0.0f, ys = 0.0f, yo = 0.0f;   // X scale, X offset (pixels), Y scale, Y offset
     bool operator==(const UDim2& o) const { return xs == o.xs && xo == o.xo && ys == o.ys && yo == o.yo; }
@@ -66,6 +71,16 @@ struct GuiProps {
     bool      autoButtonColor = true;               // buttons darken when you point at / press them
     int       displayOrder = 0;                     // ScreenGui: higher ones are drawn on top
     UDim2     corner{0.0f, 8.0f, 0.0f, 0.0f};       // UICorner.CornerRadius (xs, xo used)
+    // UICorner.TopLeft / TopRight / BottomRight / BottomLeft (UDims: corners = the pixels,
+    // cornerScales = the fraction), so each corner can be rounded on its own.
+    // A pixel value below 0 = the same as CornerRadius.
+    glm::vec4 corners{-1.0f}, cornerScales{0.0f};
+    // UIShadow: Color is bg, Transparency is bgTransparency. Blur is how soft its edge is,
+    // Spread makes it bigger than the box, Offset moves it (pixels).
+    glm::vec2 shadowOffset{0.0f, 4.0f};
+    float     shadowBlur = 12.0f, shadowSpread = 0.0f;
+    // UIBlur.Size: how blurry the world behind it looks (pixels).
+    float     blurSize = 12.0f;
     float     thickness = 1.0f;                     // UIStroke.Thickness
     // Where it was last drawn (AbsolutePosition / AbsoluteSize). Runtime only.
     glm::vec2 absPos{0.0f}, absSize{0.0f};
@@ -252,7 +267,7 @@ public:
     bool isGui() const { return kind == NodeKind::Gui; }
     // A Frame / label / button / picture (not a ScreenGui, UICorner or UIStroke).
     bool isGuiObject() const {
-        return kind == NodeKind::Gui && gui.type != GuiType::ScreenGui && gui.type != GuiType::UICorner && gui.type != GuiType::UIStroke;
+        return kind == NodeKind::Gui && gui.type != GuiType::ScreenGui && !isGuiModifier(gui.type);
     }
     bool isGuiButton() const { return kind == NodeKind::Gui && (gui.type == GuiType::TextButton || gui.type == GuiType::ImageButton); }
     // "IntValue", "StringValue"... (kind == Value)
