@@ -10,7 +10,7 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'window-shopping', name: 'Window Shopping', time: 1791249962, tag: 'Studio',
+    id: 'window-shopping', name: 'Window Shopping', version: '0.6.7', time: 1791249962, tag: 'Studio',
     summary: 'The Catalog and Library look like the old catalog, gear is held the classic way, and Studio can publish models and animations from a right-click.',
     items: [
       'Catalog and Library (website and Player): a search bar with a category box, Browse by Category down the left, Price and Creators filters, Sort by, and a little info box when you point at an item',
@@ -22,7 +22,6 @@ export const BUILT_IN_UPDATES = [
       'Studio\'s Explorer shows Roblox\'s services (ReplicatedStorage, ServerScriptService, StarterPack and more); game:GetService knows them too',
       'The website\'s My Games has an Edit in Studio button that opens your game straight in Studio',
       'Fixed: an error on the Player\'s Create > Library page',
-      'The website parts are live now; the Player and Studio parts come with the next app update',
     ],
   },
   {
