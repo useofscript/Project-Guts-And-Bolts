@@ -48,6 +48,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::Gui:    return "Gui";
         case NodeKind::FluidSystem:  return "FluidSystem";
         case NodeKind::FluidEmitter: return "FluidEmitter";
+        case NodeKind::Mover:        return "Mover";
         default:               return "Part";
     }
 }
@@ -66,6 +67,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "Gui")    return NodeKind::Gui;
     if (s == "FluidSystem")  return NodeKind::FluidSystem;
     if (s == "FluidEmitter") return NodeKind::FluidEmitter;
+    if (s == "Mover")        return NodeKind::Mover;
     return NodeKind::Part;
 }
 
@@ -232,6 +234,15 @@ json toJson(const SceneNode& n) {
         j["motorSpeed"] = n.motorSpeed; j["motorTorque"] = n.motorTorque;
         j["thickness"] = n.thickness; j["color"] = vec(n.color); j["enabled"] = n.enabled;
     }
+    if (n.kind == NodeKind::Mover) {
+        const MoverProps& m = n.mover;
+        j["type"] = kMoverClassNames[(int)m.type];
+        j["ref0"] = n.ref0; j["ref1"] = n.ref1; j["enabled"] = n.enabled;
+        j["value"] = vec(m.value); j["maxAxes"] = vec(m.maxAxes); j["maxForce"] = m.maxForce;
+        j["p"] = m.p; j["d"] = m.d; j["rot"] = vec(m.rotation); j["location"] = vec(m.location);
+        j["resp"] = m.responsiveness; j["maxVel"] = m.maxVelocity;
+        j["relative"] = m.relativeToAttachment; j["atCenter"] = m.atCenterOfMass; j["rigid"] = m.rigid;
+    }
     if (n.kind == NodeKind::Animation) j["source"] = n.source;
     if (n.kind == NodeKind::Script) {
         j["source"]  = n.source;
@@ -388,6 +399,26 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
         n->motorTorque = get<float>(j, "motorTorque", 0.0f);
         n->thickness = get<float>(j, "thickness", 0.1f);
         n->color = vec(j, "color", {0.45f, 0.32f, 0.2f});
+    }
+    if (n->kind == NodeKind::Mover) {
+        const std::string type = get<std::string>(j, "type", "BodyVelocity");
+        for (int i = 0; i < kMoverTypeCount; ++i) if (type == kMoverClassNames[i]) n->mover = moverDefaults((MoverType)i);
+        MoverProps& m = n->mover;
+        n->ref0 = get<uint64_t>(j, "ref0", 0);
+        n->ref1 = get<uint64_t>(j, "ref1", 0);
+        n->enabled = get<bool>(j, "enabled", true);
+        m.value = vec(j, "value", m.value);
+        m.maxAxes = vec(j, "maxAxes", m.maxAxes);
+        m.maxForce = get<float>(j, "maxForce", m.maxForce);
+        m.p = get<float>(j, "p", m.p);
+        m.d = get<float>(j, "d", m.d);
+        m.rotation = vec(j, "rot", m.rotation);
+        m.location = vec(j, "location", m.location);
+        m.responsiveness = get<float>(j, "resp", m.responsiveness);
+        m.maxVelocity = get<float>(j, "maxVel", m.maxVelocity);
+        m.relativeToAttachment = get<bool>(j, "relative", m.relativeToAttachment);
+        m.atCenterOfMass = get<bool>(j, "atCenter", m.atCenterOfMass);
+        m.rigid = get<bool>(j, "rigid", m.rigid);
     }
     if (n->kind == NodeKind::Light) {
         n->lightType  = get<std::string>(j, "lightType", "Point") == "Spot" ? LightType::Spot : LightType::Point;
@@ -697,6 +728,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.motorSpeed = src->motorSpeed; dst.motorTorque = src->motorTorque; dst.thickness = src->thickness;
     dst.viscosity = src->viscosity; dst.surfaceTension = src->surfaceTension;
     dst.fluidRate = src->fluidRate; dst.fluidVelocity = src->fluidVelocity; dst.fluidSystem = src->fluidSystem;
+    dst.mover = src->mover;
 }
 
 std::string nodeToString(const SceneNode& node) { return toJson(node).dump(); }
@@ -725,7 +757,7 @@ void collectIds(const SceneNode& a, const SceneNode& b, std::unordered_map<uint6
         collectIds(*a.children[i], *b.children[i], map);
 }
 void remapRefs(SceneNode& n, const std::unordered_map<uint64_t, uint64_t>& map) {
-    if (n.isConstraint()) {
+    if (n.isConstraint() || n.isMover()) {
         if (auto it = map.find(n.ref0); it != map.end()) n.ref0 = it->second;
         if (auto it = map.find(n.ref1); it != map.end()) n.ref1 = it->second;
     }

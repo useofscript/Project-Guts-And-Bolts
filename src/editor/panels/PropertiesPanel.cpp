@@ -41,6 +41,7 @@ void PropertiesPanel::render() {
                     : node->kind == NodeKind::Animation  ? "Animation"
                     : node->kind == NodeKind::FluidSystem  ? "FluidSystem"
                     : node->kind == NodeKind::FluidEmitter ? "FluidEmitter"
+                    : node->kind == NodeKind::Mover        ? kMoverClassNames[(int)node->mover.type]
                     : node->kind == NodeKind::Gui        ? kGuiClassNames[(int)node->gui.type]
                     : node->kind == NodeKind::Model    ? "Model" : "Part";
     ImGui::TextDisabled("%s", cls);
@@ -372,6 +373,87 @@ void PropertiesPanel::renderProperties(SceneNode* node) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where on the part (in the part's own space)");
         ImGui::DragFloat3("Rotation", &node->transform.rotation.x, 0.5f);
         ImGui::TextDisabled("Its red (X) direction is the hinge axis.");
+        return;
+    }
+    if (node->isMover()) {
+        MoverProps& m = node->mover;
+        const MoverType t = m.type;
+        const bool classic = isBodyMover(t);
+        ImGui::Checkbox("Enabled", &node->enabled);
+        if (!classic) {
+            SceneNode* a0 = m_scene->findById(node->ref0);
+            SceneNode* a1 = m_scene->findById(node->ref1);
+            auto owner = [](SceneNode* r) { return r ? (r->parent ? r->parent->name + "." + r->name : r->name) : std::string("(none)"); };
+            ImGui::TextDisabled("Attachment0: %s", owner(a0).c_str());
+            if (t == MoverType::AlignPosition || t == MoverType::AlignOrientation)
+                ImGui::TextDisabled("Attachment1: %s", owner(a1).c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set these from a script: mover.Attachment0 = part.Attachment");
+        }
+        auto huge = [](float& v, const char* label) {   // (0 = no limit: shown as "huge")
+            ImGui::DragFloat(label, &v, 10.0f, 0.0f, 1e30f, v >= 1e29f ? "huge" : "%.0f", ImGuiSliderFlags_Logarithmic);
+        };
+        switch (t) {
+            case MoverType::BodyVelocity:
+                ImGui::DragFloat3("Velocity", &m.value.x, 0.1f);
+                ImGui::DragFloat3("MaxForce", &m.maxAxes.x, 10.0f, 0.0f, 1e30f, "%.0f");
+                break;
+            case MoverType::BodyPosition:
+                ImGui::DragFloat3("Position", &m.value.x, 0.1f);
+                ImGui::DragFloat3("MaxForce", &m.maxAxes.x, 10.0f, 0.0f, 1e30f, "%.0f");
+                ImGui::DragFloat("P", &m.p, 10.0f, 0.0f, 1e7f);
+                ImGui::DragFloat("D", &m.d, 5.0f, 0.0f, 1e7f);
+                break;
+            case MoverType::BodyGyro:
+                ImGui::DragFloat3("Facing (rotation)", &m.rotation.x, 0.5f);
+                ImGui::DragFloat3("MaxTorque", &m.maxAxes.x, 100.0f, 0.0f, 1e30f, "%.0f");
+                ImGui::DragFloat("P", &m.p, 10.0f, 0.0f, 1e7f);
+                ImGui::DragFloat("D", &m.d, 5.0f, 0.0f, 1e7f);
+                break;
+            case MoverType::BodyAngularVelocity:
+                ImGui::DragFloat3("AngularVelocity", &m.value.x, 0.05f);
+                ImGui::DragFloat3("MaxTorque", &m.maxAxes.x, 10.0f, 0.0f, 1e30f, "%.0f");
+                break;
+            case MoverType::BodyThrust:
+                ImGui::DragFloat3("Force", &m.value.x, 1.0f);
+                ImGui::DragFloat3("Location", &m.location.x, 0.05f);
+                break;
+            case MoverType::BodyForce:
+            case MoverType::VectorForce:
+                ImGui::DragFloat3("Force", &m.value.x, 1.0f);
+                if (t == MoverType::VectorForce) ImGui::Checkbox("ApplyAtCenterOfMass", &m.atCenterOfMass);
+                break;
+            case MoverType::Torque:
+                ImGui::DragFloat3("Torque", &m.value.x, 1.0f);
+                break;
+            case MoverType::LinearVelocity:
+                ImGui::DragFloat3("VectorVelocity", &m.value.x, 0.1f);
+                huge(m.maxForce, "MaxForce");
+                break;
+            case MoverType::AngularVelocity:
+                ImGui::DragFloat3("AngularVelocity", &m.value.x, 0.05f);
+                huge(m.maxForce, "MaxTorque");
+                break;
+            case MoverType::AlignPosition:
+            case MoverType::AlignOrientation:
+                if (t == MoverType::AlignPosition) ImGui::DragFloat3("Position", &m.value.x, 0.1f);
+                else ImGui::DragFloat3("Facing (rotation)", &m.rotation.x, 0.5f);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Used when there's no Attachment1");
+                huge(m.maxForce, t == MoverType::AlignPosition ? "MaxForce" : "MaxTorque");
+                ImGui::DragFloat("Responsiveness", &m.responsiveness, 0.5f, 0.0f, 200.0f);
+                ImGui::DragFloat(t == MoverType::AlignPosition ? "MaxVelocity" : "MaxAngularVelocity", &m.maxVelocity, 0.5f, 0.0f, 1e6f,
+                                 m.maxVelocity <= 0 ? "no limit" : "%.1f");
+                ImGui::Checkbox("RigidityEnabled", &m.rigid);
+                break;
+        }
+        if (t == MoverType::LinearVelocity || t == MoverType::AngularVelocity || t == MoverType::VectorForce || t == MoverType::Torque) {
+            int rel = m.relativeToAttachment ? 1 : 0;
+            const char* items[] = {"World", "Attachment0"};
+            if (ImGui::Combo("RelativeTo", &rel, items, 2)) m.relativeToAttachment = rel == 1;
+        }
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(classic ? "A classic BodyMover: it pushes the part it's inside (and anything welded to it)."
+                                    : "A mover constraint: it pushes the part its Attachment0 is in (and anything welded to it).");
+        ImGui::PopTextWrapPos();
         return;
     }
     if (node->isConstraint()) {

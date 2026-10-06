@@ -115,6 +115,7 @@ const char* className(lua_State* L, const SceneNode* n) {
         case NodeKind::Attachment: return "Attachment";
         case NodeKind::FluidSystem:  return "FluidSystem";
         case NodeKind::FluidEmitter: return "FluidEmitter";
+        case NodeKind::Mover:        return kMoverClassNames[(int)n->mover.type];
         case NodeKind::Constraint:
             switch (n->constraintType) {
                 case ConstraintType::Rope:   return "RopeConstraint";
@@ -138,6 +139,7 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->kind == NodeKind::Script && (cls == "BaseScript" || cls == "LuaSourceContainer")) return true;
     if (n->kind == NodeKind::Light && cls == "Light") return true;
     if (n->kind == NodeKind::Constraint && cls == "Constraint") return true;
+    if (n->isMover() && cls == (isBodyMover(n->mover.type) ? "BodyMover" : "Constraint")) return true;
     if (n->kind == NodeKind::Tool && cls == "BackpackItem") return true;
     if (n->kind == NodeKind::Value && cls == "ValueBase") return true;
     if (n->kind == NodeKind::Decal && cls == "FaceInstance") return true;
@@ -481,6 +483,13 @@ int m_ParentTo(lua_State* L) {
     return 0;
 }
 
+float massOf(const SceneNode* n);   // (below)
+int m_GetMass(lua_State* L) {
+    SceneNode* n = LuaApi::checkNode(L, 1);
+    lua_pushnumber(L, n->isPart() ? massOf(n) : 0.0);
+    return 1;
+}
+
 const luaL_Reg kMethods[] = {
     {"FindFirstChild", m_FindFirstChild}, {"FindFirstChildOfClass", m_FindFirstChildOfClass},
     {"WaitForChild", m_WaitForChild}, {"GetChildren", m_GetChildren},
@@ -493,7 +502,7 @@ const luaL_Reg kMethods[] = {
     {"GetAttribute", m_GetAttribute}, {"SetAttribute", m_SetAttribute}, {"GetAttributes", m_GetAttributes},
     {"GetAttributeChangedSignal", m_GetAttributeChangedSignal},
     {"HasTag", m_HasTag}, {"AddTag", m_AddTag}, {"RemoveTag", m_RemoveTag}, {"GetTags", m_GetTags},
-    {"LoadAnimation", m_LoadAnimation},
+    {"LoadAnimation", m_LoadAnimation}, {"GetMass", m_GetMass},
     {nullptr, nullptr}};
 
 // ===========================================================================
@@ -518,6 +527,186 @@ int cornerIndex(const char* k) {
 }
 bool hasText(const SceneNode* n) { return n->gui.type == GuiType::TextLabel || n->gui.type == GuiType::TextButton; }
 bool hasImage(const SceneNode* n) { return n->gui.type == GuiType::ImageLabel || n->gui.type == GuiType::ImageButton; }
+
+// ---- Movers: BodyVelocity, BodyGyro... and LinearVelocity, AlignPosition... -------
+// (Old scripts often wrote these in lower case: bv.velocity, bg.cframe, bf.force.)
+bool ieq(const char* a, const char* b) {
+    for (; *a && *b; ++a, ++b)
+        if (std::tolower((unsigned char)*a) != std::tolower((unsigned char)*b)) return false;
+    return *a == *b;
+}
+float finite(float v) { return std::clamp(v, -1e30f, 1e30f); }   // (math.huge -> very big; saves can't hold infinity)
+glm::vec3 finite(glm::vec3 v) { for (int i = 0; i < 3; ++i) v[i] = finite(v[i]); return v; }
+
+bool moverIndex(lua_State* L, SceneNode* n, const char* k) {
+    const MoverProps& m = n->mover;
+    const MoverType t = m.type;
+    const bool classic = isBodyMover(t);
+    if (ieq(k, "Enabled")) { lua_pushboolean(L, n->enabled); return true; }
+    if (!classic && ieq(k, "Attachment0")) { LuaApi::pushInstance(L, n->ref0); return true; }
+    if (!classic && ieq(k, "Attachment1")) { LuaApi::pushInstance(L, n->ref1); return true; }
+    if (!classic && ieq(k, "Active")) { lua_pushboolean(L, n->enabled); return true; }
+    auto v3 = [&](const glm::vec3& v) { LuaApi::pushVector3(L, v); return true; };
+    auto num = [&](float v) { lua_pushnumber(L, v); return true; };
+    switch (t) {
+        case MoverType::BodyVelocity:
+            if (ieq(k, "Velocity")) return v3(m.value);
+            if (ieq(k, "MaxForce")) return v3(m.maxAxes);
+            if (ieq(k, "P")) return num(m.p);
+            break;
+        case MoverType::BodyPosition:
+            if (ieq(k, "Position")) return v3(m.value);
+            if (ieq(k, "MaxForce")) return v3(m.maxAxes);
+            if (ieq(k, "P")) return num(m.p);
+            if (ieq(k, "D")) return num(m.d);
+            break;
+        case MoverType::BodyGyro:
+            if (ieq(k, "CFrame")) { LuaApi::pushCFrame(L, rotationMatrix(m.rotation)); return true; }
+            if (ieq(k, "MaxTorque")) return v3(m.maxAxes);
+            if (ieq(k, "P")) return num(m.p);
+            if (ieq(k, "D")) return num(m.d);
+            break;
+        case MoverType::BodyAngularVelocity:
+            if (ieq(k, "AngularVelocity")) return v3(m.value);
+            if (ieq(k, "MaxTorque")) return v3(m.maxAxes);
+            if (ieq(k, "P")) return num(m.p);
+            break;
+        case MoverType::BodyThrust:
+            if (ieq(k, "Force")) return v3(m.value);
+            if (ieq(k, "Location")) return v3(m.location);
+            break;
+        case MoverType::BodyForce:
+            if (ieq(k, "Force")) return v3(m.value);
+            break;
+        case MoverType::LinearVelocity:
+            if (ieq(k, "VectorVelocity")) return v3(m.value);
+            if (ieq(k, "MaxForce")) return num(m.maxForce);
+            if (ieq(k, "VelocityConstraintMode")) { lua_pushstring(L, "Vector"); return true; }
+            break;
+        case MoverType::AlignPosition:
+            if (ieq(k, "Position")) return v3(m.value);
+            if (ieq(k, "MaxForce")) return num(m.maxForce);
+            if (ieq(k, "MaxVelocity")) return num(m.maxVelocity > 0 ? m.maxVelocity : 1e30f);
+            if (ieq(k, "Responsiveness")) return num(m.responsiveness);
+            if (ieq(k, "RigidityEnabled")) { lua_pushboolean(L, m.rigid); return true; }
+            if (ieq(k, "Mode")) { lua_pushstring(L, n->ref1 ? "TwoAttachment" : "OneAttachment"); return true; }
+            break;
+        case MoverType::AlignOrientation:
+            if (ieq(k, "CFrame")) { LuaApi::pushCFrame(L, rotationMatrix(m.rotation)); return true; }
+            if (ieq(k, "MaxTorque")) return num(m.maxForce);
+            if (ieq(k, "MaxAngularVelocity")) return num(m.maxVelocity > 0 ? m.maxVelocity : 1e30f);
+            if (ieq(k, "Responsiveness")) return num(m.responsiveness);
+            if (ieq(k, "RigidityEnabled")) { lua_pushboolean(L, m.rigid); return true; }
+            if (ieq(k, "Mode")) { lua_pushstring(L, n->ref1 ? "TwoAttachment" : "OneAttachment"); return true; }
+            break;
+        case MoverType::AngularVelocity:
+            if (ieq(k, "AngularVelocity")) return v3(m.value);
+            if (ieq(k, "MaxTorque")) return num(m.maxForce);
+            break;
+        case MoverType::VectorForce:
+            if (ieq(k, "Force")) return v3(m.value);
+            if (ieq(k, "ApplyAtCenterOfMass")) { lua_pushboolean(L, m.atCenterOfMass); return true; }
+            break;
+        case MoverType::Torque:
+            if (ieq(k, "Torque")) return v3(m.value);
+            break;
+    }
+    if (!classic && ieq(k, "RelativeTo")) { lua_pushstring(L, m.relativeToAttachment ? "Attachment0" : "World"); return true; }
+    return false;
+}
+
+bool moverNewIndex(lua_State* L, SceneNode* n, const char* k) {
+    MoverProps& m = n->mover;
+    const MoverType t = m.type;
+    const bool classic = isBodyMover(t);
+    auto v3 = [&]() { return finite(LuaApi::checkVector3(L, 3)); };
+    auto num = [&]() { return finite((float)luaL_checknumber(L, 3)); };
+    auto rot = [&]() {   // the turn part of a CFrame
+        glm::mat3 r(LuaApi::checkCFrame(L, 3));
+        for (int i = 0; i < 3; ++i) r[i] = glm::normalize(r[i]);
+        float z, y, x;
+        glm::extractEulerAngleZYX(glm::mat4(r), z, y, x);
+        return glm::degrees(glm::vec3(x, y, z));
+    };
+    if (ieq(k, "Enabled") || (!classic && ieq(k, "Active"))) { n->enabled = lua_toboolean(L, 3); return true; }
+    if (!classic && (ieq(k, "Attachment0") || ieq(k, "Attachment1"))) {
+        SceneNode* a = lua_isnil(L, 3) ? nullptr : LuaApi::checkNode(L, 3);
+        (ieq(k, "Attachment0") ? n->ref0 : n->ref1) = a ? a->id : 0;
+        return true;
+    }
+    if (!classic && ieq(k, "RelativeTo")) { m.relativeToAttachment = std::string(luaL_checkstring(L, 3)) != "World"; return true; }
+    switch (t) {
+        case MoverType::BodyVelocity:
+            if (ieq(k, "Velocity")) { m.value = v3(); return true; }
+            if (ieq(k, "MaxForce")) { m.maxAxes = glm::max(v3(), glm::vec3(0.0f)); return true; }
+            if (ieq(k, "P")) { m.p = std::max(0.0f, num()); return true; }
+            break;
+        case MoverType::BodyPosition:
+            if (ieq(k, "Position")) { m.value = v3(); return true; }
+            if (ieq(k, "MaxForce")) { m.maxAxes = glm::max(v3(), glm::vec3(0.0f)); return true; }
+            if (ieq(k, "P")) { m.p = std::max(0.0f, num()); return true; }
+            if (ieq(k, "D")) { m.d = std::max(0.0f, num()); return true; }
+            break;
+        case MoverType::BodyGyro:
+            if (ieq(k, "CFrame")) { m.rotation = rot(); return true; }
+            if (ieq(k, "MaxTorque")) { m.maxAxes = glm::max(v3(), glm::vec3(0.0f)); return true; }
+            if (ieq(k, "P")) { m.p = std::max(0.0f, num()); return true; }
+            if (ieq(k, "D")) { m.d = std::max(0.0f, num()); return true; }
+            break;
+        case MoverType::BodyAngularVelocity:
+            if (ieq(k, "AngularVelocity")) { m.value = v3(); return true; }
+            if (ieq(k, "MaxTorque")) { m.maxAxes = glm::max(v3(), glm::vec3(0.0f)); return true; }
+            if (ieq(k, "P")) { m.p = std::max(0.0f, num()); return true; }
+            break;
+        case MoverType::BodyThrust:
+            if (ieq(k, "Force")) { m.value = v3(); return true; }
+            if (ieq(k, "Location")) { m.location = v3(); return true; }
+            break;
+        case MoverType::BodyForce:
+            if (ieq(k, "Force")) { m.value = v3(); return true; }
+            break;
+        case MoverType::LinearVelocity:
+            if (ieq(k, "VectorVelocity")) { m.value = v3(); return true; }
+            if (ieq(k, "MaxForce")) { m.maxForce = std::max(0.0f, num()); return true; }
+            if (ieq(k, "VelocityConstraintMode") || ieq(k, "ForceLimitsEnabled") || ieq(k, "ForceLimitMode")) return true;   // (accepted)
+            break;
+        case MoverType::AlignPosition:
+        case MoverType::AlignOrientation: {
+            const bool pos = t == MoverType::AlignPosition;
+            if (pos && ieq(k, "Position")) { m.value = v3(); return true; }
+            if (!pos && ieq(k, "CFrame")) { m.rotation = rot(); return true; }
+            if (ieq(k, pos ? "MaxForce" : "MaxTorque")) { m.maxForce = std::max(0.0f, num()); return true; }
+            if (ieq(k, pos ? "MaxVelocity" : "MaxAngularVelocity")) { const float v = num(); m.maxVelocity = v >= 1e29f ? 0.0f : std::max(0.0f, v); return true; }
+            if (ieq(k, "Responsiveness")) { m.responsiveness = std::clamp(num(), 0.0f, 200.0f); return true; }
+            if (ieq(k, "RigidityEnabled")) { m.rigid = lua_toboolean(L, 3); return true; }
+            if (ieq(k, "Mode")) {
+                if (std::string(luaL_checkstring(L, 3)) == "OneAttachment") n->ref1 = 0;   // (then Position / CFrame is the target)
+                return true;
+            }
+            if (ieq(k, "ReactionForceEnabled") || ieq(k, "ReactionTorqueEnabled") || ieq(k, "ApplyAtCenterOfMass") ||
+                ieq(k, "PrimaryAxisOnly") || ieq(k, "AlignType")) return true;   // (accepted)
+            break;
+        }
+        case MoverType::AngularVelocity:
+            if (ieq(k, "AngularVelocity")) { m.value = v3(); return true; }
+            if (ieq(k, "MaxTorque")) { m.maxForce = std::max(0.0f, num()); return true; }
+            if (ieq(k, "ReactionTorqueEnabled")) return true;
+            break;
+        case MoverType::VectorForce:
+            if (ieq(k, "Force")) { m.value = v3(); return true; }
+            if (ieq(k, "ApplyAtCenterOfMass")) { m.atCenterOfMass = lua_toboolean(L, 3); return true; }
+            break;
+        case MoverType::Torque:
+            if (ieq(k, "Torque")) { m.value = v3(); return true; }
+            break;
+    }
+    return false;
+}
+
+// part:GetMass(): how heavy it is (its Density times its size).
+float massOf(const SceneNode* n) {
+    return Physics::densityOf(n) * n->transform.scale.x * n->transform.scale.y * n->transform.scale.z;
+}
 
 // Push a UI property; false if `k` isn't one.
 bool guiIndex(lua_State* L, SceneNode* n, const char* k) {
@@ -720,6 +909,7 @@ int inst_index(lua_State* L) {
         if (is(k, "WorldPosition")) { LuaApi::pushVector3(L, worldPosition(n)); return 1; }
     }
     if (n->isGui() && guiIndex(L, n, k)) return 1;
+    if (n->isMover() && moverIndex(L, n, k)) return 1;
     if (n->isConstraint()) {
         bool weld = n->constraintType == ConstraintType::Weld;
         if ((!weld && is(k, "Attachment0")) || (weld && is(k, "Part0"))) { LuaApi::pushInstance(L, n->ref0); return 1; }
@@ -770,6 +960,7 @@ int inst_index(lua_State* L) {
         if (is(k, "Velocity") || is(k, "AssemblyLinearVelocity")) { LuaApi::pushVector3(L, n->velocity); return 1; }
         if (is(k, "RotVelocity") || is(k, "AssemblyAngularVelocity")) { LuaApi::pushVector3(L, n->angularVelocity); return 1; }
         if (is(k, "Density"))    { lua_pushnumber(L, Physics::densityOf(n)); return 1; }   // (water is 1.3)
+        if (is(k, "Mass") || is(k, "AssemblyMass")) { lua_pushnumber(L, massOf(n)); return 1; }
         if (Player::isWater(n)) {   // water parts and FluidVolumes (stored as attributes)
             if (is(k, "FlowVelocity")) { const Attribute* a = n->findAttribute("Flow"); LuaApi::pushVector3(L, a && a->type == Attribute::Vector3 ? a->v : glm::vec3(0.0f)); return 1; }
             if (is(k, "Clarity"))      { lua_pushnumber(L, numAttr(n, "Clarity", std::clamp(0.2f + n->transparency, 0.0f, 1.0f))); return 1; }
@@ -905,6 +1096,7 @@ int inst_newindex(lua_State* L) {
         if (is(k, "WorldPosition")) { setWorldPosition(L, n, LuaApi::checkVector3(L, 3)); return 0; }
     }
     if (n->isGui() && guiNewIndex(L, n, k)) return 0;
+    if (n->isMover() && moverNewIndex(L, n, k)) return 0;
     if (n->isConstraint()) {
         bool weld = n->constraintType == ConstraintType::Weld;
         auto ref = [&](uint64_t& r) {
@@ -1187,6 +1379,9 @@ int inst_new(lua_State* L) {
         n = std::make_unique<SceneNode>(cls, NodeKind::Gui);
         for (int i = 0; i < kGuiTypeCount; ++i) if (cls == kGuiClassNames[i]) n->gui.type = (GuiType)i;
         Guis::setDefaults(*n);
+    } else if (std::find(std::begin(kMoverClassNames), std::end(kMoverClassNames), cls) != std::end(kMoverClassNames)) {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Mover);
+        for (int i = 0; i < kMoverTypeCount; ++i) if (cls == kMoverClassNames[i]) n->mover = moverDefaults((MoverType)i);
     } else if (cls == "Decal") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Decal);
         n->color = {1.0f, 1.0f, 1.0f};
@@ -1584,7 +1779,7 @@ int hum_index(lua_State* L) {
         Player* p = E(L)->scene()->player();
         const bool mine = p && p->rootId() == humRoot(L);
         if (is(k, "Sit")) lua_pushboolean(L, mine && p->sitting());
-        else if (mine && p->sitting()) LuaApi::pushInstance(L, p->seatId());
+        else if (mine && p->seatId()) LuaApi::pushInstance(L, p->seatId());
         else lua_pushnil(L);
         return 1;
     }
@@ -1641,9 +1836,12 @@ int hum_newindex(lua_State* L) {
     else if (is(k, "JumpPower"))  { h.jumpPower = std::max(0.0f, (float)luaL_checknumber(L, 3)); h.useJumpPower = true; }
     else if (is(k, "JumpHeight")) { h.jumpHeight = std::max(0.0f, (float)luaL_checknumber(L, 3)); h.useJumpPower = false; }
     else if (is(k, "UseJumpPower")) h.useJumpPower = lua_toboolean(L, 3);
-    else if (is(k, "Sit")) {   // humanoid.Sit = false gets up off the seat
+    else if (is(k, "Sit")) {   // true: sit down right here (no seat needed); false: get up
         Player* p = E(L)->scene()->player();
-        if (p && p->rootId() == humRoot(L) && !lua_toboolean(L, 3)) p->standUp();
+        if (p && p->rootId() == humRoot(L)) {
+            if (lua_toboolean(L, 3)) p->sitDown();
+            else p->standUp();
+        }
     }
     else if (is(k, "AutoRotate")) h.autoRotate = lua_toboolean(L, 3);
     else if (is(k, "PlatformStand")) h.platformStand = lua_toboolean(L, 3);

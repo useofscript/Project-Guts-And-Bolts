@@ -210,7 +210,8 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
         {"Containers", {"Model", "Folder"}},
         {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal"}},
         {"Water", {"Water", "WaterSource", "FluidVolume", "FluidSystem", "FluidEmitter"}},
-        {"Constraints", {"Attachment"}},
+        {"Constraints", {"Attachment", "LinearVelocity", "AlignPosition", "AlignOrientation", "AngularVelocity", "VectorForce", "Torque"}},
+        {"Body Movers (classic)", {"BodyVelocity", "BodyPosition", "BodyGyro", "BodyAngularVelocity", "BodyThrust", "BodyForce"}},
         {"User Interface", {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel", "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur"}},
         {"Values", {"IntValue", "NumberValue", "StringValue", "BoolValue"}},
     };
@@ -412,6 +413,7 @@ std::string className(const SceneNode& n) {
         case NodeKind::Animation:  return "Animation";
         case NodeKind::FluidSystem:  return "FluidSystem";
         case NodeKind::FluidEmitter: return "FluidEmitter";
+        case NodeKind::Mover:        return kMoverClassNames[(int)n.mover.type];
         case NodeKind::Gui:        return kGuiClassNames[(int)n.gui.type];
         case NodeKind::Constraint: return std::string(kConstraintNames[(int)n.constraintType]) + "Constraint";
         default: return n.name == "SpawnLocation" ? "SpawnLocation" : "Part";

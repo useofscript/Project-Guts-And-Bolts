@@ -1072,6 +1072,20 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     }
     else if (what == "Sound") { m_scene->select(parent); addSound(); }
     else if (what == "Attachment") put(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment));
+    else if (auto mt = std::find(std::begin(kMoverClassNames), std::end(kMoverClassNames), what); mt != std::end(kMoverClassNames)) {
+        // BodyVelocity, AlignPosition...: they go inside the part they push. The newer
+        // ones push through an Attachment, so the part gets one if it hasn't any.
+        auto mv = std::make_unique<SceneNode>(what, NodeKind::Mover);
+        mv->mover = moverDefaults((MoverType)(mt - std::begin(kMoverClassNames)));
+        if (!isBodyMover(mv->mover.type) && parent && parent->isPart()) {
+            SceneNode* att = nullptr;
+            for (auto& c : parent->children) if (c->isAttachment()) { att = c.get(); break; }
+            if (!att) att = m_scene->insert(std::make_unique<SceneNode>("Attachment", NodeKind::Attachment), parent);
+            mv->ref0 = att->id;
+        }
+        if (!parent || !parent->isPart()) Log::warn("Put a " + what + " inside an unanchored part to push it.");
+        put(std::move(mv));
+    }
     else if (what == "FluidSystem") {
         auto f = std::make_unique<SceneNode>("FluidSystem", NodeKind::FluidSystem);
         f->color = {0.12f, 0.56f, 1.0f};
@@ -1173,7 +1187,11 @@ void Editor::renderInsertObject() {
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
-        {"Attachment", Icons::Id::Attachment}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
+        {"Attachment", Icons::Id::Attachment},
+        {"BodyVelocity", Icons::Id::Constraint}, {"BodyPosition", Icons::Id::Constraint}, {"BodyGyro", Icons::Id::Constraint},
+        {"BodyAngularVelocity", Icons::Id::Constraint}, {"BodyThrust", Icons::Id::Constraint}, {"BodyForce", Icons::Id::Constraint},
+        {"LinearVelocity", Icons::Id::Constraint}, {"AlignPosition", Icons::Id::Constraint}, {"AlignOrientation", Icons::Id::Constraint},
+        {"AngularVelocity", Icons::Id::Constraint}, {"VectorForce", Icons::Id::Constraint}, {"Torque", Icons::Id::Constraint}, {"ForceField", Icons::Id::ForceField}, {"Tool", Icons::Id::Tool}, {"Decal", Icons::Id::Decal},
         {"Animation", Icons::Id::Animation}, {"Rig", Icons::Id::Rig},
         {"ScreenGui", Icons::Id::ScreenGui}, {"Frame", Icons::Id::GuiFrame}, {"TextLabel", Icons::Id::GuiText},
         {"TextButton", Icons::Id::GuiButton}, {"ImageLabel", Icons::Id::GuiImage}, {"ImageButton", Icons::Id::GuiButton},

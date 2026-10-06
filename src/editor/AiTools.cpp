@@ -34,6 +34,7 @@ const char* classOf(const SceneNode* n, const SceneNode* root) {
         case NodeKind::Animation:  return "Animation";
         case NodeKind::FluidSystem:  return "FluidSystem";
         case NodeKind::FluidEmitter: return "FluidEmitter";
+        case NodeKind::Mover:        return kMoverClassNames[(int)n->mover.type];
         case NodeKind::Gui:        return kGuiClassNames[(int)n->gui.type];
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";

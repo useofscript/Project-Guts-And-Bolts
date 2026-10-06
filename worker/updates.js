@@ -10,6 +10,19 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'old-faithful', name: 'Old Faithful', time: 1791295000, tag: 'Engine',
+    summary: 'The classic BodyMovers are back next to the newer movers, so old vehicles and flying keep their handling. And you can sit down anywhere.',
+    items: [
+      'Classic BodyMovers: BodyVelocity, BodyPosition, BodyGyro, BodyAngularVelocity, BodyThrust and BodyForce. Put one in an unanchored part',
+      'Newer mover constraints too: LinearVelocity, AlignPosition, AlignOrientation, AngularVelocity, VectorForce and Torque (they push through an Attachment)',
+      'They push the whole welded build, so cars, planes and hoverboards move as one',
+      'They work on characters as well (flying scripts with a BodyVelocity and BodyGyro in the Torso)',
+      'Old games keep working: Roblox files bring their movers in with the right speeds and forces, and old lower-case names like bv.velocity still work',
+      'New part:GetMass() and part.AssemblyMass for working out forces',
+      'Sit anywhere: Humanoid.Sit = true (or type /e sit) sits you down right where you stand, no seat needed. Jump to get up',
+    ],
+  },
+  {
     id: 'frosted-glass', name: 'Frosted Glass', time: 1791290000, tag: 'Engine',
     summary: 'Game UI gets soft drop shadows, a real see-through blur, corners you can round one at a time, and games can use an orthographic camera.',
     items: [

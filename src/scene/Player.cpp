@@ -9,6 +9,7 @@
 #include "../core/Paths.h"
 #include "Serializer.h"
 #include "Animation.h"
+#include "Movers.h"
 #include <fstream>
 #include <sstream>
 #include <nlohmann/json.hpp>
@@ -421,6 +422,7 @@ bool findSpawnLocation(SceneNode* node, glm::vec3& out) {
 
 void Player::beginPlay() {
     m_seatId = 0;   // (off any seat)
+    m_sitHere = m_sitPending = false;
     m_checkpoint = 0;
     m_rest.clear();
     m_debris.clear();
@@ -445,6 +447,7 @@ void Player::endPlay() {
 
 void Player::respawn(bool firstSpawn) {
     m_seatId = 0;   // (off any seat)
+    m_sitHere = m_sitPending = false;
     m_tilt = m_tiltVel = m_tripTime = m_getUp = 0.0f;   // back on your feet
     m_emote.clear();
     m_humanoid.platformStand = false;
@@ -753,7 +756,28 @@ void Player::sit(SceneNode* seat) {
     footsteps(false, glm::vec3(0.0f));
 }
 
+void Player::sitDown() {
+    if (m_dead || sitting() || m_climbing || m_swimming || tripped()) return;
+    SceneNode* r = root();
+    if (!r) return;
+    if (!m_grounded) { m_sitPending = true; return; }
+    m_sitPending = false;
+    m_sitHere = true;
+    m_sitSpot = r->transform.position - glm::vec3(0.0f, m_stepShown, 0.0f);
+    m_velocity = glm::vec3(0.0f);
+    m_emote.clear();
+    footsteps(false, glm::vec3(0.0f));
+}
+
 void Player::standUp(bool jumpOff) {
+    m_sitPending = false;
+    if (m_sitHere) {   // up off the floor
+        m_sitHere = false;
+        if (SceneNode* r = root()) r->transform.position = m_sitSpot;
+        m_grounded = !jumpOff;
+        if (jumpOff) { m_velocity.y = m_humanoid.launchSpeed(m_scene->world().gravity); m_groundId = 0; }
+        return;
+    }
     if (!m_seatId) return;
     SceneNode* r = root();
     SceneNode* seat = m_scene->findById(m_seatId);
@@ -785,6 +809,115 @@ void Player::sitStep(float dt, bool jump) {
     animate(dt, 0.0f, true);
     footsteps(false, glm::vec3(0.0f));
     updateGrip();
+}
+
+void Player::sitHereStep(float dt, bool jump) {
+    SceneNode* r = root();
+    if (!r || jump) { standUp(jump); return; }
+    // Sitting on something that moves (a boat, a train): ride along with it.
+    if (m_groundId)
+        if (SceneNode* g = m_scene->findById(m_groundId)) {
+            const glm::mat4 change = g->worldMatrix() * glm::inverse(m_groundPrevM);
+            m_sitSpot = glm::vec3(change * glm::vec4(m_sitSpot, 1.0f));
+            r->transform.rotation.y += glm::degrees(std::atan2(change[2][0], change[2][2]));
+            m_groundPrevM = g->worldMatrix();
+        }
+    // The hips on the floor, legs out in front (the feet would be under the floor).
+    r->transform.position = m_sitSpot - glm::vec3(0.0f, 0.75f, 0.0f);
+    m_velocity = glm::vec3(0.0f);
+    m_grounded = true;
+    m_groundSpeed = 0.0f;
+    animate(dt, 0.0f, true);
+    footsteps(false, glm::vec3(0.0f));
+    updateGrip();
+}
+
+void Player::characterMovers(float dt) {
+    using namespace Movers;
+    m_gyro = false;
+    SceneNode* r = root();
+    if (!r || dt <= 0.0f) return;
+    std::vector<SceneNode*> movers;
+    float mass = 0.0f;
+    std::vector<SceneNode*> stack{r};
+    while (!stack.empty()) {
+        SceneNode* n = stack.back();
+        stack.pop_back();
+        if (n->isMover() && n->enabled) movers.push_back(n);
+        if (n->isPart()) mass += Physics::densityOf(n) * n->transform.scale.x * n->transform.scale.y * n->transform.scale.z;
+        for (auto& c : n->children) stack.push_back(c.get());
+    }
+    if (movers.empty()) return;
+    const float M = std::max(mass, 0.5f), I = M;   // (a character spins about as easily as it moves)
+    const glm::vec3 feet = r->transform.position;
+    for (SceneNode* mn : movers) {
+        const MoverProps& m = mn->mover;
+        SceneNode* part = mn->parent;
+        SceneNode* att0 = nullptr, *att1 = nullptr;
+        if (!isBodyMover(m.type)) {
+            att0 = mn->ref0 ? m_scene->findById(mn->ref0) : nullptr;
+            att1 = mn->ref1 ? m_scene->findById(mn->ref1) : nullptr;
+            if (att0 && !att0->isAttachment()) att0 = nullptr;
+            if (att1 && !att1->isAttachment()) att1 = nullptr;
+            if (att0) part = att0->parent;
+        }
+        if (!part) continue;
+        const glm::vec3 at = att0 ? glm::vec3(att0->worldMatrix()[3]) : glm::vec3(part->worldMatrix()[3]);
+        const glm::quat rot = att0 ? worldRot(att0) : worldRot(part);
+        const glm::vec3 lift = at - feet;   // (we steer the feet; the mover sits higher up the body)
+        switch (m.type) {
+            case MoverType::BodyForce:   m_velocity += m.value * dt / M; break;
+            case MoverType::BodyThrust:  m_velocity += (worldRot(part) * m.value) * dt / M; break;
+            case MoverType::VectorForce: m_velocity += (m.relativeToAttachment ? rot * m.value : m.value) * dt / M; break;
+            case MoverType::BodyVelocity:
+                m_velocity += clampAxes(m.value - m_velocity, m.maxAxes * dt / M);
+                break;
+            case MoverType::LinearVelocity: {
+                const glm::vec3 want = m.relativeToAttachment ? rot * m.value : m.value;
+                m_velocity += clampLength(want - m_velocity, m.maxForce * dt / M);
+                break;
+            }
+            case MoverType::BodyPosition: {
+                const glm::vec3 x = m.value - at;
+                glm::vec3 dv;
+                for (int i = 0; i < 3; ++i) dv[i] = springDv(x[i], m_velocity[i], m.p, m.d, M, dt);
+                m_velocity += clampAxes(dv, m.maxAxes * dt / M);
+                break;
+            }
+            case MoverType::AlignPosition: {
+                const glm::vec3 target = att1 ? glm::vec3(att1->worldMatrix()[3]) : m.value;
+                glm::vec3 want = (target - at) * (m.rigid ? 0.5f / dt : m.responsiveness);
+                if (m.maxVelocity > 0.0f && !m.rigid) want = clampLength(want, m.maxVelocity);
+                m_velocity += clampLength(want - m_velocity, (m.rigid ? 1e30f : m.maxForce) * dt / M);
+                break;
+            }
+            case MoverType::BodyGyro:
+            case MoverType::AlignOrientation: {
+                // A character stays upright-ish: it turns to face the way the target faces
+                // and leans forward or back with it.
+                const glm::quat target = m.type == MoverType::AlignOrientation && att1 ? worldRot(att1) : eulerQuat(m.rotation);
+                const glm::vec3 f = target * glm::vec3(0.0f, 0.0f, -1.0f);   // (its LookVector)
+                const bool yaw = m.type == MoverType::AlignOrientation || m.maxAxes.y > 0.0f;
+                const bool tilt = m.type == MoverType::AlignOrientation || m.maxAxes.x > 0.0f || m.maxAxes.z > 0.0f;
+                const float rate = std::min(1.0f, dt * (m.type == MoverType::BodyGyro ? std::sqrt(std::max(m.p, 0.0f) / M) : m.responsiveness));
+                if (yaw && f.x * f.x + f.z * f.z > 1e-6f) {
+                    const float want = glm::degrees(std::atan2(f.x, f.z)), cur = r->transform.rotation.y;
+                    r->transform.rotation.y = cur + (std::fmod(want - cur + 540.0f, 360.0f) - 180.0f) * rate;
+                }
+                if (tilt) { m_gyro = true; m_gyroTilt = glm::degrees(std::asin(std::clamp(-f.y, -1.0f, 1.0f))); }
+                break;
+            }
+            case MoverType::BodyAngularVelocity:
+                if (m.maxAxes.y > 0.0f) r->transform.rotation.y += glm::degrees(m.value.y) * dt;
+                break;
+            case MoverType::AngularVelocity:
+                r->transform.rotation.y += glm::degrees((m.relativeToAttachment ? rot * m.value : m.value).y) * dt;
+                break;
+            case MoverType::Torque: break;   // (a character doesn't tumble from a push)
+        }
+        (void)lift;
+    }
+    if (m_velocity.y > 0.0f) m_grounded = false;   // lifted off the ground
 }
 
 bool Player::isWater(const SceneNode* n) {
@@ -834,7 +967,7 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
     const bool knocked = tripped();
     const glm::vec3 moveDir = knocked ? glm::vec3(0.0f) : moveIn;
     const bool jump = knocked ? false : jumpIn;
-    if (knocked && m_seatId) standUp(false);
+    if (knocked && sitting()) standUp(false);
 
     if (m_dead) { updateDeath(dt, physics); return; }
 
@@ -857,6 +990,7 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
     // Sitting: stay on the seat until you jump.
     m_seatCooldown = std::max(0.0f, m_seatCooldown - dt);
     if (m_seatId) { sitStep(dt, jump); if (m_seatId) return; }
+    if (m_sitHere) { sitHereStep(dt, jump); if (m_sitHere) return; }
 
     glm::vec3 pos = r->transform.position;
     // Where the physics really has us: take away the step smoothing we showed last
@@ -995,6 +1129,7 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
         }
         m_velocity.y -= m_scene->world().gravity * dt;
     }
+    characterMovers(dt);
 
     // Wet = slippery: in a stream, or just out of one (the slide is still wet where it went).
     m_wet = std::max(0.0f, m_wet - dt);
@@ -1072,6 +1207,7 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
         trip(1.0f, glm::vec3((m_velocity.x + m_velocity.z >= 0.0f ? 1.0f : -1.0f) * impact * 3.0f, 0, 0));
     m_grounded = res.grounded;
     if (res.grounded && m_velocity.y < 0.0f) m_velocity.y = 0.0f;
+    const bool sitNow = m_sitPending && m_grounded;
     if (res.hitCeiling && m_velocity.y > 0.0f) m_velocity.y = 0.0f;
     m_groundId = res.groundId;
     if (m_groundId)
@@ -1112,6 +1248,8 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
     // Fell off the world.
     if (res.position.y < m_scene->world().fallenPartsHeight) m_humanoid.health = 0.0f;
 
+    if (sitNow) sitDown();   // (Sit = true in the air: down we go on landing)
+
     // Bumped into a free seat (walked into it or landed on it): sit down, like Roblox.
     if (m_seatCooldown <= 0.0f && !m_swimming && !m_climbing && !jump) {
         const AABB body = Physics::characterBox(res.position);
@@ -1133,7 +1271,12 @@ void Player::update(float dt, const glm::vec3& moveIn, bool jumpIn, Physics& phy
     m_groundSpeed = approach(m_groundSpeed, moving ? std::min(moved, m_humanoid.walkSpeed * 2.0f + 2.0f) : 0.0f, 12.0f, dt);
     // Falling over and getting back up. The body turns about the feet (pitch):
     // flung, it spins freely; on the ground it settles flat; then stands back up.
-    if (knocked) {
+    if (m_gyro) {   // a BodyGyro / AlignOrientation holds us at its lean (flying), even PlatformStanding
+        m_tilt = std::remainder(m_tilt, 360.0f);
+        m_tilt += (m_gyroTilt - m_tilt) * std::min(1.0f, dt * 8.0f);
+        m_tiltVel = 0.0f;
+        m_getUp = 0.0f;
+    } else if (knocked) {
         if (m_grounded) m_tripTime = std::max(0.0f, m_tripTime - dt);   // (the clock runs once you've landed)
         if (std::abs(m_tilt) < 1.0f && std::abs(m_tiltVel) < 1.0f) m_tiltVel = 90.0f;   // PlatformStand: topple forward
         m_tilt = std::remainder(m_tilt, 360.0f);
@@ -1262,9 +1405,14 @@ bool Player::playEmote(const std::string& name) {
     std::string e = name;
     for (char& c : e) c = (char)std::tolower((unsigned char)c);
     if (e == "dance1") e = "dance";
+    if (e == "sit") {   // sit down right here (like Humanoid.Sit = true)
+        if (m_dead || sitting() || m_climbing || m_swimming || tripped() || !m_grounded) return false;
+        sitDown();
+        return true;
+    }
     if (e != "dance" && e != "dance2" && e != "dance3" && e != "laugh" && e != "cheer" && e != "wave" && e != "point")
         return false;
-    if (m_dead || m_seatId || m_climbing || m_swimming || tripped() || !m_grounded) return false;
+    if (m_dead || sitting() || m_climbing || m_swimming || tripped() || !m_grounded) return false;
     m_emote = e;
     m_emoteTime = 0.0f;
     return true;
@@ -1275,7 +1423,7 @@ void Player::trip(float seconds, const glm::vec3& spin) {
     m_tripTime = std::max(0.0f, seconds);
     if (seconds > 0.0f) {
         m_emote.clear();
-        if (m_seatId) standUp(false);
+        if (sitting()) standUp(false);
         m_tiltVel += spin.x;   // (pitch, degrees / second)
         if (std::abs(m_tiltVel) < 60.0f) m_tiltVel = m_tiltVel < 0.0f ? -120.0f : 120.0f;
     }
@@ -1286,7 +1434,7 @@ const char* Player::stateName() const {
     if (m_humanoid.platformStand) return "PlatformStanding";
     if (m_tripTime > 0.0f) return "FallingDown";
     if (m_getUp > 0.0f) return "GettingUp";
-    if (m_seatId) return "Seated";
+    if (sitting()) return "Seated";
     if (m_climbing) return "Climbing";
     if (m_swimming) return "Swimming";
     if (!m_grounded) return m_velocity.y > 0.0f ? "Jumping" : "Freefall";
@@ -1363,14 +1511,14 @@ void Player::animate(float dt, float groundSpeed, bool grounded) {
     if (!m_emote.empty()) {
         m_emoteTime += dt;
         const float len = emoteLength(m_emote);
-        if (groundSpeed > 0.5f || !grounded || m_seatId || m_climbing || m_swimming || tripped() || (len > 0.0f && m_emoteTime > len))
+        if (groundSpeed > 0.5f || !grounded || sitting() || m_climbing || m_swimming || tripped() || (len > 0.0f && m_emoteTime > len))
             m_emote.clear();
     }
     m_emoteBlend = approach(m_emoteBlend, m_emote.empty() ? 0.0f : 1.0f, 10.0f, dt);
 
     // Which animation this is (the names in the Animate script).
     const char* state = "idle";
-    if (m_seatId) state = "sit";
+    if (sitting()) state = "sit";
     else if (m_climbing) state = "climb";
     else if (m_swimming) state = "swim";
     else if (!grounded) state = m_velocity.y > 0.0f && m_airTime < 0.6f ? "jump" : "fall";
@@ -1416,7 +1564,7 @@ void Player::animate(float dt, float groundSpeed, bool grounded) {
         pose[i].out *= k;
     }
     // Sitting: legs straight out in front, arms resting forward (the classic sit).
-    m_sitBlend = approach(m_sitBlend, m_seatId ? 1.0f : 0.0f, 14.0f, dt);
+    m_sitBlend = approach(m_sitBlend, sitting() ? 1.0f : 0.0f, 14.0f, dt);
     const BodyPose sitPose = {{{-45.0f, 0.0f}, m_holdBlend > 0.5f ? pose[1] : LimbPose{-45.0f, 0.0f}, {-90.0f, 0.0f}, {-90.0f, 0.0f}}};
     pose = mix(pose, sitPose, m_sitBlend);
     // Emotes.
@@ -1461,6 +1609,7 @@ void Player::animate(float dt, float groundSpeed, bool grounded) {
 
 void Player::startDeath() {
     m_seatId = 0;   // (off any seat)
+    m_sitHere = m_sitPending = false;
     SceneNode* r = root();
     if (!r) return;
     equip(0);   // the tool goes back in the backpack (it'd get in the ragdoll's way)

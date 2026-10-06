@@ -528,7 +528,7 @@ void PlayerApp::sendChat(const std::string& text) {
         while (!name.empty() && name.back() == ' ') name.pop_back();
         Player* p = m_scene->player();
         if (!p || !p->playEmote(name))
-            chat().add("", "Emotes: /e dance, /e dance2, /e dance3, /e laugh, /e cheer, /e wave, /e point "
+            chat().add("", "Emotes: /e dance, /e dance2, /e dance3, /e laugh, /e cheer, /e wave, /e point, /e sit "
                            "(stand still on the ground first).", true);
         return;
     }

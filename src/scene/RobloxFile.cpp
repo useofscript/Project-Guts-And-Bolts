@@ -35,6 +35,14 @@ namespace {
 constexpr float kImportScale = 0.5f;          // Roblox characters are twice our size
 constexpr float kExportScale = 1.0f / kImportScale;
 constexpr float kRobloxGravity = 196.2f;
+// Movers (BodyVelocity, AlignPosition...) in Roblox numbers -> ours. Our world is half
+// the size with gentler gravity (22 vs 196.2), so speeds, spins and forces all shrink.
+// Plastic is 0.7 heavy in Roblox and 1 here.
+constexpr float kAccelScale  = 22.0f / kRobloxGravity;
+const float     kVelScale    = std::sqrt(kImportScale * kAccelScale);   // studs / second
+const float     kSpinScale   = kVelScale / kImportScale;                 // radians / second (and 1 / seconds)
+constexpr float kForceScale  = kImportScale * kImportScale * kImportScale / 0.7f * kAccelScale;
+constexpr float kTorqueScale = kForceScale * kImportScale;
 
 std::string lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
@@ -962,6 +970,87 @@ struct Converter {
             node->visible = in.flag("Visible", c == "RopeConstraint" || c == "RodConstraint" || c == "SpringConstraint");
             node->color = {0.45f, 0.32f, 0.2f};
             ++report.constraints;
+        } else if (auto mt = std::find(std::begin(kMoverClassNames), std::end(kMoverClassNames), c); mt != std::end(kMoverClassNames)) {
+            // BodyVelocity, BodyGyro... and LinearVelocity, AlignPosition...: classic games'
+            // vehicles and flying keep working. (Roblox's numbers are turned into ours.)
+            node = std::make_unique<SceneNode>(name, NodeKind::Mover);
+            const MoverType t = (MoverType)(mt - std::begin(kMoverClassNames));
+            node->mover = moverDefaults(t);
+            MoverProps& m = node->mover;
+            auto v3 = [&](const char* k, glm::vec3 fb) {
+                const Value* v = in.get(k);
+                return v && v->kind == Value::Vec3 ? v->v : fb;
+            };
+            auto big = [](float v) { return std::isfinite(v) ? std::clamp(v, -1e30f, 1e30f) : (v > 0 ? 1e30f : -1e30f); };
+            auto big3 = [&](glm::vec3 v) { for (int i = 0; i < 3; ++i) v[i] = big(v[i]); return v; };
+            auto turn = [&](const char* k) {
+                glm::vec3 deg(0.0f);
+                if (const Value* v = in.get(k); v && v->kind == Value::CFrame) {
+                    float z, y, x;
+                    glm::extractEulerAngleZYX(glm::mat4(v->r), z, y, x);
+                    deg = glm::degrees(glm::vec3(x, y, z));
+                }
+                return deg;
+            };
+            const float rbxMaxF = (float)in.num("MaxForce", 0.0);
+            switch (t) {
+                case MoverType::BodyVelocity:
+                    m.value = v3("Velocity", glm::vec3(0, 2, 0)) * kVelScale;
+                    m.maxAxes = big3(v3("MaxForce", glm::vec3(4000)) * kForceScale);
+                    break;
+                case MoverType::BodyPosition:
+                    m.value = v3("Position", glm::vec3(0, 50, 0)) * kImportScale;
+                    m.maxAxes = big3(v3("MaxForce", glm::vec3(4000)) * kForceScale);
+                    m.p = big((float)in.num("P", 10000.0) * kForceScale / kImportScale);
+                    m.d = big((float)in.num("D", 1250.0) * kForceScale / kVelScale);
+                    break;
+                case MoverType::BodyGyro:
+                    m.rotation = turn("CFrame");
+                    m.maxAxes = big3(v3("MaxTorque", glm::vec3(400000, 0, 400000)) * kTorqueScale);
+                    m.p = big((float)in.num("P", 3000.0) * kTorqueScale);
+                    m.d = big((float)in.num("D", 500.0) * kTorqueScale / kSpinScale);
+                    break;
+                case MoverType::BodyAngularVelocity:
+                    m.value = v3("AngularVelocity", glm::vec3(0, 2, 0)) * kSpinScale;
+                    m.maxAxes = big3(v3("MaxTorque", glm::vec3(4000)) * kTorqueScale);
+                    break;
+                case MoverType::BodyThrust:
+                    m.value = v3("Force", glm::vec3(0)) * kForceScale;
+                    m.location = v3("Location", glm::vec3(0)) * kImportScale;
+                    break;
+                case MoverType::BodyForce:
+                case MoverType::VectorForce:
+                    m.value = v3("Force", t == MoverType::VectorForce ? glm::vec3(1000, 0, 0) : glm::vec3(0)) * kForceScale;
+                    m.atCenterOfMass = in.flag("ApplyAtCenterOfMass", false);
+                    break;
+                case MoverType::Torque:
+                    m.value = v3("Torque", glm::vec3(1000, 0, 0)) * kTorqueScale;
+                    break;
+                case MoverType::LinearVelocity:
+                    m.value = v3("VectorVelocity", glm::vec3(0)) * kVelScale;
+                    m.maxForce = big((rbxMaxF > 0 ? rbxMaxF : 1000.0f) * kForceScale);
+                    break;
+                case MoverType::AngularVelocity:
+                    m.value = v3("AngularVelocity", glm::vec3(0)) * kSpinScale;
+                    m.maxForce = big((float)in.num("MaxTorque", 1000.0) * kTorqueScale);
+                    break;
+                case MoverType::AlignPosition:
+                case MoverType::AlignOrientation: {
+                    const bool pos = t == MoverType::AlignPosition;
+                    if (pos) m.value = v3("Position", glm::vec3(0)) * kImportScale;
+                    else m.rotation = turn("CFrame");
+                    m.maxForce = big(pos ? (rbxMaxF > 0 ? rbxMaxF : 10000.0f) * kForceScale : (float)in.num("MaxTorque", 10000.0) * kTorqueScale);
+                    const float mv = big((float)in.num(pos ? "MaxVelocity" : "MaxAngularVelocity", 1e30));
+                    m.maxVelocity = mv >= 1e29f ? 0.0f : mv * (pos ? kVelScale : kSpinScale);
+                    m.responsiveness = (float)in.num("Responsiveness", 10.0) * kSpinScale;
+                    m.rigid = in.flag("RigidityEnabled", false);
+                    break;
+                }
+            }
+            if (!isBodyMover(t) && t != MoverType::AlignPosition && t != MoverType::AlignOrientation)   // RelativeTo: 0 Attachment0, 1 Attachment1, 2 World
+                m.relativeToAttachment = (int)in.num("RelativeTo", t == MoverType::VectorForce || t == MoverType::Torque ? 0 : 2) != 2;
+            node->enabled = in.flag("Enabled", true);
+            ++report.constraints;
         } else if (c == "PathfindingModifier") {
             // Becomes attributes on its part, which the navmesh reads the same way.
             if (parent) {
@@ -1039,7 +1128,7 @@ struct Converter {
         std::unordered_map<int64_t, SceneNode*> byRef;
         for (auto& [inst, node] : made) byRef[inst->referent] = node;
         for (auto& [inst, node] : made) {
-            if (!node->isConstraint()) continue;
+            if (!node->isConstraint() && !node->isMover()) continue;
             auto ref = [&](const char* a, const char* b) -> uint64_t {
                 const Value* v = inst->get(a);
                 if (!v) v = inst->get(b);
@@ -1047,7 +1136,10 @@ struct Converter {
                 auto it = byRef.find(v->ref);
                 return it == byRef.end() ? 0 : it->second->id;
             };
-            if (node->constraintType == ConstraintType::Weld) { node->ref0 = ref("Part0", "part0"); node->ref1 = ref("Part1", "part1"); }
+            if (node->isMover()) {
+                node->ref0 = ref("Attachment0", "attachment0");
+                node->ref1 = (int)inst->num("Mode", 1) == 0 ? 0 : ref("Attachment1", "attachment1");   // (OneAttachment: no Attachment1)
+            } else if (node->constraintType == ConstraintType::Weld) { node->ref0 = ref("Part0", "part0"); node->ref1 = ref("Part1", "part1"); }
             else { node->ref0 = ref("Attachment0", "attachment0"); node->ref1 = ref("Attachment1", "attachment1"); }
         }
         (void)doc;
@@ -1174,6 +1266,7 @@ struct XmlWriter {
             case NodeKind::Decal:      cls = "Decal"; break;
             case NodeKind::Animation:  cls = nullptr; break;   // (Roblox keeps animations online)
             case NodeKind::FluidSystem: case NodeKind::FluidEmitter: cls = nullptr; break;   // (Guts&Bolts only)
+            case NodeKind::Mover:      cls = kMoverClassNames[(int)n.mover.type]; break;
             case NodeKind::Gui:        cls = kGuiClassNames[(int)n.gui.type]; break;
             case NodeKind::Value:
                 cls = n.value.type == Attribute::Vector3 || n.value.type == Attribute::Color3 ? nullptr : n.valueClass();
@@ -1304,6 +1397,54 @@ struct XmlWriter {
             glm::mat4 r = glm::eulerAngleZYX(glm::radians(n.transform.rotation.z), glm::radians(n.transform.rotation.y),
                                              glm::radians(n.transform.rotation.x));
             cframe("CFrame", n.transform.position * psize * kExportScale, glm::mat3(r));
+            break;
+        }
+        case NodeKind::Mover: {
+            const MoverProps& m = n.mover;
+            const MoverType t = m.type;
+            auto turn = [&](const char* k) {
+                const glm::mat4 r = glm::eulerAngleZYX(glm::radians(m.rotation.z), glm::radians(m.rotation.y), glm::radians(m.rotation.x));
+                cframe(k, glm::vec3(0.0f), glm::mat3(r));
+            };
+            switch (t) {
+                case MoverType::BodyVelocity:
+                    vec3("Velocity", m.value / kVelScale); vec3("MaxForce", m.maxAxes / kForceScale); flt("P", m.p); break;
+                case MoverType::BodyPosition:
+                    vec3("Position", m.value * kExportScale); vec3("MaxForce", m.maxAxes / kForceScale);
+                    flt("P", m.p * kImportScale / kForceScale); flt("D", m.d * kVelScale / kForceScale); break;
+                case MoverType::BodyGyro:
+                    turn("CFrame"); vec3("MaxTorque", m.maxAxes / kTorqueScale);
+                    flt("P", m.p / kTorqueScale); flt("D", m.d * kSpinScale / kTorqueScale); break;
+                case MoverType::BodyAngularVelocity:
+                    vec3("AngularVelocity", m.value / kSpinScale); vec3("MaxTorque", m.maxAxes / kTorqueScale); flt("P", m.p); break;
+                case MoverType::BodyThrust:
+                    vec3("Force", m.value / kForceScale); vec3("Location", m.location * kExportScale); break;
+                case MoverType::BodyForce:
+                case MoverType::VectorForce:
+                    vec3("Force", m.value / kForceScale);
+                    if (t == MoverType::VectorForce) boolean("ApplyAtCenterOfMass", m.atCenterOfMass);
+                    break;
+                case MoverType::Torque: vec3("Torque", m.value / kTorqueScale); break;
+                case MoverType::LinearVelocity: vec3("VectorVelocity", m.value / kVelScale); flt("MaxForce", m.maxForce / kForceScale); break;
+                case MoverType::AngularVelocity: vec3("AngularVelocity", m.value / kSpinScale); flt("MaxTorque", m.maxForce / kTorqueScale); break;
+                case MoverType::AlignPosition:
+                case MoverType::AlignOrientation: {
+                    const bool pos = t == MoverType::AlignPosition;
+                    if (pos) { vec3("Position", m.value * kExportScale); flt("MaxForce", m.maxForce / kForceScale); }
+                    else { turn("CFrame"); flt("MaxTorque", m.maxForce / kTorqueScale); }
+                    if (m.maxVelocity > 0) flt(pos ? "MaxVelocity" : "MaxAngularVelocity", m.maxVelocity / (pos ? kVelScale : kSpinScale));
+                    flt("Responsiveness", m.responsiveness / kSpinScale);
+                    boolean("RigidityEnabled", m.rigid);
+                    token("Mode", n.ref1 ? 1 : 0);
+                    break;
+                }
+            }
+            if (!isBodyMover(t)) {
+                refProp("Attachment0", n.ref0);
+                refProp("Attachment1", n.ref1);
+                boolean("Enabled", n.enabled);
+                if (t != MoverType::AlignPosition && t != MoverType::AlignOrientation) token("RelativeTo", m.relativeToAttachment ? 0 : 2);
+            }
             break;
         }
         case NodeKind::Constraint:
