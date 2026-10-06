@@ -109,6 +109,9 @@ const kMaxInbox = 100, kMaxSent = 50, kMessagesPerDay = 40;
 // Classic profiles: an "About me" blurb, a "Right now I'm..." status (the last few
 // make up your friends' My Feed), and player badges earned by doing things.
 const kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10, kStatusesPerDay = 30;
+// Blocking and reports (ServerSafety.cpp has the same).
+const kMaxBlocked = 200, kReportsPerDay = 20, kMaxReports = 3000;
+const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group'];
 // Player badges (ServerSocial.cpp has the same list): earned automatically, checked
 // whenever a profile is looked at. `need` says how to get one.
 const PLAYER_BADGES = [
@@ -387,7 +390,7 @@ export class GbServerObject extends DurableObject {
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map();
     // What changed and needs writing (set up first: loading can already change things).
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
     for (const r of this.sql.exec('SELECT id, data FROM assets')) {
       const a = JSON.parse(r.data);
@@ -397,6 +400,7 @@ export class GbServerObject extends DurableObject {
     for (const r of this.sql.exec('SELECT id, data FROM groups')) this.groups.set(r.id, JSON.parse(r.data));
     this.trades = this.getMeta('trades', []);   // trade offers between players (limited items)
     this.posted = this.getMeta('updates', []);  // updates staff posted on the website (the rest are in updates.js)
+    this.reports = this.getMeta('reports', []);  // what players reported, for staff to look at (newest last)
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
     this.nextAssetNum = Math.max(1, ids.asset || 1);
@@ -462,7 +466,16 @@ export class GbServerObject extends DurableObject {
     }
     if (this.dirty.updates)
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'updates', JSON.stringify(this.posted));
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false };
+    if (this.dirty.reports) {
+      // Keep every open report, and only the newest closed ones.
+      if (this.reports.length > kMaxReports) {
+        const extra = this.reports.length - kMaxReports;
+        let dropped = 0;
+        this.reports = this.reports.filter((x) => x.status === 'open' || dropped++ >= extra);
+      }
+      this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'reports', JSON.stringify(this.reports));
+    }
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false };
   }
   // --- Limited items: numbered copies (a.copies = [{ serial, owner, price }]) ---
   copiesOf(u) {   // every limited copy this account holds
@@ -588,10 +601,14 @@ export class GbServerObject extends DurableObject {
     if (setting === 'everyone') return true;
     return setting === 'friends' && !!viewer && u.friends.includes(viewer.id);
   }
+  // Has either of them blocked the other? (Then they can't message, friend, follow, trade or join each other.)
+  blocks(a, b) {
+    return !!a && !!b && a.id !== b.id && ((a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id));
+  }
   // What `viewer` may know about where `u` is: { online, playing: {game, title, session (null = can't join)} }.
   presence(viewer, u) {
     const pv = this.privacyOf(u);
-    if (!this.allows(pv.status, viewer, u)) return { online: false, playing: null };
+    if (!this.allows(pv.status, viewer, u) || this.blocks(viewer, u)) return { online: false, playing: null };
     const s = this.sessionOf(u.id);
     const g = s && this.assets.get(s.game);
     const playing = s ? { game: s.game, title: s.title || (g ? g.name : 'a game'), private: s.priv,
@@ -912,7 +929,7 @@ export class GbServerObject extends DurableObject {
       }).filter(Boolean).reverse();
       return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
         followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
-        isFollowing: (me.following || []).includes(u.id),
+        isFollowing: (me.following || []).includes(u.id), blocked: (me.blocked || []).includes(u.id),
         online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges,
         blurb: u.blurb || '', status: (u.posts || [])[0] || null, playerBadges: this.playerBadgesOf(u), allPlayerBadges: PLAYER_BADGES });
     }
@@ -952,6 +969,7 @@ export class GbServerObject extends DurableObject {
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
     if (name.startsWith('data.')) return this.dataOp(name, me, args);
     if (name.startsWith('updates.')) return this.updateOp(name, me, args);
+    if (name.startsWith('block.') || name.startsWith('report.')) return this.safetyOp(name, me, args);
     // "I'm still here" (for friends' online dots); the answer keeps your account fresh
     // (a new warning, or Bolts someone sent you, shows up within a minute).
     if (name === 'ping') return okay({ me: this.meJson(me) });
@@ -1077,7 +1095,7 @@ export class GbServerObject extends DurableObject {
       const feed = [];
       for (const id of ids) {
         const u = this.users.get(id);
-        if (!u || u.banned) continue;
+        if (!u || u.banned || this.blocks(me, u)) continue;
         for (const post of (u.posts || []).slice(0, 5))
           feed.push({ text: post.text, at: post.at, user: { id: u.id, userId: u.userId, name: u.name, verified: this.isVerified(u), avatar: u.avatar || null } });
       }
@@ -1155,7 +1173,7 @@ export class GbServerObject extends DurableObject {
       const them = /^#?[0-9]+$/.test(want) ? this.findUserId(Number(want.replace('#', ''))) : this.findPerson(want);
       if (!them || them.userId === 0) return fail('There\'s no account with that ID on this server.');
       if (them.id === me.id) return fail('You can\'t send a message to yourself.');
-      if (them.banned) return fail('You can\'t send messages to that account.');
+      if (them.banned || this.blocks(me, them)) return fail('You can\'t send messages to that account.');
       if (!this.allows(this.privacyOf(them).messages, me, them)) {
         return fail(this.privacyOf(them).messages === 'friends' ? them.name + ' only gets messages from friends.' : them.name + ' doesn\'t get messages.');
       }
@@ -1263,6 +1281,20 @@ export class GbServerObject extends DurableObject {
           if (!q || u.userId === num || lower(u.name).includes(q) || u.id.startsWith(q)) list.push(this.publicUser(u));
         }
         return okay({ users: list });
+      }
+      if (name === 'admin.reports') return okay({ reports: this.reportsJson(str(args, 'status') === 'closed' ? 'closed' : 'open') });
+      if (name === 'admin.closeReport') {
+        // Staff looked at it: "done" (they did something, like a ban or a warning) or "dismissed" (nothing wrong).
+        const outcome = str(args, 'outcome') === 'dismissed' ? 'dismissed' : 'done';
+        const r = this.reports.find((x) => x.id === str(args, 'id'));
+        if (!r) return fail('That report isn\'t there any more.');
+        // Close the other open reports about the same thing too.
+        for (const x of this.reports)
+          if (x.status === 'open' && x.kind === r.kind && x.target === r.target) {
+            x.status = 'closed'; x.outcome = outcome; x.closedBy = me.id; x.closedAt = now();
+          }
+        this.dirty.reports = true;
+        return okay({ reports: this.reportsJson('open') });
       }
       if (!to) return fail('There\'s no account with that ID on this server.');
       if (name === 'admin.grant') {
@@ -1747,6 +1779,7 @@ export class GbServerObject extends DurableObject {
       const to = this.findPerson(args.to);
       if (!to || to.userId === 0) return fail('There\'s no account with that ID on this server.');
       if (to.id === me.id) return fail('You can\'t trade with yourself.');
+      if (this.blocks(me, to)) return fail('You can\'t trade with that account.');
       const pick = (list) => (Array.isArray(list) ? list : []).slice(0, 4).map((x) => ({ id: String(x && x.id || ''), serial: Number(x && x.serial) | 0 }));
       const give = pick(args.give), get = pick(args.get);
       if (!give.length || !get.length) return fail('Pick at least one of your limiteds and one of theirs.');
@@ -2067,7 +2100,7 @@ export class GbServerObject extends DurableObject {
       if (them.id === me.id) return fail('You can\'t follow yourself.');
       const i = following.indexOf(them.id), j = followers.indexOf(me.id);
       if (name === 'follow.add') {
-        if (them.banned) return fail('You can\'t follow that account.');
+        if (them.banned || this.blocks(me, them)) return fail('You can\'t follow that account.');
         if (i < 0 && following.length >= kMaxFollowing) return fail('You already follow ' + kMaxFollowing + ' people.');
         if (i < 0) following.push(them.id);
         if (j < 0) followers.push(me.id);
@@ -2093,7 +2126,7 @@ export class GbServerObject extends DurableObject {
     if (name === 'friends.add') {
       if (me.friends.includes(them.id)) return okay({ status: 'friends' });
       if (me.friendIn.includes(them.id)) return becomeFriends();
-      if (them.banned) return fail('You can\'t add that account.');
+      if (them.banned || this.blocks(me, them)) return fail('You can\'t add that account.');
       if (me.friendOut.length >= kMaxRequests) return fail('You have too many friend requests waiting. Cancel some first.');
       if (them.friendIn.length >= kMaxRequests) return fail(them.name + ' has too many friend requests waiting.');
       addTo(me.friendOut, them.id); addTo(them.friendIn, me.id);
@@ -2111,6 +2144,99 @@ export class GbServerObject extends DurableObject {
       return okay({ status: 'none' });
     }
     return fail('Unknown request.');
+  }
+
+  // --- Blocking and reports (ServerSafety.cpp has the same) ---
+  safetyOp(name, me, args) {
+    if (me.userId === 0) return fail('Sign up first.');
+    const today = utcDay(now());
+    const blocked = me.blocked || (me.blocked = []);
+    if (name === 'block.list') {
+      return okay({ people: blocked.map((id) => this.users.get(id)).filter(Boolean).map((u) => this.publicUser(u)) });
+    }
+    if (name === 'block.add' || name === 'block.remove') {
+      const them = this.findPerson(args.user);
+      if (!them || them.userId === 0) return fail('There\'s no account with that ID on this server.');
+      if (them.id === me.id) return fail('You can\'t block yourself.');
+      if (name === 'block.remove') {
+        me.blocked = blocked.filter((id) => id !== them.id);
+        this.saveUser(me);
+        return okay({ blocked: false });
+      }
+      if (this.isStaff(them)) return fail('You can\'t block Guts&Bolts staff. Report them instead if something\'s wrong.');
+      if (!blocked.includes(them.id)) {
+        if (blocked.length >= kMaxBlocked) return fail('You\'ve blocked ' + kMaxBlocked + ' people already. Unblock some first.');
+        blocked.push(them.id);
+      }
+      // Blocking ends everything between you: friends, requests, follows, open trades, and their messages to you.
+      const drop = (list, id) => { const i = (list || []).indexOf(id); if (i >= 0) list.splice(i, 1); };
+      for (const [a, b] of [[me, them], [them, me]]) {
+        drop(a.friends, b.id); drop(a.friendIn, b.id); drop(a.friendOut, b.id); drop(a.following, b.id); drop(a.followers, b.id);
+      }
+      me.inbox = (me.inbox || []).filter((m) => m.from !== them.id);
+      for (const x of this.trades)
+        if (x.status === 'open' && ((x.from === me.id && x.to === them.id) || (x.from === them.id && x.to === me.id))) {
+          x.status = 'cancelled'; x.updated = now(); this.dirty.trades = true;
+        }
+      this.saveUser(me, them);
+      return okay({ blocked: true, me: this.meJson(me) });
+    }
+    if (name === 'report.send') {
+      // kind: user, game, item, message (one in your inbox) or group; id: which one.
+      const kind = str(args, 'kind'), id = str(args, 'id');
+      if (!REPORT_KINDS.includes(kind)) return fail('You can\'t report that.');
+      const reason = str(args, 'reason');
+      if (!BAN_REASONS[reason]) return fail('Pick what\'s wrong.');
+      const note = cleanText(str(args, 'note'), 500, true);
+      let target = '', about = '', copy = null;
+      if (kind === 'user') {
+        const u = this.findPerson(id);
+        if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
+        if (u.id === me.id) return fail('You can\'t report yourself.');
+        target = u.id; about = u.id;
+      } else if (kind === 'game' || kind === 'item') {
+        const a = this.assets.get(id);
+        if (!a || (kind === 'game') !== (a.kind === 'game')) return fail('That isn\'t there any more.');
+        target = a.id; about = a.creator;
+      } else if (kind === 'message') {
+        const m = (me.inbox || []).find((x) => x.id === id);
+        if (!m) return fail('That message isn\'t in your inbox any more.');
+        // Staff see a copy: the sender can't delete it from here.
+        target = m.id; about = m.from; copy = { subject: m.subject, body: m.body, at: m.at };
+      } else {
+        const g = this.groups.get(id);
+        if (!g) return fail('That group isn\'t there any more.');
+        target = g.id; about = g.owner;
+      }
+      if (me.reportDay !== today) { me.reportDay = today; me.reportsToday = 0; }
+      const again = this.reports.find((x) => x.status === 'open' && x.from === me.id && x.kind === kind && x.target === target);
+      if (again) {   // reporting the same thing twice just updates it
+        again.reason = reason; again.note = note || again.note; again.at = now();
+      } else {
+        if (me.reportsToday >= kReportsPerDay) return fail('That\'s ' + kReportsPerDay + ' reports today. Staff will look at them; try again tomorrow.');
+        me.reportsToday = (me.reportsToday || 0) + 1;
+        this.reports.push({ id: 'rp-' + randomHex(6), from: me.id, kind, target, about, reason, note, copy, at: now(), status: 'open' });
+        this.saveUser(me);
+      }
+      this.dirty.reports = true;
+      return okay();
+    }
+    return fail('Unknown request.');
+  }
+  // Reports for the Staff page, with names filled in. Open: oldest first (first come, first served).
+  reportsJson(status) {
+    const who = (id) => { const u = this.users.get(id); return u ? this.publicUser(u) : { id, name: '?', userId: 0 }; };
+    const list = this.reports.filter((x) => x.status === status);
+    const shown = status === 'open' ? list.slice(0, 100) : list.slice(-100).reverse();
+    return shown.map((x) => {
+      const r = { id: x.id, kind: x.kind, target: x.target, reason: x.reason, note: x.note || '', at: x.at, status: x.status,
+        from: who(x.from), about: x.about ? who(x.about) : null, copy: x.copy || null,
+        reports: list.filter((y) => y.kind === x.kind && y.target === x.target).length };
+      if (x.kind === 'game' || x.kind === 'item') { const a = this.assets.get(x.target); r.name = a ? a.name : '(deleted)'; r.assetKind = a ? a.kind : ''; }
+      if (x.kind === 'group') { const g = this.groups.get(x.target); r.name = g ? g.name : '(deleted)'; }
+      if (x.status === 'closed') { r.outcome = x.outcome; r.closedBy = who(x.closedBy); r.closedAt = x.closedAt; }
+      return r;
+    });
   }
 
   groupOp(name, me, args) {

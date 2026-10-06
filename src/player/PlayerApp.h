@@ -212,6 +212,19 @@ private:
     void drawAccount();
     void drawNotice();
     void padCamera(float dt);   // a controller's right stick / D-pad
+    // Reporting and blocking — PlayerSafety.cpp
+    bool canReport() const;   // signed up and online (guests can't report or block)
+    void openReport(const std::string& kind, const std::string& id, const std::string& name, const std::string& blockUser = "");
+    void drawReportDialog();
+    void setBlocked(const std::string& user, bool on);
+    void drawBlockedList();   // Avatar > Your account
+    void drawReportsBox();    // the Staff page
+    std::string    m_reportKind, m_reportId, m_reportName, m_reportBlockUser, m_reportNote, m_reportMsg;
+    int            m_reportReason = 0;
+    bool           m_reportWanted = false, m_reportAlsoBlock = false, m_reportsClosed = false;
+    nlohmann::json m_blocked = nlohmann::json::array(), m_reports = nlohmann::json::array();
+    double         m_blockedAt = -100.0, m_reportsAt = -100.0;
+    bool           m_noticePlain = false;   // the notice is just a message (no "Copy my account ID")
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
 
     // Sign up / log in — PlayerLogin.cpp

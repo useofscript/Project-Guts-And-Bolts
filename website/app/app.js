@@ -308,6 +308,14 @@ const BAN_REASONS = [
   ['spam', 'Spam'], ['impersonation', 'Impersonation'], ['inappropriate', 'Inappropriate content'],
   ['underage', 'Underage safety violation'], ['other', 'Breaking the rules'],
 ];
+// What players pick from when they report something (the same keys, in plainer words).
+const REPORT_REASONS = [
+  ['harassment', 'Bullying or harassment'], ['hate', 'Hate speech'], ['threats', 'Threats'], ['scam', 'Scam or phishing'],
+  ['personal', 'Sharing personal info'], ['sexual', 'Sexual content'], ['extremism', 'Violent extremism'],
+  ['selfharm', 'Encouraging self-harm'], ['exploit', 'Cheating or exploiting'], ['spam', 'Spam'],
+  ['impersonation', 'Pretending to be someone else'], ['inappropriate', 'Inappropriate content'],
+  ['underage', 'Someone under 18'], ['other', 'Something else'],
+];
 
 // A classic white popup over a dark page. `body` is html``; returns the box.
 function popup(body, cls = '') {
@@ -365,7 +373,11 @@ const NEEDS_ACCOUNT = {
   friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
   favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages', statusSet: 'post a status', blurbSet: 'edit your profile',
+  report: 'report things to staff', block: 'block people',
 };
+
+// A small "Report" link for anything people can report (the server takes user, game, item, message and group).
+const reportLink = (kind, id, name) => html`<a href="#" class="report-link small" data-act="report" data-kind="${kind}" data-id="${id}" data-name="${name}">Report</a>`;
 
 function needSignIn(what) {
   return html`<div class="box info">You need to be signed in to ${what}.
@@ -871,7 +883,8 @@ pages.library = async (id = '') => {
   show(html`<p><a href="#/create/library?cat=${a.kind}">&lt; Library</a></p>
     <div class="item-page">
       <h1 class="item-title">${a.name}</h1>
-      <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind] || a.kind}${a.access === 'private' ? ' / Private' : ''}</div>
+      <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind] || a.kind}${a.access === 'private' ? ' / Private' : ''}
+        ${canDelete ? '' : html` · ${reportLink('item', a.id, a.name)}`}</div>
       <div class="item-cols asset-cols">
         <div class="item-pic">
           <div class="pic" id="assetPic">${a.kind === 'decal' ? html`<span class="muted">Loading...</span>`
@@ -1006,7 +1019,7 @@ pages.game = async (id) => {
         <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
         ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>
           <button class="btn" data-act="editInStudio" data-id="${g.id}" data-name="${g.name}">Edit in Studio</button>` : ''}
-        <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).</p></div></div>
+        <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).${mine ? '' : html` ${reportLink('game', g.id, g.name)}`}</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
         ${gameBadgeIcon(b, 44)}<span class="grow"><b>${b.name}</b><br><span class="small muted">${b.description || ''}</span></span>
@@ -1073,7 +1086,8 @@ pages.item = async (id) => {
   show(html`<p><a href="#/catalog">&lt; Catalog</a></p>
     <div class="item-page">
       <h1 class="item-title">${a.name}</h1>
-      <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind]}${L ? ' / Collectible Item / Limited Edition' : timed ? ' / Timed Item' : ''}</div>
+      <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind]}${L ? ' / Collectible Item / Limited Edition' : timed ? ' / Timed Item' : ''}
+        ${canEdit ? '' : html` · ${reportLink('item', a.id, a.name)}`}</div>
       <div class="item-cols">
         <div class="item-pic">
           <div class="pic" id="item3d">${itemIcon(a)}</div>
@@ -1449,8 +1463,11 @@ pages.user = async (id, tab, page) => {
       ${r.playing ? html`<span class="small playing-now">Playing <a href="#/game/${r.playing.game}">${r.playing.title}</a></span>
         ${r.playing.session && f !== 'self' ? html` <button class="btn green small" data-act="joinServer" data-id="${r.playing.game}"
             data-name="${r.playing.title}" data-server="${r.playing.session}"${r.playing.full ? raw(' disabled title="That server is full"') : ''}>Join</button>` : ''}` : ''}
-      <span class="grow"></span>${friendBtn}${followBtn}${messageBtn}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
-        : signedIn() ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}</div>
+      <span class="grow"></span>${r.blocked ? '' : html`${friendBtn}${followBtn}${messageBtn}`}${f === 'self' ? html` <a class="btn small" href="#/avatar">Edit avatar</a>`
+        : signedIn() && !r.blocked ? html` <a class="btn small" href="#/trade/${u.id}">Trade</a>` : ''}
+      ${f === 'self' || r.blocked === undefined ? '' : html` <button class="btn small" data-act="block" data-user="${u.id}" data-name="${u.username || u.name}"
+          data-on="${r.blocked ? '' : '1'}">${r.blocked ? 'Unblock' : 'Block'}</button> ${reportLink('user', u.id, u.username || u.name)}`}</div>
+    ${r.blocked ? html`<div class="box info">You blocked ${u.username || u.name}. You can't message, friend, follow, trade with or join each other.</div>` : ''}
     ${(u.pastNames || []).length ? html`<p class="small muted past-names">Past usernames: ${u.pastNames.join(', ')}</p>` : ''}
     <div class="profile">
       <div class="profile-left">
@@ -1568,7 +1585,7 @@ pages.group = async (id) => {
     <div class="box" style="border-top:0;border-radius:0 0 6px 6px"><h1>${g.name}</h1>
       <p class="muted">Owned by <a href="#/user/${g.owner}">${g.ownerName}</a>${verified(g.ownerVerified)} · ${g.members} members
         ${role ? html` · you're ${role === 'Owner' ? 'the owner' : 'a' + (role === 'Admin' ? 'n admin' : ' member')}` : ''}</p>
-      <p style="white-space:pre-wrap">${g.description}</p>${join}</div>
+      <p style="white-space:pre-wrap">${g.description}</p>${join}${role === 'Owner' ? '' : html` ${reportLink('group', g.id, g.name)}`}</div>
     ${r.shoutInfo && r.shoutInfo.text ? html`<div class="box info"><b>${r.shoutInfo.name}:</b> ${r.shoutInfo.text}
       <span class="small muted">· ${ago(r.shoutInfo.time)}</span></div>` : ''}
     ${manage ? html`<form class="row" data-form="groupShout"><input type="hidden" name="id" value="${g.id}">
@@ -1636,7 +1653,9 @@ pages.messages = async (box = 'inbox') => {
         <span class="message-subject">${m.subject}</span><span class="message-when small muted">${ago(m.at)}</span></summary>
       <div class="message-body">${m.body}</div>
       <p class="message-tools">${sent ? '' : html`<a class="btn small blue" href="#/messages/new?to=${other.userId || other.id}&re=${encodeURIComponent(m.subject)}">Reply</a> `}
-        <button class="btn small red" data-act="deleteMessage" data-id="${m.id}" data-box="${sent ? 'sent' : 'inbox'}">Delete</button></p></details>`;
+        <button class="btn small red" data-act="deleteMessage" data-id="${m.id}" data-box="${sent ? 'sent' : 'inbox'}">Delete</button>
+        ${sent ? '' : html` <button class="btn small" data-act="report" data-kind="message" data-id="${m.id}" data-name="${other.name}"
+          data-user="${other.id}">Report</button>`}</p></details>`;
   };
   show(html`<h1>Messages</h1>${tabs}
     ${!r.ok ? html`<p class="error">${r.error}</p>` : list.length ? html`<div class="messages">${list.map(row)}</div>`
@@ -1720,11 +1739,45 @@ pages.avatar = async () => {
 };
 
 // Staff tools (like the Player's Staff page): verify people, give Bolts, ban.
+// The reports players sent (newest problems first in line): what was reported, why, and buttons to close them.
+function reportsBox(rep, closed) {
+  const tabs = html`<a class="btn small ${closed ? '' : 'blue'}" href="#/staff">Open</a> <a class="btn small ${closed ? 'blue' : ''}" href="#/staff?reports=closed">Closed</a>`;
+  if (!rep.ok) return html`<div class="box"><h2 class="boxhead">Reports</h2><p class="error">${rep.error}</p></div>`;
+  const reasonName = (k) => (REPORT_REASONS.find((x) => x[0] === k) || ['', k])[1];
+  const person = (u) => (u ? html`<a href="#/user/${u.userId || u.id}">${u.username || u.name}</a>${verified(u.verified)}` : html`?`);
+  const what = (x) => {
+    if (x.kind === 'user') return html`the account ${person(x.about)}`;
+    if (x.kind === 'message') return html`a message from ${person(x.about)}`;
+    if (x.kind === 'game') return html`the game <a href="#/game/${x.target}">${x.name}</a> by ${person(x.about)}`;
+    if (x.kind === 'group') return html`the group <a href="#/group/${x.target}">${x.name}</a> (owner ${person(x.about)})`;
+    const href = isCatalogItem(x.assetKind) ? '#/item/' + x.target : '#/library/' + x.target;
+    return html`<a href="${href}">${x.name}</a> (${KINDS[x.assetKind] || 'item'}) by ${person(x.about)}`;
+  };
+  const row = (x) => html`<div class="report">
+      <p><b>${reasonName(x.reason)}</b>: ${what(x)}
+        ${x.reports > 1 ? html` <span class="badge-pill">${x.reports} reports</span>` : ''}
+        <span class="small muted">· from ${person(x.from)} · ${ago(x.at)}</span></p>
+      ${x.note ? html`<p class="report-note">"${x.note}"</p>` : ''}
+      ${x.copy ? html`<div class="report-copy"><b>${x.copy.subject}</b><div>${x.copy.body}</div></div>` : ''}
+      <p>${x.about && x.about.username ? html`<a class="btn small" href="#/staff?q=${encodeURIComponent(x.about.username)}">${me.official ? 'Warn or ban' : 'Look up'} ${x.about.username}</a> ` : ''}
+        ${closed ? html`<span class="small muted">${x.outcome === 'dismissed' ? 'Dismissed' : 'Done'} by ${person(x.closedBy)} ${ago(x.closedAt)}</span>`
+          : html`<button class="btn small green" data-act="closeReport" data-id="${x.id}" data-outcome="done">Done</button>
+            <button class="btn small" data-act="closeReport" data-id="${x.id}" data-outcome="dismissed">Nothing wrong</button>`}</p></div>`;
+  return html`<div class="box"><h2 class="boxhead">Reports${closed ? '' : html` (${rep.reports.length})`}</h2>
+    <p>${tabs}</p>
+    ${rep.reports.length ? html`<div class="reports">${rep.reports.map(row)}</div>`
+      : html`<p class="muted small">${closed ? 'No closed reports yet.' : 'Nothing to look at right now.'}</p>`}
+    <p class="small muted">"Done" means you did something about it (a warning, a ban, deleting it). Closing one closes every report about the same thing.</p></div>`;
+}
+
 pages.staff = async () => {
   if (!signedIn() || !me.staff) { show(html`<h1>Staff</h1><p class="muted">Only Guts&amp;Bolts staff can see this page.</p>`); return; }
   const query = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
-  const r = await pageCall('admin.find', { query });
+  const closed = new URLSearchParams(location.hash.split('?')[1] || '').get('reports') === 'closed';
+  const [r, rep] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' })]);
   show(html`<h1>Staff</h1>
+    ${reportsBox(rep, closed)}
+    <h2>People</h2>
     <p class="muted">${me.official ? 'You\'re the official Guts account: you can verify people, make staff, give Bolts and ban.'
       : 'Staff can verify people and take Verified away.'}</p>
     <form class="row" data-form="staffSearch"><input type="search" name="q" placeholder="Search by name or user number (#5)" value="${query}" style="max-width:320px">
@@ -1836,6 +1889,10 @@ pages.settings = async () => {
           <label>Who can send me messages</label>
           <select name="messages">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${((me.privacy || {}).messages || 'everyone') === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
           <p><button class="btn green">Save</button></p></form></div>
+      <div class="box"><h2 class="boxhead">Blocked people</h2>
+        <p class="small muted">People you block can't message, friend, follow, trade with or join you, and you won't see each other online.
+          Block someone from their profile.</p>
+        <div class="list" id="blockedList"><p class="muted small">Loading...</p></div></div>
       <div class="box"><h2 class="boxhead">Authenticator app</h2>
         ${me.authApp ? html`<p><b class="ok">On.</b> Logging in on a new device needs your password <i>and</i> the 6-digit code
             from your authenticator app (Google Authenticator, Authy, 2FAS, Aegis, Microsoft Authenticator...).</p>
@@ -1862,6 +1919,12 @@ pages.settings = async () => {
           <label>New password again</label><input type="password" name="password2" autocomplete="new-password" required>
           <p><button class="btn blue">Change password</button> <span id="pwMsg"></span></p></form></div>`}
     </div>`);
+  const blocked = await pageCall('block.list', {});
+  const box = $('#blockedList');
+  if (box) box.innerHTML = (!blocked.ok ? html`<p class="error">${blocked.error}</p>`
+    : blocked.people.length ? html`${blocked.people.map((u) => html`<div><a class="grow" href="#/user/${u.userId}">${u.username || u.name}</a>
+        <button class="btn small" data-act="block" data-user="${u.id}" data-name="${u.username || u.name}" data-on="">Unblock</button></div>`)}`
+      : html`<p class="muted small">You haven't blocked anyone.</p>`).s;
 };
 
 pages.login = async () => loginPage(false);
@@ -2090,6 +2153,43 @@ const actions = {
     render();
   },
   closeModal(d, el) { el.closest('.modal').remove(); },
+  // Report something to staff: pick what's wrong, add a note, and (for people and messages) block them too.
+  report(d) {
+    const what = { user: d.name, game: 'the game "' + d.name + '"', item: '"' + d.name + '"', message: 'this message from ' + d.name,
+      group: 'the group "' + d.name + '"' }[d.kind] || d.name;
+    const blockId = d.kind === 'user' ? d.id : d.kind === 'message' ? d.user : '';
+    popup(html`<h1 class="popup-title">Report ${what}</h1>
+      <p>Guts&amp;Bolts staff will look at it. The person you report isn't told who sent it.</p>
+      <p><label for="reportReason">What's wrong?</label><br>
+        <select id="reportReason">${REPORT_REASONS.map(([k, t]) => html`<option value="${k}">${t}</option>`)}</select></p>
+      <p><label for="reportNote">Tell staff what happened (optional)</label><br>
+        <textarea id="reportNote" maxlength="500" rows="4" style="width:100%"></textarea></p>
+      ${blockId ? html`<p><label><input type="checkbox" id="reportBlock"> Block them too</label></p>` : ''}
+      <p><button class="btn red" data-act="sendReport" data-kind="${d.kind}" data-id="${d.id}" data-block="${blockId}">Send report</button>
+         <button class="btn" data-act="closeModal">Cancel</button> <span id="reportMsg"></span></p>`);
+  },
+  async sendReport(d, el) {
+    const r = await call('report.send', { kind: d.kind, id: d.id, reason: $('#reportReason').value, note: $('#reportNote').value });
+    if (!r.ok) { const m = $('#reportMsg'); m.className = 'error'; m.textContent = r.error; return; }
+    const alsoBlock = d.block && $('#reportBlock') && $('#reportBlock').checked;
+    if (alsoBlock) await call('block.add', { user: d.block });
+    el.closest('.modal').remove();
+    toast(alsoBlock ? 'Thanks. We got your report, and you blocked them.' : 'Thanks. We got your report and staff will look at it.');
+    if (alsoBlock) render();
+  },
+  async block(d) {
+    if (d.on && !confirm('Block ' + d.name + '? You won\'t be friends any more, and you can\'t message, follow, trade with or join each other.')) return;
+    const r = await call(d.on ? 'block.add' : 'block.remove', { user: d.user });
+    if (!r.ok) { toast(r.error); return; }
+    toast(d.on ? 'You blocked ' + d.name + '.' : 'You unblocked ' + d.name + '.');
+    render();
+  },
+  async closeReport(d) {
+    const r = await call('admin.closeReport', { id: d.id, outcome: d.outcome });
+    if (!r.ok) { toast(r.error); return; }
+    toast(d.outcome === 'dismissed' ? 'Dismissed.' : 'Marked as done.');
+    render();
+  },
   async ackWarning(d, el) {
     const r = await call('account.ackWarning', { id: d.id });
     el.closest('.modal').remove();

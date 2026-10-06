@@ -21,7 +21,7 @@ nlohmann::json GbServer::presence(const User& viewer, const User& u) const {
         return setting == "friends" && u.friends.count(viewer.id) > 0;
     };
     json r = {{"online", false}, {"playing", nullptr}};
-    if (!allows(u.privacyStatus)) return r;
+    if (!allows(u.privacyStatus) || blocks(viewer, u)) return r;
     r["online"] = isOnline(u);
     if (const Session* s = sessionOf(u.id)) {
         auto g = findAsset(s->game);
@@ -79,7 +79,7 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
     if (name == "follow.add" || name == "follow.remove") {
         if (them->id == me.id) return fail("You can't follow yourself.");
         if (name == "follow.add") {
-            if (them->banned) return fail("You can't follow that account.");
+            if (them->banned || blocks(me, *them)) return fail("You can't follow that account.");
             if (!me.following.count(them->id) && me.following.size() >= kMaxFollowing)
                 return fail("You already follow " + std::to_string(kMaxFollowing) + " people.");
             me.following.insert(them->id);
@@ -112,7 +112,7 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
     if (name == "friends.add") {
         if (me.friends.count(them->id)) { json r = okay(); r["status"] = "friends"; return r; }
         if (me.friendIn.count(them->id)) return becomeFriends();   // they asked first
-        if (them->banned) return fail("You can't add that account.");
+        if (them->banned || blocks(me, *them)) return fail("You can't add that account.");
         if (me.friendOut.size() >= kMaxRequests) return fail("You have too many friend requests waiting. Cancel some first.");
         if (them->friendIn.size() >= kMaxRequests) return fail(them->name + " has too many friend requests waiting.");
         me.friendOut.insert(them->id);

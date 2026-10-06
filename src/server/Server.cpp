@@ -351,6 +351,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         r["followerCount"] = u->followers.size();
         r["followingCount"] = u->following.size();
         r["isFollowing"] = me.following.count(u->id) > 0;
+        r["blocked"] = std::find(me.blocked.begin(), me.blocked.end(), u->id) != me.blocked.end();
         r["friendship"] = u->id == me.id ? "self" : me.friends.count(u->id) ? "friends"
                         : me.friendOut.count(u->id) ? "sent" : me.friendIn.count(u->id) ? "received" : "none";
         // Like a Roblox profile: what they're wearing, some friends, visits to their games.
@@ -438,6 +439,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("friends.", 0) == 0 || name.rfind("follow.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name.rfind("data.", 0) == 0) return dataOp(name, me, args);
+    if (name.rfind("block.", 0) == 0 || name.rfind("report.", 0) == 0) return safetyOp(name, me, args);
     if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
         name == "profile.set" || name == "feed.list")
         return socialOp(name, me, args);
@@ -569,6 +571,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             }
             json r = okay(); r["users"] = list; return r;
         }
+        if (name == "admin.reports") {
+            json r = okay(); r["reports"] = reportsJson(str("status") == "closed" ? "closed" : "open"); return r;
+        }
+        if (name == "admin.closeReport") return closeReport(me, str("id"), str("outcome"));
         if (!to) return fail("There's no account with that ID on this server.");
         if (name == "admin.grant") {
             // The signed badge comes from the app (made with the staff member's own key).
@@ -1068,6 +1074,9 @@ void GbServer::saveUsers() {
         all[id]["posts"] = u.posts;
         all[id]["statusDay"] = u.statusDay;
         all[id]["statusesToday"] = u.statusesToday;
+        all[id]["blocked"] = u.blocked;
+        all[id]["reportDay"] = u.reportDay;
+        all[id]["reportsToday"] = u.reportsToday;
     }
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
@@ -1188,6 +1197,10 @@ void GbServer::load() {
                 if (j.contains("posts") && j["posts"].is_array()) u.posts = j["posts"];
                 u.statusDay = j.value("statusDay", std::string());
                 u.statusesToday = j.value("statusesToday", 0);
+                if (j.contains("blocked") && j["blocked"].is_array())
+                    for (const auto& b : j["blocked"]) if (b.is_string()) u.blocked.push_back(b.get<std::string>());
+                u.reportDay = j.value("reportDay", std::string());
+                u.reportsToday = j.value("reportsToday", 0);
                 if (j.contains("gear") && j["gear"].is_array())
                     for (const auto& g : j["gear"]) if (g.is_string()) u.gear.push_back(g.get<std::string>());
                 u.totpSecret = j.value("totpSecret", std::string());
@@ -1244,6 +1257,7 @@ void GbServer::load() {
             }
     }
     loadGroups();
+    loadReports();
     loadIds();
     log("loaded " + std::to_string(m_users.size()) + " accounts, " + std::to_string(m_assets.size()) + " uploads and " +
         std::to_string(m_groups.size()) + " groups from " + m_opts.data.string());
