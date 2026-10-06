@@ -655,6 +655,7 @@ void NetServer::handle(Client& c, const std::string& text) {
         for (auto& r : m_scene->remotes()) c.knownChars.insert(r.rootId);
 
         m_session->scripts().addPlayer(name, rig->id, c.id + 1);
+        if (!c.guest && !c.accountId.empty()) m_session->scripts().setPlayerAccount(c.id + 1, c.accountId);   // (game passes)
         if (!m_owner.empty() && c.accountId == m_owner) {   // the game's owner: the server side of the dev console
             c.owner = true;
             c.logSent = Log::count() - std::min<unsigned long long>(Log::entries().size(), 200);   // the last 200 lines first
@@ -695,6 +696,8 @@ void NetServer::handle(Client& c, const std::string& text) {
     } else if (t == "click") {
         uint64_t part = m.value("part", (uint64_t)0);
         if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
+    } else if (t == "passdone") {   // they answered a game pass Buy window
+        m_session->scripts().passPromptDone(c.id + 1, m.value("pass", std::string()), m.value("bought", false));
     } else if (t == "devcmd") {   // the dev console's command bar: only the game's owner may run code here
         if (!c.owner) return;
         devCommand(m.value("code", std::string()));
@@ -953,6 +956,19 @@ void NetClient::update(float dt) {
     m_chat.update(dt);
 }
 
+bool NetServer::promptPass(int scriptUserId, const std::string& pass) {
+    for (auto& c : m_clients)
+        if (c->joined && c->id + 1 == scriptUserId) {
+            c->conn->send(json{{"t", "passprompt"}, {"pass", pass}}.dump());
+            return true;
+        }
+    return false;
+}
+
+void NetClient::passDone(const std::string& pass, bool bought) {
+    if (m_conn) m_conn->send(json{{"t", "passdone"}, {"pass", pass}, {"bought", bought}}.dump());
+}
+
 void NetClient::devCommand(const std::string& code) {
     if (m_conn && m_devOwner && !code.empty()) m_conn->send(json{{"t", "devcmd"}, {"code", code}}.dump());
 }
@@ -1120,6 +1136,7 @@ void NetClient::handle(const std::string& text) {
         }
         return;
     }
+    if (t == "passprompt") { m_passPrompt = m.value("pass", std::string()); return; }
     if (t == "hum" && me) {
         humanoidFrom(me->humanoid(), m.value("h", json::object()));
         return;

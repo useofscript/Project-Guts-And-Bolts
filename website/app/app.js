@@ -274,6 +274,23 @@ function itemCard(a) {
       : a.price > 0 ? bolts(a.price) : raw('<span class="muted">Free</span>')} · by ${a.creatorName}${verified(a.creatorVerified)}</div></a>`;
 }
 
+// A game pass's picture: the one its creator gave it, or a ticket.
+const PASS_SVG = '<svg viewBox="0 0 64 64" width="100%" height="100%" aria-hidden="true"><rect x="6" y="16" width="52" height="32" rx="5" fill="#2f7fd1"/>'
+  + '<circle cx="6" cy="32" r="6" fill="#fff"/><circle cx="58" cy="32" r="6" fill="#fff"/><path d="M22 16v32" stroke="#fff" stroke-width="2" stroke-dasharray="3 3"/>'
+  + '<path d="M38 24l2.4 5 5.4.6-4 3.7 1.1 5.4-4.9-2.8-4.9 2.8 1.1-5.4-4-3.7 5.4-.6z" fill="#ffd34d"/></svg>';
+function passPic(p) {
+  return p.thumb ? html`<img class="lib-thumb" data-thumb="${p.id}" alt="">` : raw(PASS_SVG);
+}
+// A pass on a game's page: picture, name, price and Buy (or Owned).
+function passCard(p) {
+  return html`<div class="pass-card"><div class="pass-pic">${passPic(p)}</div>
+    <b>${p.name}</b>${p.description ? html`<div class="small muted">${p.description}</div>` : ''}
+    <div>${p.price > 0 ? bolts(p.price) : raw('<b>Free</b>')}</div>
+    ${p.owned ? html`<span class="badge-pill">Owned</span>`
+      : p.offsale ? html`<span class="muted small">Off sale</span>`
+      : html`<button class="btn green small" data-act="buyPass" data-id="${p.id}" data-name="${p.name}" data-price="${p.price}">Buy</button>`}</div>`;
+}
+
 // A game badge: a coloured medal with a star (games' own badges, made by their creators).
 function gameBadgeIcon(b, size = 56) {
   const c = rgbCss(Array.isArray(b.color) ? b.color : [240, 180, 40]);
@@ -344,7 +361,7 @@ function loginPopup(what) {
 }
 // Which clicks and forms need an account, and what to say.
 const NEEDS_ACCOUNT = {
-  buy: 'get items from the catalog', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
+  buy: 'get items from the catalog', buyPass: 'buy game passes', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
   friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
   favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages', statusSet: 'post a status', blurbSet: 'edit your profile',
@@ -944,6 +961,8 @@ pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
+  const pr = await pageCall('pass.list', { game: g.id });
+  const passes = pr.ok ? pr.passes.filter((p) => !p.offsale || p.owned) : [];
   const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
   const shared = new URLSearchParams(location.hash.split('?')[1] || '').get('server') || '';
@@ -992,6 +1011,7 @@ pages.game = async (id) => {
     ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
         ${gameBadgeIcon(b, 44)}<span class="grow"><b>${b.name}</b><br><span class="small muted">${b.description || ''}</span></span>
         <span class="small muted">Won ${b.awarded || 0} time${b.awarded === 1 ? '' : 's'}</span></div>`)}</div>` : ''}
+    ${passes.length ? html`<h2>Passes</h2><div class="pass-grid">${passes.map(passCard)}</div>` : ''}
     <h2>Servers</h2>
     ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
@@ -1247,6 +1267,8 @@ pages.configure = async (id) => {
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
   const access = g.access || 'public';
+  const pr = await pageCall('pass.list', { game: g.id });
+  const passes = pr.ok ? pr.passes : [];
   const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
     <b>${label}</b> <span class="muted small">${note}</span></label>`;
   show(html`<p><a href="#/create/games">&lt; My Games</a></p>
@@ -1297,7 +1319,25 @@ pages.configure = async (id) => {
         <label>Badge name</label><input type="text" name="name" maxlength="40" required>
         <label>Description <span class="muted small">(how to get it)</span></label><input type="text" name="description" maxlength="300">
         <label>Colour</label><input type="color" name="color" value="#f0b428">
-        <p><button class="btn green">Make badge</button></p></form></div>`);
+        <p><button class="btn green">Make badge</button></p></form></div>
+    <div class="box"><h2 class="boxhead">Passes</h2>
+      <p class="small muted">Sell perks for your game (a VIP door, a speed boost, a special tool) for Bolts. You get
+        70% of every sale. Check them from a script:
+        <code>game:GetService("MarketplaceService"):UserOwnsGamePassAsync(player.UserId, ID)</code>
+        or pop up a purchase with <code>:PromptGamePassPurchase(player, ID)</code>.</p>
+      ${passes.length ? html`<div class="list">${passes.map((p) => html`<div><span class="pass-mini">${passPic(p)}</span>
+          <span class="grow"><b>${p.name}</b> · ${p.price > 0 ? bolts(p.price) : 'free'}${p.offsale ? html` · <span class="muted">off sale</span>` : ''}<br>
+            <span class="small muted">ID ${p.num} · sold ${p.sales || 0}</span></span>
+          <button class="btn small" data-act="copyText" data-text="${p.num}">Copy ID</button>
+          <button class="btn small" data-act="passOffsale" data-id="${p.id}" data-on="${p.offsale ? '' : '1'}">${p.offsale ? 'Put on sale' : 'Take off sale'}</button></div>`)}</div>`
+        : html`<p class="muted">No passes yet.</p>`}
+      <form class="form" data-form="newPass"><input type="hidden" name="game" value="${g.id}">
+        <label>Pass name</label><input type="text" name="name" maxlength="50" required>
+        <label>Description <span class="muted small">(what it gives)</span></label><input type="text" name="description" maxlength="300">
+        <label>Price in Bolts <span class="muted small">(0 = free; selling needs a Verified account)</span></label><input type="number" name="price" min="0" max="1000000" value="0" style="max-width:140px">
+        <label>Picture <span class="muted small">(optional, a square)</span></label><input type="file" name="icon" accept="image/png,image/jpeg">
+        <p><button class="btn green">Make pass</button></p></form></div>`);
+  loadThumbs();
   // Show a picked picture straight away.
   view.querySelectorAll('input[data-preview]').forEach((inp) => inp.addEventListener('change', () => {
     const file = inp.files[0];
@@ -2055,6 +2095,18 @@ const actions = {
     el.closest('.modal').remove();
     if (r.ok && r.me) setMe(r.me);
   },
+  async buyPass(d) {
+    if (Number(d.price) > 0 && !confirm('Buy "' + d.name + '" for ' + Number(d.price).toLocaleString() + ' Bolts?')) return;
+    const r = await call('buy', { id: d.id });
+    if (r.ok && r.me) me = r.me;
+    toast(r.ok ? 'It\'s yours! You\'ll have it next time you join.' : r.error);
+    render();
+  },
+  async passOffsale(d) {
+    const r = await call('pass.edit', { id: d.id, offsale: !!d.on });
+    toast(r.ok ? (d.on ? 'Taken off sale.' : 'On sale again.') : r.error);
+    render();
+  },
   async buy(d) {
     const r = await call('buy', { id: d.id });
     toast(r.ok ? 'It\'s yours! Wear (or equip) it from the Avatar page.' : r.error);
@@ -2324,6 +2376,13 @@ const forms = {
     const r = await gb.changePassword(me.username, f.current.value, f.password.value);
     if (!r.ok) { msg.className = 'error'; msg.textContent = r.error; return; }
     toast('Password changed.'); render();
+  },
+  async newPass(f) {
+    const args = { game: f.game.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0 };
+    if (f.icon.files[0]) args.icon = await pictureBase64(f.icon.files[0], 256, 256);
+    const r = await call('pass.create', args);
+    toast(r.ok ? 'Pass made! Its ID is ' + r.asset.num + '.' : r.error);
+    if (r.ok) render();
   },
   async newBadge(f) {
     const hex = f.color.value.replace('#', '');

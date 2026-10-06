@@ -42,6 +42,7 @@ const canBeLimited = (k) => isAccessory(k) || k === 'face';
 // Models (objects published from Studio to the Library) are public or private. Verified
 // creators can make as many public as they like; everyone else 5 a week.
 const kPublicModelsPerWeek = 5;
+const kMostPasses = 50;   // game passes per game
 // Animations (published from Studio's Animation Editor) are public or private too, so other
 // creators can use them, or not. They're free and have no weekly limit.
 // Things that are public or private: games, models and animations.
@@ -127,7 +128,7 @@ const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHos
 // (one of them hosts it), and each would-be new host gets kHeirWait seconds to start it.
 const kMoveWait = 90, kHeirWait = 12;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -1402,6 +1403,66 @@ export class GbServerObject extends DurableObject {
       if (fee > 0) this.add(me, -fee, 'Upload fee: ' + title, 'upload:' + a.id);
       this.saveUser(me);
       return okay({ asset: this.publicAsset(a), me: this.meJson(me), fee });
+    }
+    // --- Game passes: perks a game's creator sells for Bolts (like Roblox's). Each pass is its
+    // own asset (kind 'gamepass', meta.game = the game), so 'buy' and owning work like any
+    // item; game scripts ask 'pass.owned' who has which. (src/server has the same.)
+    if (name === 'pass.create' || name === 'pass.edit') {
+      const creating = name === 'pass.create';
+      const a = creating ? null : this.assets.get(str(args, 'id'));
+      if (!creating && (!a || a.kind !== 'gamepass')) return fail('That pass doesn\'t exist (any more).');
+      const g = this.assets.get(creating ? str(args, 'game') : (a.meta || {}).game);
+      if (!g || g.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (g.creator !== me.id && !this.isStaff(me)) return fail('Only the game\'s creator can make or change its passes.');
+      if (creating && [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === g.id).length >= kMostPasses)
+        return fail('A game can have at most ' + kMostPasses + ' passes.');
+      const title = 'name' in args || creating ? cleanText(str(args, 'name'), 50) : a.name;
+      if (!title) return fail('Give the pass a name.');
+      const price = 'price' in args || creating ? clamp(num(args, 'price'), 0, 1000000) : a.price;
+      if (price > 0 && !this.isVerified(me) && !this.isStaff(me)) return fail('Only Verified creators can sell passes. Make it free for now, or get Verified!');
+      let icon = null;
+      if (str(args, 'icon')) {
+        try { icon = b64ToBytes(str(args, 'icon')); } catch { return fail('The picture got scrambled. Try again.'); }
+        if (!pngSize(icon) && !jpgFile(icon)) return fail('Pass pictures must be .png or .jpg.');
+        if (icon.length > 400 * 1024) return fail('That picture is too big (400 KB at most).');
+      }
+      const t = now();
+      let pass = a;
+      if (creating) {
+        const assetNo = this.nextAssetNum++;
+        this.dirty.ids = true;
+        pass = { id: String(assetNo), num: assetNo, kind: 'gamepass', name: title, description: '', creator: g.creator, price, created: t,
+          sales: 0, plays: 0, size: 0, meta: { game: g.id } };
+        this.writeFile(pass.id, new Uint8Array(0));
+        this.assets.set(pass.id, pass);
+        const owner = this.findUser(g.creator);
+        if (owner && !owner.owned.includes(pass.id)) { owner.owned.push(pass.id); this.saveUser(owner); }   // creators have their own passes
+      }
+      pass.name = title;
+      pass.price = price;
+      if ('description' in args) pass.description = cleanText(str(args, 'description'), 1000, true);
+      if ('offsale' in args) pass.offsaleAt = args.offsale === true ? 1 : 0;   // (1 = off sale since the start of time)
+      if (icon) { this.writeFile('thumb:' + pass.id, icon); pass.thumb = t; }
+      pass.updated = t;
+      this.saveAsset(pass);
+      return okay({ asset: this.publicAsset(pass, me) });
+    }
+    if (name === 'pass.list') {
+      const gameId = str(args, 'game');
+      const list = [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === gameId)
+        .sort((x, y) => x.created - y.created)
+        .map((x) => ({ ...this.publicAsset(x, me), owned: me.owned.includes(x.id) }));
+      return okay({ passes: list });
+    }
+    if (name === 'pass.owned') {
+      // Which of a game's passes someone owns (game scripts: UserOwnsGamePassAsync). Takes a user
+      // number or an account id.
+      const gameId = str(args, 'game');
+      const who = typeof args.user === 'number' ? this.findUserId(args.user) : this.findUser(str(args, 'user'));
+      if (!who) return okay({ passes: [] });
+      const passes = [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === gameId && who.owned.includes(x.id))
+        .map((x) => ({ id: x.id, num: x.num || 0 }));
+      return okay({ passes });
     }
     // --- Game badges: creators make them on their game's page, game scripts award them.
     if (name === 'gamebadge.create' || name === 'gamebadge.delete') {

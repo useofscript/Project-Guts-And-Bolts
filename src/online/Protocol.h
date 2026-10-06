@@ -28,6 +28,7 @@ inline constexpr long long kFeeGame     = 0;
 inline constexpr long long kFeeDecal    = 5;
 inline constexpr int       kDailyUploadsUnverified = 5;
 inline constexpr int       kCreatorSharePercent = 70;   // of every sale goes to the creator
+inline constexpr int       kMostPasses = 50;            // game passes a game can have
 
 // Biggest uploads, in bytes.
 inline constexpr size_t kMaxAudio  = 6u * 1024u * 1024u;

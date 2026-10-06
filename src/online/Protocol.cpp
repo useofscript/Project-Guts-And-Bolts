@@ -80,6 +80,7 @@ const char* kindTitle(const std::string& k) {
     if (k == "tshirt") return "T-Shirt";
     if (k == "gear") return "Gear";
     if (k == "animation") return "Animation";
+    if (k == "gamepass") return "Game Pass";
     return "?";
 }
 

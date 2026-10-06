@@ -91,6 +91,9 @@ public:
     void setOwner(const std::string& accountId) { m_owner = accountId; }
     bool iAmOwner() const;
     void devCommand(const std::string& code);   // the owner (us) runs Lua on the server
+    // MarketplaceService:PromptGamePassPurchase for a joined player: their app shows the
+    // Buy window and tells us how it went. False if that player isn't one of ours.
+    bool promptPass(int scriptUserId, const std::string& pass);
 
 private:
     struct Client;
@@ -157,6 +160,10 @@ public:
     bool devOwner() const { return m_devOwner; }
     const std::vector<Log::Entry>& serverLog() const { return m_serverLog; }
     void devCommand(const std::string& code);
+    // Game passes: the host's game asked us to show a Buy window ("" = none waiting);
+    // passDone tells it how it went.
+    std::string takePassPrompt() { return std::move(m_passPrompt); }
+    void passDone(const std::string& pass, bool bought);
     // The server said this server's host left: 0 = no, 1 = wait for the new one, 2 = you host it.
     int movingTurn() const { return m_movingTurn; }
 
@@ -181,6 +188,7 @@ private:
     bool         m_wasDead = false;
     std::string  m_relaySession, m_relayGame;
     bool         m_devOwner = false;
+    std::string  m_passPrompt;
     std::vector<Log::Entry> m_serverLog;
     bool         m_hostGone = false;
     int          m_movingTurn = 0;

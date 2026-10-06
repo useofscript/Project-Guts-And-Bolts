@@ -155,6 +155,11 @@ void Editor::render(float dt) {
         // F6 pauses the world; F7 moves it on by one frame.
         m_session->update(m_state.simStep ? 1.0f / 60.0f : dt, m_viewport->cameraYaw(), true, m_viewport->swimLook());
         m_state.simStep = false;
+        // Game pass Buy windows only show in the Player: a test here answers "not bought".
+        for (auto& [userId, pass] : m_session->scripts().takePassPrompts()) {
+            Log::info("PromptGamePassPurchase(" + pass + "): the Buy window shows in the Guts&Bolts Player, not in Studio tests.");
+            m_session->scripts().passPromptDone(userId, pass, false);
+        }
         Player* p = m_scene->player();
         if (p && !m_session->runOnly()) m_viewport->followPlayer(*p, dt);   // Run: the camera stays free
     }

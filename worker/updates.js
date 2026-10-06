@@ -10,6 +10,27 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'fast-pass', name: 'Fast Pass', time: 1791286900, tag: 'Website',
+    summary: 'Game passes: creators sell perks for their games, and players buy them on the game page or right inside the game.',
+    items: [
+      'Make passes for your game on its Configure page on the website: a name, a description, a price in Bolts and a picture',
+      'Passes show on the game\'s page (website and Player) with a Buy button; creators get 70% of every sale',
+      'Scripts check them like Roblox: MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)',
+      'MarketplaceService:PromptGamePassPurchase(player, passId) pops up a Buy window in the game, and PromptGamePassPurchaseFinished says how it went',
+      'Selling passes for Bolts needs a Verified account (free passes are for everyone)',
+    ],
+  },
+  {
+    id: 'mill-race', name: 'Mill Race', time: 1791286800, tag: 'Engine',
+    summary: 'Water pushes things the way it should, so a river turns a water wheel. Studio\'s right-click menu got a lot bigger.',
+    items: [
+      'Water pushes hard on flat sides moving through it (or facing a current) and hardly at all on edges, like a paddle',
+      'A new Water Wheel in the Toolbox: put it in, press Play and the river turns it. Change the river\'s Flow to speed it up',
+      'Water parts have a Drag setting: 1 is water, 5 is like mud, 0 lets things through (FluidVolume.Drag in scripts)',
+      'Studio: right-click in the Explorer or the 3D view to cut, copy, paste, group, union, select, zoom to, anchor, lock, export or publish',
+    ],
+  },
+  {
     id: 'window-shopping', name: 'Window Shopping', version: '0.6.7', time: 1791249962, tag: 'Studio',
     summary: 'The Catalog and Library look like the old catalog, gear is held the classic way, and Studio can publish models and animations from a right-click.',
     items: [

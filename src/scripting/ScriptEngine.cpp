@@ -1,5 +1,6 @@
 #include "ScriptEngine.h"
 #include "../core/Account.h"
+#include "../online/OnlineClient.h"
 #include <cctype>
 #include <sstream>
 #include <fstream>
@@ -800,7 +801,44 @@ do
 end
 _G = _G or {}
 
+-- MarketplaceService: game passes, made on the game's Configure page on the website.
+--   if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 123) then ... end
+--   MarketplaceService:PromptGamePassPurchase(player, 123)   (a Buy window pops up for them)
+--   MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, bought) end)
+do
+    local lookup, ready, owns, prompt, results = __gb_passLookup, __gb_passReady, __gb_passOwns, __gb_passPrompt, __gb_passResults
+    local finished = Instance.new("BindableEvent")
+    MarketplaceService = { Name = "MarketplaceService", ClassName = "MarketplaceService",
+                           PromptGamePassPurchaseFinished = finished.Event }
+    local function userIdOf(p) if type(p) == "table" then return p.UserId or 0 end return tonumber(p) or 0 end
+    function MarketplaceService:UserOwnsGamePassAsync(user, passId)
+        local id = userIdOf(user)
+        if id <= 0 then return false end
+        lookup(id)
+        local tries = 0
+        while not ready(id) and tries < 100 do task.wait(0.05); tries = tries + 1 end
+        return owns(id, tostring(passId))
+    end
+    local listening = false
+    function MarketplaceService:PromptGamePassPurchase(player, passId)
+        prompt(userIdOf(player), tostring(passId))
+        if listening then return end
+        listening = true
+        RunService.Heartbeat:Connect(function()
+            for _, r in ipairs(results()) do
+                local who
+                for _, pl in ipairs(Players:GetPlayers()) do if pl.UserId == r[1] then who = pl end end
+                if who then finished:Fire(who, tonumber(r[2]) or r[2], r[3]) end
+            end
+        end)
+    end
+    function MarketplaceService:GetProductInfo(id) return { AssetId = tonumber(id) or id, Name = tostring(id) } end
+    GamePassService = { Name = "GamePassService", ClassName = "GamePassService" }
+    function GamePassService:PlayerHasPass(player, passId) return MarketplaceService:UserOwnsGamePassAsync(player, passId) end
+end
+
 local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Teams = Teams, Players = Players, Lighting = Lighting,
+                   MarketplaceService = MarketplaceService, GamePassService = GamePassService,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService,
                    TweenService = TweenService, HttpService = HttpService }
@@ -817,7 +855,7 @@ local quiet = { ContentProvider = { PreloadAsync = true }, LogService = {}, Scri
     MaterialService = {}, VoiceChatService = {}, ContextActionService = { UnbindAction = true },
     MemoryStoreService = {}, MessagingService = { PublishAsync = true }, TeleportService = {}, InsertService = {},
     PhysicsService = { RegisterCollisionGroup = true, CollisionGroupSetCollidable = true },
-    MarketplaceService = {}, GamePassService = {}, ChangeHistoryService = { SetWaypoint = true }, Selection = {},
+    ChangeHistoryService = { SetWaypoint = true }, Selection = {},
     StarterPlayer = {}, VRService = {}, GamepadService = {}, KeyframeSequenceProvider = {}, NotificationService = {} }
 local made = {}
 local function quietService(name)
@@ -1095,6 +1133,28 @@ int l_awardBadge(lua_State* L) {
 
 int l_hasBadge(lua_State* L) {
     lua_pushboolean(L, LuaApi::engine(L)->knowsBadge(luaL_checkstring(L, 1), luaL_checkstring(L, 2)));
+    return 1;
+}
+
+// Game passes (MarketplaceService in the Lua prelude).
+int l_passLookup(lua_State* L) { LuaApi::engine(L)->lookUpPasses((int)luaL_checkinteger(L, 1)); return 0; }
+int l_passReady(lua_State* L) { lua_pushboolean(L, LuaApi::engine(L)->passesReady((int)luaL_checkinteger(L, 1))); return 1; }
+int l_passOwns(lua_State* L) {
+    lua_pushboolean(L, LuaApi::engine(L)->ownsPass((int)luaL_checkinteger(L, 1), luaL_checkstring(L, 2)));
+    return 1;
+}
+int l_passPrompt(lua_State* L) { LuaApi::engine(L)->queuePassPrompt((int)luaL_checkinteger(L, 1), luaL_checkstring(L, 2)); return 0; }
+// Purchase prompts that have finished: { {userId, passId, bought}, ... }
+int l_passResults(lua_State* L) {
+    auto results = LuaApi::engine(L)->takePassResults();
+    lua_createtable(L, (int)results.size(), 0);
+    for (size_t i = 0; i < results.size(); ++i) {
+        lua_createtable(L, 3, 0);
+        lua_pushinteger(L, results[i].userId); lua_rawseti(L, -2, 1);
+        lua_pushstring(L, results[i].pass.c_str()); lua_rawseti(L, -2, 2);
+        lua_pushboolean(L, results[i].bought); lua_rawseti(L, -2, 3);
+        lua_rawseti(L, -2, (int)i + 1);
+    }
     return 1;
 }
 
@@ -1479,6 +1539,11 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_addMethod", l_addMethod);
     lua_register(L, "__gb_awardBadge", l_awardBadge);
     lua_register(L, "__gb_hasBadge", l_hasBadge);
+    lua_register(L, "__gb_passLookup", l_passLookup);
+    lua_register(L, "__gb_passReady", l_passReady);
+    lua_register(L, "__gb_passOwns", l_passOwns);
+    lua_register(L, "__gb_passPrompt", l_passPrompt);
+    lua_register(L, "__gb_passResults", l_passResults);
 
     LuaApi::pushInstance(L, m_scene->root()->id);
     lua_setglobal(L, "workspace");
@@ -2120,4 +2185,35 @@ bool ScriptEngine::checkSyntax(const std::string& source, std::string& error, in
     }
     lua_close(L);
     return ok;
+}
+
+// --- Game passes -------------------------------------------------------------------
+
+void ScriptEngine::lookUpPasses(int userId) {
+    if (userId <= 0 || !m_passAsked.insert(userId).second) return;
+    const std::string game = m_scene->info().publishedId;
+    // In scripts players are numbered 1 (us), 2, 3...: their accounts are what the server knows.
+    std::string account = userId == 1 ? Account::id() : "";
+    if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
+    if (game.empty() || account.empty() || !Online::online()) { m_passReady.insert(userId); return; }   // nothing to look up
+    std::weak_ptr<bool> alive = m_alive;
+    Online::request("pass.owned", {{"game", game}, {"user", account}}, [this, alive, userId](const nlohmann::json& r) {
+        if (alive.expired()) return;
+        std::set<std::string>& mine = m_passOwned[userId];
+        for (const auto& p : r.value("passes", nlohmann::json::array())) {
+            mine.insert(p.value("id", std::string()));
+            if (p.value("num", 0LL) > 0) mine.insert(std::to_string(p.value("num", 0LL)));
+        }
+        m_passReady.insert(userId);
+    });
+}
+
+bool ScriptEngine::ownsPass(int userId, const std::string& pass) const {
+    auto it = m_passOwned.find(userId);
+    return it != m_passOwned.end() && it->second.count(pass) > 0;
+}
+
+void ScriptEngine::passPromptDone(int userId, const std::string& pass, bool bought) {
+    if (bought) m_passOwned[userId].insert(pass);
+    m_passResults.push_back({userId, pass, bought});
 }
