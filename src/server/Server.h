@@ -154,6 +154,8 @@ private:
     nlohmann::json meJson(const User& u) const;
     nlohmann::json publicUser(const User& u) const;
     nlohmann::json publicAsset(const Asset& a) const;
+    // Private models and animations: only their creator (and staff) see them.
+    bool canSee(const Asset& a, const User& me) const;
 
     // Accounts
     User&     user(const std::string& id);          // makes a new account (with the welcome gift) if needed

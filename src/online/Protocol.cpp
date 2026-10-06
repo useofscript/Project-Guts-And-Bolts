@@ -10,7 +10,7 @@ namespace Online {
 
 bool validKind(const std::string& k) {
     return k == "shirt" || k == "pants" || k == "audio" || k == "plugin" || k == "game" || k == "decal" ||
-           k == "model" || k == "face" || k == "tshirt" || k == "gear" || isAccessory(k);
+           k == "model" || k == "face" || k == "tshirt" || k == "gear" || k == "animation" || isAccessory(k);
 }
 bool isAccessory(const std::string& k) {
     return k == "hat" || k == "hair" || k == "faceacc" || k == "neck" || k == "shoulder" || k == "waist";
@@ -27,7 +27,7 @@ std::string gearProblem(const std::string& data) {
         return "Gear must be a Tool (with a Handle part inside).";
     return "";
 }
-bool alwaysFree(const std::string& k) { return k == "decal" || k == "audio"; }
+bool alwaysFree(const std::string& k) { return k == "decal" || k == "audio" || k == "animation"; }
 
 const char* banReasonTitle(const std::string& key) {
     for (const BanReason& r : kBanReasons) if (key == r.key) return r.title;
@@ -47,7 +47,7 @@ long long uploadFee(const std::string& k) {
     if (k == "audio") return kFeeAudio;
     if (k == "plugin") return kFeePlugin;
     if (k == "decal") return kFeeDecal;
-    return kFeeGame;   // (games, models and gear are free to upload)
+    return kFeeGame;   // (games, models, gear and animations are free to upload)
 }
 
 size_t maxSize(const std::string& k) {
@@ -56,6 +56,7 @@ size_t maxSize(const std::string& k) {
     if (k == "plugin") return kMaxPlugin;
     if (k == "decal") return kMaxDecal;
     if (k == "model" || k == "gear") return 4u * 1024u * 1024u;   // objects from Studio for the Library
+    if (k == "animation") return 1024u * 1024u;                    // from Studio's Animation Editor
     if (k == "shirt" || k == "pants" || k == "tshirt") return 1024u * 1024u;   // a template picture / a T-shirt picture
     if (k == "face" || isAccessory(k)) return 1024u * 1024u;  // a face picture / an accessory from Studio
     return 64u * 1024u;   // clothing is just a little description of the look
@@ -78,6 +79,7 @@ const char* kindTitle(const std::string& k) {
     if (k == "face") return "Face";
     if (k == "tshirt") return "T-Shirt";
     if (k == "gear") return "Gear";
+    if (k == "animation") return "Animation";
     return "?";
 }
 

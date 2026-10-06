@@ -42,7 +42,9 @@ bool        isCatalogItem(const std::string& kind);    // sold in the catalog: c
 std::string gearProblem(const std::string& data);      // "" if it's one Tool from Studio
 constexpr int kMostGear = 4;                           // gear equipped at once
 bool        isAccessory(const std::string& kind);      // hat, hair, faceacc, neck, shoulder, waist
-bool        alwaysFree(const std::string& kind);       // decals and audio: free-use assets, never sold
+bool        alwaysFree(const std::string& kind);       // decals, audio and animations: free-use assets, never sold
+// Models and animations are public (anyone can find and use them) or private (only their creator).
+inline bool hasAccess(const std::string& kind) { return kind == "model" || kind == "animation"; }
 long long   uploadFee(const std::string& kind);
 size_t      maxSize(const std::string& kind);
 const char* kindTitle(const std::string& kind);        // "Hat", "Audio", ...

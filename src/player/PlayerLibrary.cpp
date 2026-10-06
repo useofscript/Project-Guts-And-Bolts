@@ -118,7 +118,7 @@ void PlayerApp::drawLibrary() {
 
     // Laid out like the old catalog (BrowseUi.h). Kept in m_libKind / m_libQuery so other pages can open a kind.
     static Browse::State s{"model"};
-    static const std::vector<Browse::Cat> cats = {{"model", "Models", {}}, {"decal", "Decals", {}}, {"audio", "Audio", {}}, {"plugin", "Plugins", {}}};
+    static const std::vector<Browse::Cat> cats = {{"model", "Models", {}}, {"decal", "Decals", {}}, {"audio", "Audio", {}}, {"animation", "Animations", {}}, {"plugin", "Plugins", {}}};
     s.cat = m_libKind;
     ImGui::PushID("library");
     Browse::top("Library", s, cats);
@@ -190,7 +190,7 @@ void PlayerApp::drawLibrary() {
         }
         if (hover) {
             ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(245, 184, 0, 255), 0.0f, 0, 2.0f);
-            Browse::tip(a, dateText(a.value("updated", a.value("created", 0LL))), kind == "model" ? "Taken" : "Sales");
+            Browse::tip(a, dateText(a.value("updated", a.value("created", 0LL))), kind == "model" || kind == "animation" ? "Taken" : "Sales");
         }
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
         ImGui::TextColored(Classic::kLink, "%s", a.value("name", std::string()).c_str());
@@ -286,6 +286,7 @@ void PlayerApp::drawAsset() {
     else if (kind == "audio") ImGui::TextDisabled("Paste it into a Sound's File in Studio, or in a script: sound.SoundId = \"%s\"", gbId.c_str());
     else if (kind == "model") ImGui::TextDisabled("Insert it from Studio's Toolbox (the Library tab).");
     else if (kind == "plugin") ImGui::TextDisabled("Install it from Studio's Toolbox (the Plugins tab).");
+    else if (kind == "animation") ImGui::TextDisabled("In Studio's Animation Editor: ... > Import > From the Library, then paste this ID.");
     ImGui::PopTextWrapPos();
     ImGui::EndGroup();
 }

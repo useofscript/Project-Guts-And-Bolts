@@ -28,7 +28,7 @@ function show(content) { view.innerHTML = content.s; setTimeout(() => upgradeIte
 const view = $('#view');
 const KINDS = { hat: 'Hat', shirt: 'Shirt', pants: 'Pants', audio: 'Audio', plugin: 'Plugin', game: 'Game', decal: 'Decal', model: 'Model',
   hair: 'Hair', faceacc: 'Face Accessory', neck: 'Neck Accessory', shoulder: 'Shoulder Accessory', waist: 'Waist Accessory', face: 'Face',
-  tshirt: 'T-Shirt', gear: 'Gear' };
+  tshirt: 'T-Shirt', gear: 'Gear', animation: 'Animation' };
 // Things you wear on the body, made in Studio's Accessory window (old-style hats are just a shape).
 const ACCESSORIES = ['hat', 'hair', 'faceacc', 'neck', 'shoulder', 'waist'];
 const WEARABLE = ['shirt', 'pants', 'tshirt', 'face', ...ACCESSORIES];
@@ -743,12 +743,12 @@ function browseCard(a, href, price) {
   return html`<div class="card square bcard">
     <a class="pic-wrap" href="${href}"><div class="pic">${a.kind === 'decal' ? html`<img class="thumb" data-decal="${a.id}" alt="" style="width:100%;height:100%;object-fit:contain;border:0">`
       : a.kind === 'model' && a.thumb ? html`<img class="lib-thumb" data-thumb="${a.id}" alt="">`
-      : a.kind === 'audio' || a.kind === 'plugin' || a.kind === 'model' ? html`<span class="lib-kind">${a.kind === 'audio' ? raw(SPEAKER_SVG) : ''}${KINDS[a.kind] || a.kind}</span>`
+      : a.kind === 'audio' || a.kind === 'plugin' || a.kind === 'model' || a.kind === 'animation' ? html`<span class="lib-kind">${a.kind === 'audio' ? raw(SPEAKER_SVG) : ''}${KINDS[a.kind] || a.kind}</span>`
       : itemIcon(a)}</div>${officialBadge(a)}${a.limited ? html`<span class="limited-tag">LIMITED</span>` : a.offsaleAt ? html`<span class="timed-tag">${a.offsale ? 'OFF SALE' : 'TIMED'}</span>` : ''}</a>
     <a class="name" href="${href}">${a.name}</a>
     <div class="bprice">${price}</div>
     <div class="btip"><div>Creator: <a href="#/user/${a.creator}">${a.creatorName}</a>${verified(a.creatorVerified)}</div>
-      <div>Updated: ${ago(a.updated || a.created)}</div><div>${a.kind === 'model' ? 'Taken' : 'Sales'}: ${(a.sales || 0).toLocaleString()}</div>
+      <div>Updated: ${ago(a.updated || a.created)}</div><div>${a.kind === 'model' || a.kind === 'animation' ? 'Taken' : 'Sales'}: ${(a.sales || 0).toLocaleString()}</div>
       ${isCatalogItem(a.kind) ? '' : html`<div>ID: ${assetNum(a)} <button class="btn small" data-act="copyId" data-id="${assetNum(a)}">Copy</button></div>`}</div></div>`;
 }
 // cats: [key, label, [kids]]; the page itself fetches, filters and passes the tiles in.
@@ -795,7 +795,7 @@ const creatorFilter = () => ({ title: 'Creators', key: 'creator', options: [['',
   extra: html`<form class="row bcreator" data-form="browseCreator"><input type="text" name="name" placeholder="Name" value="${(() => { const c = hashParams().get('creator') || ''; return c === 'official' ? '' : c; })()}"><button class="btn small">Go</button></form>` });
 
 // Create > Library: everything people have made public, to use in your games.
-const LIBRARY_CATS = [['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['plugin', 'Plugins']];
+const LIBRARY_CATS = [['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['animation', 'Animations'], ['plugin', 'Plugins']];
 async function libraryPage(head) {
   const q = hashParams();
   const cat = LIBRARY_CATS.some((c) => c[0] === (q.get('cat') || q.get('kind'))) ? (q.get('cat') || q.get('kind')) : 'model';
@@ -848,6 +848,7 @@ pages.library = async (id = '') => {
     audio: 'In Studio, select a Sound and paste the ID into its File (SoundId). Scripts can use it too: sound.SoundId = "' + assetNum(a) + '"',
     model: 'In Studio, open the Toolbox, pick the Library tab and search for it to insert it into your game.',
     plugin: 'In Studio, open the Toolbox\'s Plugins tab and install it from there.',
+    animation: 'In Studio\'s Animation Editor, press ... > Import > From the Library and paste its ID (or search for it).',
   }[a.kind] || '';
   const canDelete = signedIn() && (a.creator === me.id || me.staff);
   show(html`<p><a href="#/create/library?cat=${a.kind}">&lt; Library</a></p>
