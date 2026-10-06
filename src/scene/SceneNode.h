@@ -35,16 +35,21 @@ enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment,
 // how it's drawn (a "modifier", not a box of its own). UIListLayout / UIGridLayout line
 // up the things next to them, and UIPadding keeps them away from the edges.
 // A TextBox is a label you can type in; a ScrollingFrame holds more than fits and scrolls.
+// BillboardGui and SurfaceGui are like ScreenGui but sit on a part (its Adornee, else the
+// part they're in): a billboard floats over it facing you, a surface is painted on one side.
 enum class GuiType { ScreenGui, Frame, TextLabel, TextButton, ImageLabel, ImageButton, UICorner, UIStroke, UIShadow, UIBlur,
-                     TextBox, ScrollingFrame, UIListLayout, UIGridLayout, UIPadding };
-inline constexpr int kGuiTypeCount = 15;
+                     TextBox, ScrollingFrame, UIListLayout, UIGridLayout, UIPadding, BillboardGui, SurfaceGui };
+inline constexpr int kGuiTypeCount = 17;
 inline const char* const kGuiClassNames[kGuiTypeCount] = {"ScreenGui", "Frame", "TextLabel", "TextButton", "ImageLabel",
                                                           "ImageButton", "UICorner", "UIStroke", "UIShadow", "UIBlur",
-                                                          "TextBox", "ScrollingFrame", "UIListLayout", "UIGridLayout", "UIPadding"};
+                                                          "TextBox", "ScrollingFrame", "UIListLayout", "UIGridLayout", "UIPadding",
+                                                          "BillboardGui", "SurfaceGui"};
 inline bool isGuiModifier(GuiType t) {
     return t == GuiType::UICorner || t == GuiType::UIStroke || t == GuiType::UIShadow || t == GuiType::UIBlur ||
            t == GuiType::UIListLayout || t == GuiType::UIGridLayout || t == GuiType::UIPadding;
 }
+// A whole layer of UI (holds the rest): ScreenGui, BillboardGui, SurfaceGui.
+inline bool isGuiLayer(GuiType t) { return t == GuiType::ScreenGui || t == GuiType::BillboardGui || t == GuiType::SurfaceGui; }
 inline bool isGuiLayout(GuiType t) { return t == GuiType::UIListLayout || t == GuiType::UIGridLayout; }
 inline bool guiHasText(GuiType t) { return t == GuiType::TextLabel || t == GuiType::TextButton || t == GuiType::TextBox; }
 struct UDim2 {
@@ -115,6 +120,16 @@ struct GuiProps {
     int       maxCells = 0;                         // UIGridLayout.FillDirectionMaxCells (0 = as many as fit)
     // UIPadding: PaddingLeft, PaddingTop, PaddingRight, PaddingBottom (scale, pixels)
     glm::vec4 padScale{0.0f}, padPx{0.0f};
+    // BillboardGui (its Size: offset = pixels, scale = studs) / SurfaceGui
+    uint64_t  adornee = 0;                          // Adornee: the part it's on (0 = the part it's in)
+    glm::vec3 studsOffset{0.0f};                    // BillboardGui.StudsOffset (right, up, towards you)
+    glm::vec3 worldOffset{0.0f};                    // BillboardGui.StudsOffsetWorldSpace
+    bool      alwaysOnTop = false;                  // AlwaysOnTop: shown through walls
+    float     maxDistance = 0.0f;                   // MaxDistance: hidden further away (0 = never)
+    int       face = 5;                             // SurfaceGui.Face (Face order: 5 = Front)
+    bool      perStud = true;                       // SizingMode: PixelsPerStud (else FixedSize: CanvasSize)
+    float     pixelsPerStud = 50.0f;                // PixelsPerStud
+    glm::vec2 surfaceCanvas{800.0f, 600.0f};        // SurfaceGui.CanvasSize (FixedSize)
     // Where it was last drawn (AbsolutePosition / AbsoluteSize). Runtime only.
     glm::vec2 absPos{0.0f}, absSize{0.0f};
     glm::vec2 contentSize{0.0f};                    // layouts: AbsoluteContentSize. Runtime only.
@@ -361,7 +376,7 @@ public:
     bool isGui() const { return kind == NodeKind::Gui; }
     // A Frame / label / button / picture (not a ScreenGui, UICorner or UIStroke).
     bool isGuiObject() const {
-        return kind == NodeKind::Gui && gui.type != GuiType::ScreenGui && !isGuiModifier(gui.type);
+        return kind == NodeKind::Gui && !isGuiLayer(gui.type) && !isGuiModifier(gui.type);
     }
     bool isGuiButton() const { return kind == NodeKind::Gui && (gui.type == GuiType::TextButton || gui.type == GuiType::ImageButton); }
     // "IntValue", "StringValue"... (kind == Value)

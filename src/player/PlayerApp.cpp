@@ -1623,6 +1623,7 @@ void PlayerApp::drawGame(float dt) {
     ImVec2 pointer = tapped ? tapAt : ImGui::GetMousePos();
     const bool onHotbar = Hud::overHotbar(pos, max, *m_scene, pointer);   // picking a tool isn't swinging it
     // The game's own UI (buttons...) gets the pointer first.
+    GameGui::setCamera(m_camera.view(), m_camera.projection(), m_camera.position());   // (UI on parts)
     std::vector<GameGui::Event> guiEvents;
     const bool onGui = GameGui::handle(*m_scene, pos, max, pointer, acceptInput && (hovered || tapped) && !onHotbar,
                                        !touch && ImGui::IsMouseClicked(ImGuiMouseButton_Left),

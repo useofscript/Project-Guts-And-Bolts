@@ -1,5 +1,6 @@
 #pragma once
 #include <imgui.h>
+#include <glm/glm.hpp>
 #include <cstdint>
 #include <vector>
 
@@ -26,7 +27,11 @@ struct Input {
 enum class EventKind { Click, Enter, Leave, Focused, FocusLost, TextChanged };
 struct Event { EventKind kind; uint64_t id; bool enter = false; };
 
-// Draw every enabled ScreenGui in the scene over [min, max]. Also works out each
+// The camera the world is drawn with (before draw / handle each frame), so BillboardGuis
+// and SurfaceGuis land on their parts. Without it they aren't shown.
+void setCamera(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& position);
+
+// Draw every enabled ScreenGui, BillboardGui and SurfaceGui in the scene over [min, max]. Also works out each
 // object's AbsolutePosition / AbsoluteSize. `selected` gets a highlight (Studio).
 void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const Input* input = nullptr, uint64_t selected = 0);
 

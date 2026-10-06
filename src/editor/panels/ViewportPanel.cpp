@@ -648,6 +648,7 @@ void ViewportPanel::render(float dt) {
 
         glm::mat4 view = m_camera.view();
         glm::mat4 proj = m_camera.projection();
+        GameGui::setCamera(view, proj, m_camera.position());   // (BillboardGuis / SurfaceGuis sit on parts)
         glm::vec2 imgMin{imgPos.x, imgPos.y};
         glm::vec2 imgSize{avail.x, avail.y};
         ImVec2 imgMax(imgPos.x + avail.x, imgPos.y + avail.y);

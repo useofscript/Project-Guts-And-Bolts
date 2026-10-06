@@ -146,6 +146,8 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (n->isGui()) {
         if (cls == "GuiBase" || (!isGuiModifier(n->gui.type) && cls == "GuiBase2d")) return true;
         if (n->gui.type == GuiType::ScreenGui && (cls == "LayerCollector" || cls == "BasePlayerGui")) return true;
+        if (isGuiLayer(n->gui.type) && cls == "LayerCollector") return true;
+        if (n->gui.type == GuiType::SurfaceGui && cls == "SurfaceGuiBase") return true;
         if (n->isGuiObject() && cls == "GuiObject") return true;
         if (n->isGuiButton() && cls == "GuiButton") return true;
         if (isGuiModifier(n->gui.type) && cls == "UIComponent") return true;
@@ -729,6 +731,28 @@ float massOf(const SceneNode* n) {
 bool guiIndex(lua_State* L, SceneNode* n, const char* k) {
     const GuiProps& g = n->gui;
     if (is(k, "AbsoluteSize") || is(k, "AbsolutePosition")) GameGui::refresh(*E(L)->scene());
+    if (g.type == GuiType::BillboardGui || g.type == GuiType::SurfaceGui) {
+        const bool bb = g.type == GuiType::BillboardGui;
+        if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
+        if (is(k, "Adornee"))      { if (g.adornee) LuaApi::pushInstance(L, g.adornee); else lua_pushnil(L); return true; }
+        if (is(k, "AlwaysOnTop"))  { lua_pushboolean(L, g.alwaysOnTop); return true; }
+        if (is(k, "MaxDistance"))  { lua_pushnumber(L, g.maxDistance > 0 ? g.maxDistance : HUGE_VAL); return true; }
+        if (is(k, "AbsoluteSize")) { GameGui::refresh(*E(L)->scene()); LuaApi::pushVector2(L, g.absSize); return true; }
+        if (is(k, "AbsolutePosition")) { GameGui::refresh(*E(L)->scene()); LuaApi::pushVector2(L, g.absPos); return true; }
+        if (is(k, "LightInfluence") || is(k, "Brightness")) { lua_pushnumber(L, is(k, "Brightness") ? 1.0 : 0.0); return true; }
+        if (is(k, "ResetOnSpawn") || is(k, "ClipsDescendants")) { lua_pushboolean(L, is(k, "ClipsDescendants")); return true; }
+        if (bb) {
+            if (is(k, "Size"))                  { LuaApi::pushUDim2(L, g.size); return true; }
+            if (is(k, "StudsOffset"))           { LuaApi::pushVector3(L, g.studsOffset); return true; }
+            if (is(k, "StudsOffsetWorldSpace")) { LuaApi::pushVector3(L, g.worldOffset); return true; }
+        } else {
+            if (is(k, "Face"))          { lua_pushstring(L, kFaceNames[std::clamp(g.face, 0, 5)]); return true; }
+            if (is(k, "CanvasSize"))    { LuaApi::pushVector2(L, g.surfaceCanvas); return true; }
+            if (is(k, "SizingMode"))    { lua_pushstring(L, g.perStud ? "PixelsPerStud" : "FixedSize"); return true; }
+            if (is(k, "PixelsPerStud")) { lua_pushnumber(L, g.pixelsPerStud); return true; }
+        }
+        return false;
+    }
     if (g.type == GuiType::ScreenGui) {
         if (is(k, "Enabled"))      { lua_pushboolean(L, n->enabled); return true; }
         if (is(k, "DisplayOrder")) { lua_pushinteger(L, g.displayOrder); return true; }
@@ -860,6 +884,31 @@ bool guiNewIndex(lua_State* L, SceneNode* n, const char* k) {
     GuiProps& g = n->gui;
     auto num = [&]() { return (float)luaL_checknumber(L, 3); };
     auto t01 = [&]() { return std::clamp(num(), 0.0f, 1.0f); };
+    if (g.type == GuiType::BillboardGui || g.type == GuiType::SurfaceGui) {
+        const bool bb = g.type == GuiType::BillboardGui;
+        if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
+        if (is(k, "Adornee"))      { SceneNode* a = lua_isnoneornil(L, 3) ? nullptr : LuaApi::checkNode(L, 3); g.adornee = a ? a->id : 0; return true; }
+        if (is(k, "AlwaysOnTop"))  { g.alwaysOnTop = lua_toboolean(L, 3); return true; }
+        if (is(k, "MaxDistance"))  { const float d = num(); g.maxDistance = d >= 1e29f ? 0.0f : std::max(0.0f, d); return true; }
+        if (is(k, "LightInfluence") || is(k, "Brightness") || is(k, "ResetOnSpawn") || is(k, "ClipsDescendants") ||
+            is(k, "ZIndexBehavior") || is(k, "Active") || is(k, "ExtentsOffset") || is(k, "ExtentsOffsetWorldSpace") ||
+            is(k, "SizeOffset") || is(k, "ToolPunchThroughDistance") || is(k, "PlayerToHideFrom")) return true;   // (accepted)
+        if (bb) {
+            if (is(k, "Size"))                  { g.size = LuaApi::checkUDim2(L, 3); return true; }
+            if (is(k, "StudsOffset"))           { g.studsOffset = LuaApi::checkVector3(L, 3); return true; }
+            if (is(k, "StudsOffsetWorldSpace")) { g.worldOffset = LuaApi::checkVector3(L, 3); return true; }
+        } else {
+            if (is(k, "Face")) {
+                const char* f = luaL_checkstring(L, 3);
+                for (int i = 0; i < 6; ++i) if (is(f, kFaceNames[i])) g.face = i;
+                return true;
+            }
+            if (is(k, "CanvasSize"))    { g.surfaceCanvas = glm::max(glm::vec2(1.0f), LuaApi::checkVector2(L, 3)); return true; }
+            if (is(k, "SizingMode"))    { g.perStud = is(luaL_checkstring(L, 3), "PixelsPerStud"); return true; }
+            if (is(k, "PixelsPerStud")) { g.pixelsPerStud = std::clamp(num(), 1.0f, 1000.0f); return true; }
+        }
+        return false;
+    }
     if (g.type == GuiType::ScreenGui) {
         if (is(k, "Enabled"))      { n->enabled = lua_toboolean(L, 3); return true; }
         if (is(k, "DisplayOrder")) { g.displayOrder = (int)luaL_checkinteger(L, 3); return true; }

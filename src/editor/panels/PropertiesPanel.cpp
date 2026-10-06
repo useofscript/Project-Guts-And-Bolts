@@ -70,7 +70,7 @@ bool editUDim2(const char* label, UDim2& u, float scaleStep = 0.005f) {
 void PropertiesPanel::renderGui(SceneNode* node) {
     GuiProps& g = node->gui;
     const bool noSwitch = g.type == GuiType::UICorner || g.type == GuiType::UIPadding || isGuiLayout(g.type);   // (always on)
-    const bool hasEnabled = g.type == GuiType::ScreenGui || (isGuiModifier(g.type) && !noSwitch);
+    const bool hasEnabled = isGuiLayer(g.type) || (isGuiModifier(g.type) && !noSwitch);
     if (!noSwitch)
         ImGui::Checkbox(hasEnabled ? "Enabled" : "Visible", hasEnabled ? &node->enabled : &node->visible);
     static const char* const kH[] = {"Left", "Center", "Right"};
@@ -110,6 +110,34 @@ void PropertiesPanel::renderGui(SceneNode* node) {
             if (ImGui::DragFloat2(kSides[i], v, 0.5f, 0.0f, 0.0f, "%.2f")) { g.padScale[i] = v[0]; g.padPx[i] = v[1]; }
         }
         ImGui::TextDisabled("Keeps what's inside away from the edges (scale, pixels).");
+        return;
+    }
+    if (g.type == GuiType::BillboardGui || g.type == GuiType::SurfaceGui) {
+        const bool bb = g.type == GuiType::BillboardGui;
+        ImGui::SeparatorText(bb ? "BillboardGui" : "SurfaceGui");
+        if (bb) {
+            editUDim2("Size", g.size);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pixels stay the same size on screen; scale is studs (grows as you get closer).");
+            ImGui::DragFloat3("StudsOffset", &g.studsOffset.x, 0.1f, -100.0f, 100.0f, "%.1f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Moves it from the part's middle: right, up, towards the camera.");
+            ImGui::DragFloat3("StudsOffsetWorldSpace", &g.worldOffset.x, 0.1f, -100.0f, 100.0f, "%.1f");
+        } else {
+            ImGui::Combo("Face", &g.face, kFaceNames, 6);
+            int mode = g.perStud ? 1 : 0;
+            const char* modes[] = {"FixedSize", "PixelsPerStud"};
+            if (ImGui::Combo("SizingMode", &mode, modes, 2)) g.perStud = mode == 1;
+            if (g.perStud) ImGui::DragFloat("PixelsPerStud", &g.pixelsPerStud, 0.5f, 1.0f, 1000.0f, "%.0f");
+            else ImGui::DragFloat2("CanvasSize", &g.surfaceCanvas.x, 1.0f, 1.0f, 10000.0f, "%.0f");
+        }
+        ImGui::Checkbox("AlwaysOnTop", &g.alwaysOnTop);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show it even when something's in front of it.");
+        ImGui::DragFloat("MaxDistance", &g.maxDistance, 1.0f, 0.0f, 100000.0f, g.maxDistance > 0 ? "%.0f" : "no limit");
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(bb ? "Put it inside a part (or set Adornee in a script) and it floats over it, facing you: "
+                                 "great for name signs and health bars. Insert labels and buttons into it."
+                               : "Put it inside a part and it's painted on one side of it (Face): signs, screens and "
+                                 "buttons on walls. Insert labels and buttons into it.");
+        ImGui::PopTextWrapPos();
         return;
     }
     if (g.type == GuiType::ScreenGui) {

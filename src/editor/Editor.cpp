@@ -1132,7 +1132,13 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
             Guis::setDefaults(*n);
             return n;
         };
-        if (gt == GuiType::ScreenGui) {
+        if (gt == GuiType::BillboardGui || gt == GuiType::SurfaceGui) {
+            // These go on a part: the selected one (or its model).
+            if (!parent || (!parent->isPart() && parent->kind != NodeKind::Model)) {
+                Log::warn("Select a part first: a " + what + " goes inside the part it's on.");
+                return;
+            }
+        } else if (gt == GuiType::ScreenGui) {
             if (!parent || parent == m_scene->root()) parent = uiFolder();
         } else if (!parent || !parent->isGui() || isGuiModifier(parent->gui.type)) {
             if (isGuiModifier(gt)) { Log::warn("Put a " + what + " inside a Frame, label or button."); return; }
@@ -1142,7 +1148,7 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
             parent = screen;
         }
         auto n = make(gt);
-        if (gt != GuiType::ScreenGui && !isGuiModifier(gt) && parent->gui.type == GuiType::ScreenGui) {
+        if (!isGuiLayer(gt) && !isGuiModifier(gt) && parent->isGui() && isGuiLayer(parent->gui.type)) {
             n->gui.pos = {0.5f, 0, 0.5f, 0};   // in the middle of the screen, so you see it
             n->gui.anchor = {0.5f, 0.5f};
         }
@@ -1199,6 +1205,7 @@ void Editor::renderInsertObject() {
         {"UIShadow", Icons::Id::GuiCorner}, {"UIBlur", Icons::Id::GuiCorner},
         {"TextBox", Icons::Id::GuiText}, {"ScrollingFrame", Icons::Id::GuiFrame}, {"UIListLayout", Icons::Id::GuiCorner},
         {"UIGridLayout", Icons::Id::GuiCorner}, {"UIPadding", Icons::Id::GuiCorner},
+        {"BillboardGui", Icons::Id::ScreenGui}, {"SurfaceGui", Icons::Id::ScreenGui},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;

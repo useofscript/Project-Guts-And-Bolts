@@ -524,7 +524,7 @@ Id forNode(const SceneNode& n) {
         case NodeKind::Mover:        return Id::Constraint;
         case NodeKind::Gui:
             switch (n.gui.type) {
-                case GuiType::ScreenGui:  return Id::ScreenGui;
+                case GuiType::ScreenGui: case GuiType::BillboardGui: case GuiType::SurfaceGui: return Id::ScreenGui;
                 case GuiType::TextLabel: case GuiType::TextBox: return Id::GuiText;
                 case GuiType::TextButton: case GuiType::ImageButton: return Id::GuiButton;
                 case GuiType::ImageLabel: return Id::GuiImage;

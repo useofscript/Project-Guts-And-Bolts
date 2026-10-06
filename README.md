@@ -557,6 +557,31 @@ for i = 1, 20 do
 end
 ```
 
+**UI on parts:**
+
+- **BillboardGui**: put it inside a part and it floats over it, always facing
+  you: name signs, health bars, "Press E" hints. Its `Size` in pixels stays the
+  same on screen; in scale it's studs, so it grows as you get closer.
+  `StudsOffset` lifts it (0, 2, 0 is two studs up).
+- **SurfaceGui**: put it inside a part and it's painted on one side (`Face`):
+  shop signs, scoreboards, buttons on walls. Buttons on it can be clicked.
+  `PixelsPerStud` (50) sets how big things on it look.
+- Both hide when something's in front of them (`AlwaysOnTop` shows them
+  anyway) and can stop showing past `MaxDistance`. In a script, `Adornee`
+  puts one on any part without moving it there.
+
+```lua
+local sign = Instance.new("BillboardGui")
+sign.Size = UDim2.fromOffset(160, 40)
+sign.StudsOffset = Vector3.new(0, 2, 0)
+sign.Parent = workspace.Shopkeeper.Head
+local label = Instance.new("TextLabel")
+label.Size = UDim2.fromScale(1, 1)
+label.Text = "Shopkeeper"
+label.TextScaled = true
+label.Parent = sign
+```
+
 In multiplayer, everyone sees the same UI. When anyone clicks a button, the
 host's scripts hear about it, and the same goes for what they type in a TextBox
 (when they press Enter or click away). Roblox files keep their UI: ScreenGuis in a

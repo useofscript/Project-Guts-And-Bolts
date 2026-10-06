@@ -143,6 +143,16 @@ nlohmann::json guiToJson(const GuiProps& g) {
         j["sortByName"] = g.sortByName;
         if (g.type == GuiType::UIGridLayout) { j["cellSize"] = ud(g.cellSize); j["maxCells"] = g.maxCells; }
     }
+    if (g.type == GuiType::BillboardGui || g.type == GuiType::SurfaceGui) {
+        j["onTop"] = g.alwaysOnTop;
+        if (g.adornee) j["adornee"] = g.adornee;   // (node IDs, like a constraint's ref0)
+        if (g.maxDistance > 0) j["maxDistance"] = g.maxDistance;
+    }
+    if (g.type == GuiType::BillboardGui) { j["studsOffset"] = vec(g.studsOffset); j["worldOffset"] = vec(g.worldOffset); }
+    if (g.type == GuiType::SurfaceGui) {
+        j["face"] = g.face; j["perStud"] = g.perStud; j["pps"] = g.pixelsPerStud;
+        j["surfaceCanvas"] = json::array({g.surfaceCanvas.x, g.surfaceCanvas.y});
+    }
     if (g.type == GuiType::UIPadding) {
         j["padScale"] = json::array({g.padScale.x, g.padScale.y, g.padScale.z, g.padScale.w});
         j["padPx"] = json::array({g.padPx.x, g.padPx.y, g.padPx.z, g.padPx.w});
@@ -221,6 +231,16 @@ void guiFromJson(GuiProps& g, const nlohmann::json& j) {
     g.maxCells = std::max(0, get<int>(j, "maxCells", g.maxCells));
     v4("padScale", g.padScale);
     v4("padPx", g.padPx);
+    g.alwaysOnTop = get<bool>(j, "onTop", g.alwaysOnTop);
+    g.adornee = get<uint64_t>(j, "adornee", g.adornee);
+    g.maxDistance = std::max(0.0f, get<float>(j, "maxDistance", g.maxDistance));
+    g.studsOffset = vec(j, "studsOffset", g.studsOffset);
+    g.worldOffset = vec(j, "worldOffset", g.worldOffset);
+    g.face = std::clamp(get<int>(j, "face", g.face), 0, 5);
+    g.perStud = get<bool>(j, "perStud", g.perStud);
+    g.pixelsPerStud = std::clamp(get<float>(j, "pps", g.pixelsPerStud), 1.0f, 1000.0f);
+    if (j.contains("surfaceCanvas") && j["surfaceCanvas"].is_array() && j["surfaceCanvas"].size() == 2)
+        try { g.surfaceCanvas = glm::max(glm::vec2(1.0f), glm::vec2(j["surfaceCanvas"][0].get<float>(), j["surfaceCanvas"][1].get<float>())); } catch (...) {}
 }
 } // namespace Serializer
 
@@ -804,6 +824,8 @@ void remapRefs(SceneNode& n, const std::unordered_map<uint64_t, uint64_t>& map) 
         if (auto it = map.find(n.ref0); it != map.end()) n.ref0 = it->second;
         if (auto it = map.find(n.ref1); it != map.end()) n.ref1 = it->second;
     }
+    if (n.isGui() && n.gui.adornee)   // (a copied BillboardGui sits on the copied part, if it came along)
+        if (auto it = map.find(n.gui.adornee); it != map.end()) n.gui.adornee = it->second;
     if (n.kind == NodeKind::FluidEmitter)   // (a copied emitter uses the copied liquid, if it came along)
         if (auto it = map.find(n.fluidSystem); it != map.end()) n.fluidSystem = it->second;
     for (auto& c : n.children) remapRefs(*c, map);

@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'signs-everywhere', name: 'Signs Everywhere', time: 1791314600, tag: 'Engine',
+    summary: 'Game UI can sit on parts now: floating name signs (BillboardGui) and screens painted on walls (SurfaceGui).',
+    items: [
+      'BillboardGui floats over a part and always faces you, for name signs, health bars and hints',
+      'SurfaceGui paints labels, pictures and buttons on one side of a part, and you can click its buttons',
+      'Both hide when something is in front of them, unless you tick AlwaysOnTop',
+      'Insert them on a part in Studio, or make them in scripts with the same names as Roblox',
+      'Roblox files with BillboardGuis and SurfaceGuis now import instead of losing them',
+    ],
+  },
+  {
     id: 'type-and-scroll', name: 'Type and Scroll', time: 1791311000, tag: 'Engine',
     summary: 'Game UI gets text boxes, scrolling lists and automatic layouts, like Roblox.',
     items: [

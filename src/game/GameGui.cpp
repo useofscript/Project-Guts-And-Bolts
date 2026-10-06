@@ -2,6 +2,7 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../renderer/Textures.h"
+#include "../scene/Physics.h"
 
 #include <imgui_internal.h>   // ImGui::ShadeVertsLinearUV (pictures in odd shapes)
 #include <misc/cpp/imgui_stdlib.h>   // InputText into a std::string (TextBox)
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <glm/glm.hpp>
+#include <unordered_map>
 
 namespace GameGui {
 
@@ -20,6 +22,7 @@ struct Item {
     ImVec2     a, b;        // its rectangle
     ImVec2     clipA, clipB;
     bool       bars = false;   // a ScrollingFrame's scroll bars (drawn after what's inside it)
+    int        surface = -1;   // on a SurfaceGui (g_surfaces[surface]): a, b and the clip are canvas pixels
 };
 
 ImU32 rgba(const glm::vec3& c, float transparency) {
@@ -328,23 +331,192 @@ bool scrollThumb(const SceneNode* n, bool vertical, ImVec2& ta, ImVec2& tb) {
     return true;
 }
 
-void findScreens(SceneNode* n, std::vector<SceneNode*>& out) {
+// --- UI on parts (BillboardGui, SurfaceGui) ---------------------------------
+
+glm::mat4 g_view(1.0f), g_viewProj(1.0f), g_invViewProj(1.0f);
+glm::vec3 g_camPos(0.0f);
+bool      g_haveCam = false;
+
+// A SurfaceGui this frame: its canvas lies on one side of a part.
+struct Surface {
+    glm::vec3 origin, ax, ay;   // canvas (0, 0) in the world, and one canvas pixel right / down
+    glm::vec2 canvas;
+    size_t    first = 0, last = 0;   // its items
+};
+std::vector<Surface> g_surfaces;   // (from the last items())
+ImVec2 g_itemsMin(0, 0), g_itemsMax(1, 1);
+
+// Which side of the camera's view things are hidden behind, worked out once a frame.
+int g_seenFrame = -1;
+std::unordered_map<uint64_t, bool> g_seen;
+
+void findLayers(SceneNode* n, std::vector<SceneNode*>& out) {
     for (auto& c : n->children) {
         if (c->isGui()) {
-            if (c->gui.type == GuiType::ScreenGui) out.push_back(c.get());
+            if (isGuiLayer(c->gui.type)) out.push_back(c.get());
             continue;   // a ScreenGui doesn't hold other ScreenGuis
         }
-        findScreens(c.get(), out);
+        findLayers(c.get(), out);
     }
 }
 
-// Every visible UI object, in the order they're drawn (so the last one is on top).
+// The part a BillboardGui / SurfaceGui sits on: its Adornee, else the part it's in
+// (in a model: its Head, else its first part).
+SceneNode* adorneeOf(Scene& scene, const SceneNode* gui) {
+    if (gui->gui.adornee)
+        if (SceneNode* a = scene.findById(gui->gui.adornee); a && a->isPart()) return a;
+    SceneNode* p = gui->parent;
+    if (!p) return nullptr;
+    if (p->isPart()) return p;
+    if (p->kind == NodeKind::Model) {
+        if (SceneNode* h = p->findChild("Head"); h && h->isPart()) return h;
+        for (auto& c : p->children) if (c->isPart()) return c.get();
+    }
+    return nullptr;
+}
+
+bool toScreen(const glm::vec3& p, ImVec2 min, ImVec2 max, ImVec2& out) {
+    const glm::vec4 c = g_viewProj * glm::vec4(p, 1.0f);
+    if (c.w < 0.05f) return false;   // behind the camera
+    out = ImVec2(min.x + (c.x / c.w * 0.5f + 0.5f) * (max.x - min.x), min.y + (0.5f - c.y / c.w * 0.5f) * (max.y - min.y));
+    return true;
+}
+
+// Can the camera see `p`, or is something in the way? (`part` and its model, and
+// characters, don't count.) Cached for the frame under `key`.
+bool seen(Scene& scene, uint64_t key, const glm::vec3& p, const SceneNode* part) {
+    const int frame = ImGui::GetFrameCount();
+    if (frame != g_seenFrame) { g_seen.clear(); g_seenFrame = frame; }
+    if (auto it = g_seen.find(key); it != g_seen.end()) return it->second;
+    const glm::vec3 d = p - g_camPos;
+    const float len = glm::length(d);
+    bool vis = true;
+    if (len > 0.01f) {
+        const SceneNode* model = part->parent && part->parent != scene.root() && part->parent->kind == NodeKind::Model
+                                     ? part->parent : nullptr;   // (a character or other model it's part of)
+        float hit = 0.0f;
+        SceneNode* h = Physics::raycastIf(scene, g_camPos, d / len, &hit, [&](const SceneNode* n) {
+            return n != part && n != model && !(model && n->parent == model) && !scene.isCharacterPart(n);
+        });
+        vis = !h || hit >= len - 0.3f;
+    }
+    g_seen[key] = vis;
+    return vis;
+}
+
+// One side of a part's unit box: which way is right, up and out (like decals).
+void faceAxes(int face, glm::vec3& R, glm::vec3& U, glm::vec3& N) {
+    switch ((Face)face) {
+        case Face::Front:  R = {-1, 0, 0}; U = {0, 1, 0};  N = {0, 0, -1}; break;
+        case Face::Back:   R = {1, 0, 0};  U = {0, 1, 0};  N = {0, 0, 1};  break;
+        case Face::Right:  R = {0, 0, -1}; U = {0, 1, 0};  N = {1, 0, 0};  break;
+        case Face::Left:   R = {0, 0, 1};  U = {0, 1, 0};  N = {-1, 0, 0}; break;
+        case Face::Top:    R = {1, 0, 0};  U = {0, 0, -1}; N = {0, 1, 0};  break;
+        default:           R = {1, 0, 0};  U = {0, 0, 1};  N = {0, -1, 0}; break;   // Bottom
+    }
+}
+
+// Where on a SurfaceGui's canvas the pointer at `p` (screen) is. False if it misses the plane.
+bool canvasPoint(const Surface& s, ImVec2 p, ImVec2& out) {
+    const float w = g_itemsMax.x - g_itemsMin.x, h = g_itemsMax.y - g_itemsMin.y;
+    if (w <= 0 || h <= 0) return false;
+    const float nx = (p.x - g_itemsMin.x) / w * 2.0f - 1.0f, ny = 1.0f - (p.y - g_itemsMin.y) / h * 2.0f;
+    const glm::vec4 a = g_invViewProj * glm::vec4(nx, ny, -1, 1), b = g_invViewProj * glm::vec4(nx, ny, 1, 1);
+    const glm::vec3 ro = glm::vec3(a) / a.w, rd = glm::normalize(glm::vec3(b) / b.w - ro);
+    const glm::vec3 n = glm::cross(s.ax, s.ay);
+    const float den = glm::dot(rd, n);
+    if (std::abs(den) < 1e-9f) return false;
+    const float t = glm::dot(s.origin - ro, n) / den;
+    if (t <= 0.0f) return false;
+    const glm::vec3 rel = ro + rd * t - s.origin;
+    out = ImVec2(glm::dot(rel, s.ax) / glm::dot(s.ax, s.ax), glm::dot(rel, s.ay) / glm::dot(s.ay, s.ay));
+    return true;
+}
+
+// Every visible UI object, in the order they're drawn (so the last one is on top):
+// SurfaceGuis and BillboardGuis (furthest first), then ScreenGuis by DisplayOrder.
 std::vector<Item> items(Scene& scene, ImVec2 min, ImVec2 max) {
+    std::vector<SceneNode*> layers;
+    findLayers(scene.root(), layers);
+    std::vector<Item> out;
+    g_surfaces.clear();
+    g_itemsMin = min;
+    g_itemsMax = max;
+    if (g_haveCam) {
+        struct OnPart { SceneNode* gui; float dist; ImVec2 a, b; Surface s; };
+        std::vector<OnPart> onParts;
+        const glm::vec3 camRight(g_view[0][0], g_view[1][0], g_view[2][0]), camUp(g_view[0][1], g_view[1][1], g_view[2][1]),
+                        camBack(g_view[0][2], g_view[1][2], g_view[2][2]);
+        for (SceneNode* l : layers) {
+            if (!l->enabled || l->gui.type == GuiType::ScreenGui) continue;
+            SceneNode* part = adorneeOf(scene, l);
+            if (!part) continue;
+            const GuiProps& g = l->gui;
+            const glm::mat4 W = part->worldMatrix();
+            if (g.type == GuiType::BillboardGui) {
+                // Floats over the part, facing the camera. Size: pixels, plus studs (scale).
+                const glm::vec3 at = glm::vec3(W[3]) + g.worldOffset + camRight * g.studsOffset.x + camUp * g.studsOffset.y +
+                                     camBack * g.studsOffset.z;
+                const float dist = glm::length(at - g_camPos);
+                if (g.maxDistance > 0 && dist > g.maxDistance) continue;
+                ImVec2 c, up;
+                if (!toScreen(at, min, max, c) || !toScreen(at + camUp, min, max, up)) continue;
+                if (!g.alwaysOnTop && !seen(scene, l->id * 8, at, part)) continue;
+                const float perStud = std::abs(c.y - up.y);
+                const float w = g.size.xo + g.size.xs * perStud, h = g.size.yo + g.size.ys * perStud;
+                if (w < 1.0f || h < 1.0f) continue;
+                onParts.push_back({l, dist, ImVec2(c.x - w * 0.5f, c.y - h * 0.5f), ImVec2(c.x + w * 0.5f, c.y + h * 0.5f), {}});
+            } else {
+                // Painted on one side of the part, facing out (only seen from the front).
+                glm::vec3 R, U, N;
+                faceAxes(g.face, R, U, N);
+                const glm::vec3 Rw(W * glm::vec4(R, 0)), Uw(W * glm::vec4(U, 0)), Nw(W * glm::vec4(N, 0));
+                const float nl = glm::length(Nw), wS = glm::length(Rw), hS = glm::length(Uw);
+                if (nl < 1e-6f || wS < 1e-4f || hS < 1e-4f) continue;
+                const glm::vec3 normal = Nw / nl;
+                const glm::vec3 center = glm::vec3(W * glm::vec4(N * 0.5f, 1)) + normal * 0.02f;
+                if (glm::dot(g_camPos - center, normal) <= 0.0f) continue;   // looking at its back
+                const float dist = glm::length(center - g_camPos);
+                if (g.maxDistance > 0 && dist > g.maxDistance) continue;
+                if (!g.alwaysOnTop) {   // hidden only if its middle and all four corners are
+                    bool any = false;
+                    const glm::vec3 pts[5] = {center, center + Rw * 0.4f + Uw * 0.4f, center - Rw * 0.4f + Uw * 0.4f,
+                                              center + Rw * 0.4f - Uw * 0.4f, center - Rw * 0.4f - Uw * 0.4f};
+                    for (int i = 0; i < 5 && !any; ++i) any = seen(scene, l->id * 8 + 1 + i, pts[i], part);
+                    if (!any) continue;
+                }
+                Surface s;
+                s.canvas = g.perStud ? glm::vec2(wS, hS) * g.pixelsPerStud : g.surfaceCanvas;
+                s.canvas = glm::max(s.canvas, glm::vec2(1.0f));
+                s.origin = center - Rw * 0.5f + Uw * 0.5f;
+                s.ax = Rw / s.canvas.x;
+                s.ay = -Uw / s.canvas.y;
+                onParts.push_back({l, dist, ImVec2(0, 0), ImVec2(s.canvas.x, s.canvas.y), s});
+            }
+        }
+        std::stable_sort(onParts.begin(), onParts.end(), [](const OnPart& l, const OnPart& r) { return l.dist > r.dist; });
+        for (OnPart& o : onParts) {
+            o.gui->gui.absPos = {o.a.x, o.a.y};
+            o.gui->gui.absSize = {o.b.x - o.a.x, o.b.y - o.a.y};
+            ImVec2 ia = o.a, ib = o.b;
+            insideOf(o.gui, ia, ib);
+            if (o.gui->gui.type == GuiType::SurfaceGui) {
+                Surface s = o.s;
+                s.first = out.size();
+                layoutChildren(o.gui, ia, ib, o.a, o.b, out);
+                s.last = out.size();
+                for (size_t i = s.first; i < s.last; ++i) out[i].surface = (int)g_surfaces.size();
+                g_surfaces.push_back(s);
+            } else {   // (a billboard clips what's inside it)
+                const ImVec2 ca(std::max(o.a.x, min.x), std::max(o.a.y, min.y)), cb(std::min(o.b.x, max.x), std::min(o.b.y, max.y));
+                layoutChildren(o.gui, ia, ib, ca, cb, out);
+            }
+        }
+    }
     std::vector<SceneNode*> screens;
-    findScreens(scene.root(), screens);
+    for (SceneNode* l : layers) if (l->gui.type == GuiType::ScreenGui) screens.push_back(l);
     std::stable_sort(screens.begin(), screens.end(),
                      [](SceneNode* a, SceneNode* b) { return a->gui.displayOrder < b->gui.displayOrder; });
-    std::vector<Item> out;
     for (SceneNode* s : screens) {
         if (!s->enabled) continue;
         s->gui.absPos = {min.x, min.y};
@@ -360,6 +532,7 @@ ImVec2 g_lastMin(0, 0), g_lastMax(1280, 720);   // the screen we last drew on
 
 bool inside(const Item& it, ImVec2 p) {
     if (it.bars) return false;
+    if (it.surface >= 0 && (it.surface >= (int)g_surfaces.size() || !canvasPoint(g_surfaces[it.surface], p, p))) return false;
     ImVec2 a(std::max(it.a.x, it.clipA.x), std::max(it.a.y, it.clipA.y));
     ImVec2 b(std::min(it.b.x, it.clipB.x), std::min(it.b.y, it.clipB.y));
     return p.x >= a.x && p.x < b.x && p.y >= a.y && p.y < b.y;
@@ -416,8 +589,8 @@ void refresh(Scene& scene) { items(scene, g_lastMin, g_lastMax); }
 
 bool needsBackdrop(Scene& scene) {
     std::vector<SceneNode*> screens;
-    findScreens(scene.root(), screens);
-    for (SceneNode* s : screens) if (s->enabled && anyBlur(s)) return true;
+    findLayers(scene.root(), screens);
+    for (SceneNode* s : screens) if (s->gui.type == GuiType::ScreenGui && s->enabled && anyBlur(s)) return true;
     return false;
 }
 
@@ -426,76 +599,149 @@ void setBackdrop(const unsigned* levels, int count) {
     for (int i = 0; i < g_backdropCount; ++i) g_backdrop[i] = levels[i];
 }
 
+// Draw one object (`min`, `max`: the area it's drawn in). `flat`: on a SurfaceGui's
+// canvas, where the world behind can't be blurred.
+void drawItem(ImDrawList* dl, const Item& it, ImVec2 min, ImVec2 max, const Input* input, bool flat) {
+    const SceneNode* n = it.node;
+    const GuiProps& g = n->gui;
+    ImVec2 ca(std::max(it.clipA.x, min.x), std::max(it.clipA.y, min.y));
+    ImVec2 cb(std::min(it.clipB.x, max.x), std::min(it.clipB.y, max.y));
+    if (cb.x <= ca.x || cb.y <= ca.y) return;
+    dl->PushClipRect(ca, cb, true);
+    if (it.bars) {   // a ScrollingFrame's bars, over what's inside it
+        const ImU32 col = rgba(g.scrollColor, std::max(g.scrollTransparency, 0.35f));
+        for (bool vertical : {true, false}) {
+            ImVec2 ta, tb;
+            if (scrollThumb(n, vertical, ta, tb)) dl->AddRectFilled(ta, tb, col, (float)g.scrollBar * 0.5f);
+        }
+        dl->PopClipRect();
+        return;
+    }
+    const float w = it.b.x - it.a.x, h = it.b.y - it.a.y;
+    const Radii radii = radiiOf(n, w, h);
+    const float radius = std::max(std::max(radii.r[0], radii.r[1]), std::max(radii.r[2], radii.r[3]));
+
+    // A soft shadow under it, then the world behind it blurred (frosted glass).
+    if (const SceneNode* s = childOfType(n, GuiType::UIShadow)) drawShadow(dl, it.a, it.b, radii, s->gui);
+    if (const SceneNode* b = childOfType(n, GuiType::UIBlur); b && !flat && b->gui.blurSize > 0 && g_backdropCount > 0) {
+        const float sz = b->gui.blurSize;
+        const int level = std::min(g_backdropCount - 1, sz <= 6 ? 0 : sz <= 12 ? 1 : sz <= 24 ? 2 : 3);
+        const float sw = max.x - min.x, sh = max.y - min.y;
+        if (sw > 0 && sh > 0 && g_backdrop[level]) {   // (the world's picture is upside down, like the scene's)
+            const ImVec2 uv0((it.a.x - min.x) / sw, 1.0f - (it.a.y - min.y) / sh);
+            const ImVec2 uv1((it.b.x - min.x) / sw, 1.0f - (it.b.y - min.y) / sh);
+            imageRounded(dl, g_backdrop[level], it.a, it.b, uv0, uv1, IM_COL32_WHITE, radii);
+        }
+    }
+
+    // Background (buttons get darker when you point at or press them).
+    glm::vec3 bg = g.bg;
+    if (n->isGuiButton() && g.autoButtonColor && input) {
+        if (input->pressed == n->id && input->hovered == n->id) bg *= 0.7f;
+        else if (input->hovered == n->id) bg *= 0.87f;
+    }
+    if (g.bgTransparency < 1.0f) fillRounded(dl, it.a, it.b, rgba(bg, g.bgTransparency), radii);
+
+    // A picture.
+    if ((g.type == GuiType::ImageLabel || g.type == GuiType::ImageButton) && !g.image.empty() && g.imageTransparency < 1.0f)
+        if (unsigned tex = Textures::get(g.image)) {
+            glm::vec3 tint = g.imageColor;
+            if (n->isGuiButton() && g.autoButtonColor && input && input->hovered == n->id && g.bgTransparency >= 1.0f)
+                tint *= input->pressed == n->id ? 0.7f : 0.87f;
+            imageRounded(dl, tex, it.a, it.b, ImVec2(0, 1), ImVec2(1, 0), rgba(tint, g.imageTransparency), radii);
+        }
+
+    if (!input || n->id != g_focus) drawText(dl, it, g, radius);   // (the TextBox being typed in shows its own)
+
+    // The edge: a UIStroke inside it, else the border.
+    if (const SceneNode* s = childOfType(n, GuiType::UIStroke)) {
+        if (s->gui.thickness > 0 && s->gui.bgTransparency < 1.0f)
+            strokeRounded(dl, it.a, it.b, rgba(s->gui.borderColor, s->gui.bgTransparency), radii, s->gui.thickness);
+    } else if (g.border > 0 && g.bgTransparency < 1.0f) {
+        strokeRounded(dl, ImVec2(it.a.x - g.border * 0.5f, it.a.y - g.border * 0.5f),
+                      ImVec2(it.b.x + g.border * 0.5f, it.b.y + g.border * 0.5f),
+                      rgba(g.borderColor, g.bgTransparency), radii, (float)g.border);
+    }
+    dl->PopClipRect();
+}
+
+// A SurfaceGui: its canvas was drawn flat into `src`; put every triangle on the part's
+// side, in perspective, into `dl` (cut to each command's clip and to the camera's near plane).
+struct SV { glm::vec4 p; ImVec2 uv; glm::vec4 col; };
+SV lerpSV(const SV& a, const SV& b, float t) {
+    return {a.p + (b.p - a.p) * t, ImVec2(a.uv.x + (b.uv.x - a.uv.x) * t, a.uv.y + (b.uv.y - a.uv.y) * t), a.col + (b.col - a.col) * t};
+}
+template <class F> int clipPoly(const SV* in, int n, SV* out, F dist) {
+    int m = 0;
+    for (int i = 0; i < n; ++i) {
+        const SV& a = in[i];
+        const SV& b = in[(i + 1) % n];
+        const float da = dist(a), db = dist(b);
+        if (da >= 0) out[m++] = a;
+        if ((da >= 0) != (db >= 0)) out[m++] = lerpSV(a, b, da / (da - db));
+    }
+    return m;
+}
+void emitSurface(ImDrawList* dl, const ImDrawList& src, const Surface& s, ImVec2 min, ImVec2 max) {
+    dl->PushClipRect(min, max, true);
+    for (const ImDrawCmd& cmd : src.CmdBuffer) {
+        if (cmd.UserCallback || cmd.ElemCount == 0) continue;
+        dl->PushTexture(cmd.TexRef);
+        const ImVec4 cr = cmd.ClipRect;
+        for (unsigned k = 0; k + 2 < cmd.ElemCount; k += 3) {
+            SV a[12], b[12];
+            for (int v = 0; v < 3; ++v) {
+                const ImDrawVert& dv = src.VtxBuffer[cmd.VtxOffset + src.IdxBuffer[cmd.IdxOffset + k + v]];
+                const ImVec4 c = ImGui::ColorConvertU32ToFloat4(dv.col);
+                a[v] = {glm::vec4(dv.pos.x, dv.pos.y, 0, 1), dv.uv, glm::vec4(c.x, c.y, c.z, c.w)};
+            }
+            int n = 3;
+            n = clipPoly(a, n, b, [&](const SV& v) { return v.p.x - cr.x; });
+            n = clipPoly(b, n, a, [&](const SV& v) { return cr.z - v.p.x; });
+            n = clipPoly(a, n, b, [&](const SV& v) { return v.p.y - cr.y; });
+            n = clipPoly(b, n, a, [&](const SV& v) { return cr.w - v.p.y; });
+            if (n < 3) continue;
+            for (int v = 0; v < n; ++v)   // canvas pixels -> the world -> the camera
+                a[v].p = g_viewProj * glm::vec4(s.origin + s.ax * a[v].p.x + s.ay * a[v].p.y, 1.0f);
+            n = clipPoly(a, n, b, [](const SV& v) { return v.p.w - 0.05f; });
+            if (n < 3) continue;
+            dl->PrimReserve((n - 2) * 3, n);
+            const ImDrawIdx base = (ImDrawIdx)dl->_VtxCurrentIdx;
+            for (int v = 0; v < n; ++v) {
+                const glm::vec3 ndc = glm::vec3(b[v].p) / b[v].p.w;
+                const ImVec2 sp(min.x + (ndc.x * 0.5f + 0.5f) * (max.x - min.x), min.y + (0.5f - ndc.y * 0.5f) * (max.y - min.y));
+                dl->PrimWriteVtx(sp, b[v].uv, ImGui::ColorConvertFloat4ToU32(ImVec4(b[v].col.r, b[v].col.g, b[v].col.b, b[v].col.a)));
+            }
+            for (int v = 1; v + 1 < n; ++v) {
+                dl->PrimWriteIdx(base); dl->PrimWriteIdx((ImDrawIdx)(base + v)); dl->PrimWriteIdx((ImDrawIdx)(base + v + 1));
+            }
+        }
+        dl->PopTexture();
+    }
+    dl->PopClipRect();
+}
+
 void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const Input* input, uint64_t selected) {
     g_lastMin = min;
     g_lastMax = max;
     const std::vector<Item> list = items(scene, min, max);
-    for (const Item& it : list) {
-        const SceneNode* n = it.node;
-        const GuiProps& g = n->gui;
-        ImVec2 ca(std::max(it.clipA.x, min.x), std::max(it.clipA.y, min.y));
-        ImVec2 cb(std::min(it.clipB.x, max.x), std::min(it.clipB.y, max.y));
-        if (cb.x <= ca.x || cb.y <= ca.y) continue;
-        dl->PushClipRect(ca, cb, true);
-        if (it.bars) {   // a ScrollingFrame's bars, over what's inside it
-            const ImU32 col = rgba(g.scrollColor, std::max(g.scrollTransparency, 0.35f));
-            for (bool vertical : {true, false}) {
-                ImVec2 ta, tb;
-                if (scrollThumb(n, vertical, ta, tb)) dl->AddRectFilled(ta, tb, col, (float)g.scrollBar * 0.5f);
-            }
-            dl->PopClipRect();
-            continue;
-        }
-        const float w = it.b.x - it.a.x, h = it.b.y - it.a.y;
-        const Radii radii = radiiOf(n, w, h);
-        const float radius = std::max(std::max(radii.r[0], radii.r[1]), std::max(radii.r[2], radii.r[3]));
-
-        // A soft shadow under it, then the world behind it blurred (frosted glass).
-        if (const SceneNode* s = childOfType(n, GuiType::UIShadow)) drawShadow(dl, it.a, it.b, radii, s->gui);
-        if (const SceneNode* b = childOfType(n, GuiType::UIBlur); b && b->gui.blurSize > 0 && g_backdropCount > 0) {
-            const float sz = b->gui.blurSize;
-            const int level = std::min(g_backdropCount - 1, sz <= 6 ? 0 : sz <= 12 ? 1 : sz <= 24 ? 2 : 3);
-            const float sw = max.x - min.x, sh = max.y - min.y;
-            if (sw > 0 && sh > 0 && g_backdrop[level]) {   // (the world's picture is upside down, like the scene's)
-                const ImVec2 uv0((it.a.x - min.x) / sw, 1.0f - (it.a.y - min.y) / sh);
-                const ImVec2 uv1((it.b.x - min.x) / sw, 1.0f - (it.b.y - min.y) / sh);
-                imageRounded(dl, g_backdrop[level], it.a, it.b, uv0, uv1, IM_COL32_WHITE, radii);
-            }
-        }
-
-        // Background (buttons get darker when you point at or press them).
-        glm::vec3 bg = g.bg;
-        if (n->isGuiButton() && g.autoButtonColor && input) {
-            if (input->pressed == n->id && input->hovered == n->id) bg *= 0.7f;
-            else if (input->hovered == n->id) bg *= 0.87f;
-        }
-        if (g.bgTransparency < 1.0f) fillRounded(dl, it.a, it.b, rgba(bg, g.bgTransparency), radii);
-
-        // A picture.
-        if ((g.type == GuiType::ImageLabel || g.type == GuiType::ImageButton) && !g.image.empty() && g.imageTransparency < 1.0f)
-            if (unsigned tex = Textures::get(g.image)) {
-                glm::vec3 tint = g.imageColor;
-                if (n->isGuiButton() && g.autoButtonColor && input && input->hovered == n->id && g.bgTransparency >= 1.0f)
-                    tint *= input->pressed == n->id ? 0.7f : 0.87f;
-                imageRounded(dl, tex, it.a, it.b, ImVec2(0, 1), ImVec2(1, 0), rgba(tint, g.imageTransparency), radii);
-            }
-
-        if (!input || n->id != g_focus) drawText(dl, it, g, radius);   // (the TextBox being typed in shows its own)
-
-        // The edge: a UIStroke inside it, else the border.
-        if (const SceneNode* s = childOfType(n, GuiType::UIStroke)) {
-            if (s->gui.thickness > 0 && s->gui.bgTransparency < 1.0f)
-                strokeRounded(dl, it.a, it.b, rgba(s->gui.borderColor, s->gui.bgTransparency), radii, s->gui.thickness);
-        } else if (g.border > 0 && g.bgTransparency < 1.0f) {
-            strokeRounded(dl, ImVec2(it.a.x - g.border * 0.5f, it.a.y - g.border * 0.5f),
-                          ImVec2(it.b.x + g.border * 0.5f, it.b.y + g.border * 0.5f),
-                          rgba(g.borderColor, g.bgTransparency), radii, (float)g.border);
-        }
-        dl->PopClipRect();
+    size_t i = 0;
+    while (i < list.size()) {
+        const Item& it = list[i];
+        if (it.surface < 0) { drawItem(dl, it, min, max, input, false); ++i; continue; }
+        // A SurfaceGui's objects: drawn flat on its canvas, then put on the part.
+        const Surface& s = g_surfaces[it.surface];
+        ImDrawList flat(ImGui::GetDrawListSharedData());
+        flat._ResetForNewFrame();
+        flat.PushTexture(ImGui::GetIO().Fonts->TexRef);
+        const ImVec2 cmin(0, 0), cmax(s.canvas.x, s.canvas.y);
+        flat.PushClipRect(cmin, cmax);
+        for (; i < list.size() && list[i].surface == it.surface; ++i) drawItem(&flat, list[i], cmin, cmax, input, true);
+        emitSurface(dl, flat, s, min, max);
     }
     if (selected)   // Studio: show which one is selected
         for (const Item& it : list)
-            if (it.node->id == selected) {
+            if (it.node->id == selected && it.surface < 0) {
                 dl->AddRect(ImVec2(it.a.x - 2, it.a.y - 2), ImVec2(it.b.x + 2, it.b.y + 2), IM_COL32(40, 150, 255, 255), 0, 0, 2.0f);
                 dl->AddRectFilled(ImVec2(it.b.x - 4, it.b.y - 4), ImVec2(it.b.x + 4, it.b.y + 4), IM_COL32(40, 150, 255, 255));
             }
@@ -503,24 +749,25 @@ void draw(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const Input* inp
 
 SceneNode* pick(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 p, bool buttonsOnly) {
     const std::vector<Item> list = items(scene, min, max);
-    for (auto it = list.rbegin(); it != list.rend(); ++it)
-        if (inside(*it, p) && (!buttonsOnly || it->node->isGuiButton())) return it->node;
+    for (auto it = list.rbegin(); it != list.rend(); ++it)   // (Studio doesn't move things on a SurfaceGui by dragging)
+        if ((buttonsOnly || it->surface < 0) && inside(*it, p) && (!buttonsOnly || it->node->isGuiButton())) return it->node;
     return nullptr;
 }
 
 bool rectOf(Scene& scene, ImVec2 min, ImVec2 max, const SceneNode* node, ImVec2& a, ImVec2& b) {
     for (const Item& it : items(scene, min, max))
-        if (it.node == node) { a = it.a; b = it.b; return true; }
+        if (it.node == node && it.surface < 0) { a = it.a; b = it.b; return true; }
     return false;
 }
 
 bool handle(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 pointer, bool in, bool down, bool up, bool tapped,
             Input& input, std::vector<Event>& events) {
     SceneNode* top = nullptr;
+    bool topOnSurface = false;   // (typing into a TextBox on a part isn't supported)
     if (in) {
         const std::vector<Item> list = items(scene, min, max);
         for (auto it = list.rbegin(); it != list.rend(); ++it)
-            if (inside(*it, pointer) && blocks(it->node)) { top = it->node; break; }
+            if (inside(*it, pointer) && blocks(it->node)) { top = it->node; topOnSurface = it->surface >= 0; break; }
     }
     // Scrolling: the wheel scrolls the innermost ScrollingFrame under the pointer that can
     // still go that way; dragging its bar (or a finger on it) moves it too.
@@ -576,7 +823,7 @@ bool handle(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 pointer, bool in, bool 
 
     // TextBoxes: pressing one starts typing in it; pressing anywhere else stops.
     if ((down || tapped) && in) {
-        if (top && top->gui.type == GuiType::TextBox && top->gui.editable) { if (g_focus != top->id) focus(top->id); }
+        if (top && top->gui.type == GuiType::TextBox && top->gui.editable && !topOnSurface) { if (g_focus != top->id) focus(top->id); }
         else if (g_focus) focus(0);
     }
 
@@ -597,6 +844,14 @@ bool handle(Scene& scene, ImVec2 min, ImVec2 max, ImVec2 pointer, bool in, bool 
         }
     }
     return top != nullptr;
+}
+
+void setCamera(const glm::mat4& view, const glm::mat4& proj, const glm::vec3& position) {
+    g_view = view;
+    g_viewProj = proj * view;
+    g_invViewProj = glm::inverse(g_viewProj);
+    g_camPos = position;
+    g_haveCam = true;
 }
 
 uint64_t focused() { return g_focus; }

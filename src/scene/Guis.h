@@ -21,6 +21,7 @@ inline void setDefaults(SceneNode& n) {
         case GuiType::UIShadow:   g.bg = {0, 0, 0}; g.bgTransparency = 0.5f; break;
         case GuiType::TextBox:    g.size = {0, 200, 0, 50}; g.placeholder = "Type here"; break;
         case GuiType::UIGridLayout: g.fill = 1; g.padding = {0, 5, 0, 5}; break;
+        case GuiType::BillboardGui: g.size = {0, 200, 0, 50}; g.studsOffset = {0, 2, 0}; break;
         default: break;   // Frame / ImageLabel / ImageButton / ScrollingFrame: 100 x 100
     }
 }

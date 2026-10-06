@@ -831,13 +831,9 @@ struct Converter {
             node->value.n = in.num("Value", 0.0);
             node->value.b = in.num("Value", 0.0) != 0.0;
             node->value.s = in.str("Value");
-        } else if (GuiType gt; Guis::typeFromName(c, gt) || c == "BillboardGui" || c == "SurfaceGui") {
+        } else if (GuiType gt; Guis::typeFromName(c, gt)) {
             // Game UI (ScreenGui, Frame, TextLabel, TextButton, TextBox, ImageLabel, ImageButton, ScrollingFrame,
             // UICorner, UIStroke, UIListLayout, UIGridLayout, UIPadding).
-            if (c == "BillboardGui" || c == "SurfaceGui") {
-                note(c + "s aren't supported yet (only ScreenGui UI is).");
-                return nullptr;
-            }
             node = std::make_unique<SceneNode>(name, NodeKind::Gui);
             node->gui.type = gt;
             Guis::setDefaults(*node);
@@ -920,6 +916,25 @@ struct Converter {
             }
             if (gt == GuiType::TextButton || gt == GuiType::ImageButton) g.autoButtonColor = in.flag("AutoButtonColor", true);
             if (gt == GuiType::ScreenGui) { node->enabled = in.flag("Enabled", true); g.displayOrder = (int)in.num("DisplayOrder", 0); }
+            if (gt == GuiType::BillboardGui || gt == GuiType::SurfaceGui) {   // (Roblox studs are twice ours)
+                node->enabled = in.flag("Enabled", true);
+                g.alwaysOnTop = in.flag("AlwaysOnTop", false);
+                const double md = in.num("MaxDistance", 0.0);
+                g.maxDistance = md > 0 && md < 1e29 ? (float)md * kImportScale : 0.0f;
+                if (gt == GuiType::BillboardGui) {
+                    g.size.xs *= kImportScale;
+                    g.size.ys *= kImportScale;
+                    g.studsOffset = {0, 0, 0};
+                    if (const Value* v = in.get("StudsOffset"); v && v->kind == Value::Vec3) g.studsOffset = v->v * kImportScale;
+                    if (const Value* v = in.get("StudsOffsetWorldSpace"); v && v->kind == Value::Vec3) g.worldOffset = v->v * kImportScale;
+                } else {
+                    const int face = (int)in.num("Face", 5);
+                    g.face = face >= 0 && face < 6 ? face : 5;
+                    if (const Value* v = in.get("CanvasSize"); v && v->kind == Value::Vec2) g.surfaceCanvas = glm::max(glm::vec2(1.0f), glm::vec2(v->q.x, v->q.y));
+                    g.perStud = (int)in.num("SizingMode", 0) == 1;   // FixedSize 0, PixelsPerStud 1
+                    g.pixelsPerStud = std::clamp((float)in.num("PixelsPerStud", 50.0) / kImportScale, 1.0f, 1000.0f);
+                }
+            }
             if (gt == GuiType::UICorner)
                 if (const Value* v = in.get("CornerRadius"); v && v->kind == Value::UDim) g.corner = {v->q.x, v->q.y, 0, 0};
             if (gt == GuiType::UIStroke) {
@@ -1333,6 +1348,25 @@ struct XmlWriter {
         case NodeKind::Gui: {
             const GuiProps& g = n.gui;
             if (g.type == GuiType::ScreenGui) { boolean("Enabled", n.enabled); o << "<int name=\"DisplayOrder\">" << g.displayOrder << "</int>\n"; boolean("ResetOnSpawn", false); break; }
+            if (g.type == GuiType::BillboardGui || g.type == GuiType::SurfaceGui) {
+                boolean("Enabled", n.enabled);
+                boolean("AlwaysOnTop", g.alwaysOnTop);
+                flt("MaxDistance", g.maxDistance > 0 ? g.maxDistance * kExportScale : 1e30f);
+                if (g.type == GuiType::BillboardGui) {
+                    UDim2 s = g.size;
+                    s.xs *= kExportScale;
+                    s.ys *= kExportScale;
+                    udim2("Size", s);
+                    vec3("StudsOffset", g.studsOffset * kExportScale);
+                    vec3("StudsOffsetWorldSpace", g.worldOffset * kExportScale);
+                } else {
+                    token("Face", g.face);
+                    vec2("CanvasSize", g.surfaceCanvas);
+                    token("SizingMode", g.perStud ? 1 : 0);
+                    flt("PixelsPerStud", g.pixelsPerStud * kImportScale);
+                }
+                break;
+            }
             if (g.type == GuiType::UICorner) {
                 o << "<UDim name=\"CornerRadius\"><S>" << g.corner.xs << "</S><O>" << (int)std::lround(g.corner.xo) << "</O></UDim>\n";
                 break;
