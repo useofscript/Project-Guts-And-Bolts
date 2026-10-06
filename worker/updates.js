@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'portal-hopper', name: 'Portal Hopper', time: 1791327890, tag: 'Engine',
+    summary: 'TeleportService: games can send players to another game, and bring some data along, like Roblox.',
+    items: [
+      'TeleportService:Teleport and TeleportAsync send one player or a whole group to another game by its ID',
+      'Send data with them (TeleportOptions:SetTeleportData), and read it there with player:GetJoinData()',
+      'Players land in an open server of that game, or a new one if none is open',
+      'Works from game server machines, from whoever is hosting, and from LocalScripts for your own player',
+      'In Studio\'s play test, Output says where a player would have gone',
+    ],
+  },
+  {
     id: 'total-goblin-mode', name: 'Total Goblin Mode', version: '0.6.9', time: 1791326339, tag: 'Engine',
     summary: 'The biggest drop yet: servers that run with nobody hosting, LocalScripts, controllers, glowing trails, and a hammer for creators.',
     items: [

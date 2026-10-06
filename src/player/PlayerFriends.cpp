@@ -124,6 +124,8 @@ void PlayerApp::joinRelay(const std::string& session, const std::string& code, c
     }
     json args = code.empty() ? json{{"session", session}} : json{{"code", code}};
     m_client = std::make_unique<NetClient>(m_scene.get(), m_session.get());
+    m_client->setJoinData(m_teleportData);   // teleported here? (TeleportService)
+    m_teleportData = nullptr;
     if (!m_client->connectRelay(server, port, Online::signedRequest("relay.join", args).dump())) {
         m_status = m_client->error();
         m_client.reset();

@@ -9,6 +9,7 @@
 #include "Socket.h"
 #include "../core/Log.h"
 #include "../game/PlayerEntry.h"
+#include <nlohmann/json.hpp>
 #include "../scene/Player.h"   // CharacterPose
 #include <nlohmann/json.hpp>
 
@@ -99,6 +100,8 @@ public:
     // MarketplaceService:PromptGamePassPurchase for a joined player: their app shows the
     // Buy window and tells us how it went. False if that player isn't one of ours.
     bool promptPass(int scriptUserId, const std::string& pass);
+    // TeleportService sent this joined player to another game (`from` = this game's ID).
+    bool teleport(const std::string& name, const std::string& place, const nlohmann::json& data, const std::string& from);
 
 private:
     struct Client;
@@ -173,6 +176,10 @@ public:
     void passDone(const std::string& pass, bool bought);
     // The server said this server's host left: 0 = no, 1 = wait for the new one, 2 = you host it.
     int movingTurn() const { return m_movingTurn; }
+    // TeleportService: what we bring when joining ({"data", "from"}), and where the
+    // server's scripts sent us ({"place", "data", "from"}; null = nowhere).
+    void setJoinData(const nlohmann::json& joinData) { m_joinData = joinData; }
+    nlohmann::json takeTeleport() { nlohmann::json t = std::move(m_teleport); m_teleport = nullptr; return t; }
 
 private:
     void handle(const std::string& msg);
@@ -203,4 +210,5 @@ private:
     std::vector<Log::Entry> m_serverLog;
     bool         m_hostGone = false;
     int          m_movingTurn = 0;
+    nlohmann::json m_joinData, m_teleport;
 };
