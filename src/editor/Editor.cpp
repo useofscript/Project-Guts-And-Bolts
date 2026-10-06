@@ -74,26 +74,18 @@ Editor::Editor(GLFWwindow* window, Scene* scene)
         ImGui::Separator();
         if (ImGui::MenuItem("Expand Selected", "Ctrl+Right")) m_outliner->expand(m_scene->selection());
         if (ImGui::MenuItem("Collapse Selected", "Ctrl+Left")) m_outliner->collapse(m_scene->selection());
-        if (ImGui::MenuItem("Group", "Ctrl+G")) m_deferred = [this] { groupSelected(); };
-        SceneNode* sel = m_scene->selected();
-        if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Ungroup", "Ctrl+U"))
-            m_deferred = [this] { ungroupSelected(); };
-        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_deferred = [this] { duplicateSelected(); };
-        publishMenuItem();
+        selectionMenuItems(false);
     };
     // Right-clicking the 3D view: the same things for what's selected.
     m_viewport->contextMenu = [this] {
-        const bool any = m_scene->selected() != nullptr;
-        if (!any) ImGui::TextDisabled("Click something to select it first.");
-        ImGui::BeginDisabled(!any);
-        if (ImGui::MenuItem("Group", "Ctrl+G")) m_deferred = [this] { groupSelected(); };
-        SceneNode* sel = m_scene->selected();
-        if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Ungroup", "Ctrl+U"))
-            m_deferred = [this] { ungroupSelected(); };
-        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) m_deferred = [this] { duplicateSelected(); };
-        if (ImGui::MenuItem("Zoom To", "F")) m_deferred = [this] { m_viewport->focusSelected(); };
-        ImGui::EndDisabled();
-        publishMenuItem();
+        if (!m_scene->selected()) {
+            ImGui::TextDisabled("Click something to select it first.");
+            if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_clipboard.empty())) m_deferred = [this] { paste(); };
+            return;
+        }
+        selectionMenuItems(true);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete", "Del")) m_deferred = [this] { deleteSelected(); };
     };
     m_properties   = std::make_unique<PropertiesPanel>(scene, open);
     m_properties->m_editMesh = [this](SceneNode* n) {
@@ -1803,4 +1795,43 @@ void Editor::renderStatusBar() {
     ImGui::EndChild();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
+}
+
+// The right-click menu's actions for what's selected (the Explorer's and the 3D view's),
+// like Roblox Studio's: clipboard, grouping, selecting, anchoring and sharing.
+void Editor::selectionMenuItems(bool inViewport) {
+    SceneNode* sel = m_scene->selected();
+    const bool any = sel != nullptr;
+    auto later = [this](std::function<void()> f) { m_deferred = std::move(f); };
+    ImGui::Separator();
+    if (ImGui::MenuItem("Cut", "Ctrl+X", false, any)) later([this] { cutSelected(); });
+    if (ImGui::MenuItem("Copy", "Ctrl+C", false, any)) later([this] { copySelected(); });
+    if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_clipboard.empty())) later([this] { paste(); });
+    if (ImGui::MenuItem("Paste Into", "Ctrl+Shift+V", false, any && !m_clipboard.empty())) later([this] { pasteInto(); });
+    if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, any)) later([this] { duplicateSelected(); });
+    ImGui::Separator();
+    if (ImGui::MenuItem("Group", "Ctrl+G", false, any)) later([this] { groupSelected(); });
+    if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Ungroup", "Ctrl+U")) later([this] { ungroupSelected(); });
+    if (sel && sel->kind == NodeKind::Model && ImGui::MenuItem("Center the Model's Pivot")) later([this] { centerModelPivot(); });
+    bool parts = false;
+    for (SceneNode* n : m_scene->selection()) parts = parts || n->isPart();
+    if (parts && ImGui::BeginMenu("Solid Modeling")) {
+        if (ImGui::MenuItem("Union", "Ctrl+Shift+G")) later([this] { unionSelected(0); });
+        if (ImGui::MenuItem("Intersect", "Ctrl+Shift+I")) later([this] { unionSelected(1); });
+        if (ImGui::MenuItem("Negate", "Ctrl+Shift+N")) later([this] { negateSelected(); });
+        if (ImGui::MenuItem("Separate", "Ctrl+Shift+U")) later([this] { separateSelected(); });
+        ImGui::EndMenu();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Select Children", "Ctrl+Down", false, any && !sel->children.empty())) later([this] { selectChildren(); });
+    if (ImGui::MenuItem("Select Parent", "Ctrl+Up", false, any && sel->parent && sel->parent != m_scene->root()))
+        later([this] { selectParent(); });
+    if (ImGui::MenuItem("Zoom To", "F", false, any)) later([this] { m_viewport->focusSelected(); });
+    if (parts) {
+        if (ImGui::MenuItem(sel && sel->isPart() && sel->anchored ? "Unanchor" : "Anchor", "Alt+A")) later([this] { toggleAnchored(); });
+        if (ImGui::MenuItem(sel && sel->locked ? "Unlock" : "Lock", "Alt+L")) later([this] { toggleLocked(); });
+    }
+    if (inViewport && any && ImGui::MenuItem(sel->visible ? "Hide" : "Show", "H")) later([this] { toggleHidden(); });
+    if (ImGui::MenuItem("Export to Roblox Model (.rbxmx)", nullptr, false, any)) later([this] { exportRoblox(true); });
+    publishMenuItem();
 }

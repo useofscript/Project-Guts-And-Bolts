@@ -112,6 +112,7 @@ private:
     void       renderPluginLibrary();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
     void       publishMenuItem();            // right-click: "Publish to Guts&Bolts..." (opens the dialog above)
+    void       selectionMenuItems(bool inViewport);   // the rest of the right-click menu (Explorer and 3D view)
     void       renderMakeGearDialog();
     std::string m_fixPicturesMsg;
     // Pictures on parts that only live on this computer (an imported Roblox hat's texture) go up
