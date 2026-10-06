@@ -10,7 +10,7 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'old-faithful', name: 'Old Faithful', time: 1791295000, tag: 'Engine',
+    id: 'old-faithful', name: 'Old Faithful', version: '0.6.8', time: 1791295000, tag: 'Engine',
     summary: 'The classic BodyMovers are back next to the newer movers, so old vehicles and flying keep their handling. And you can sit down anywhere.',
     items: [
       'Classic BodyMovers: BodyVelocity, BodyPosition, BodyGyro, BodyAngularVelocity, BodyThrust and BodyForce. Put one in an unanchored part',
