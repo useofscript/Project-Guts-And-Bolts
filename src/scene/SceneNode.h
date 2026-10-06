@@ -88,8 +88,10 @@ inline const char* const kMaterialNames[kMaterialCount] =
 
 // A custom value on an object, like Roblox Attributes (Properties panel >
 // Attributes, or part:SetAttribute("Coins", 5) in a script).
-// Tool.Grip's default turn (see SceneNode::gripRot).
-inline const glm::mat3 kDefaultGripRot{-1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f};
+// Tool.Grip's default turn (see SceneNode::gripRot): none, like Roblox's. The Handle's
+// long side (+Y) points the way the hand's front faces, so with the arm held out a
+// sword points straight up, the classic way.
+inline const glm::mat3 kDefaultGripRot{1.0f};
 
 struct Attribute {
     enum Type { Bool, Number, String, Vector3, Color3 };
@@ -209,8 +211,8 @@ public:
     bool        starterTool  = false;      // everyone gets one when they spawn (like Roblox's StarterPack)
     glm::vec3   gripPos{0.0f};             // the point on the Handle (Handle's own space) that sits in the hand
     // Tool.Grip's turn, exactly like Roblox's (columns = GripRight, GripUp, GripForward):
-    // the Handle sits at RightArm * RightGrip.C0 * Grip:Inverse(). The default
-    // holds a Handle with its long side (+Y) pointing out of the fist.
+    // the Handle sits at RightArm * RightGrip.C0 * Grip:Inverse(). The default (none)
+    // holds a Handle with its long side (+Y) pointing up when the arm is held out.
     glm::mat3   gripRot = kDefaultGripRot;
 
     // Real liquid (see Liquid.h). A FluidSystem is a kind of liquid: `color`, how thick
