@@ -1,6 +1,12 @@
-# Next version (not released yet)
+# Guts&Bolts 0.6.6: Home Delivery (October 6, 2026)
 
 ## New
+- **Downloads from gutsandbolts.net**: the Download buttons give you the Player
+  and Studio (and the Android app) straight from the site, and the apps update
+  themselves from there (download, swap, restart; your own games are kept).
+- **Upload Missing Item Pictures** (Studio, File menu): hats and gear made from
+  imported Roblox files get their pictures uploaded, so they show up for
+  everyone instead of plain white.
 - **gutsandbolts.net**: the website and the server have their own address. The
   apps connect to it from this version on; the old `workers.dev` address still
   works for older apps.

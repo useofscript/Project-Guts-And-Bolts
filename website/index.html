@@ -158,22 +158,26 @@
     <h2>Download</h2>
     <p>Free, for Windows, Mac, Linux and Android. Each download has both the Player and Studio.</p>
     <div class="dl">
-      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Windows</a><small>GutsAndBolts-Windows.zip</small></div>
-      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Mac</a><small>GutsAndBolts-macOS.zip</small></div>
-      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Linux</a><small>GutsAndBolts-Linux.tar.gz</small></div>
-      <div><a class="btn play" href="https://github.com/useofscript/Project-Guts-And-Bolts/releases">Android</a><small>GutsAndBoltsPlayer-Android.apk</small></div>
+      <div><a class="btn play" href="/download/GutsAndBolts-Windows.zip" download>Windows</a><small>GutsAndBolts-Windows.zip</small></div>
+      <div><a class="btn play" href="/download/GutsAndBolts-macOS.zip" download>Mac</a><small>GutsAndBolts-macOS.zip</small></div>
+      <div><a class="btn play" href="/download/GutsAndBolts-Linux.tar.gz" download>Linux</a><small>GutsAndBolts-Linux.tar.gz</small></div>
+      <div><a class="btn play" href="/download/GutsAndBoltsPlayer-Android.apk" download>Android</a><small>GutsAndBoltsPlayer-Android.apk</small></div>
     </div>
-    <p style="color:var(--muted);font-size:12px">Every button opens the releases page. Pick the newest release, then click the file for your computer.</p>
+    <p id="dl-version" style="color:var(--muted);font-size:12px">Unzip it and open GutsAndBoltsPlayer (or GutsAndBolts for Studio). It keeps itself up to date.</p>
+    <script>
+      fetch('/download/latest.json').then((r) => r.ok ? r.json() : null).then((m) => {
+        if (m && m.version) document.getElementById('dl-version').textContent = 'Version ' + m.version + (m.name ? ' (' + m.name.replace(/^Guts&Bolts\s+v?[\d.]+:?\s*/, '') + ')' : '') + '. Unzip it and open GutsAndBoltsPlayer (or GutsAndBolts for Studio). It keeps itself up to date.';
+      }).catch(() => {});
+    </script>
   </section>
 
   <section id="server">
     <h2>Always online</h2>
     <p>The Guts&amp;Bolts server runs in the cloud, so your account, Bolts, friends and games are there any time.
       The apps connect to it by themselves: just sign up and press Play.</p>
-    <p>Want to run your own server for a LAN party? The <a href="https://github.com/useofscript/Project-Guts-And-Bolts#readme">README</a> explains how.</p>
   </section>
 </main>
 
-<footer><a href="app/">The site</a> | <a href="#download">Download</a> | <a href="app/#/terms">Terms</a> | <a href="https://github.com/useofscript/Project-Guts-And-Bolts">Source</a><br><br>Guts&amp;Bolts is a free, independent hobby game platform for adults (18+): expect strong language, crude humour and cartoon gore.<br>Not affiliated with, endorsed by, or connected to Roblox Corporation.</footer>
+<footer><a href="app/">The site</a> | <a href="#download">Download</a> | <a href="app/#/terms">Terms</a><br><br>Guts&amp;Bolts is a free, independent hobby game platform for adults (18+): expect strong language, crude humour and cartoon gore.<br>Not affiliated with, endorsed by, or connected to Roblox Corporation.</footer>
 </body>
 </html>

@@ -143,6 +143,9 @@ jobs:
     if: always() && needs.android.result == 'success' && github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release v'))
     needs: [android, linux, windows, macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write   # proves to gutsandbolts.net that this is our release build (see worker/downloads.js)
     steps:
       - name: Which version
         id: rel
@@ -185,6 +188,32 @@ jobs:
           cp dist/macos/*.zip out/ 2>/dev/null || true
           if [ -d dist/windows ]; then (cd dist && zip -qr ../out/GutsAndBolts-Windows.zip windows); fi
           ls -la out
+      # The downloads live on gutsandbolts.net (Cloudflare), the only place people get the apps.
+      # GitHub signs a short-lived token for this run; the site checks it before taking the files.
+      - name: Upload to gutsandbolts.net
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          NAME: ${{ steps.notes.outputs.name }}
+        run: |
+          TOKEN=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=gutsandbolts.net" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')
+          for f in out/*; do
+            echo "Uploading $(basename "$f")"
+            curl -fsS --retry 3 -X PUT -H "Authorization: Bearer $TOKEN" --data-binary @"$f" \
+              "https://gutsandbolts.net/download/upload/$(basename "$f")?version=$TAG"
+            echo
+          done
+          python3 - <<'PY' > manifest.json
+          import json, os
+          files = {}
+          for f in os.listdir("out"):
+              kind = "android" if f.endswith(".apk") else "windows" if "Windows" in f else "mac" if "macOS" in f else "linux" if "Linux" in f else None
+              if kind: files[kind] = f
+          print(json.dumps({"version": os.environ["TAG"], "name": os.environ.get("NAME", ""),
+                            "notes": open("release_notes_latest.md", encoding="utf-8").read(), "files": files}))
+          PY
+          curl -fsS --retry 3 -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            --data-binary @manifest.json https://gutsandbolts.net/download/publish
       # Re-releasing the same version replaces it: the old release and its tag go first.
       - name: Replace an older release of this version
         env:
@@ -215,6 +244,7 @@ jobs:
           url = f"https://github.com/{repo}/releases/tag/{tag}"
           notes = open("release_notes_latest.md", encoding="utf-8").read()
           notes = notes if len(notes) <= 3500 else notes[:3499] + "…"
+          url = "https://gutsandbolts.net/#download"
           embed = {"title": f"📦 New release: {os.environ.get('NAME') or 'Guts&Bolts ' + tag}", "url": url, "color": 0x16A34A,
                    "description": notes + f"\n\n**[Download it here]({url})** · [Website](https://gutsandbolts.net)"}
           body = json.dumps({"username": "Guts&Bolts Dev Log", "embeds": [embed]}).encode()
