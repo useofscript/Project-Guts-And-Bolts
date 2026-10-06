@@ -13,7 +13,10 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 // What an object *is*, à la Roblox classes:
 //   Part   — a visible, physical shape (Cube / Sphere / Plane / Cylinder)
 //   Model  — an empty container used to group other objects
-//   Script — Lua code that runs when you press Play (script.Parent = its parent)
+//   Script — Lua code that runs when you press Play (script.Parent = its parent). A
+//            LocalScript (isLocal) runs on each player's own computer instead.
+//   Remote — a RemoteEvent / RemoteFunction: how LocalScripts and the game's
+//            server Scripts send each other messages
 //   Light  — a PointLight / SpotLight, usually placed inside a part
 //   ForceField — inside a character: a glowing shield (like Roblox's spawn ForceField)
 //   Sound  — a sound effect or music (inside a part = it comes from there)
@@ -27,7 +30,7 @@ enum class PrimitiveType { None, Cube, Sphere, Plane, Cylinder, Mesh };   // Mes
 //   Animation  — keyframes that pose a rig's parts (made in Studio's Animation
 //                Editor, played by scripts: humanoid:LoadAnimation(anim):Play())
 enum class NodeKind { Part, Model, Script, Light, ForceField, Sound, Attachment, Constraint, Tool, Value, Decal, Animation, Gui,
-                      FluidSystem, FluidEmitter, Mover };
+                      FluidSystem, FluidEmitter, Mover, Remote };
 
 // Game UI (kind == Gui), like Roblox's: a ScreenGui holds Frames, labels,
 // buttons and pictures, laid out with UDim2 (a fraction of the parent plus pixels).
@@ -272,6 +275,8 @@ public:
     std::string source;
     bool        enabled = true;           // scripts and lights can be switched off
     bool        isModule = false;         // ModuleScript: only runs when require()d
+    bool        isLocal = false;          // LocalScript: runs on each player's computer, not the game's server
+    bool        remoteFunction = false;   // (kind == Remote) a RemoteFunction, else a RemoteEvent
 
     // Anything
     std::vector<Attribute>   attributes;
@@ -393,6 +398,7 @@ public:
     bool isAttachment() const { return kind == NodeKind::Attachment; }
     bool isConstraint() const { return kind == NodeKind::Constraint; }
     bool isMover() const { return kind == NodeKind::Mover; }
+    bool isRemote() const { return kind == NodeKind::Remote; }
     bool hasForceField() const {
         for (auto& c : children) if (c->kind == NodeKind::ForceField) return true;
         return false;

@@ -101,10 +101,38 @@ public:
     void addPlayer(const std::string& name, uint64_t characterRootId, int userId, uint64_t backpackId = 0);
     void removePlayer(const std::string& name);
 
+    // Which scripts run here. LocalScripts run on each player's own computer:
+    //   All    - playing by yourself, or hosting from the app (you're a player too)
+    //   Server - a game server machine: Scripts only (nobody plays on it)
+    //   Client - you joined someone's game: only LocalScripts (the host runs the Scripts)
+    enum class RunMode { All, Server, Client };
+    void    setRunMode(RunMode m) { m_runMode = m; }
+    RunMode runMode() const { return m_runMode; }
+    bool    wantsScript(const SceneNode* script) const;
+    void    setLocalUserId(int id) { m_localUserId = id; }   // our player's UserId (the server picks it)
+
+    // RemoteEvents / RemoteFunctions between computers (ScriptRemotes.cpp). What scripts
+    // want sent, for the app to pass on: `to` = a player's UserId, 0 = every joined
+    // player, -1 = the server.
+    struct RemoteOut { int to; nlohmann::json msg; };
+    std::vector<RemoteOut> takeRemoteOut() { return std::move(m_remoteOut); }
+    // A message from the other side ("remote", "invoke" or "invoked"); on the server,
+    // `fromUserId` is the player who sent it.
+    void remoteIn(const nlohmann::json& msg, int fromUserId = 0);
+    // On a joined player's computer our own character has different ids from the
+    // server's copy of it: these swap them (unset: ids are the same everywhere).
+    std::function<uint64_t(uint64_t)> idToServer, idFromServer;
+
     GuiState& gui() { return m_gui; }
     void setPlayerName(const std::string& n) { m_playerName = n; }
     // A game server machine: nobody plays here, so there's no LocalPlayer (only people who join).
     void setNoLocalPlayer(bool on) { m_noLocalPlayer = on; }
+    bool noLocalPlayer() const { return m_noLocalPlayer; }
+    // While set, events only reach Scripts, not LocalScripts: on the host, a joined
+    // player's clicks and typing are theirs, not the host's.
+    void setJoinerEvent(bool on) { m_joinerEvent = on; }
+    // Hosting or joined (remote messages to other computers are kept for sending).
+    void setNetworked(bool on) { m_networked = on; if (!on) m_remoteOut.clear(); }
     const std::string& playerName() const { return m_playerName; }
 
     // Compile without running — used by the script editor for live error checks.
@@ -133,6 +161,17 @@ public:
     void       setScriptEnabled(SceneNode* script, bool on);
 
 private:
+    void openRemotes();                       // the Lua side of RemoteEvents (ScriptRemotes.cpp)
+    RunMode m_runMode = RunMode::All;
+    bool    m_joinerEvent = false;
+    bool    m_networked = false;
+    int     m_localUserId = 1;
+    std::vector<RemoteOut> m_remoteOut;
+    struct InvokeIn { uint64_t remote; int from; int call; nlohmann::json args; };
+    std::vector<InvokeIn> m_invokesIn;        // RemoteFunction calls waiting for the server's scripts
+    std::map<int, nlohmann::json> m_invokeResults;   // our InvokeServer calls the server has answered
+    int     m_nextCall = 1;
+    friend struct RemoteLua;
     std::unordered_set<uint64_t> m_started;   // scripts that have run (so nothing runs twice)
     uint64_t m_playersRoot = 0;               // "Players": one object per player (detached)
     nlohmann::json m_saveData;                // loaded on first use

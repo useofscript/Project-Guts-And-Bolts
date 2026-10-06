@@ -49,6 +49,7 @@ const char* kindName(NodeKind k) {
         case NodeKind::FluidSystem:  return "FluidSystem";
         case NodeKind::FluidEmitter: return "FluidEmitter";
         case NodeKind::Mover:        return "Mover";
+        case NodeKind::Remote:       return "Remote";
         default:               return "Part";
     }
 }
@@ -68,6 +69,7 @@ NodeKind kindFrom(const std::string& s) {
     if (s == "FluidSystem")  return NodeKind::FluidSystem;
     if (s == "FluidEmitter") return NodeKind::FluidEmitter;
     if (s == "Mover")        return NodeKind::Mover;
+    if (s == "Remote")       return NodeKind::Remote;
     return NodeKind::Part;
 }
 
@@ -364,6 +366,8 @@ json toJson(const SceneNode& n) {
     if (!n.visible) j["visible"]  = false;
     if (n.internal) j["internal"] = true;
     if (n.isModule) j["module"]   = true;
+    if (n.isLocal)  j["local"]    = true;
+    if (n.remoteFunction) j["function"] = true;
     if (n.locked)   j["locked"]   = true;
     if (!n.tags.empty()) j["tags"] = n.tags;
     if (!n.attributes.empty()) {
@@ -543,6 +547,8 @@ std::unique_ptr<SceneNode> fromJson(const json& j, bool freshIds) {
     n->visible       = get<bool>(j, "visible", true);
     n->internal      = get<bool>(j, "internal", false);
     n->isModule      = get<bool>(j, "module", false);
+    n->isLocal       = get<bool>(j, "local", false);
+    n->remoteFunction = get<bool>(j, "function", false);
     n->locked        = get<bool>(j, "locked", false);
     if (auto t = j.find("tags"); t != j.end() && t->is_array())
         for (auto& v : *t) if (v.is_string()) n->tags.push_back(v.get<std::string>());
@@ -776,6 +782,7 @@ void applyNodeShallow(SceneNode& dst, const std::string& text) {
     dst.unionSource = src->unionSource;
     dst.source = src->source;       dst.enabled = src->enabled;
     dst.isModule = src->isModule;   dst.locked = src->locked;
+    dst.isLocal = src->isLocal;     dst.remoteFunction = src->remoteFunction;
     dst.tags = src->tags;           dst.attributes = src->attributes;
     dst.lightType = src->lightType; dst.brightness = src->brightness;
     dst.range = src->range;         dst.spotAngle = src->spotAngle;

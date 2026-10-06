@@ -326,6 +326,7 @@ add_library(gb_engine STATIC
     src/scripting/ScriptEngine.cpp
     src/scripting/LuaTypes.cpp
     src/scripting/LuaInstance.cpp
+    src/scripting/ScriptRemotes.cpp
     src/game/GameSession.cpp
     src/game/Hud.cpp
     src/game/GameGui.cpp

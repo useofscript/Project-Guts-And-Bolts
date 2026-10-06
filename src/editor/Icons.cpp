@@ -105,6 +105,14 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
     case Id::ModuleScript:
         paper(dl, c, s, rgb(235, 238, 245), rgb(160, 90, 220));
         break;
+    case Id::LocalScript:
+        paper(dl, c, s, rgb(235, 238, 245), rgb(60, 180, 110));
+        break;
+    case Id::Remote:   // a little envelope
+        dl->AddRectFilled(ImVec2(c.x - s * 0.4f, c.y - s * 0.26f), ImVec2(c.x + s * 0.4f, c.y + s * 0.26f), rgb(250, 200, 80), s * 0.05f);
+        dl->AddLine(ImVec2(c.x - s * 0.4f, c.y - s * 0.24f), ImVec2(c.x, c.y + s * 0.06f), rgb(150, 100, 30), s * 0.07f);
+        dl->AddLine(ImVec2(c.x + s * 0.4f, c.y - s * 0.24f), ImVec2(c.x, c.y + s * 0.06f), rgb(150, 100, 30), s * 0.07f);
+        break;
     case Id::Light:
         dl->AddCircleFilled(ImVec2(c.x, c.y - s * 0.08f), s * 0.28f, rgb(255, 220, 90), 20);
         dl->AddRectFilled(ImVec2(c.x - s * 0.13f, c.y + s * 0.16f), ImVec2(c.x + s * 0.13f, c.y + s * 0.38f), rgb(170, 172, 180), s * 0.04f);
@@ -509,7 +517,8 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
 Id forNode(const SceneNode& n) {
     switch (n.kind) {
         case NodeKind::Model:      return n.parent ? Id::Model : Id::Workspace;
-        case NodeKind::Script:     return n.isModule ? Id::ModuleScript : Id::Script;
+        case NodeKind::Script:     return n.isModule ? Id::ModuleScript : n.isLocal ? Id::LocalScript : Id::Script;
+        case NodeKind::Remote:     return Id::Remote;
         case NodeKind::Light:      return Id::Light;
         case NodeKind::Sound:      return Id::Sound;
         case NodeKind::Attachment: return Id::Attachment;

@@ -205,7 +205,7 @@ void OutlinerPanel::insertMenu(SceneNode* parent) {
     struct Group { const char* title; std::vector<const char*> items; };
     static const Group groups[] = {
         {"Parts", {"Part", "Sphere", "Cylinder", "MeshPart", "TrussPart", "SpawnLocation", "Seat"}},
-        {"Scripts", {"Script", "LocalScript", "ModuleScript"}},
+        {"Scripts", {"Script", "LocalScript", "ModuleScript", "RemoteEvent", "RemoteFunction"}},
         {"Characters & Tools", {"Tool", "Rig", "Animation", "Team"}},
         {"Containers", {"Model", "Folder"}},
         {"Effects & Lights", {"PointLight", "SpotLight", "Sound", "ForceField", "Decal"}},
@@ -403,7 +403,8 @@ std::string low(std::string s) { for (char& c : s) c = (char)std::tolower((unsig
 std::string className(const SceneNode& n) {
     switch (n.kind) {
         case NodeKind::Model:      return n.parent ? "Model" : "Workspace";
-        case NodeKind::Script:     return n.isModule ? "ModuleScript" : "Script";
+        case NodeKind::Script:     return n.isModule ? "ModuleScript" : n.isLocal ? "LocalScript" : "Script";
+        case NodeKind::Remote:     return n.remoteFunction ? "RemoteFunction" : "RemoteEvent";
         case NodeKind::Light:      return n.lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::Sound:      return "Sound";
         case NodeKind::Attachment: return "Attachment";

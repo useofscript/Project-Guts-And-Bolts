@@ -41,6 +41,8 @@ enum class SignalKind : int {
     GuiFocused,    // textBox.Focused                 ()
     GuiFocusLost,  // textBox.FocusLost               (enterPressed)
     MoveToFinished, // humanoid.MoveToFinished        (reached)   (id = character)
+    RemoteServer,  // remoteEvent.OnServerEvent       (player, ...)
+    RemoteClient,  // remoteEvent.OnClientEvent       (...)
 };
 
 namespace LuaApi {
@@ -75,6 +77,7 @@ NavMesh::Agent checkAgent(lua_State* L, int idx);
 void       registerInstance(lua_State* L);
 void       pushInstance(lua_State* L, uint64_t id);        // pushes nil for 0
 SceneNode* checkNode   (lua_State* L, int idx);            // errors if destroyed
+uint64_t   toInstanceId(lua_State* L, int idx);            // 0 if it isn't an object
 void       pushSignal  (lua_State* L, SignalKind kind, uint64_t id);
 void       pushHumanoid(lua_State* L, uint64_t characterRootId);
 void       pushLighting(lua_State* L);

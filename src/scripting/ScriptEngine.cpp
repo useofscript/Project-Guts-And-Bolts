@@ -67,7 +67,7 @@ end
 -- A game server machine plays nobody: no LocalPlayer, only the people who join.
 local LocalPlayer, playerList = nil, {}
 if not __gb_noLocalPlayer then
-    LocalPlayer = makePlayer(__gb_playerName, __gb_character, 1)
+    LocalPlayer = makePlayer(__gb_playerName, __gb_character, __gb_localUserId or 1)
     rawset(LocalPlayer, "Backpack", __gb_backpack)
     rawset(LocalPlayer, "__local", true)
     playerList = { LocalPlayer }
@@ -131,6 +131,13 @@ function __gb_addPlayer(name, character, id, backpack)
     table.insert(playerList, p)
     autoTeam(p)
     return p
+end
+-- RemoteEvents hand over players by UserId. A joined player's computer only knows
+-- itself, so anyone else arrives as a plain { Name, UserId } table.
+function __gb_playerById(id, name)
+    for _, p in ipairs(playerList) do if p.UserId == id then return p end end
+    if id == nil or id == 0 then return nil end
+    return { Name = name or "", DisplayName = name or "", UserId = id }
 end
 function __gb_removePlayer(name)
     for i, p in ipairs(playerList) do
@@ -925,6 +932,96 @@ function table.find(t, value)
     return nil
 end
 
+-- ---------------------------------------------------------------------------
+-- RemoteEvents / RemoteFunctions (ScriptRemotes.cpp does the sending)
+-- ---------------------------------------------------------------------------
+do
+    local mode, send, fireHere = __gb_remoteMode, __gb_remoteSend, __gb_remoteFire
+    local invokeStart, invokeDone = __gb_invokeStart, __gb_invokeDone
+    local takeInvokes, invokeReply, invokers = __gb_takeInvokes, __gb_invokeReply, __gb_invokers
+    local function isPlayer(p) return type(p) == "table" and rawget(p, "UserId") ~= nil end
+    local function onServer()
+        if mode() == "Client" then error("only a Script on the server can do this (this is a LocalScript)", 3) end
+    end
+    local function needEvent(self, name)
+        if self.ClassName ~= "RemoteEvent" then error(name .. " is for RemoteEvents", 3) end
+    end
+
+    -- A LocalScript tells the server something. The server's OnServerEvent gets (player, ...).
+    addMethod("FireServer", function(self, ...)
+        needEvent(self, "FireServer")
+        if mode() == "Server" then error("FireServer is for LocalScripts", 2) end
+        if mode() == "Client" then send(self, -1, ...)
+        else fireHere(self, "Server", LocalPlayer, ...) end
+    end)
+    -- The server tells one player something. Their OnClientEvent gets (...).
+    addMethod("FireClient", function(self, player, ...)
+        needEvent(self, "FireClient")
+        onServer()
+        if not isPlayer(player) then error("FireClient needs a player first", 2) end
+        if LocalPlayer and player.UserId == LocalPlayer.UserId then fireHere(self, "Client", ...)
+        else send(self, player.UserId, ...) end
+    end)
+    -- The server tells everyone.
+    addMethod("FireAllClients", function(self, ...)
+        needEvent(self, "FireAllClients")
+        onServer()
+        if LocalPlayer then fireHere(self, "Client", ...) end
+        send(self, 0, ...)
+    end)
+
+    -- A LocalScript asks the server and waits for the answer from OnServerInvoke.
+    addMethod("InvokeServer", function(self, ...)
+        if self.ClassName ~= "RemoteFunction" then error("InvokeServer is for RemoteFunctions", 2) end
+        if mode() == "Server" then error("InvokeServer is for LocalScripts", 2) end
+        if mode() ~= "Client" then
+            -- Playing solo or hosting: the server's scripts are right here.
+            local started = os.clock()
+            while not invokers[self] do
+                if os.clock() - started > 30 then error("nothing set OnServerInvoke for " .. self.Name, 2) end
+                task.wait()
+            end
+            return invokers[self](LocalPlayer, ...)
+        end
+        local call, started = invokeStart(self, ...), os.clock()
+        while true do
+            local r = table.pack(invokeDone(call))
+            if r.n > 0 then
+                if not r[1] then error(r[2], 2) end
+                return table.unpack(r, 2, r.n)
+            end
+            if os.clock() - started > 60 then error("the server didn't answer " .. self.Name, 2) end
+            task.wait()
+        end
+    end)
+    addMethod("InvokeClient", function(self)
+        error("InvokeClient isn't supported (a player could freeze the server). Use a RemoteEvent instead.", 2)
+    end)
+
+    -- On the server, answer what players asked (each in its own thread so one slow
+    -- answer doesn't hold up the rest).
+    if mode() ~= "Client" then
+        RunService.Heartbeat:Connect(function()
+            for _, q in ipairs(takeInvokes()) do
+                task.spawn(function()
+                    local started = os.clock()
+                    while not invokers[q.remote] do
+                        if os.clock() - started > 30 then
+                            invokeReply(q.from, q.call, false, "nothing set OnServerInvoke for " .. q.remote.Name)
+                            return
+                        end
+                        task.wait()
+                    end
+                    local player = q.player or __gb_playerById(q.from, "")
+                    invokeReply(q.from, q.call, pcall(invokers[q.remote], player, table.unpack(q.args, 1, q.args.n)))
+                end)
+            end
+        end)
+    end
+end
+__gb_remoteMode, __gb_remoteSend, __gb_remoteFire, __gb_invokeStart, __gb_invokeDone = nil, nil, nil, nil, nil
+__gb_takeInvokes, __gb_invokeReply, __gb_invokers, __gb_localUserId = nil, nil, nil, nil
+
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_noLocalPlayer = nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
@@ -1122,6 +1219,8 @@ void pushJson(lua_State* L, const nlohmann::json& j) {
 
 // __gb_dsStart(kind, store, key, delta) -> ticket; __gb_dsDone(ticket) -> done, value
 int l_dsStart(lua_State* L) {
+    if (LuaApi::engine(L)->runMode() == ScriptEngine::RunMode::Client)
+        return luaL_error(L, "DataStores only work in Scripts on the server (this is a LocalScript)");
     std::string kind = luaL_checkstring(L, 1), store = luaL_checkstring(L, 2), key = luaL_checkstring(L, 3);
     if (store.empty() || key.empty() || store.size() > 100 || key.size() > 100)
         return luaL_error(L, "DataStore names and keys are 1-100 letters");
@@ -1138,6 +1237,8 @@ int l_dsDone(lua_State* L) {
 }
 
 int l_dsSet(lua_State* L) {
+    if (LuaApi::engine(L)->runMode() == ScriptEngine::RunMode::Client)
+        return luaL_error(L, "DataStores only work in Scripts on the server (this is a LocalScript)");
     std::string store = luaL_checkstring(L, 1), key = luaL_checkstring(L, 2);
     if (store.empty() || key.empty() || store.size() > 100 || key.size() > 100)
         return luaL_error(L, "DataStore names and keys are 1-100 letters");
@@ -1541,6 +1642,7 @@ void ScriptEngine::start(bool runScripts) {
     openLibraries();
     LuaApi::registerTypes(m_L);
     LuaApi::registerInstance(m_L);
+    openRemotes();
 
     lua_State* L = m_L;
     lua_register(L, "print", l_print);
@@ -1624,6 +1726,9 @@ void ScriptEngine::start(bool runScripts) {
         else lua_pushnil(L);
         return 1;
     });
+    // Remote messages name players by UserId (see the prelude).
+    lua_getglobal(L, "__gb_playerById");
+    lua_setfield(L, LUA_REGISTRYINDEX, "GB.playerById");
     // obj:GetAttributeChangedSignal(name) is built in Lua (see the prelude).
     lua_getglobal(L, "__gb_attrSignal");
     lua_setfield(L, LUA_REGISTRYINDEX, "GB.attrSignal");
@@ -1634,7 +1739,8 @@ void ScriptEngine::start(bool runScripts) {
     // Collect first, then run: scripts may add or remove objects as they start.
     std::vector<uint64_t> scripts;
     m_scene->forEach([&](SceneNode* n) {
-        if (n->isScript() && n->enabled && !n->isModule) scripts.push_back(n->id);   // modules wait for require()
+        if (n->isScript() && n->enabled && !n->isModule && wantsScript(n))   // modules wait for require()
+            scripts.push_back(n->id);
     });
     for (uint64_t id : scripts)
         if (SceneNode* s = resolve(id)) runScript(s);
@@ -1777,7 +1883,8 @@ void ScriptEngine::runScriptsIn(SceneNode* root) {
     std::vector<SceneNode*> stack{root};
     while (!stack.empty()) {
         SceneNode* n = stack.back(); stack.pop_back();
-        if (n->isScript() && n->enabled && !n->isModule && !m_started.count(n->id)) ids.push_back(n->id);
+        if (n->isScript() && n->enabled && !n->isModule && !m_started.count(n->id) && wantsScript(n))
+            ids.push_back(n->id);
         for (auto& c : n->children) stack.push_back(c.get());
     }
     for (uint64_t id : ids)
@@ -1948,6 +2055,8 @@ void ScriptEngine::fire(SignalKind kind, uint64_t id, const std::function<int(lu
         if (!m_L) return;
         Connection& c = m_conns[i];
         if (!c.alive || c.kind != kind || c.id != id) continue;
+        if (m_joinerEvent && c.owner)
+            if (SceneNode* s = resolve(c.owner); s && s->isLocal) continue;
         uint64_t prev = m_current;
         m_current = c.owner;
         struct Restore { uint64_t& cur; uint64_t val; ~Restore() { cur = val; } } restore{m_current, prev};

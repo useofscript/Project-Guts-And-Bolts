@@ -25,7 +25,8 @@ const char* classOf(const SceneNode* n, const SceneNode* root) {
     if (n == root) return "Workspace";
     switch (n->kind) {
         case NodeKind::Model:  return "Model";
-        case NodeKind::Script: return n->isModule ? "ModuleScript" : "Script";
+        case NodeKind::Script: return n->isModule ? "ModuleScript" : n->isLocal ? "LocalScript" : "Script";
+        case NodeKind::Remote: return n->remoteFunction ? "RemoteFunction" : "RemoteEvent";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Tool:       return "Tool";
@@ -112,9 +113,10 @@ const json& list() {
          {"description", "Delete an object (and everything inside it)."},
          {"input_schema", schema({{"object", kObject}}, {"object"})}},
         {{"name", "create_script"},
-         {"description", "Make a Script (runs when the game starts) or ModuleScript with the given Lua source inside an object."},
+         {"description", "Make a Script (runs on the server when the game starts), LocalScript (runs on each player's own computer: "
+                         "UI, input; talks to Scripts with RemoteEvents) or ModuleScript with the given Lua source inside an object."},
          {"input_schema", schema({{"parent", kObject}, {"name", {{"type", "string"}}}, {"source", {{"type", "string"}}},
-                                  {"type", {{"type", "string"}, {"enum", {"Script", "ModuleScript"}}}}}, {"source"})}},
+                                  {"type", {{"type", "string"}, {"enum", {"Script", "LocalScript", "ModuleScript"}}}}}, {"source"})}},
         {{"name", "read_script"},
          {"description", "The Lua source of a script."},
          {"input_schema", schema({{"object", kObject}}, {"object"})}},
@@ -276,6 +278,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
                                              NodeKind::Script);
         s->source = str("source");
         s->isModule = str("type") == "ModuleScript";
+        s->isLocal = str("type") == "LocalScript";
         SceneNode* made = m_scene->insert(std::move(s), parent);
         return {"Made " + label(made) + " inside " + label(parent) + "."};
     }

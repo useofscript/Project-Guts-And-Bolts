@@ -103,7 +103,8 @@ const char* className(lua_State* L, const SceneNode* n) {
                     return cls.c_str();
                 }
             return "Model";
-        case NodeKind::Script: return "Script";
+        case NodeKind::Script: return n->isModule ? "ModuleScript" : n->isLocal ? "LocalScript" : "Script";
+        case NodeKind::Remote: return n->remoteFunction ? "RemoteFunction" : "RemoteEvent";
         case NodeKind::Light:  return n->lightType == LightType::Spot ? "SpotLight" : "PointLight";
         case NodeKind::ForceField: return "ForceField";
         case NodeKind::Tool:       return "Tool";
@@ -136,7 +137,8 @@ bool isA(lua_State* L, const SceneNode* n, const std::string& cls) {
     if (cls == mine) return true;
     if (n->kind == NodeKind::Part && (cls == "BasePart" || cls == "Part" || cls == "PVInstance")) return true;
     if (n->kind == NodeKind::Model && (cls == "Model" || cls == "Folder" || cls == "PVInstance")) return true;
-    if (n->kind == NodeKind::Script && (cls == "BaseScript" || cls == "LuaSourceContainer")) return true;
+    if (n->kind == NodeKind::Script && (cls == "LuaSourceContainer" || (cls == "BaseScript" && !n->isModule) ||
+                                        (cls == "Script" && n->isLocal))) return true;   // LocalScript is a Script
     if (n->kind == NodeKind::Light && cls == "Light") return true;
     if (n->kind == NodeKind::Constraint && cls == "Constraint") return true;
     if (n->isMover() && cls == (isBodyMover(n->mover.type) ? "BodyMover" : "Constraint")) return true;
@@ -1179,6 +1181,16 @@ int inst_index(lua_State* L) {
         if (is(k, "Equipped"))       { LuaApi::pushSignal(L, SignalKind::Equipped, n->id); return 1; }
         if (is(k, "Unequipped"))     { LuaApi::pushSignal(L, SignalKind::Unequipped, n->id); return 1; }
     }
+    if (n->kind == NodeKind::Remote) {
+        if (is(k, "OnServerEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteServer, n->id); return 1; }
+        if (is(k, "OnClientEvent"))  { LuaApi::pushSignal(L, SignalKind::RemoteClient, n->id); return 1; }
+        if (is(k, "OnServerInvoke")) {
+            lua_getfield(L, LUA_REGISTRYINDEX, "GB.invokers");
+            lua_pushvalue(L, 1);
+            lua_rawget(L, -2);
+            return 1;
+        }
+    }
     if (n->kind == NodeKind::Script) {
         if (is(k, "Enabled"))  { lua_pushboolean(L, n->enabled); return 1; }
         if (is(k, "Disabled")) { lua_pushboolean(L, !n->enabled); return 1; }
@@ -1361,6 +1373,17 @@ int inst_newindex(lua_State* L) {
         if (is(k, "Friction"))   { n->friction = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
         if (is(k, "Elasticity")) { n->elasticity = glm::clamp((float)luaL_checknumber(L, 3), 0.0f, 1.0f); return 0; }
     }
+    if (n->kind == NodeKind::Remote) {
+        if (is(k, "OnServerInvoke")) {
+            if (!lua_isnil(L, 3)) luaL_checktype(L, 3, LUA_TFUNCTION);
+            lua_getfield(L, LUA_REGISTRYINDEX, "GB.invokers");
+            lua_pushvalue(L, 1);
+            lua_pushvalue(L, 3);
+            lua_rawset(L, -3);
+            return 0;
+        }
+        if (is(k, "OnClientInvoke")) return 0;   // InvokeClient isn't supported, so nothing calls it
+    }
     if (n->kind == NodeKind::Script) {
         if (is(k, "Enabled"))  { LuaApi::engine(L)->setScriptEnabled(n, lua_toboolean(L, 3)); return 0; }
         if (is(k, "Disabled")) { LuaApi::engine(L)->setScriptEnabled(n, !lua_toboolean(L, 3)); return 0; }
@@ -1498,8 +1521,12 @@ int inst_new(lua_State* L) {
     PrimitiveType shape;
     if (cls == "Model" || cls == "Folder") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Model);
-    } else if (cls == "Script") {
+    } else if (cls == "Script" || cls == "LocalScript") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Script);
+        n->isLocal = cls == "LocalScript";
+    } else if (cls == "RemoteEvent" || cls == "RemoteFunction") {
+        n = std::make_unique<SceneNode>(cls, NodeKind::Remote);
+        n->remoteFunction = cls == "RemoteFunction";
     } else if (cls == "Attachment") {
         n = std::make_unique<SceneNode>(cls, NodeKind::Attachment);
     } else if (cls == "RopeConstraint" || cls == "RodConstraint" || cls == "SpringConstraint" ||
@@ -2128,6 +2155,11 @@ SceneNode* checkNode(lua_State* L, int idx) {
     SceneNode* n = engine(L)->resolve(ref->id);
     if (!n) luaL_error(L, "This object has been destroyed");
     return n;
+}
+
+uint64_t toInstanceId(lua_State* L, int idx) {
+    auto* ref = static_cast<InstRef*>(luaL_testudata(L, idx, kInst));
+    return ref ? ref->id : 0;
 }
 
 void pushSignal(lua_State* L, SignalKind kind, uint64_t id) {

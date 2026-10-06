@@ -23,7 +23,7 @@ public:
 
     explicit GameSession(Scene* scene);
 
-    void setRole(Role r) { m_role = r; }
+    void setRole(Role r) { m_role = r; m_scripts.setNetworked(r != Role::Solo); }
     // Studio's "Run": the world simulates and scripts run, but there's no player.
     void setRunOnly(bool on) { m_runOnly = on; }
     bool runOnly() const { return m_runOnly; }

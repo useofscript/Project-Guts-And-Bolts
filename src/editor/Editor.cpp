@@ -54,6 +54,13 @@ R"(-- A new script! It runs when you press Play (F5).
 
 print("Hello world!")
 )";
+const char* kNewLocalScript =
+R"(-- A LocalScript runs on each player's own computer (good for UI and keys).
+-- To tell the server something, use a RemoteEvent:
+--   game.ReplicatedStorage.MyEvent:FireServer("hi")
+
+print("Hello from " .. game.Players.LocalPlayer.Name)
+)";
 } // namespace
 
 Editor::Editor(GLFWwindow* window, Scene* scene)
@@ -335,11 +342,12 @@ void Editor::spawnPremade(Premade kind) {
     if (SceneNode* n = buildPremade(*m_scene, kind, spawnPoint())) m_scene->select(n);
 }
 
-void Editor::addScript(SceneNode* parent) {
+void Editor::addScript(SceneNode* parent, bool local) {
     // Scripts can't go inside other scripts or the character.
     if (!parent || parent->isScript() || m_scene->isCharacterPart(parent)) parent = m_scene->root();
-    auto s = std::make_unique<SceneNode>("Script", NodeKind::Script);
-    s->source = kNewScript;
+    auto s = std::make_unique<SceneNode>(local ? "LocalScript" : "Script", NodeKind::Script);
+    s->isLocal = local;
+    s->source = local ? kNewLocalScript : kNewScript;
     SceneNode* raw = m_scene->insert(std::move(s), parent);
     m_scene->select(raw);
     openScript(raw);
@@ -1059,7 +1067,19 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         parent = folder;
         put(std::move(t));
     }
-    else if (what == "Script" || what == "LocalScript") { addScript(parent); }
+    else if (what == "Script" || what == "LocalScript") { addScript(parent, what == "LocalScript"); }
+    else if (what == "RemoteEvent" || what == "RemoteFunction") {
+        // Both sides need to find it, so it goes in ReplicatedStorage unless you picked a place.
+        if (!parent || parent == m_scene->root()) {
+            parent = nullptr;
+            for (auto& c : m_scene->root()->children)
+                if (c->name == "ReplicatedStorage" && c->kind == NodeKind::Model) parent = c.get();
+            if (!parent) parent = m_scene->insert(std::make_unique<SceneNode>("ReplicatedStorage", NodeKind::Model), nullptr);
+        }
+        auto r = std::make_unique<SceneNode>(what, NodeKind::Remote);
+        r->remoteFunction = what == "RemoteFunction";
+        put(std::move(r));
+    }
     else if (what == "ModuleScript") {
         auto n = std::make_unique<SceneNode>("ModuleScript", NodeKind::Script);
         n->isModule = true;
@@ -1191,7 +1211,8 @@ void Editor::renderInsertObject() {
     std::vector<O> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
-        {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::Script}, {"ModuleScript", Icons::Id::ModuleScript},
+        {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::LocalScript}, {"ModuleScript", Icons::Id::ModuleScript},
+        {"RemoteEvent", Icons::Id::Remote}, {"RemoteFunction", Icons::Id::Remote},
         {"PointLight", Icons::Id::Light}, {"SpotLight", Icons::Id::Light}, {"Sound", Icons::Id::Sound},
         {"Attachment", Icons::Id::Attachment},
         {"BodyVelocity", Icons::Id::Constraint}, {"BodyPosition", Icons::Id::Constraint}, {"BodyGyro", Icons::Id::Constraint},

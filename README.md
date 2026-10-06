@@ -639,6 +639,48 @@ An AnimationTrack has `Play`, `Stop(fadeTime)`, `AdjustSpeed`,
 and `KeyframeReached` events. Animations play on top of walking: an
 animation that moves the arms takes over the arms, and the legs keep walking.
 
+### LocalScripts and RemoteEvents
+
+In a game with other people, a **Script** runs on the server (the host, or a game
+server machine) and a **LocalScript** runs on each player's own computer. Use
+LocalScripts for things only that player sees or does: their UI, their keys,
+their camera. Players never get the code inside your Scripts, so secrets stay
+on the server.
+
+They talk with a **RemoteEvent** (Insert Object > Scripts > RemoteEvent puts one
+in ReplicatedStorage, where both sides can find it):
+
+```lua
+-- LocalScript (in a button): tell the server
+local buy = game.ReplicatedStorage.BuySword
+script.Parent.MouseButton1Click:Connect(function()
+    buy:FireServer("Sword")
+end)
+
+-- Script: the server checks and answers
+local buy = game.ReplicatedStorage.BuySword
+buy.OnServerEvent:Connect(function(player, item)
+    print(player.Name .. " wants " .. item)
+    buy:FireClient(player, "You bought " .. item)   -- or buy:FireAllClients(...)
+end)
+
+-- back in the LocalScript
+buy.OnClientEvent:Connect(function(message) print(message) end)
+```
+
+A **RemoteFunction** asks and waits for an answer:
+`local coins = getCoins:InvokeServer()` in a LocalScript, and
+`getCoins.OnServerInvoke = function(player) return 10 end` in a Script.
+
+- You can send numbers, text, true/false, tables, objects, players, Vector3,
+  Vector2, Color3, CFrame and UDim2 (up to 64 KB at a time). Functions arrive as nil.
+- The first thing OnServerEvent gets is always the player who sent it. Don't trust
+  what players send: check it in the Script before giving them anything.
+- Playing alone or hosting from the app, you're the server and a player at once,
+  so both kinds of script run on your computer.
+- DataStores only work in Scripts. InvokeClient isn't supported (a player could
+  freeze the server by never answering); use a RemoteEvent for that instead.
+
 ### Your character's moves (the Animate script)
 
 Every character gets a 2011-style **Animate** script: idle, walk, run, jump,

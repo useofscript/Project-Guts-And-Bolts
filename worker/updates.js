@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'pass-the-note', name: 'Pass the Note', time: 1791318200, tag: 'Engine',
+    summary: 'LocalScripts run on each player\'s own computer now, and talk to the server with RemoteEvents, like Roblox.',
+    items: [
+      'LocalScripts run on the player\'s computer: great for UI, keys and things only you see',
+      'RemoteEvents send messages between LocalScripts and Scripts (FireServer, FireClient, FireAllClients)',
+      'RemoteFunctions ask the server a question and wait for the answer (InvokeServer)',
+      'Players who join no longer get the code inside your server Scripts',
+      'Roblox games with LocalScripts and RemoteEvents now import with them working',
+    ],
+  },
+  {
     id: 'signs-everywhere', name: 'Signs Everywhere', time: 1791314600, tag: 'Engine',
     summary: 'Game UI can sit on parts now: floating name signs (BillboardGui) and screens painted on walls (SurfaceGui).',
     items: [

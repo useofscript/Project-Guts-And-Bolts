@@ -76,7 +76,7 @@ private:
     SceneNode* addPrimitive(const char* label, PrimitiveType type);
     void       spawnPrimitive(PrimitiveType type);
     void       spawnPremade(Premade kind);
-    void       addScript(SceneNode* parent);
+    void       addScript(SceneNode* parent, bool local = false);
     void       addModel();
     void       addLight(LightType type);
     void       addSound();

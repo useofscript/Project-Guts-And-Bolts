@@ -54,6 +54,9 @@ const char* const kWords[] = {
     "TextTransparency", "TextStrokeTransparency", "TextStrokeColor3", "Image", "ImageColor3", "ImageTransparency",
     "AutoButtonColor", "ClipsDescendants", "CornerRadius", "Thickness", "AbsoluteSize", "AbsolutePosition",
     "MouseButton1Click", "Activated", "MouseEnter", "MouseLeave", "DisplayOrder", "Enabled",
+    // Talking between LocalScripts and Scripts
+    "LocalScript", "RemoteEvent", "RemoteFunction", "ReplicatedStorage", "FireServer", "FireClient", "FireAllClients",
+    "OnServerEvent", "OnClientEvent", "InvokeServer", "OnServerInvoke", "LocalPlayer",
 };
 
 bool wordChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }

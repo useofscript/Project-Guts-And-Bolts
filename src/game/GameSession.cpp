@@ -45,7 +45,16 @@ void GameSession::start() {
     // Character-shaped models become NPCs (before the scripts, so they can steer them).
     if (m_role != Role::Client) m_scene->npcs().begin(*m_scene);
     if (m_role != Role::Client) setupTools();   // before the scripts, so tools' scripts start with the rest
-    if (m_role != Role::Client) m_scripts.start();
+    // Who runs which scripts: a joined player runs the LocalScripts (the host runs the
+    // Scripts for everyone); a game server machine runs only Scripts; otherwise both.
+    using Mode = ScriptEngine::RunMode;
+    m_scripts.setRunMode(m_role == Role::Client ? Mode::Client : m_scripts.noLocalPlayer() ? Mode::Server : Mode::All);
+    if (m_role == Role::Client)
+        if (Player* p = m_scene->player())   // (our copies of our tools: their LocalScripts hear this)
+            p->onToolEquip = [this](uint64_t tool, bool equipped) {
+                if (m_scripts.running()) m_scripts.fireTool(equipped ? SignalKind::Equipped : SignalKind::Unequipped, tool);
+            };
+    m_scripts.start();
 }
 
 // ---------------------------------------------------------------------------
@@ -273,8 +282,7 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
     m_time += dt;
 
     // 1. Scripts: wake up waits, keyboard events, Heartbeat.
-    if (!client) m_scripts.update(dt);
-    else if (m_scripts.gui().messageTime > 0.0f) m_scripts.gui().messageTime -= dt;
+    m_scripts.update(dt);   // (a joined player's LocalScripts)
 
     // 2. Physics for loose (unanchored) parts (the host does this for everyone).
     m_physics.gather(*m_scene);
@@ -313,8 +321,8 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
         if (m_toolDown && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             m_toolDown = false;
             if (SceneNode* t = p->equippedTool()) {
-                if (client) { if (onToolRequest) onToolRequest("use", t->id, false); }
-                else m_scripts.fireTool(SignalKind::Deactivated, t->id);
+                if (client && onToolRequest) onToolRequest("use", t->id, false);
+                m_scripts.fireTool(SignalKind::Deactivated, t->id);
             }
         }
         p->setSwimInput(acceptInput ? swimLook : 0.0f, dive);
@@ -368,12 +376,14 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
     std::vector<TouchEvent> touches;
     m_physics.collectTouches(*m_scene, touches);
     if (client) {
-        // Only our own character's touches matter here; the host runs the scripts.
+        // Only our own character's touches matter here: the host's scripts hear about
+        // them, and so do our LocalScripts.
         Player* p = m_scene->player();
         for (const TouchEvent& t : touches) {
             SceneNode* limb = m_scene->findById(t.otherId);
-            if (p && limb && limb->parent && limb->parent->id == p->rootId() && onTouch)
-                onTouch(t.partId, limb->name);
+            if (!p || !limb || !limb->parent || limb->parent->id != p->rootId()) continue;
+            if (onTouch) onTouch(t.partId, limb->name);
+            if (m_scripts.running()) m_scripts.fireTouched(t.partId, t.otherId);
         }
         return;
     }
@@ -388,11 +398,10 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
 void GameSession::guiEvents(const std::vector<GameGui::Event>& events) {
     if (!m_running) return;
     for (const GameGui::Event& e : events) {
-        if (m_role == Role::Client) {   // the host runs the scripts: tell it about clicks and typing
+        if (m_role == Role::Client) {   // the host's scripts hear about clicks and typing (and our LocalScripts, below)
             if (e.kind == GameGui::EventKind::Click && onGuiClick) onGuiClick(e.id);
             if (e.kind == GameGui::EventKind::FocusLost && onGuiText)
                 if (SceneNode* box = m_scene->findById(e.id)) onGuiText(e.id, box->gui.text, e.enter);
-            continue;
         }
         switch (e.kind) {
             case GameGui::EventKind::Click:       m_scripts.fireGui(SignalKind::GuiClick, e.id); break;
@@ -409,10 +418,12 @@ void GameSession::click(uint64_t partId) {
     if (!m_running) return;
     if (m_role == Role::Client) {
         if (onClick && partId) onClick(partId);
-        // Holding a tool: swing here, and the host fires tool.Activated.
+        if (partId) m_scripts.fireClicked(partId);   // (our LocalScripts)
+        // Holding a tool: swing here, and the host fires tool.Activated (and so do we, for its LocalScripts).
         if (Player* p = m_scene->player())
             if (SceneNode* t = p->equippedTool(); t && t->enabled && !p->isDead()) {
                 if (onToolRequest) onToolRequest("use", t->id, true);
+                m_scripts.fireTool(SignalKind::Activated, t->id);
                 p->swingTool();
                 m_toolDown = true;
             }

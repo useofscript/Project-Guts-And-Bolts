@@ -974,8 +974,12 @@ struct Converter {
             for (auto& n : notes) note(name + ": " + n);
             node->isModule = c == "ModuleScript";
             node->enabled = !in.flag("Disabled", false) && in.flag("Enabled", true);
-            if (c == "LocalScript") note("LocalScripts run as normal scripts.");
+            node->isLocal = c == "LocalScript";
             ++report.scripts;
+        } else if (c == "RemoteEvent" || c == "RemoteFunction" || c == "UnreliableRemoteEvent") {
+            node = std::make_unique<SceneNode>(name, NodeKind::Remote);
+            node->remoteFunction = c == "RemoteFunction";
+            ++report.other;
         } else if (c == "PointLight" || c == "SpotLight" || c == "SurfaceLight") {
             node = std::make_unique<SceneNode>(name, NodeKind::Light);
             node->lightType = c == "PointLight" ? LightType::Point : LightType::Spot;
@@ -1315,7 +1319,8 @@ struct XmlWriter {
         switch (n.kind) {
             case NodeKind::Part:       cls = n.name == "SpawnLocation" ? "SpawnLocation" : "Part"; break;
             case NodeKind::Model:      cls = "Model"; break;
-            case NodeKind::Script:     cls = n.isModule ? "ModuleScript" : "Script"; break;
+            case NodeKind::Script:     cls = n.isModule ? "ModuleScript" : n.isLocal ? "LocalScript" : "Script"; break;
+            case NodeKind::Remote:     cls = n.remoteFunction ? "RemoteFunction" : "RemoteEvent"; break;
             case NodeKind::Light:      cls = n.lightType == LightType::Spot ? "SpotLight" : "PointLight"; break;
             case NodeKind::Sound:      cls = "Sound"; break;
             case NodeKind::Attachment: cls = "Attachment"; break;

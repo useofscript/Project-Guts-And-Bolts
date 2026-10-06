@@ -337,11 +337,36 @@ void ChatLog::update(float dt) {
 // ===========================================================================
 
 namespace {
+// The server's Script code stays on the server: players get the Script objects but
+// not what's written in them. They keep LocalScripts (they run them) and ModuleScripts
+// a LocalScript might require (unless they're in ServerStorage / ServerScriptService).
+// (Safe for picking a new host: that reloads the published game, code and all.)
+bool serverOnlyCode(const SceneNode* n) {
+    if (!n->isScript() || n->isLocal) return false;
+    if (!n->isModule) return true;
+    for (const SceneNode* p = n->parent; p; p = p->parent)
+        if (p->name == "ServerStorage" || p->name == "ServerScriptService") return true;
+    return false;
+}
+struct HideServerCode {
+    std::vector<std::pair<SceneNode*, std::string>> kept;
+    explicit HideServerCode(SceneNode* root) {
+        std::vector<SceneNode*> stack{root};
+        while (!stack.empty()) {
+            SceneNode* n = stack.back(); stack.pop_back();
+            if (serverOnlyCode(n) && !n->source.empty()) kept.emplace_back(n, std::move(n->source)), n->source.clear();
+            for (auto& c : n->children) stack.push_back(c.get());
+        }
+    }
+    ~HideServerCode() { for (auto& [n, src] : kept) n->source = std::move(src); }
+};
+
 // A tool as it is, without where it sits right now (held tools move every frame).
 std::string toolString(SceneNode* t) {
     const Transform keep = t->transform;
     t->transform = Transform{};
-    std::string s = Serializer::nodeToString(*t);
+    std::string s;
+    { HideServerCode hide(t); s = Serializer::nodeToString(*t); }
     t->transform = keep;
     return s;
 }
@@ -363,6 +388,8 @@ struct NetServer::Client {
     unsigned long long logSent = 0;  // Log::count() already sent to them
     std::string toolsSent;           // the tools they carry, as last sent to them
     std::map<uint64_t, std::string> heldSent;   // what each other character holds, as last sent
+    double      remoteBudget = 60.0;  // RemoteEvent messages they may still send (refills over time)
+    double      remoteAt = 0.0;
 };
 
 NetServer::NetServer(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
@@ -580,6 +607,12 @@ void NetServer::update(float dt) {
         if (!ok || !c.conn->alive()) { dropClient(i, "left the game"); continue; }
         ++i;
     }
+    // What the scripts are sending players (FireClient / FireAllClients / answers).
+    for (auto& out : m_session->scripts().takeRemoteOut()) {
+        const std::string msg = out.msg.dump();
+        for (auto& c : m_clients)
+            if (c->joined && (out.to == 0 || out.to == c->id + 1)) c->conn->send(msg);
+    }
     showSmoothly(*m_scene, m_poses);
 
     m_tick += dt;
@@ -674,9 +707,11 @@ void NetServer::handle(Client& c, const std::string& text) {
                       {"grants", myGrants()}};
         Player* hostPlayer = m_scene->player();
         const uint64_t hostChar = hostPlayer && hostPlayer->root() ? hostPlayer->rootId() : 0;   // 0: a game server machine (nobody)
+        std::string scene;
+        { HideServerCode hide(m_scene->root()); scene = Serializer::saveScene(*m_scene); }
         c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name}, {"host", proof},
-                          {"hostChar", hostChar},
-                          {"scene", Serializer::saveScene(*m_scene)},
+                          {"hostChar", hostChar}, {"uid", c.id + 1},
+                          {"scene", scene},
                           {"humanoid", humanoidJson(rc.humanoid)}, {"players", players}}.dump());
         // Everyone already in the scene snapshot counts as known.
         if (Player* host = m_scene->player()) c.knownChars.insert(host->rootId());
@@ -723,7 +758,9 @@ void NetServer::handle(Client& c, const std::string& text) {
         SceneNode* rig = m_scene->findById(c.rootId);
         SceneNode* limb = rig ? rig->findChild(m.value("limb", std::string())) : nullptr;
         if (limb && m_scene->findById(part)) {
+            m_session->scripts().setJoinerEvent(true);
             m_session->scripts().fireTouched(part, limb->id);
+            m_session->scripts().setJoinerEvent(false);
             m_session->joinerTouched(c.rootId, part);   // a tool's Handle: they pick it up
         }
     } else if (t == "tool") {   // their hotbar: equip / drop / use (the tool's scripts run here)
@@ -733,7 +770,11 @@ void NetServer::handle(Client& c, const std::string& text) {
         else if (what == "use") m_session->joinerUse(c.rootId, m.value("down", false));
     } else if (t == "click") {
         uint64_t part = m.value("part", (uint64_t)0);
-        if (m_scene->findById(part)) m_session->scripts().fireClicked(part);
+        if (m_scene->findById(part)) {
+            m_session->scripts().setJoinerEvent(true);
+            m_session->scripts().fireClicked(part);
+            m_session->scripts().setJoinerEvent(false);
+        }
     } else if (t == "passdone") {   // they answered a game pass Buy window
         m_session->scripts().passPromptDone(c.id + 1, m.value("pass", std::string()), m.value("bought", false));
     } else if (t == "devcmd") {   // the dev console's command bar: only the game's owner may run code here
@@ -741,7 +782,11 @@ void NetServer::handle(Client& c, const std::string& text) {
         devCommand(m.value("code", std::string()));
     } else if (t == "guiclick") {
         uint64_t id = m.value("id", (uint64_t)0);
-        if (SceneNode* b = m_scene->findById(id); b && b->isGuiButton()) m_session->scripts().fireGui(SignalKind::GuiClick, id);
+        if (SceneNode* b = m_scene->findById(id); b && b->isGuiButton()) {
+            m_session->scripts().setJoinerEvent(true);
+            m_session->scripts().fireGui(SignalKind::GuiClick, id);
+            m_session->scripts().setJoinerEvent(false);
+        }
     } else if (t == "guitext") {   // they typed in a TextBox (and it lost focus)
         if (c.guest) return;           // (it shows for everyone, like chat, so guests don't)
         uint64_t id = m.value("id", (uint64_t)0);
@@ -750,11 +795,21 @@ void NetServer::handle(Client& c, const std::string& text) {
         std::string text = m.value("text", std::string());
         if (text.size() > 10000) text.resize(10000);
         for (char& ch : text) if ((unsigned char)ch < 32 && ch != '\n') ch = ' ';
+        m_session->scripts().setJoinerEvent(true);
         if (text != box->gui.text) {
             box->gui.text = text;
             m_session->scripts().firePropertyChanged(id, "Text");
         }
         m_session->scripts().fireFocusLost(id, m.value("enter", false));
+        m_session->scripts().setJoinerEvent(false);
+    } else if (t == "remote" || t == "invoke") {   // a LocalScript's FireServer / InvokeServer
+        // At most about 60 a second each (a burst of 60 is fine), and 64 KB apiece.
+        const double now = clockNow();
+        c.remoteBudget = std::min(60.0, c.remoteBudget + (now - c.remoteAt) * 60.0);
+        c.remoteAt = now;
+        if (c.remoteBudget < 1.0 || text.size() > 70 * 1024) return;
+        c.remoteBudget -= 1.0;
+        m_session->scripts().remoteIn(m, c.id + 1);
     } else if (t == "chat") {
         std::string msg = cleanText(m.value("text", std::string()), 200);
         if (msg.empty()) return;
@@ -805,7 +860,10 @@ std::string NetServer::worldMessage(bool) {
         auto found = m_sent.find(n->id);
         if (found == m_sent.end()) {
             if (!n->parent || !addedNow.count(n->parent->id))
+            {
+                HideServerCode hide(n);
                 add.push_back({{"parent", n->parent ? n->parent->id : 0}, {"node", Serializer::nodeToString(*n)}});
+            }
             addedNow.insert(n->id);
         } else if (found->second != state) {
             upd.push_back(nodeUpdate(n));
@@ -975,6 +1033,8 @@ void NetClient::disconnect() {
         m_session->onGuiClick = nullptr;
         m_session->onGuiText = nullptr;
         m_session->onToolRequest = nullptr;
+        m_session->scripts().idToServer = nullptr;
+        m_session->scripts().idFromServer = nullptr;
         if (Player* p = m_scene->player()) p->clearTools();
         m_toolSeen.clear();
         m_scene->remotes().clear();
@@ -1013,6 +1073,8 @@ void NetClient::update(float dt) {
     }
 
     if (m_state == State::Joined) {
+        for (auto& out : m_session->scripts().takeRemoteOut())   // our LocalScripts' FireServer / InvokeServer
+            if (out.to == -1) m_conn->send(out.msg.dump());
         m_tick += dt;
         if (m_tick >= kTickRate) {
             m_tick = std::min(m_tick - kTickRate, kTickRate);
@@ -1130,6 +1192,19 @@ void NetClient::handle(const std::string& text) {
         m_session->onToolRequest = [this](const std::string& what, uint64_t tool, bool down) {   // the host has our tools
             if (m_conn) m_conn->send(json{{"t", "tool"}, {"do", what}, {"id", tool}, {"down", down}}.dump());
         };
+        // Our LocalScripts: our character has its own ids here, so swap them for the
+        // server's when talking to it.
+        ScriptEngine& se = m_session->scripts();
+        se.setLocalUserId(m.value("uid", 0));
+        se.setPlayerName(m.value("name", Online::playerName()));
+        se.idToServer = [this](uint64_t id) {
+            Player* p = m_scene->player();
+            return p && id == p->rootId() ? m_myServerRoot : id;
+        };
+        se.idFromServer = [this](uint64_t id) {
+            Player* p = m_scene->player();
+            return p && id == m_myServerRoot ? p->rootId() : id;
+        };
         m_toolSeen.clear();
         m_session->start();
         m_state = State::Joined;
@@ -1160,15 +1235,20 @@ void NetClient::handle(const std::string& text) {
     }
     if (m_state != State::Joined) return;
     Player* me = m_scene->player();
+    ScriptEngine& scripts = m_session->scripts();
+    // Gone from the world: their LocalScripts stop too.
+    auto drop = [&](SceneNode* n) { scripts.stopScripts(n); m_scene->removeNode(n); };
+
+    if (t == "remote" || t == "invoked") { scripts.remoteIn(m); return; }
 
     if (t == "world") {
         if (m.contains("add"))
             for (const auto& a : m["add"]) {
                 auto node = Serializer::nodeFromString(a.value("node", std::string()), false);
                 if (!node) continue;
-                if (SceneNode* old = m_scene->findById(node->id)) m_scene->removeNode(old);
+                if (SceneNode* old = m_scene->findById(node->id)) drop(old);
                 SceneNode* parent = m_scene->findById(a.value("parent", (uint64_t)0));
-                m_scene->insert(std::move(node), parent ? parent : m_scene->root());
+                scripts.runScriptsIn(m_scene->insert(std::move(node), parent ? parent : m_scene->root()));
             }
         if (m.contains("upd"))
             for (const auto& u : m["upd"])
@@ -1177,7 +1257,7 @@ void NetClient::handle(const std::string& text) {
         if (m.contains("del"))
             for (const auto& d : m["del"])
                 if (SceneNode* n = m_scene->findById(d.get<uint64_t>()))
-                    if (!m_scene->isCharacterPart(n)) m_scene->removeNode(n);
+                    if (!m_scene->isCharacterPart(n)) drop(n);
         if (m.contains("env")) Serializer::environmentFromString(m_scene->environment(), m["env"].get<std::string>());
         if (m.contains("cam") && m["cam"].is_object()) {
             m_scene->world().orthographic = m["cam"].value("ortho", false);
@@ -1241,7 +1321,7 @@ void NetClient::handle(const std::string& text) {
     }
     if (t == "left") {
         uint64_t id = m.value("id", (uint64_t)0);
-        if (SceneNode* n = m_scene->findById(id)) m_scene->removeNode(n);
+        if (SceneNode* n = m_scene->findById(id)) drop(n);
         auto& rem = m_scene->remotes();
         rem.erase(std::remove_if(rem.begin(), rem.end(), [&](auto& r) { return r.rootId == id; }), rem.end());
         return;
@@ -1256,7 +1336,7 @@ void NetClient::showMyTools(const json& m) {
     std::set<uint64_t> want;
     for (const auto& e : m["list"]) if (e.is_object()) want.insert(e.value("i", (uint64_t)0));
     for (SceneNode* t : me->tools())
-        if (!want.count(t->id)) { m_toolSeen.erase(t->id); m_scene->removeNode(t); }
+        if (!want.count(t->id)) { m_toolSeen.erase(t->id); m_session->scripts().stopScripts(t); m_scene->removeNode(t); }
     auto isMine = [&](SceneNode* n) {
         for (SceneNode* p = n; p; p = p->parent) if (p == me->root()) return true;
         return false;
@@ -1269,12 +1349,13 @@ void NetClient::showMyTools(const json& m) {
         if (!id || id >= kLocalIdBase) continue;
         SceneNode* have = m_scene->findById(id);
         if (!have || !isMine(have) || m_toolSeen[id] != node) {
-            if (have) m_scene->removeNode(have);
+            if (have) { m_session->scripts().stopScripts(have); m_scene->removeNode(have); }
             auto copy = Serializer::nodeFromString(node, false);
             if (!copy || !copy->isTool()) continue;
             SceneNode* raw = m_scene->insert(std::move(copy));
             if (!me->give(raw)) { m_scene->removeNode(raw); continue; }
             m_toolSeen[id] = node;
+            m_session->scripts().runScriptsIn(raw);   // its LocalScripts are ours to run
         }
         order.push_back(id);
     }
@@ -1287,7 +1368,7 @@ void NetClient::showMyTools(const json& m) {
 // What someone else holds (sent when it changes): shown in their hand.
 void NetClient::showHeldTool(SceneNode* root, const json& ch) {
     if (!ch.contains("tn")) return;
-    if (SceneNode* old = Player::heldTool(root)) m_scene->removeNode(old);
+    if (SceneNode* old = Player::heldTool(root)) { m_session->scripts().stopScripts(old); m_scene->removeNode(old); }
     const std::string node = ch.value("tn", std::string());
     if (node.empty()) return;
     auto copy = Serializer::nodeFromString(node, false);
