@@ -22,7 +22,8 @@ class SceneNode;
 //
 // A water part can have attributes: "Waves" (how tall the ocean swell is, in
 // units; or "WaveScale", 1 = half a stud), "Flow" (a Vector3: a current that
-// carries things along) and "Clarity" (0 murky .. 1 crystal clear). The swell is
+// carries things along), "Drag" (how thick it feels: 1 = water, 0 = no push
+// at all, 5 = like mud) and "Clarity" (0 murky .. 1 crystal clear). The swell is
 // made of Gerstner waves (Gerstner.h). A FluidVolume (from scripts) is a water
 // part with these set.
 //
@@ -44,6 +45,7 @@ public:
         float     swell = 0.0f;           // how tall the Gerstner waves are ("Waves", or "WaveScale" x 0.5)
         float     clarity = 0.6f;         // how clear: 1 = crystal, 0 = murky ("Clarity", or from Transparency)
         glm::vec3 flow{0.0f};             // "Flow" attribute
+        float     drag = 1.0f;            // "Drag" attribute: how hard it pushes on things moving through it
         glm::vec3 color{0.2f, 0.45f, 0.7f};
         // The current across the surface, one arrow per grid point (x, z): the "Flow"
         // bent around anything solid sticking out of the water (a boulder, a pillar),
@@ -69,6 +71,8 @@ public:
 
     // Is `p` in water? Gives the height of the surface above it and the current.
     bool at(const glm::vec3& p, float* surface = nullptr, glm::vec3* flow = nullptr) const;
+    // How thick the water at `p` is (its "Drag"; 1 for plain water).
+    float dragAt(const glm::vec3& p) const;
     // The surface height of the water part `id` at (x, z) (its top if it isn't simulated).
     float surfaceOf(const SceneNode* water, float x, float z) const;
     // Push the surface down (amount > 0) or up around `p`: makes ripples.

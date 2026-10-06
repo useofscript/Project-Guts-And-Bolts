@@ -727,6 +727,7 @@ int inst_index(lua_State* L) {
             if (is(k, "FlowVelocity")) { const Attribute* a = n->findAttribute("Flow"); LuaApi::pushVector3(L, a && a->type == Attribute::Vector3 ? a->v : glm::vec3(0.0f)); return 1; }
             if (is(k, "Clarity"))      { lua_pushnumber(L, numAttr(n, "Clarity", std::clamp(0.2f + n->transparency, 0.0f, 1.0f))); return 1; }
             if (is(k, "WaveScale"))    { lua_pushnumber(L, numAttr(n, "WaveScale", numAttr(n, "Waves", 0.0f) * 2.0f)); return 1; }
+            if (is(k, "Drag"))         { lua_pushnumber(L, numAttr(n, "Drag", 1.0f)); return 1; }   // how hard it pushes things (1 = water)
         }
         if (is(k, "Friction"))   { lua_pushnumber(L, n->friction); return 1; }
         if (is(k, "Elasticity")) { lua_pushnumber(L, n->elasticity); return 1; }
@@ -912,6 +913,7 @@ int inst_newindex(lua_State* L) {
         if (Player::isWater(n)) {
             if (is(k, "FlowVelocity")) { setAttr(n, "Flow", Attribute::Vector3, 0.0, LuaApi::checkVector3(L, 3)); return 0; }
             if (is(k, "Clarity"))      { setAttr(n, "Clarity", Attribute::Number, std::clamp(luaL_checknumber(L, 3), 0.0, 1.0)); return 0; }
+            if (is(k, "Drag"))         { setAttr(n, "Drag", Attribute::Number, std::clamp(luaL_checknumber(L, 3), 0.0, 20.0)); return 0; }
             if (is(k, "WaveScale")) {
                 setAttr(n, "WaveScale", Attribute::Number, std::max(0.0, luaL_checknumber(L, 3)));
                 n->attributes.erase(std::remove_if(n->attributes.begin(), n->attributes.end(),
@@ -1117,6 +1119,7 @@ int inst_new(lua_State* L) {
         setAttr(n.get(), "Clarity", Attribute::Number, 0.8);
         setAttr(n.get(), "WaveScale", Attribute::Number, 1.0);
         setAttr(n.get(), "Flow", Attribute::Vector3, 0.0, glm::vec3(0.0f));
+        setAttr(n.get(), "Drag", Attribute::Number, 1.0);
     } else if (cls == "FluidEmitter") {
         n = std::make_unique<SceneNode>(cls, NodeKind::FluidEmitter);
         n->transform.scale = {1.0f, 1.0f, 1.0f};

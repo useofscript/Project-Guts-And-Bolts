@@ -14,6 +14,7 @@ enum class Premade {
     SwingingRope, WreckingBall, Windmill, Seesaw, MotorCart, DominoRun, CratePyramid, Trampoline,
     Checkpoint, Zombie,
     TimeBomb, Nuke, DepthCharge,   // explosions (Liquid Assets & Explosive Results)
+    WaterWheel,                    // water pushing things (a river turns it)
     // Ready-made Tools, like Roblox's classic gear (staff can sell them in the catalog: File > Make Gear)
     GearSword, GearRocketLauncher, GearSpeedCoil, GearGravityCoil, GearBomb,
 };

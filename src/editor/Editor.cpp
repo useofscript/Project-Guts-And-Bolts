@@ -1026,6 +1026,7 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
         num("Clarity", 0.8);
         num("WaveScale", 1.0);
         Attribute flow; flow.name = "Flow"; flow.type = Attribute::Vector3; flow.v = glm::vec3(0.0f); w->attributes.push_back(flow);
+        num("Drag", 1.0);   // how hard it pushes on things (1 = water, 5 = like mud)
     }
     else if (what == "WaterSource") {   // pours water that flows downhill and fills things up
         SceneNode* w = part("WaterSource", PrimitiveType::Cylinder);
