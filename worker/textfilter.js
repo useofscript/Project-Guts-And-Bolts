@@ -1,6 +1,6 @@
 // The text filter: what people write (messages, statuses, group posts, names,
-// descriptions, game chat) gets hate words, links and personal info (phone numbers
-// and email addresses) covered with #s. Swearing is fine (the site is 18+).
+// descriptions, game chat) becomes "[ Content Deleted ]" if it has a hate word, a link
+// or personal info (phone numbers, email addresses) in it. Swearing is fine (the site is 18+).
 // src/core/TextFilter.cpp does exactly the same for the C++ server and game chat.
 
 // Slurs, ROT13'd so they don't sit in the code as plain words. A word only counts on
@@ -24,7 +24,7 @@ const ALLOWED_LINK = /^(?:https?:\/\/)?(?:www\.)?gutsandbolts\.net(?:[\/?#].*)?$
 // Lower-case A-Z only, so every position still lines up with the original text.
 const lowerAscii = (s) => s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
 
-export function filterText(text) {
+function coverText(text) {
   const s = String(text || '');
   if (!s) return s;
   const low = lowerAscii(s);
@@ -37,6 +37,13 @@ export function filterText(text) {
   let out = '';
   for (let i = 0; i < s.length; i++) out += mask[i] && s[i] !== ' ' && s[i] !== '\n' ? '#' : s[i];
   return out;
+}
+
+// Like classic Roblox: if anything in it would be covered, the whole thing becomes this.
+export const CONTENT_DELETED = '[ Content Deleted ]';
+export function filterText(text) {
+  const s = String(text || '');
+  return coverText(s) === s ? s : CONTENT_DELETED;
 }
 
 // Usernames: a hate word anywhere counts (names have no spaces to tell words apart).

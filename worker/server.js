@@ -898,10 +898,10 @@ export class GbServerObject extends DurableObject {
     const t = now(), today = utcDay(t);
 
     if (name === 'hello') {
-      let n = say(str(args, 'name'), 20);
+      let n = cleanText(str(args, 'name'), 20);
       if (me.userId > 0) n = me.username;
       if (n) {
-        if ((nameIsReserved(n) && !this.isOfficial(me)) || nameHasHateWord(n)) n = 'Player';
+        if ((nameIsReserved(n) && !this.isOfficial(me)) || filterText(n) !== n) n = 'Player';
         me.name = n;
       }
       if (Array.isArray(args.grants))

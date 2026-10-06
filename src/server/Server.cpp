@@ -284,10 +284,10 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
 
     // --- Account -----------------------------------------------------------
     if (name == "hello") {
-        std::string n = say(str("name"), 20);
+        std::string n = Online::cleanText(str("name"), 20);
         if (me.userId > 0) n = me.username;   // signed up: your name is your username
         if (!n.empty()) {
-            if ((Account::nameIsReserved(n) && !isOfficial(me)) || TextFilter::nameHasHateWord(n)) n = "Player";
+            if ((Account::nameIsReserved(n) && !isOfficial(me)) || TextFilter::changes(n)) n = "Player";
             me.name = n;
         }
         // Badges this player got offline (with a code) come along for the ride.

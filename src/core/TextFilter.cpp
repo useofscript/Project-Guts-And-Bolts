@@ -52,7 +52,7 @@ const Rules& rules() { static Rules r; return r; }
 
 } // namespace
 
-std::string filter(const std::string& text) {
+static std::string cover(const std::string& text) {
     if (text.empty()) return text;
     std::string low = text;
     for (char& c : low) if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
@@ -77,6 +77,10 @@ std::string filter(const std::string& text) {
     }
     out.erase(std::remove(out.begin(), out.end(), '\0'), out.end());
     return out;
+}
+
+std::string filter(const std::string& text) {
+    return cover(text) == text ? text : kContentDeleted;
 }
 
 bool nameHasHateWord(const std::string& name) {

@@ -11,7 +11,7 @@
 export const BUILT_IN_UPDATES = [
   {
     id: 'soap-in-the-mouth', name: 'Soap in the Mouth', time: 1791330000, tag: 'Server',
-    summary: 'A text filter: slurs, links and personal info get covered with # before anyone else sees them.',
+    summary: 'A text filter: anything with slurs, links or personal info in it becomes [ Content Deleted ], like classic Roblox.',
     items: [
       'Chat, messages, profiles, group posts and the names and descriptions of things are all filtered',
       'Slurs are caught even with spaces, dots or look-alike letters in them',

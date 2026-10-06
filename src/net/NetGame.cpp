@@ -303,7 +303,7 @@ void showSmoothly(Scene& scene, std::unordered_map<uint64_t, PoseBuffer>& poses)
 // Chat
 // ===========================================================================
 
-// What players say goes through the text filter on the way in (the host filters it too,
+// What players say goes through the text filter on the way in ("[ Content Deleted ]") (the host filters it too,
 // this catches a host that doesn't).
 void ChatLog::add(const std::string& from, const std::string& said, bool system, bool admin, bool verified) {
     const std::string text = system ? said : TextFilter::filter(said);
@@ -696,7 +696,7 @@ void NetServer::handle(Client& c, const std::string& text) {
 
         std::string base = cleanText(m.value("name", std::string("Player")), 20);
         if (base.empty()) base = "Player";
-        if ((Account::nameIsReserved(base) && !c.admin) || TextFilter::nameHasHateWord(base)) base = "Player";   // only the real Guts is Guts
+        if ((Account::nameIsReserved(base) && !c.admin) || TextFilter::changes(base)) base = "Player";   // only the real Guts is Guts
         std::string name = base;
         auto taken = [&](const std::string& n) {
             if (!m_dedicated && n == Online::playerName()) return true;
