@@ -404,6 +404,8 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
         if (testMode() && !m_opts.testFace.empty()) p->setFace(m_opts.testFace);
     }
     m_session->scripts().setPlayerName(Online::playerName());
+    // A published game's DataStores live on the Guts&Bolts server (if it trusts us with them).
+    m_session->scripts().setOnlineData(!gameKey.empty(), gameKey);
     *m_soloChat = ChatLog{};
 
     m_currentTitle = m_scene->info().title;

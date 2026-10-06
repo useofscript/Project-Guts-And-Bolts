@@ -628,8 +628,20 @@ store:SetAsync("best", { score = 42 })
 print(store:GetAsync("best").score)
 ```
 
-It also has `UpdateAsync` and `RemoveAsync`. Data is saved per game, in each
-player's account folder on the computer that runs the game (the host, online).
+It also has `UpdateAsync` and `RemoveAsync`. Where the data lives depends on
+who runs the game:
+
+- **On a game server machine, or when you (the game's creator) host it:** on
+  the Guts&Bolts server. Every server of the game sees the same data, so coins
+  saved in one server are there when you join another.
+- **Anyone else hosting, or playing a game file by yourself:** in that
+  computer's account folder (`savedata`). Other people's computers can't write
+  your game's online data, so nobody can hand themselves free coins.
+
+Like Roblox, `GetAsync` can answer from what it read in the last few seconds,
+and `IncrementAsync` adds on the server in one step, so two servers adding at
+the same time both count. Limits: names and keys up to 100 letters, 256 KB per
+value, 100,000 keys per game.
 
 ### Sound effects
 

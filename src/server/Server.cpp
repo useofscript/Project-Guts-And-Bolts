@@ -437,6 +437,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
     if (name.rfind("friends.", 0) == 0 || name.rfind("follow.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
+    if (name.rfind("data.", 0) == 0) return dataOp(name, me, args);
     if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
         name == "profile.set" || name == "feed.list")
         return socialOp(name, me, args);

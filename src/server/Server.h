@@ -139,6 +139,11 @@ private:
     static nlohmann::json allPlayerBadges();                                                  // ServerSocial.cpp
     static constexpr size_t kMaxRecentGames = 30;
     nlohmann::json serverOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerRelay.cpp
+    // ServerData.cpp: DataStores (what games save between visits), one file per game.
+    nlohmann::json dataOp(const std::string& name, User& me, const nlohmann::json& args);
+    nlohmann::json& gameData(const std::string& game);
+    void saveGameData(const std::string& game);
+    std::map<std::string, nlohmann::json> m_gameData;   // game id -> {store: {key: value}}, loaded when first used
     nlohmann::json checkRequest(const nlohmann::json& req, User*& me);   // null = fine, else the failure reply
     void relayRequest(Client& c, const nlohmann::json& req);            // relay.host / relay.join
     void relayAccept(Client& c, const std::string& ticket);

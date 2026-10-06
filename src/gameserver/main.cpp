@@ -104,6 +104,7 @@ int runGame(const std::string& gameId, int max) {
     session.setRunOnly(true);
     session.scripts().setNoLocalPlayer(true);
     session.scripts().setPlayerName("Server");
+    session.scripts().setOnlineData(true, gameId);   // DataStores: the game's data on the Guts&Bolts server
 
     NetServer server(&scene, &session);
     server.setDedicated(true);

@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'shared-vault', name: 'Shared Vault', time: 1791307400, tag: 'Server',
+    summary: 'Saved game data (DataStores) now lives on the Guts&Bolts server, so it follows players to every server of a game.',
+    items: [
+      'DataStoreService saves online when the game runs on a game server machine or its creator hosts it',
+      'Coins, levels and anything else saved in one server are there when you join another',
+      'IncrementAsync adds on the server in one step, so two servers adding at once both count',
+      'Other people hosting your game, or playing a file alone, still save on their own computer, so nobody can cheat your game\'s data',
+      'Limits: 256 KB per value and 100,000 keys per game',
+    ],
+  },
+  {
     id: 'night-shift', name: 'Night Shift', time: 1791305600, tag: 'Server',
     summary: 'Games can run on a game server machine with nobody hosting, so nobody gets kicked when someone leaves.',
     items: [

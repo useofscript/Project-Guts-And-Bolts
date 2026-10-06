@@ -130,6 +130,8 @@ const kMoveWait = 90, kHeirWait = 12;
 // Game server machines (GutsAndBoltsGameServer): how many games each runs at once, and how long
 // a player waits for one to start a game before hosting it themselves.
 const kPoolMost = 50, kPoolStartWait = 25;
+// DataStores: names and keys up to 100 letters, values up to 256 KB of JSON, 100,000 keys a game.
+const kDataName = 100, kDataValue = 256 * 1024, kDataKeys = 100000;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
@@ -378,7 +380,9 @@ export class GbServerObject extends DurableObject {
       CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS files (id TEXT NOT NULL, part INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (id, part));
-      CREATE TABLE IF NOT EXISTS nonces (key TEXT PRIMARY KEY, time INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS nonces (key TEXT PRIMARY KEY, time INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS gamedata (game TEXT NOT NULL, store TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+        updated INTEGER NOT NULL, PRIMARY KEY (game, store, key));`);
     this.official = lower(env.OFFICIAL || '');
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map();
@@ -946,6 +950,7 @@ export class GbServerObject extends DurableObject {
     if (name.startsWith('groups.')) return this.groupOp(name, me, args);
     if (name.startsWith('friends.') || name.startsWith('follow.')) return this.friendOp(name, me, args);
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
+    if (name.startsWith('data.')) return this.dataOp(name, me, args);
     if (name.startsWith('updates.')) return this.updateOp(name, me, args);
     // "I'm still here" (for friends' online dots); the answer keeps your account fresh
     // (a new warning, or Bolts someone sent you, shows up within a minute).
@@ -2341,6 +2346,54 @@ export class GbServerObject extends DurableObject {
         if (list.length >= 100) break;
       }
       return okay({ servers: list });
+    }
+    return fail('Unknown request.');
+  }
+
+  // DataStores: what games save between visits (coins, levels...), kept here so every server
+  // of a game sees the same data. Only servers we trust can read and write it: game server
+  // machines (staff), staff, and the game's creator. Games other people host save on their
+  // own computer instead (ScriptEngine falls back), so nobody can hand out free coins.
+  dataOp(name, me, args) {
+    const game = this.assets.resolve(cleanText(typeof args.game === 'string' ? args.game : '', 80));
+    const asset = this.assets.get(game);
+    if (!asset || asset.kind !== 'game') return fail('That game isn\'t there.');
+    const trusted = this.isStaff(me) || asset.creator === me.id;
+    if (name === 'data.can') return okay({ save: trusted });
+    if (!trusted) return fail('Only the game\'s own servers can use its saved data.');
+    const store = typeof args.store === 'string' ? args.store : '', key = typeof args.key === 'string' ? args.key : '';
+    if (!store || !key || store.length > kDataName || key.length > kDataName) return fail('DataStore names and keys are 1-' + kDataName + ' letters.');
+    const read = () => {
+      const row = [...this.sql.exec('SELECT value FROM gamedata WHERE game = ? AND store = ? AND key = ?', game, store, key)][0];
+      return row ? JSON.parse(row.value) : null;
+    };
+    const write = (value) => {
+      if (value === null || value === undefined) {
+        this.sql.exec('DELETE FROM gamedata WHERE game = ? AND store = ? AND key = ?', game, store, key);
+        return null;
+      }
+      const text = JSON.stringify(value);
+      if (text.length > kDataValue) return fail('That\'s too much to save in one key (256 KB at most).');
+      const isNew = read() === null;
+      if (isNew) {
+        const n = [...this.sql.exec('SELECT COUNT(*) AS n FROM gamedata WHERE game = ?', game)][0].n;
+        if (n >= kDataKeys) return fail('This game has saved ' + kDataKeys + ' keys already. Remove some first.');
+      }
+      this.sql.exec('INSERT OR REPLACE INTO gamedata (game, store, key, value, updated) VALUES (?, ?, ?, ?, ?)', game, store, key, text, now());
+      return null;
+    };
+    if (name === 'data.get') return okay({ value: read() });
+    if (name === 'data.set') {
+      const bad = write(args.value === undefined ? null : args.value);
+      return bad || okay({});
+    }
+    if (name === 'data.increment') {   // in one step, so two servers adding at once both count
+      const old = read();
+      if (old !== null && typeof old !== 'number') return fail('IncrementAsync: that key doesn\'t hold a number.');
+      const delta = typeof args.delta === 'number' && Number.isFinite(args.delta) ? args.delta : 1;
+      const value = (old || 0) + delta;
+      const bad = write(value);
+      return bad || okay({ value });
     }
     return fail('Unknown request.');
   }

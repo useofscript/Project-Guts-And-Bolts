@@ -61,6 +61,15 @@ public:
     // DataStoreService's saved data for this game (a file in the player's account folder).
     const nlohmann::json& saveData();
     void setSaveData(const std::string& store, const std::string& key, const nlohmann::json& value);
+    // DataStores on the Guts&Bolts server, so every server of a game sees the same data. Used when
+    // the app turns it on (playing or hosting a published game; never in Studio) and the server
+    // trusts this account with the game's data (game server machines, staff, the creator).
+    // Otherwise they're the file above, as before.
+    void setOnlineData(bool on, const std::string& gameId) { m_onlineData = on; m_dataGame = gameId; }
+    // Script calls (they wait in Lua until done(ticket) is true): "get" or "inc".
+    int  dataStart(const std::string& kind, const std::string& store, const std::string& key, double delta);
+    bool dataDone(int ticket, nlohmann::json& value);
+    void dataSet(const std::string& store, const std::string& key, const nlohmann::json& value);
     // BadgeService:AwardBadge calls waiting to be sent to the server: (player name, badge id).
     // The app sends them (only the host of a published game's server can award).
     std::vector<std::pair<std::string, std::string>> takeBadgeAwards() { return std::move(m_badgeAwards); }
@@ -134,6 +143,19 @@ private:
     std::vector<PassResult> m_passResults;
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);   // replies after the engine is gone are ignored
     bool     m_saveLoaded = false;
+    // Online DataStores (see setOnlineData).
+    enum class DataMode { Unknown, Asking, Local, Online };
+    struct DataJob { int ticket = 0; std::string kind, store, key; double delta = 0.0; nlohmann::json value; };
+    struct DataCached { nlohmann::json value; double at = 0.0; int writing = 0; };
+    void dataDecide();                  // local file or the server?
+    void dataRun(const DataJob& job);
+    bool        m_onlineData = false;
+    std::string m_dataGame;
+    DataMode    m_dataMode = DataMode::Unknown;
+    int         m_dataNext = 1, m_dataGen = 0;
+    std::vector<DataJob> m_dataQueue;              // waiting for dataDecide
+    std::map<int, nlohmann::json> m_dataDone;      // ticket -> value
+    std::map<std::string, DataCached> m_dataCache; // "store\nkey" -> what we last saw or wrote
     std::filesystem::path saveFile() const;
     struct Waiting {
         int        ref;

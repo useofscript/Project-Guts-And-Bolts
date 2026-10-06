@@ -199,9 +199,18 @@ function CollectionService:GetInstanceRemovedSignal(tag)
     return filtered(tagRemoved, function(_, t) return t == tag end, function(o) return o end)
 end
 
--- DataStoreService: save things between visits (coins, levels...). Kept per
--- game in this player's account folder.
-local dsGet, dsSet = __gb_dsGet, __gb_dsSet
+-- DataStoreService: save things between visits (coins, levels...). Kept on the
+-- Guts&Bolts server for the game's own servers, else in this computer's account
+-- folder. GetAsync / IncrementAsync wait for the answer, like Roblox.
+local dsStart, dsDone, dsSet = __gb_dsStart, __gb_dsDone, __gb_dsSet
+local function dsGet(store, key, kind, delta)
+    local ticket = dsStart(kind or "get", store, key, delta or 0)
+    while true do
+        local done, value = dsDone(ticket)
+        if done then return value end
+        task.wait()
+    end
+end
 DataStoreService = {}
 function DataStoreService:GetDataStore(name, scope)
     local store = tostring(name) .. (scope and ("/" .. tostring(scope)) or "")
@@ -219,9 +228,7 @@ function DataStoreService:GetDataStore(name, scope)
         return new
     end
     function ds:IncrementAsync(key, delta)
-        local v = (tonumber(dsGet(store, tostring(key))) or 0) + (delta or 1)
-        dsSet(store, tostring(key), v)
-        return v
+        return dsGet(store, tostring(key), "inc", tonumber(delta) or 1)
     end
     return ds
 end
@@ -922,7 +929,7 @@ __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpac
 __gb_noLocalPlayer = nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
-__gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil
+__gb_playerNode, __gb_setRespawn, __gb_dsStart, __gb_dsDone, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil, nil
 __gb_awardBadge, __gb_hasBadge = nil, nil
 __gb_raycast, __gb_storage, __gb_addMethod = nil, nil, nil
 )LUA";
@@ -1113,19 +1120,30 @@ void pushJson(lua_State* L, const nlohmann::json& j) {
     } else lua_pushnil(L);
 }
 
-int l_dsGet(lua_State* L) {
-    const nlohmann::json& all = LuaApi::engine(L)->saveData();
-    std::string store = luaL_checkstring(L, 1), key = luaL_checkstring(L, 2);
-    if (all.contains(store) && all[store].contains(key)) pushJson(L, all[store][key]);
-    else lua_pushnil(L);
+// __gb_dsStart(kind, store, key, delta) -> ticket; __gb_dsDone(ticket) -> done, value
+int l_dsStart(lua_State* L) {
+    std::string kind = luaL_checkstring(L, 1), store = luaL_checkstring(L, 2), key = luaL_checkstring(L, 3);
+    if (store.empty() || key.empty() || store.size() > 100 || key.size() > 100)
+        return luaL_error(L, "DataStore names and keys are 1-100 letters");
+    lua_pushinteger(L, LuaApi::engine(L)->dataStart(kind == "inc" ? "inc" : "get", store, key, luaL_optnumber(L, 4, 0)));
     return 1;
+}
+
+int l_dsDone(lua_State* L) {
+    nlohmann::json v;
+    if (!LuaApi::engine(L)->dataDone((int)luaL_checkinteger(L, 1), v)) { lua_pushboolean(L, 0); return 1; }
+    lua_pushboolean(L, 1);
+    pushJson(L, v);
+    return 2;
 }
 
 int l_dsSet(lua_State* L) {
     std::string store = luaL_checkstring(L, 1), key = luaL_checkstring(L, 2);
+    if (store.empty() || key.empty() || store.size() > 100 || key.size() > 100)
+        return luaL_error(L, "DataStore names and keys are 1-100 letters");
     nlohmann::json v = toJson(L, 3);
     if (v.dump().size() > 256 * 1024) return luaL_error(L, "That's too much to save in one key (256 KB at most)");
-    LuaApi::engine(L)->setSaveData(store, key, v);
+    LuaApi::engine(L)->dataSet(store, key, v);
     return 0;
 }
 
@@ -1536,7 +1554,8 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_isKeyDown", l_isKeyDown);
     lua_register(L, "__gb_playerNode", l_playerNode);
     lua_register(L, "__gb_setRespawn", l_setRespawn);
-    lua_register(L, "__gb_dsGet", l_dsGet);
+    lua_register(L, "__gb_dsStart", l_dsStart);
+    lua_register(L, "__gb_dsDone", l_dsDone);
     lua_register(L, "__gb_dsSet", l_dsSet);
     lua_register(L, "__gb_navPath", l_navPath);
     lua_register(L, "__gb_navQuery", l_navQuery);
@@ -1811,6 +1830,11 @@ void ScriptEngine::stop() {
     m_playersRoot = 0;
     m_saveData = nlohmann::json::object();   // the next game reads its own file
     m_saveLoaded = false;
+    m_dataMode = DataMode::Unknown;            // (replies for this game are ignored from now on)
+    ++m_dataGen;
+    m_dataQueue.clear();
+    m_dataDone.clear();
+    m_dataCache.clear();
     m_current = 0;
     m_detached.clear();
     m_gui = GuiState{};
@@ -2011,6 +2035,112 @@ void ScriptEngine::setSaveData(const std::string& store, const std::string& key,
     std::string tmp = saveFile().string() + ".tmp";
     { std::ofstream f(tmp, std::ios::trunc); f << m_saveData.dump(1); }
     std::filesystem::rename(tmp, saveFile(), ec);
+}
+
+// --- DataStores on the Guts&Bolts server ------------------------------------
+
+namespace {
+constexpr double kDataFresh = 5.0;   // like Roblox: GetAsync can answer from what it saw in the last few seconds
+}
+
+void ScriptEngine::dataDecide() {
+    if (m_dataMode != DataMode::Unknown) return;
+    std::string game = m_dataGame.empty() ? m_scene->info().publishedId : m_dataGame;
+    if (!m_onlineData || game.empty() || game.rfind("local:", 0) == 0 || !Online::online()) { m_dataMode = DataMode::Local; return; }
+    m_dataGame = game;
+    m_dataMode = DataMode::Asking;
+    std::weak_ptr<bool> alive = m_alive;
+    const int gen = m_dataGen;
+    Online::request("data.can", {{"game", game}}, [this, alive, gen](const nlohmann::json& r) {
+        if (alive.expired() || gen != m_dataGen) return;
+        m_dataMode = r.value("ok", false) && r.value("save", false) ? DataMode::Online : DataMode::Local;
+        if (m_dataMode == DataMode::Local) Log::info("DataStores: saving on this computer (only the game's own servers save online).");
+        std::vector<DataJob> jobs = std::move(m_dataQueue);
+        m_dataQueue.clear();
+        for (const DataJob& j : jobs) dataRun(j);
+    });
+}
+
+void ScriptEngine::dataRun(const DataJob& job) {
+    const std::string ck = job.store + "\n" + job.key;
+    if (m_dataMode == DataMode::Unknown || m_dataMode == DataMode::Asking) { m_dataQueue.push_back(job); return; }
+    if (m_dataMode == DataMode::Local) {
+        if (job.kind == "set") { setSaveData(job.store, job.key, job.value); return; }
+        const nlohmann::json& all = saveData();
+        nlohmann::json v = all.contains(job.store) && all[job.store].contains(job.key) ? all[job.store][job.key] : nlohmann::json();
+        if (job.kind == "inc") {
+            v = (v.is_number() ? v.get<double>() : 0.0) + job.delta;
+            if (std::floor(v.get<double>()) == v.get<double>() && std::abs(v.get<double>()) < 9e15) v = (long long)v.get<double>();
+            setSaveData(job.store, job.key, v);
+        }
+        m_dataDone[job.ticket] = v;
+        return;
+    }
+    std::weak_ptr<bool> alive = m_alive;
+    const int gen = m_dataGen, ticket = job.ticket;
+    auto ours = [this, alive, gen] { return !alive.expired() && gen == m_dataGen; };
+    nlohmann::json args = {{"game", m_dataGame}, {"store", job.store}, {"key", job.key}};
+    if (job.kind == "set") {
+        DataCached& c = m_dataCache[ck];
+        c.value = job.value; c.at = nowSeconds(); ++c.writing;
+        args["value"] = job.value;
+        Online::request("data.set", args, [this, ours, ck](const nlohmann::json& r) {
+            if (!ours()) return;
+            if (auto it = m_dataCache.find(ck); it != m_dataCache.end() && it->second.writing > 0) --it->second.writing;
+            if (!r.value("ok", false)) Log::error("DataStore SetAsync: " + r.value("error", std::string("couldn't save")));
+        });
+        return;
+    }
+    if (job.kind == "get") {
+        if (auto it = m_dataCache.find(ck); it != m_dataCache.end() && (it->second.writing > 0 || nowSeconds() - it->second.at < kDataFresh)) {
+            m_dataDone[ticket] = it->second.value;
+            return;
+        }
+        Online::request("data.get", args, [this, ours, ck, ticket](const nlohmann::json& r) {
+            if (!ours()) return;
+            if (!r.value("ok", false)) Log::error("DataStore GetAsync: " + r.value("error", std::string("no answer")));
+            nlohmann::json v = r.value("value", nlohmann::json());
+            DataCached& c = m_dataCache[ck];
+            if (c.writing == 0) { c.value = v; c.at = nowSeconds(); }
+            else v = c.value;   // our own newer write wins
+            m_dataDone[ticket] = v;
+        });
+        return;
+    }
+    // "inc": the server adds in one step (two servers adding at once both count).
+    if (std::floor(job.delta) == job.delta && std::abs(job.delta) < 9e15) args["delta"] = (long long)job.delta;   // (whole numbers stay whole)
+    else args["delta"] = job.delta;
+    Online::request("data.increment", args, [this, ours, ck, ticket](const nlohmann::json& r) {
+        if (!ours()) return;
+        if (!r.value("ok", false)) Log::error("DataStore IncrementAsync: " + r.value("error", std::string("no answer")));
+        nlohmann::json v = r.value("value", nlohmann::json());
+        if (!v.is_null()) { DataCached& c = m_dataCache[ck]; c.value = v; c.at = nowSeconds(); }
+        m_dataDone[ticket] = v;
+    });
+}
+
+int ScriptEngine::dataStart(const std::string& kind, const std::string& store, const std::string& key, double delta) {
+    dataDecide();
+    DataJob j;
+    j.ticket = m_dataNext++;
+    j.kind = kind; j.store = store; j.key = key; j.delta = delta;
+    dataRun(j);
+    return j.ticket;
+}
+
+bool ScriptEngine::dataDone(int ticket, nlohmann::json& value) {
+    auto it = m_dataDone.find(ticket);
+    if (it == m_dataDone.end()) return false;
+    value = std::move(it->second);
+    m_dataDone.erase(it);
+    return true;
+}
+
+void ScriptEngine::dataSet(const std::string& store, const std::string& key, const nlohmann::json& value) {
+    dataDecide();
+    DataJob j;
+    j.kind = "set"; j.store = store; j.key = key; j.value = value;
+    dataRun(j);
 }
 
 uint64_t ScriptEngine::playerNode(const std::string& name) {
