@@ -1,6 +1,7 @@
 // The phone / tablet version of AppWindow: SDL2 + OpenGL ES 3 (see AppWindow.cpp
 // for the computer version, which uses GLFW + desktop OpenGL).
 #include "AppWindow.h"
+#include "Pad.h"
 #include "Settings.h"
 #include "Audio.h"
 #include "Paths.h"
@@ -95,7 +96,7 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");        // Back = Esc (menu / go back)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");              // taps also click buttons
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
         throw std::runtime_error(std::string("Couldn't start SDL: ") + SDL_GetError());
 
     Paths::installBundledFiles();          // phones: unpack the built-in games (first run / new version)
@@ -154,6 +155,7 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;   // controllers: menus, and the pad's buttons for games (Pad.h)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     static std::string ini;
     ini = (Paths::appFolder() / layoutFile).string();
@@ -341,8 +343,10 @@ float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
     io.DisplaySize = ImVec2(winW / s, winH / s);
     if (io.DisplaySize.x > 0 && io.DisplaySize.y > 0)
         io.DisplayFramebufferScale = ImVec2(fbW / io.DisplaySize.x, fbH / io.DisplaySize.y);
+    Pad::injectApply();   // (tests)
     if (beforeImGui) beforeImGui();
     ImGui::NewFrame();
+    Pad::update();
     return dt;
 }
 

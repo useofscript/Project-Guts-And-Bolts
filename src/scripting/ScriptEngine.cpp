@@ -1,4 +1,5 @@
 #include "ScriptEngine.h"
+#include "../core/Pad.h"
 #include "../core/Account.h"
 #include "../online/OnlineClient.h"
 #include <cctype>
@@ -177,6 +178,20 @@ RunService = { Heartbeat = __gb_heartbeat, RenderStepped = __gb_heartbeat,
 UserInputService = { InputBegan = __gb_inputBegan, InputEnded = __gb_inputEnded }
 local isKeyDown = __gb_isKeyDown
 function UserInputService:IsKeyDown(key) return isKeyDown(key) end
+-- Controllers: one at most (Gamepad1). GamepadEnabled is kept up to date by the engine.
+local padState = __gb_padState
+UserInputService.GamepadEnabled = false
+function UserInputService:IsGamepadButtonDown(pad, key) return isKeyDown(key) end
+function UserInputService:GetGamepadConnected(pad) return UserInputService.GamepadEnabled and tostring(pad) == "Gamepad1" end
+function UserInputService:GetConnectedGamepads() return UserInputService.GamepadEnabled and { "Gamepad1" } or {} end
+UserInputService.GetNavigationGamepads = UserInputService.GetConnectedGamepads
+function UserInputService:GetGamepadState(pad)
+    -- The sticks and triggers, as InputObjects (Position: x, y for sticks, z for triggers).
+    local lx, ly, rx, ry, lt, rt = padState()
+    local function obj(key, pos) return { KeyCode = key, UserInputType = "Gamepad1", Position = pos, UserInputState = "Change" } end
+    return { obj("Thumbstick1", Vector3.new(lx, ly, 0)), obj("Thumbstick2", Vector3.new(rx, ry, 0)),
+             obj("ButtonL2", Vector3.new(0, 0, lt)), obj("ButtonR2", Vector3.new(0, 0, rt)) }
+end
 
 -- An event that only passes on some firings: `test` picks them, `out` shapes the arguments.
 local function filtered(sig, test, out)
@@ -1060,7 +1075,7 @@ __gb_takeInvokes, __gb_invokeReply, __gb_invokers, __gb_localUserId = nil, nil, 
 
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
 __gb_noLocalPlayer = nil
-__gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
+__gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown, __gb_padState = nil, nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 __gb_playerNode, __gb_setRespawn, __gb_dsStart, __gb_dsDone, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil, nil
 __gb_awardBadge, __gb_hasBadge = nil, nil
@@ -1074,7 +1089,7 @@ double nowSeconds() {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-struct KeyName { const char* name; ImGuiKey key; };
+struct KeyName { const char* name; ImGuiKey key; const char* type = "Keyboard"; };
 
 const std::vector<KeyName>& keyTable() {
     static std::vector<KeyName> keys = [] {
@@ -1098,6 +1113,18 @@ const std::vector<KeyName>& keyTable() {
         k.push_back({"Down",         ImGuiKey_DownArrow});
         k.push_back({"Left",         ImGuiKey_LeftArrow});
         k.push_back({"Right",        ImGuiKey_RightArrow});
+        // A controller (Enum.KeyCode.ButtonA...; Xbox names, like Roblox).
+        static const KeyName pad[] = {
+            {"ButtonA", ImGuiKey_GamepadFaceDown}, {"ButtonB", ImGuiKey_GamepadFaceRight},
+            {"ButtonX", ImGuiKey_GamepadFaceLeft}, {"ButtonY", ImGuiKey_GamepadFaceUp},
+            {"ButtonL1", ImGuiKey_GamepadL1}, {"ButtonR1", ImGuiKey_GamepadR1},
+            {"ButtonL2", ImGuiKey_GamepadL2}, {"ButtonR2", ImGuiKey_GamepadR2},
+            {"ButtonL3", ImGuiKey_GamepadL3}, {"ButtonR3", ImGuiKey_GamepadR3},
+            {"ButtonStart", ImGuiKey_GamepadStart}, {"ButtonSelect", ImGuiKey_GamepadBack},
+            {"DPadUp", ImGuiKey_GamepadDpadUp}, {"DPadDown", ImGuiKey_GamepadDpadDown},
+            {"DPadLeft", ImGuiKey_GamepadDpadLeft}, {"DPadRight", ImGuiKey_GamepadDpadRight},
+        };
+        for (const KeyName& p : pad) k.push_back({p.name, p.key, "Gamepad1"});
         return k;
     }();
     return keys;
@@ -1193,6 +1220,15 @@ int l_tick(lua_State* L) {
     using namespace std::chrono;
     lua_pushnumber(L, duration<double>(system_clock::now().time_since_epoch()).count());
     return 1;
+}
+
+int l_padState(lua_State* L) {   // the controller's sticks and triggers
+    const bool on = Pad::connected() && !ImGui::GetIO().WantTextInput;
+    const glm::vec2 ls = on ? Pad::leftStick() : glm::vec2(0.0f), rs = on ? Pad::rightStick() : glm::vec2(0.0f);
+    lua_pushnumber(L, ls.x); lua_pushnumber(L, ls.y);
+    lua_pushnumber(L, rs.x); lua_pushnumber(L, rs.y);
+    lua_pushnumber(L, on ? Pad::leftTrigger() : 0.0f); lua_pushnumber(L, on ? Pad::rightTrigger() : 0.0f);
+    return 6;
 }
 
 int l_isKeyDown(lua_State* L) {
@@ -1690,6 +1726,7 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_spawn", l_spawn);
     lua_register(L, "__gb_delay", l_delay);
     lua_register(L, "__gb_isKeyDown", l_isKeyDown);
+    lua_register(L, "__gb_padState", l_padState);
     lua_register(L, "__gb_playerNode", l_playerNode);
     lua_register(L, "__gb_setRespawn", l_setRespawn);
     lua_register(L, "__gb_dsStart", l_dsStart);
@@ -2053,14 +2090,23 @@ void ScriptEngine::update(float dt) {
             bool ended = ImGui::IsKeyReleased(k.key);
             if (!began && !ended) continue;
             const char* name = k.name;
-            fire(began ? SignalKind::InputBegan : SignalKind::InputEnded, 0, [name](lua_State* co) {
+            const char* type = k.type;
+            fire(began ? SignalKind::InputBegan : SignalKind::InputEnded, 0, [name, type](lua_State* co) {
                 lua_newtable(co);
-                lua_pushstring(co, name);       lua_setfield(co, -2, "KeyCode");
-                lua_pushstring(co, "Keyboard"); lua_setfield(co, -2, "UserInputType");
+                lua_pushstring(co, name); lua_setfield(co, -2, "KeyCode");
+                lua_pushstring(co, type); lua_setfield(co, -2, "UserInputType");
                 lua_pushboolean(co, 0);
                 return 2;
             });
         }
+    }
+
+    // UserInputService.GamepadEnabled: is a controller plugged in?
+    if (const bool pad = Pad::connected(); pad != m_padSeen) {
+        m_padSeen = pad;
+        lua_getglobal(m_L, "UserInputService");
+        if (lua_istable(m_L, -1)) { lua_pushboolean(m_L, pad); lua_setfield(m_L, -2, "GamepadEnabled"); }
+        lua_pop(m_L, 1);
     }
 
     // Wake threads whose wait() is over.

@@ -287,6 +287,7 @@ add_library(gb_engine STATIC
     src/core/CrashHandler.cpp
     src/core/Log.cpp
     src/core/Settings.cpp
+    src/core/Pad.cpp
     src/core/Paths.cpp
     src/core/FileDialog.cpp
     src/core/Audio.cpp

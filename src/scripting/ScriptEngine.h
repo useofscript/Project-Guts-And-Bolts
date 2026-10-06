@@ -239,4 +239,5 @@ private:
     GuiState                                m_gui;
     std::string                             m_playerName = "Player";
     bool                                    m_noLocalPlayer = false;
+    bool m_padSeen = false;   // a controller was plugged in (UserInputService.GamepadEnabled)
 };

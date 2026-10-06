@@ -2,6 +2,7 @@
 // "[E] Open  Door". Press E (or click / tap the card) and the prompt's Triggered
 // event fires. With a HoldDuration you hold the key while a ring fills up.
 #include "GameGui.h"
+#include "../core/Pad.h"
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 
@@ -22,6 +23,7 @@ struct Shown {
     ImVec2   a, b;          // its card on screen
     ImVec2   at;            // the point in the world, on screen
     bool     active = false; // its key works (the nearest prompt with that key)
+    bool     padActive = false; // a controller's X works it (the nearest prompt of all)
     std::string action, object, key;
     float    hold = 0.0f;
 };
@@ -135,9 +137,11 @@ bool prompts(Scene& scene, ImVec2 min, ImVec2 max, const glm::vec3* player, ImVe
         s.id = e.n->id;
         const ImGuiKey key = keyFor(p.key);
         s.active = key != ImGuiKey_None && keysTaken.insert(key).second;
+        s.padActive = g_shown.empty();   // (nearest first)
         s.action = p.action;
         s.object = p.object;
         s.key = keyLabel(p.key);
+        if (Pad::inUse()) { s.key = "X"; s.active = s.padActive; }   // playing with a controller: its button
         s.hold = p.hold;
         if (worldToScreen(e.at, min, max, s.at)) {
             const float tw = std::max(font->CalcTextSizeA(18.0f, FLT_MAX, 0.0f, p.action.c_str()).x,
@@ -161,7 +165,9 @@ bool prompts(Scene& scene, ImVec2 min, ImVec2 max, const glm::vec3* player, ImVe
         if (onCard && acceptInput) overCard = true;
         if (onCard && acceptInput && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) g_pressedCard = s.id;
         const ImGuiKey key = keyFor(p.key);
-        const bool keyHeld = s.active && acceptInput && !ImGui::GetIO().WantTextInput && ImGui::IsKeyDown(key);
+        const bool keyHeld = acceptInput && !ImGui::GetIO().WantTextInput &&
+                             ((s.active && key != ImGuiKey_None && ImGui::IsKeyDown(key)) ||
+                              (s.padActive && Pad::connected() && ImGui::IsKeyDown(ImGuiKey_GamepadFaceLeft)));
         const bool pointerHeld = g_pressedCard == s.id && ImGui::IsMouseDown(ImGuiMouseButton_Left);
         const bool held = keyHeld || pointerHeld;
         State& st = g_state[s.id];

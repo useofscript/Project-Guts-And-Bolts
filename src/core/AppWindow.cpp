@@ -1,4 +1,5 @@
 #include "AppWindow.h"
+#include "Pad.h"
 #include <cmath>
 #include "Settings.h"
 #include "Audio.h"
@@ -92,6 +93,7 @@ AppWindow::AppWindow(const char* title, int width, int height, const char* layou
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;   // controllers: menus, and the pad's buttons for games (Pad.h)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.IniFilename = layoutFile;
 
@@ -206,8 +208,10 @@ float AppWindow::beginFrame(const std::function<void()>& beforeImGui) {
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
+    Pad::injectApply();   // (tests)
     if (beforeImGui) beforeImGui();
     ImGui::NewFrame();
+    Pad::update();
     return dt;
 }
 

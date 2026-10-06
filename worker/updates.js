@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'pick-up-and-play', name: 'Pick Up and Play', time: 1791325100, tag: 'Player',
+    summary: 'Controller support: play any game with an Xbox, PlayStation or Switch controller.',
+    items: [
+      'Walk with the left stick, look around with the right one, jump with A',
+      'RT uses your tool, LB and RB switch tools, X presses the prompt you are next to',
+      'Start opens the menu, and the D-pad and A move around it and the Player\'s pages',
+      'Works in Studio\'s play test too',
+      'Scripts can read controller buttons and sticks, like Roblox (ButtonA, GamepadEnabled...)',
+    ],
+  },
+  {
     id: 'light-streaks', name: 'Light Streaks', time: 1791324400, tag: 'Engine',
     summary: 'Trails and Beams: swords leave streaks behind them, and lasers join two points, like Roblox.',
     items: [

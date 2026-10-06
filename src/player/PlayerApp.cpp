@@ -1,4 +1,6 @@
 #include "PlayerApp.h"
+#include "../core/Pad.h"
+#include <map>
 #include "SiteUi.h"
 #include "LaunchLink.h"
 #include "../game/GameGui.h"
@@ -299,6 +301,25 @@ void PlayerApp::run() {
                            : m_opts.holdKey == "Shift" ? ImGuiKey_LeftShift
                            : (ImGuiKey)(ImGuiKey_A + (m_opts.holdKey[0] - 'A'));
                 ImGui::GetIO().AddKeyEvent(k, true);
+            }
+            // "--pad-test '40-200:LStickUp=1 60-62:FaceDown'": pretend a controller (frames, ImGuiKey_Gamepad* names).
+            if (!m_opts.padTest.empty()) {
+                std::istringstream parts(m_opts.padTest);
+                std::string part;
+                std::map<int, float> held;
+                while (parts >> part) {
+                    int from = 0, to = 0;
+                    char name[64] = {};
+                    float v = 1.0f;
+                    if (std::sscanf(part.c_str(), "%d-%d:%63[A-Za-z0-9]=%f", &from, &to, name, &v) < 3) continue;
+                    for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k)
+                        if (std::string("Gamepad") + name == ImGui::GetKeyName((ImGuiKey)k)) {
+                            const bool on = m_frame >= from && m_frame <= to;
+                            held[k] = std::max(held[k], on ? v : 0.0f);
+                        }
+                }
+                for (auto& [k, v] : held) Pad::inject(k, v);
+                Pad::injectApply();
             }
         });
         // Test helper: real (SDL) touch events, as a phone would send them.
@@ -662,6 +683,7 @@ void PlayerApp::frame(float dt) {
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                              ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
                              ImGuiWindowFlags_NoDocking;
+    if (m_page == Page::Game) flags |= ImGuiWindowFlags_NoNav;   // a controller plays the game, not the Menu button
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -1452,8 +1474,10 @@ void PlayerApp::drawAvatar(float dt) {
 
 void PlayerApp::drawGame(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-    if (!io.WantTextInput && !m_chatOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        if (m_menuConfirm) m_menuConfirm = 0;   // Esc backs out of "Are you sure?"
+    if (!io.WantTextInput && !m_chatOpen && (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                                             ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false) ||
+                                             (m_paused && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)))) {
+        if (m_menuConfirm) m_menuConfirm = 0;   // Esc (or B) backs out of "Are you sure?"
         else { m_paused = !m_paused; m_menuTab = 0; }
     }
 
@@ -1592,6 +1616,7 @@ void PlayerApp::drawGame(float dt) {
         }
         if (!GameGui::overScroller(*m_scene, ImGui::GetMousePos())) PlayCamera::zoom(m_camera, io.MouseWheel);   // (else the wheel scrolls the UI)
     }
+    if (acceptInput && Pad::connected()) padCamera(dt);
     if (Player* p = m_scene->player()) {
         PlayCamera::follow(m_camera, *p, dt, m_shiftLock);
         PlayCamera::fade(*m_scene, *p, m_camera);
@@ -1668,8 +1693,9 @@ void PlayerApp::drawGame(float dt) {
         m_session->selectToolSlot(slot);
     Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
-    // Tab folds the leaderboard away (and back), like old Roblox.
-    if (acceptInput && !m_chatOpen && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Tab, false))
+    // Tab (or a controller's Back / Select) folds the leaderboard away (and back), like old Roblox.
+    if (acceptInput && !m_chatOpen && !ImGui::GetIO().WantTextInput &&
+        (ImGui::IsKeyPressed(ImGuiKey_Tab, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false)))
         m_listOpen = !m_listOpen;
     {
         ImVec2 at;
@@ -1984,6 +2010,7 @@ void PlayerApp::drawPauseMenu() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16, 14));
     ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoSavedSettings);
+    if (ImGui::IsWindowAppearing()) ImGui::SetWindowFocus();   // (so a controller's D-pad moves through it)
 
     if (m_menuConfirm != 0) {
         // "Are you sure?" page, like Roblox's.
@@ -2163,6 +2190,17 @@ void PlayerApp::drawPauseMenu() {
         key("/ or Enter", "Chat  (/w name message whispers to one player)");
         key("1 - 9", "Equip a tool from your hotbar");
         key("Esc", "Open or close this menu");
+        ImGui::SeparatorText("Controller");
+        key("Left stick", "Walk");
+        key("Right stick", "Look around (click it for Shift Lock)");
+        key("A / Cross", "Jump");
+        key("LT / L2", "Swimming: dive");
+        key("RT / R2", "Use the tool you're holding");
+        key("LB / RB", "Last / next tool;  B / Circle puts it away");
+        key("X / Square", "Use the prompt you're next to (\"Open\", \"Talk\"...)");
+        key("D-pad", "Up and down zoom in and out");
+        key("Start", "Open or close this menu (the D-pad and A pick in it)");
+        key("Back / Select", "Show or hide the player list");
     }
     ImGui::EndChild();
 
@@ -2181,6 +2219,18 @@ void PlayerApp::drawPauseMenu() {
 // ---------------------------------------------------------------------------
 // Touch controls
 // ---------------------------------------------------------------------------
+
+// A controller's camera: the right stick turns it, the D-pad zooms (up = in), and
+// clicking the right stick switches Shift Lock (when it's allowed).
+void PlayerApp::padCamera(float dt) {
+    const glm::vec2 rs = Pad::rightStick();
+    if (rs.x != 0.0f || rs.y != 0.0f) PlayCamera::turn(m_camera, rs.x * 900.0f * dt, -rs.y * 600.0f * dt);
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true))   PlayCamera::zoom(m_camera, 1.0f);
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true)) PlayCamera::zoom(m_camera, -1.0f);
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR3, false) && GraphicsSettings::get().shiftLockSwitch &&
+        !PlayCamera::firstPerson(m_camera))
+        m_shiftLock = !m_shiftLock;
+}
 
 void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
     const float scale = GraphicsSettings::get().touchSize;

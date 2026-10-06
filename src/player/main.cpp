@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-wheel")) opts.testWheel  = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--create-staff-account")) opts.createStaff = true;
         else if (!std::strcmp(argv[i], "--touch-test")) opts.touchTest  = next();
+        else if (!std::strcmp(argv[i], "--pad-test"))   opts.padTest    = next();
         else if (!std::strcmp(argv[i], "--test-make-items")) opts.testItems = true;
         else if (!std::strcmp(argv[i], "--test-grant"))  opts.testGrantFor = next();
         else if (!std::strcmp(argv[i], "--test-redeem")) opts.testRedeem = next();

@@ -48,6 +48,7 @@ public:
     // swimLook: the camera's up/down for swimming (see Player::setSwimInput).
     void update(float dt, float cameraYaw, bool acceptInput, float swimLook = 0.0f);
     void click(uint64_t partId);                 // left-click in the 3D view
+    void useTool();                              // the held tool's Activated (a click, a controller's RT)
     // Game UI: pointer events from GameGui (clicks go to the host in multiplayer).
     void guiEvents(const std::vector<GameGui::Event>& events);
     // On-screen joystick (x = right, y = forward) and jump button, for touch screens.
@@ -95,4 +96,5 @@ private:
     std::unordered_map<uint64_t, double> m_noPickupUntil;    // just dropped: don't grab it straight back
     double       m_time = 0.0;
     bool         m_toolDown = false;          // mouse held after activating the tool
+    bool         m_padTrigger = false;        // a controller's RT held
 };

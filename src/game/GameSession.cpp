@@ -1,4 +1,5 @@
 #include "GameSession.h"
+#include "../core/Pad.h"
 #include "../scene/Serializer.h"
 #include "../scripting/LuaApi.h"   // SignalKind (tool events)
 #include "../scene/Scene.h"
@@ -311,14 +312,34 @@ void GameSession::update(float dt, float cameraYaw, bool acceptInput, float swim
             // Touch thumbstick: partly pushed = walk slower.
             move += right * m_touchMove.x + fwd * m_touchMove.y;
             jump = jump || m_touchJump;
+            // A controller: left stick walks (partly pushed = slower), A jumps, LT dives.
+            if (Pad::connected()) {
+                const glm::vec2 ls = Pad::leftStick();
+                move += right * ls.x + fwd * ls.y;
+                jump = jump || ImGui::IsKeyDown(ImGuiKey_GamepadFaceDown);
+                dive = dive || Pad::leftTrigger() > 0.5f;
+            }
         }
         // Tools: 1-9 picks a slot (again puts it away), Backspace drops the held one.
         if (acceptInput && !ImGui::GetIO().WantTextInput) {
             for (int i = 0; i < Player::kMaxTools; ++i)
                 if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + i), false)) selectToolSlot(i);
             if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) dropTool();
+            // A controller: RB / LB pick the next / last tool, B puts it away, RT uses it.
+            if (Pad::connected() && !p->isDead()) {
+                const auto tools = p->tools();
+                int held = -1;
+                for (size_t i = 0; i < tools.size(); ++i) if (tools[i] == p->equippedTool()) held = (int)i;
+                const int n = (int)tools.size();
+                if (n && ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) selectToolSlot(held < 0 ? 0 : (held + 1) % n);
+                if (n && ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) selectToolSlot(held < 0 ? n - 1 : (held + n - 1) % n);
+                if (held >= 0 && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) selectToolSlot(held);
+                const bool trigger = Pad::rightTrigger() > 0.5f;
+                if (trigger && !m_padTrigger) useTool();
+                m_padTrigger = trigger;
+            }
         }
-        if (m_toolDown && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        if (m_toolDown && !ImGui::IsMouseDown(ImGuiMouseButton_Left) && !m_padTrigger) {
             m_toolDown = false;
             if (SceneNode* t = p->equippedTool()) {
                 if (client && onToolRequest) onToolRequest("use", t->id, false);
@@ -432,21 +453,19 @@ void GameSession::click(uint64_t partId) {
         if (onClick && partId) onClick(partId);
         if (partId) m_scripts.fireClicked(partId);   // (our LocalScripts)
         // Holding a tool: swing here, and the host fires tool.Activated (and so do we, for its LocalScripts).
-        if (Player* p = m_scene->player())
-            if (SceneNode* t = p->equippedTool(); t && t->enabled && !p->isDead()) {
-                if (onToolRequest) onToolRequest("use", t->id, true);
-                m_scripts.fireTool(SignalKind::Activated, t->id);
-                p->swingTool();
-                m_toolDown = true;
-            }
+        useTool();
         return;
     }
     m_scripts.fireClicked(partId);
-    // Holding a tool: clicking uses it (tool.Activated), like Roblox.
-    if (Player* p = m_runOnly ? nullptr : m_scene->player())
-        if (SceneNode* t = p->equippedTool(); t && t->enabled && !p->isDead()) {
-            m_scripts.fireTool(SignalKind::Activated, t->id);
-            p->swingTool();
-            m_toolDown = true;
-        }
+    useTool();   // holding a tool: clicking uses it (tool.Activated), like Roblox
+}
+
+void GameSession::useTool() {
+    Player* p = m_runOnly ? nullptr : m_scene->player();
+    SceneNode* t = p ? p->equippedTool() : nullptr;
+    if (!m_running || !t || !t->enabled || p->isDead()) return;
+    if (m_role == Role::Client && onToolRequest) onToolRequest("use", t->id, true);   // the host fires it for everyone
+    m_scripts.fireTool(SignalKind::Activated, t->id);
+    p->swingTool();
+    m_toolDown = true;
 }

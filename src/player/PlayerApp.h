@@ -36,6 +36,7 @@ struct PlayerOptions {
     int         frames = 120;
     std::string holdKey;
     bool        createStaff = false;   // --create-staff-account
+    std::string padTest;               // --pad-test "40-200:LStickUp=1 60-62:FaceDown" (tests: a fake controller)
     std::string touchTest;             // --touch-test stick|jump|look (tests: fake fingers)
     bool        testItems = false;     // --test-make-items (tests, staff only)
     std::string testGrantFor;          // --test-grant <account id> (tests, staff only: print a badge code)
@@ -209,6 +210,7 @@ private:
     bool needsServer(const char* what);   // "you need a server" note; true if offline
     void drawAccount();
     void drawNotice();
+    void padCamera(float dt);   // a controller's right stick / D-pad
     void updateTouch(ImVec2 min, ImVec2 max, bool acceptInput);
 
     // Sign up / log in — PlayerLogin.cpp

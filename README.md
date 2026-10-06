@@ -1225,6 +1225,30 @@ you look (a ring shows in the middle). Press Shift again to turn it off. It
 works in the Player and in Studio's play test, and you can switch it off in
 the in-game menu.
 
+### Controllers
+
+Plug in an Xbox, PlayStation, Switch Pro or other game controller and play with
+it, in the Player and in Studio's play test:
+
+| Button | Does |
+|---|---|
+| Left stick | Walk (push it a little to walk slowly) |
+| Right stick | Look around (click it for Shift Lock) |
+| A / Cross | Jump |
+| LT / L2 | Dive while swimming |
+| RT / R2 | Use the tool you're holding |
+| LB / RB | Last / next tool (B / Circle puts it away) |
+| X / Square | Use the nearest ProximityPrompt (the card shows **X**) |
+| D-pad up / down | Zoom in / out |
+| Start | The in-game menu (the D-pad and A pick in it, B closes it) |
+| Back / Select | Show or hide the player list |
+
+The D-pad and A also move around the Player's own pages (games, catalog,
+settings...). Scripts see the buttons too: `UserInputService.InputBegan` fires
+with `Enum.KeyCode.ButtonA` (and `UserInputType` `Gamepad1`), and
+`UserInputService.GamepadEnabled`, `IsGamepadButtonDown` and `GetGamepadState`
+(the sticks and triggers) work like Roblox's.
+
 ### The in-game menu
 
 Press **Esc** (or the Menu button) for a Roblox-style menu with three tabs:
