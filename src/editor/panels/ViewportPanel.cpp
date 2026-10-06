@@ -914,6 +914,17 @@ void ViewportPanel::render(float dt) {
         }
     }
 
+    // A right-click that didn't turn the camera: a menu for what's selected (the Explorer's
+    // right-click menu, with Publish to Guts&Bolts), like Roblox Studio's.
+    if (!m_session && contextMenu) {
+        if (m_hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::GetIO().MouseDragMaxDistanceSqr[ImGuiMouseButton_Right] < 25.0f)
+            ImGui::OpenPopup("##viewportMenu");
+        if (ImGui::BeginPopup("##viewportMenu")) {
+            contextMenu();
+            ImGui::EndPopup();
+        }
+    }
+
     ImGui::End();
     ImGui::PopStyleVar();
 }

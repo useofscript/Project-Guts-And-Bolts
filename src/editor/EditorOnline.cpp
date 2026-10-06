@@ -334,6 +334,15 @@ void Editor::testSnapshot(const std::string& file) {
 // File > Publish Selection to Library: share objects as a model, public or private
 // ---------------------------------------------------------------------------
 
+// The right-click menus' way in (Explorer and viewport): what's selected, as a model.
+void Editor::publishMenuItem() {
+    ImGui::Separator();
+    if (ImGui::MenuItem("Publish to Guts&Bolts...", nullptr, false, m_scene->selected() != nullptr))
+        m_openPublishModel = true;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Put the selection in the Library as a model, public (anyone can use it) or private (only you).");
+}
+
 void Editor::renderPublishModelDialog() {
     if (m_openPublishModel) {
         ImGui::OpenPopup("Publish to Library");
