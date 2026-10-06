@@ -10,7 +10,21 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'hammer-time', name: 'Hammer Time', time: 1791325965, tag: 'Player',
+    id: 'total-goblin-mode', name: 'Total Goblin Mode', version: '0.6.9', time: 1791326339, tag: 'Engine',
+    summary: 'The biggest drop yet: servers that run with nobody hosting, LocalScripts, controllers, glowing trails, and a hammer for creators.',
+    items: [
+      'Games can run on game server machines, so nobody gets kicked when the host leaves',
+      'LocalScripts, RemoteEvents and RemoteFunctions, like Roblox',
+      'Everyone can carry tools, and saved data follows players to every server',
+      'Text boxes, scrolling lists, floating signs and screens on walls',
+      'ProximityPrompts, Highlights, Trails and Beams',
+      'Play with a controller',
+      'Report and block people, on the website and in the app',
+      'A hammer next to the game creator on the leaderboard, and require(ID) in the server dev console',
+    ],
+  },
+  {
+    id: 'hammer-time', name: 'Hammer Time', version: '0.6.9', time: 1791325965, tag: 'Player',
     summary: 'Game creators get a hammer on the leaderboard, and the server dev console can require modules.',
     items: [
       'A little hammer shows next to the game creator\'s name on the leaderboard',
@@ -20,7 +34,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'pick-up-and-play', name: 'Pick Up and Play', time: 1791325100, tag: 'Player',
+    id: 'pick-up-and-play', name: 'Pick Up and Play', version: '0.6.9', time: 1791325100, tag: 'Player',
     summary: 'Controller support: play any game with an Xbox, PlayStation or Switch controller.',
     items: [
       'Walk with the left stick, look around with the right one, jump with A',
@@ -31,7 +45,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'light-streaks', name: 'Light Streaks', time: 1791324400, tag: 'Engine',
+    id: 'light-streaks', name: 'Light Streaks', version: '0.6.9', time: 1791324400, tag: 'Engine',
     summary: 'Trails and Beams: swords leave streaks behind them, and lasers join two points, like Roblox.',
     items: [
       'A Trail leaves a fading ribbon behind two Attachments as they move',
@@ -42,7 +56,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'glow-up', name: 'Glow Up', time: 1791323500, tag: 'Engine',
+    id: 'glow-up', name: 'Glow Up', version: '0.6.9', time: 1791323500, tag: 'Engine',
     summary: 'Highlights: colour a part or a whole character and give it an outline, even through walls, like Roblox.',
     items: [
       'Put a Highlight in a part or model and it gets a coloured fill and an outline',
@@ -53,7 +67,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'press-e', name: 'Press E', time: 1791322400, tag: 'Engine',
+    id: 'press-e', name: 'Press E', version: '0.6.9', time: 1791322400, tag: 'Engine',
     summary: 'ProximityPrompts: walk up to a door and a little "E Open" card pops up, like Roblox.',
     items: [
       'Put a ProximityPrompt in a part, and players near it see a card with the key to press',
@@ -64,7 +78,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'pass-the-note', name: 'Pass the Note', time: 1791318200, tag: 'Engine',
+    id: 'pass-the-note', name: 'Pass the Note', version: '0.6.9', time: 1791318200, tag: 'Engine',
     summary: 'LocalScripts run on each player\'s own computer now, and talk to the server with RemoteEvents, like Roblox.',
     items: [
       'LocalScripts run on the player\'s computer: great for UI, keys and things only you see',
@@ -75,7 +89,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'signs-everywhere', name: 'Signs Everywhere', time: 1791314600, tag: 'Engine',
+    id: 'signs-everywhere', name: 'Signs Everywhere', version: '0.6.9', time: 1791314600, tag: 'Engine',
     summary: 'Game UI can sit on parts now: floating name signs (BillboardGui) and screens painted on walls (SurfaceGui).',
     items: [
       'BillboardGui floats over a part and always faces you, for name signs, health bars and hints',
@@ -86,7 +100,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'type-and-scroll', name: 'Type and Scroll', time: 1791311000, tag: 'Engine',
+    id: 'type-and-scroll', name: 'Type and Scroll', version: '0.6.9', time: 1791311000, tag: 'Engine',
     summary: 'Game UI gets text boxes, scrolling lists and automatic layouts, like Roblox.',
     items: [
       'TextBox: players can type in your game. FocusLost tells your script when they press Enter',
@@ -97,7 +111,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'shared-vault', name: 'Shared Vault', time: 1791307400, tag: 'Server',
+    id: 'shared-vault', name: 'Shared Vault', version: '0.6.9', time: 1791307400, tag: 'Server',
     summary: 'Saved game data (DataStores) now lives on the Guts&Bolts server, so it follows players to every server of a game.',
     items: [
       'DataStoreService saves online when the game runs on a game server machine or its creator hosts it',
@@ -108,7 +122,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'night-shift', name: 'Night Shift', time: 1791305600, tag: 'Server',
+    id: 'night-shift', name: 'Night Shift', version: '0.6.9', time: 1791305600, tag: 'Server',
     summary: 'Games can run on a game server machine with nobody hosting, so nobody gets kicked when someone leaves.',
     items: [
       'New program: GutsAndBoltsGameServer. Leave it running on a computer that stays on and it runs games by itself',
@@ -120,7 +134,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'pass-the-bat', name: 'Pass the Bat', time: 1791303800, tag: 'Engine',
+    id: 'pass-the-bat', name: 'Pass the Bat', version: '0.6.9', time: 1791303800, tag: 'Engine',
     summary: 'People who join someone else\'s game can carry tools now, not just the host.',
     items: [
       'Everyone in an online game gets the StarterPack tools when they spawn, and again after they respawn',
@@ -132,7 +146,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'bouncer', name: 'The Bouncer', time: 1791302600, tag: 'Website',
+    id: 'bouncer', name: 'The Bouncer', version: '0.6.9', time: 1791302600, tag: 'Website',
     summary: 'Report anything that breaks the rules, and block people you don\'t want to hear from. Staff get a list of reports to work through.',
     items: [
       'A Report link on profiles, messages, games, catalog items, Library items and groups. Pick what\'s wrong and tell staff what happened',

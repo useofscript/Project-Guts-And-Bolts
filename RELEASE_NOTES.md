@@ -1,3 +1,38 @@
+# Guts&Bolts 0.6.9: Total Goblin Mode (October 6, 2026)
+
+## New
+- **Game server machines**: games can run with nobody hosting, so nobody gets
+  kicked when someone leaves. Leave GutsAndBoltsGameServer running on any
+  computer (or a cheap Linux cloud server) and it starts games by itself.
+- **LocalScripts and RemoteEvents**: LocalScripts run on each player's own
+  computer and talk to the server with RemoteEvents and RemoteFunctions, like
+  Roblox. Players who join no longer get the code inside your server Scripts.
+- **Tools for everyone**: people who join someone else's game get StarterPack
+  tools, can pick them up, hold them and swing them, and everyone sees it.
+- **DataStores online**: saved game data lives on the Guts&Bolts server, so it
+  follows players to every server of a game.
+- **Game UI**: TextBox, ScrollingFrame, UIListLayout, UIGridLayout and
+  UIPadding, plus BillboardGui (floating signs) and SurfaceGui (screens on
+  walls).
+- **ProximityPrompts**: walk up to something and a little "E Open" card pops
+  up. Hold-to-use works too.
+- **Highlights**: colour a part or character with an outline, even through
+  walls.
+- **Trails and Beams**: streaks behind swords and glowing lasers between two
+  points, with ColorSequence and NumberSequence.
+- **Controllers**: play with an Xbox, PlayStation or Switch controller,
+  menus included. Scripts can read the buttons and sticks.
+- **Report and block**: report anything that breaks the rules, block people,
+  and staff get a Reports list. Works on the website and in the Player.
+- **Creator hammer**: the game's creator has a little hammer next to their
+  name on the leaderboard.
+- **require in the server dev console**, plus `require(ID)` for Library
+  models (their MainModule), like Roblox. The server side of the dev console
+  stays for the game's creator only.
+
+## Fixed
+- Putting a tool away and taking it out again no longer drops it on the ground.
+
 # Guts&Bolts 0.6.8: Old Faithful (October 6, 2026)
 
 ## New
