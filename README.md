@@ -1469,9 +1469,12 @@ point when you publish), shown on the website's game cards. A red number on
 **Friends** means friend requests are waiting.
 
 Playing games still happens in the app. The website's **Play** button opens the
-app on that game with a `gutsandbolts://play/<game>` link (the Player sets that
-up by itself on Windows and Linux, and the Android app has it built in; on a Mac,
-open the app yourself). Visitors who aren't signed in pick **Play As Boy** or
+app on that game with a `gutsandbolts://play/<game>` link. The Player sets that
+up by itself the first time you open it on Windows, Linux and Mac, and the
+Android app has it built in. (On a Mac it makes a small **Guts&Bolts Player**
+app in your user's Applications folder that runs the Player you opened, because
+macOS only lets apps open links. Keep the Player where it is, or open it once
+again after moving it.) Visitors who aren't signed in pick **Play As Boy** or
 **Play As Girl** first and play as a guest.
 
 Visitors who aren't signed in can see every page. Buying, claiming Bolts,
