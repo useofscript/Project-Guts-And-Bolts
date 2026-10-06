@@ -72,7 +72,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'peek-under-the-hood', name: 'Peek Under the Hood', version: '0.6.5', time: 1791334800, tag: 'Player',
+    id: 'peek-under-the-hood', name: 'Peek Under the Hood', version: '0.6.5', time: 1791240600, tag: 'Player',
     summary: 'The Developer Console, like Roblox: press F9 or type /devconsole in a game.',
     items: [
       'Client tab: everything that happened on your computer, errors in red and warnings in yellow, with a search box',
@@ -81,7 +81,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', version: '0.6.5', time: 1791331200, tag: 'Server',
+    id: 'nobody-gets-left-behind', name: 'Nobody Gets Left Behind', version: '0.6.5', time: 1791240300, tag: 'Server',
     summary: 'When the player hosting a game leaves, everyone else moves to a new server together instead of getting kicked.',
     items: [
       'Before: if the first person in a server left, everyone else got thrown back to the home screen',

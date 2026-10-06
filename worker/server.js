@@ -2272,7 +2272,9 @@ export class GbServerObject extends DurableObject {
   updateOp(name, me, args) {
     const t = now();
     if (name === 'updates.list') {
-      const all = [...this.posted, ...BUILT_IN_UPDATES].sort((a, b) => b.time - a.time);
+      // Newest first. A date in the future (a typo) counts as now, so it can't sit on top for ever.
+      const when = (u) => Math.min(u.time, t);
+      const all = [...this.posted, ...BUILT_IN_UPDATES].map((u) => ({ ...u, time: when(u) })).sort((a, b) => b.time - a.time);
       const limit = clamp(Number.isInteger(args.limit) ? args.limit : 50, 1, 100);
       return okay({ updates: all.slice(0, limit), latest: all.length ? all[0].id : '' });
     }
