@@ -18,6 +18,7 @@
 #include <unistd.h>
 #endif
 #ifdef __APPLE__
+#define __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES 0   // (no check()/verify() macros)
 #include <CoreServices/CoreServices.h>
 #include <mach-o/dyld.h>
 #include <climits>
@@ -89,6 +90,8 @@ OSErr onGetUrl(const AppleEvent* event, AppleEvent*, SRefCon) {
 }
 
 const char* kBundleId = "net.gutsandbolts.player";
+const AEEventClass kGetUrlClass = 0x4755524C;   // 'GURL': the "open this URL" Apple event
+const AEEventID    kGetUrlId    = 0x4755524C;
 
 std::string macPlist() {
     return std::string(
@@ -114,7 +117,7 @@ std::string macPlist() {
 
 void listen() {
 #ifdef __APPLE__
-    AEInstallEventHandler(kInternetEventClass, kAEGetURL, NewAEEventHandlerUPP(onGetUrl), 0, false);
+    AEInstallEventHandler(kGetUrlClass, kGetUrlId, NewAEEventHandlerUPP(onGetUrl), 0, false);
 #endif
 }
 
@@ -188,12 +191,12 @@ void registerScheme() {
         LSRegisterURL(url, true);
         CFRelease(url);
     }
-    CFStringRef id = CFStringCreateWithCString(nullptr, kBundleId, kCFStringEncodingUTF8);
+    CFStringRef bundle = CFStringCreateWithCString(nullptr, kBundleId, kCFStringEncodingUTF8);
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    LSSetDefaultHandlerForURLScheme(CFSTR("gutsandbolts"), id);
+    LSSetDefaultHandlerForURLScheme(CFSTR("gutsandbolts"), bundle);
 #pragma clang diagnostic pop
-    CFRelease(id);
+    CFRelease(bundle);
 #endif
 }
 
