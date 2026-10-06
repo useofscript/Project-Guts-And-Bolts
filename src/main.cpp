@@ -23,6 +23,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--test-premades")) opts.testPremades = next();
         else if (!std::strcmp(argv[i], "--test-tools")) opts.testTools = next();
         else if (!std::strcmp(argv[i], "--test-analysis")) opts.testAnalysis = true;
+        else if (!std::strcmp(argv[i], "--test-fix-pictures")) opts.testFixPictures = true;
         else if (!std::strcmp(argv[i], "--test-keys"))  opts.testKeys   = next();
         else if (!std::strcmp(argv[i], "--test-select")) opts.testSelect = next();
         else if (!std::strcmp(argv[i], "--test-mesh")) opts.testMesh = next();

@@ -427,6 +427,37 @@ void Editor::renderPublishModelDialog() {
 // your own Tool), change it however you like, test it with Play, then publish it.
 // ---------------------------------------------------------------------------
 
+void Editor::fixItemPictures() {
+    const std::string mine = Online::me().value("id", std::string());
+    if (mine.empty()) { Log::warn("Sign in first."); return; }
+    Log::system("Looking for your items whose pictures are only on this computer...");
+    auto fixOne = [this](const json& a) {
+        const std::string id = a.value("id", std::string()), name = a.value("name", std::string());
+        Online::download(id, [this, id, name](bool ok, const std::filesystem::path& file, const json&) {
+            if (!ok) return;
+            std::ifstream f(file, std::ios::binary);
+            std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            json model = json::parse(text, nullptr, false);
+            if (!model.is_object()) return;
+            const std::string before = model.dump();
+            uploadLocalTextures(model, name, [id, name, before](json fixed, std::string error) {
+                if (!error.empty()) { Log::warn(name + ": " + error); return; }
+                if (fixed.dump() == before) return;   // nothing local in it
+                Online::request("update", {{"id", id}, {"data", Online::base64Encode(fixed.dump())}}, [name](const json& r) {
+                    if (r.value("ok", false)) Log::info("Uploaded the pictures for \"" + name + "\". Everyone sees them now.");
+                    else Log::warn(name + ": " + r.value("error", std::string("couldn't update it.")));
+                });
+            });
+        }, true);
+    };
+    for (const char* kind : {"clothing", "gear"})
+        Online::request("list", {{"kind", kind}, {"creator", mine}, {"limit", 200}}, [fixOne](const json& r) {
+            if (!r.value("ok", false)) return;
+            for (const auto& a : r.value("assets", json::array()))
+                if (a.value("kind", std::string()) == "gear" || (a.contains("meta") && a["meta"].value("model", false))) fixOne(a);
+        });
+}
+
 void Editor::uploadLocalTextures(json node, const std::string& name, std::function<void(json, std::string)> done) {
     // Every local picture used (once each).
     auto local = [](const std::string& t) -> std::filesystem::path {
@@ -444,6 +475,7 @@ void Editor::uploadLocalTextures(json node, const std::string& name, std::functi
             if (std::find(todo.begin(), todo.end(), n["texture"].get<std::string>()) == todo.end()) todo.push_back(n["texture"].get<std::string>());
         if (n.contains("children")) for (const auto& c : n["children"]) find(c);
         if (n.contains("nodes")) for (const auto& c : n["nodes"]) find(c);
+        if (n.contains("node")) find(n["node"]);   // an accessory file: {"format":"gbaccessory","node":{...}}
     };
     find(node);
     if (todo.empty()) { done(node, ""); return; }
@@ -461,6 +493,7 @@ void Editor::uploadLocalTextures(json node, const std::string& name, std::functi
                     if (auto it = st->refs.find(n["texture"].get<std::string>()); it != st->refs.end()) n["texture"] = it->second;
                 if (n.contains("children")) for (auto& c : n["children"]) swap(c);
                 if (n.contains("nodes")) for (auto& c : n["nodes"]) swap(c);
+                if (n.contains("node")) swap(n["node"]);
             };
             swap(st->node);
             done(st->node, "");

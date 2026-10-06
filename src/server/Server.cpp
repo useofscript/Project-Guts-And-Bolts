@@ -800,7 +800,14 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (a.kind == "game" && !json::accept(data)) return fail("That isn't a Guts&Bolts game file.");
         if (a.kind == "gear")
             if (std::string problem = Online::gearProblem(data); !problem.empty()) return fail(problem);
-        if (!Online::isClothing(a.kind) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
+        // A 3D accessory made in Studio: a new version of its model (e.g. with its pictures uploaded).
+        const bool model = Online::isAccessory(a.kind) && a.meta.value("model", false) && !data.empty();
+        if (model) {
+            json acc = json::parse(data, nullptr, false);
+            if (!acc.is_object() || acc.value("format", std::string()) != "gbaccessory" || !acc.contains("node"))
+                return fail("That isn't a Guts&Bolts accessory.");
+        }
+        if ((!Online::isClothing(a.kind) || model) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
         std::string title = Online::cleanText(str("name"), 50);
         if (!title.empty()) a.name = title;
         if (args.contains("description")) a.description = Online::cleanText(str("description"), 1000, true);

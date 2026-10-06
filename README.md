@@ -1525,6 +1525,11 @@ the Guts&Bolts server, and it passes the game's messages along. So:
 has room. If nobody's playing, you quietly become the host of a new public
 server, and the next person to press Play joins you.
 
+**Hat pictures:** a hat or gear made from an imported Roblox file uses a picture
+file. Studio uploads it when you publish. For older items whose pictures never got
+uploaded (they look plain white on the website), use **File > Upload Missing Item
+Pictures** in Studio on the computer that made them.
+
 **When the host leaves**, nobody gets kicked. The Guts&Bolts server picks
 whoever has been in the game longest, their Player starts a new server of the
 same game (same name, same private code), and everyone else follows them there

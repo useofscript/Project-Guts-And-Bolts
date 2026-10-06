@@ -50,6 +50,9 @@ public:
     void testInsert(const std::string& names);   // Insert Object, each one into the one before
     void testPremades(const std::string& list);
     void testToolStep(const std::string& step);
+    // File > Upload Missing Item Pictures: your hats/gear that still point at picture files on
+    // this computer (like imported Roblox hats) get those pictures uploaded, so everyone sees them.
+    void fixItemPictures();
     void testAnalysis();   // --test-analysis   // --test-tools: "1".. hold a slot, "click", "print"
     void testSelect(const std::string& names);
     void testSnapshot(const std::string& file);   // --test-snapshot
@@ -109,6 +112,7 @@ private:
     void       renderPluginLibrary();
     void       renderPublishModelDialog();   // File > Publish Selection to Library
     void       renderMakeGearDialog();
+    std::string m_fixPicturesMsg;
     // Pictures on parts that only live on this computer (an imported Roblox hat's texture) go up
     // as decals first, so the website and everyone else's game see them too. Then `done` runs
     // with the node's "texture"s pointing at them ("gb:<number>").
