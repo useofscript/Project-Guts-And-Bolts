@@ -1531,6 +1531,28 @@ the Guts&Bolts server, and it passes the game's messages along. So:
 has room. If nobody's playing, you quietly become the host of a new public
 server, and the next person to press Play joins you.
 
+**Game server machines (nobody has to host).** Leave
+`GutsAndBoltsGameServer` running on a computer that stays on (a spare PC, or a
+cheap Linux cloud server; no screen or graphics card needed) and it runs games
+by itself, with nobody playing on it. When someone presses **Play** and no
+server of that game has room, the Guts&Bolts server asks a free game server
+machine to start one, and the player joins it a few seconds later. Because
+nobody is the host, **the game keeps going whoever leaves**, like a Roblox
+server. A game nobody is in closes after a minute. If no machine is free (or
+none is running), Play falls back to making you the host, as above.
+
+```
+GutsAndBoltsGameServer --slots 4     # run up to 4 games at once
+```
+
+It signs in with the account on that computer (the same key the Player app
+uses), which must be a **staff** account. It builds with the rest of the
+programs. Each game runs in its own copy of the program, so one broken game
+can't take the others down. Game scripts on these servers have no
+`Players.LocalPlayer` (nobody plays there): use `Players.PlayerAdded` and
+`Players:GetPlayers()`, like Roblox server scripts. Private servers are still
+hosted by the person who starts them.
+
 **Hat pictures:** a hat or gear made from an imported Roblox file uses a picture
 file. Studio uploads it when you publish. For older items whose pictures never got
 uploaded (they look plain white on the website), use **File > Upload Missing Item

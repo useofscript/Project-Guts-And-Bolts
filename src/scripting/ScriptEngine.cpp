@@ -64,10 +64,14 @@ local function makePlayer(name, character, id)
     return setmetatable({ Name = name, DisplayName = name, UserId = id, Character = character,
                           __node = playerNode(name) }, playerMeta)
 end
-local LocalPlayer = makePlayer(__gb_playerName, __gb_character, 1)
-rawset(LocalPlayer, "Backpack", __gb_backpack)
-rawset(LocalPlayer, "__local", true)
-local playerList = { LocalPlayer }
+-- A game server machine plays nobody: no LocalPlayer, only the people who join.
+local LocalPlayer, playerList = nil, {}
+if not __gb_noLocalPlayer then
+    LocalPlayer = makePlayer(__gb_playerName, __gb_character, 1)
+    rawset(LocalPlayer, "Backpack", __gb_backpack)
+    rawset(LocalPlayer, "__local", true)
+    playerList = { LocalPlayer }
+end
 Players = { LocalPlayer = LocalPlayer, PlayerAdded = __gb_playerAdded,
             PlayerRemoving = __gb_playerRemoving }
 function Players:GetPlayers()
@@ -118,7 +122,7 @@ local function autoTeam(p)
         rawset(p, "Neutral", true)
     end
 end
-autoTeam(LocalPlayer)
+if LocalPlayer then autoTeam(LocalPlayer) end
 
 -- Used by the engine when people join / leave a multiplayer game.
 function __gb_addPlayer(name, character, id, backpack)
@@ -915,6 +919,7 @@ function table.find(t, value)
 end
 
 __gb_wait, __gb_spawn, __gb_delay, __gb_character, __gb_playerName, __gb_backpack = nil, nil, nil, nil, nil, nil
+__gb_noLocalPlayer = nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown = nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 __gb_playerNode, __gb_setRespawn, __gb_dsGet, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil
@@ -1554,6 +1559,8 @@ void ScriptEngine::start(bool runScripts) {
     lua_setglobal(L, "__gb_backpack");
     lua_pushstring(L, m_playerName.c_str());
     lua_setglobal(L, "__gb_playerName");
+    lua_pushboolean(L, m_noLocalPlayer);
+    lua_setglobal(L, "__gb_noLocalPlayer");
     LuaApi::pushLighting(L);
     lua_setglobal(L, "Lighting");
     LuaApi::pushSignal(L, SignalKind::Heartbeat, 0);  lua_setglobal(L, "__gb_heartbeat");

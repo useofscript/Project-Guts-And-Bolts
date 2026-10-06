@@ -32,6 +32,8 @@ constexpr long long kHostSilence    = 90;    // hosts ping every 20 s
 constexpr long long kMoveWait       = 90;    // seconds a left-behind server's players have to move to a new one
 constexpr long long kHeirWait       = 12;    // seconds each would-be new host gets to start it
 constexpr long long kPipeSilence    = 120;
+constexpr int       kPoolMost       = 50;    // games one game server machine runs at once
+constexpr long long kPoolStartWait  = 25;    // seconds for it to start a game it was asked to
 
 std::string makeCode() {
     static const char* letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no 0/O or 1/I mix-ups
@@ -56,16 +58,16 @@ json GbServer::sessionJson(const Session& s) const {
         people.push_back({{"id", id}, {"name", it != m_users.end() ? it->second.name : "?"},
                           {"avatar", it != m_users.end() && !it->second.avatar.is_null() ? it->second.avatar : json()}});
     };
-    person(s.host);
+    if (!s.dedicated) person(s.host);
     for (const Client* p : s.players) person(p->account);
-    return {{"id", s.id}, {"game", s.game}, {"title", s.title}, {"players", (int)s.players.size() + 1},
-            {"max", s.max}, {"private", s.priv}, {"hostName", h ? h->name : "?"},
-            {"hostVerified", h && isVerified(*h)}, {"people", people}};
+    return {{"id", s.id}, {"game", s.game}, {"title", s.title}, {"players", headcount(s)},
+            {"max", s.max}, {"private", s.priv}, {"hostName", s.dedicated ? "Guts&Bolts" : h ? h->name : "?"},
+            {"hostVerified", s.dedicated || (h && isVerified(*h))}, {"dedicated", s.dedicated}, {"people", people}};
 }
 
 const GbServer::Session* GbServer::sessionOf(const std::string& userId) const {
     for (const auto& [id, s] : m_sessions) {
-        if (s.host == userId) return &s;
+        if (s.host == userId && !s.dedicated) return &s;
         for (const Client* p : s.players) if (p->account == userId) return &s;
     }
     return nullptr;
@@ -79,12 +81,16 @@ json GbServer::serverOp(const std::string& name, User& me, const json& args) {
         // The fullest public server of this game that still has room, like Roblox.
         const Session* best = nullptr;
         for (const auto& [id, s] : m_sessions) {
-            if (s.priv || s.game != game || s.host == me.id || (int)s.players.size() + 1 >= s.max) continue;
+            if (s.priv || s.game != game || (s.host == me.id && !s.dedicated) || headcount(s) + 1 > s.max) continue;
             if (!best || s.players.size() > best->players.size()) best = &s;
         }
         json r = okay();
+        auto a = m_assets.find(game);
         if (best) r["join"] = best->id;
-        else      r["host"] = true;   // nobody's playing: you start a new public server
+        // Nobody's playing: a game server machine starts it if one is free (ask again shortly),
+        // so the game keeps going whoever leaves. Otherwise you start a new public server.
+        else if (a != m_assets.end() && a->second.kind == "game" && args.value("dedicated", true) && startOnPool(a->second)) r["wait"] = 2;
+        else r["host"] = true;
         return r;
     }
     if (name == "servers.list") {
@@ -107,6 +113,26 @@ json GbServer::serverOp(const std::string& name, User& me, const json& args) {
     return fail("Unknown request.");
 }
 
+bool GbServer::startOnPool(const Asset& game) {
+    const long long now = Online::unixNow();
+    Client* pick = nullptr;
+    int pickFree = 0;
+    for (auto& [ctl, pool] : m_pools) {
+        for (auto it = pool.starting.begin(); it != pool.starting.end();)
+            it = now - it->second > kPoolStartWait ? pool.starting.erase(it) : std::next(it);
+        if (pool.starting.count(game.id)) return true;   // on its way
+        int running = 0;
+        for (const auto& [id, s] : m_sessions) if (s.dedicated && s.host == pool.account) ++running;
+        const int free = pool.slots - running - (int)pool.starting.size();
+        if (free > pickFree && !ctl->closing) { pick = ctl; pickFree = free; }
+    }
+    if (!pick) return false;
+    m_pools[pick].starting[game.id] = now;
+    const int max = game.meta.contains("maxPlayers") && game.meta["maxPlayers"].is_number_integer() ? game.meta["maxPlayers"].get<int>() : kDefaultMax;
+    pick->conn->send(json{{"t", "start"}, {"game", game.id}, {"title", game.name}, {"max", std::clamp(max, 2, kMostPlayers)}}.dump());
+    return true;
+}
+
 void GbServer::relayRequest(Client& c, const json& req) {
     auto reply = [&](json r) {
         r["t"] = "relay";
@@ -119,10 +145,25 @@ void GbServer::relayRequest(Client& c, const json& req) {
     json args = req.contains("args") && req["args"].is_object() ? req["args"] : json::object();
     long long now = Online::unixNow();
 
+    if (op == "relay.pool") {   // a game server machine says it's ready to run games (staff only)
+        if (!isStaff(*me)) { reply(fail("Only Guts&Bolts staff can run game servers.")); c.closing = true; return; }
+        c.mode = Client::Mode::Pool;
+        c.account = me->id;
+        Pool& pool = m_pools[&c];
+        pool.account = me->id;
+        pool.slots = std::clamp(args.contains("slots") && args["slots"].is_number_integer() ? args["slots"].get<int>() : 4, 1, kPoolMost);
+        log("game server machine ready (" + std::to_string(pool.slots) + " games) by " + me->id.substr(0, 8));
+        json r = okay();
+        r["pool"] = true;
+        reply(r);
+        return;
+    }
     if (op == "relay.host") {
+        // A game server machine starting a game it was asked to: nobody plays on it.
+        const bool dedicated = args.value("dedicated", false) && isStaff(*me);
         size_t hosting = 0;
-        for (const auto& [id, s] : m_sessions) if (s.host == me->id) ++hosting;
-        if (hosting >= kHostedEach) { reply(fail("You're already running " + std::to_string(kHostedEach) + " servers.")); c.closing = true; return; }
+        for (const auto& [id, s] : m_sessions) if (s.host == me->id && !s.dedicated) ++hosting;
+        if (!dedicated && hosting >= kHostedEach) { reply(fail("You're already running " + std::to_string(kHostedEach) + " servers.")); c.closing = true; return; }
         Session s;
         s.id = "s-" + Account::randomHex(6);
         s.game = Online::cleanText(args.value("game", std::string()), 80);
@@ -134,6 +175,7 @@ void GbServer::relayRequest(Client& c, const json& req) {
         s.max = std::clamp(args.contains("max") && args["max"].is_number_integer() ? args["max"].get<int>() : kDefaultMax, 2, kMostPlayers);
         s.created = now;
         s.control = &c;
+        s.dedicated = dedicated;
         // Taking over a server whose host left: same game, name, privacy and code, so everyone can follow.
         if (auto old = m_moved.find(args.value("continues", std::string())); old != m_moved.end()) {
             Moved& m = old->second;
@@ -144,6 +186,10 @@ void GbServer::relayRequest(Client& c, const json& req) {
             }
             s.game = m.game; s.title = m.title; s.priv = m.priv; s.code = m.code; s.max = m.max;
             m.newId = s.id;
+        }
+        if (s.dedicated) {
+            s.priv = false;
+            for (auto& [ctl, pool] : m_pools) if (pool.account == me->id) pool.starting.erase(s.game);
         }
         if (s.priv && s.code.empty()) {
             do s.code = makeCode();
@@ -189,7 +235,7 @@ void GbServer::relayRequest(Client& c, const json& req) {
             following = true;
         }
         if (!s) { reply(fail("That server has closed.")); c.closing = true; return; }
-        if (s->host == me->id) { reply(fail("That's your own server.")); c.closing = true; return; }
+        if (s->host == me->id && !s->dedicated) { reply(fail("That's your own server.")); c.closing = true; return; }
         if (s->priv && code.empty() && !following && !me->friends.count(s->host)) {
             reply(fail("That's a private server. You need to be the host's friend, or have its code."));
             c.closing = true;
@@ -197,7 +243,7 @@ void GbServer::relayRequest(Client& c, const json& req) {
         }
         int waiting = 0;
         for (const auto& o : m_clients) if (o->mode == Client::Mode::PendingJoin && o->session == s->id) ++waiting;
-        if ((int)s->players.size() + 1 + waiting >= s->max) { reply(fail("That server is full.")); c.closing = true; return; }
+        if (headcount(*s) + 1 + waiting > s->max) { reply(fail("That server is full.")); c.closing = true; return; }
         c.mode = Client::Mode::PendingJoin;
         c.account = me->id;
         c.session = s->id;
@@ -249,7 +295,7 @@ void GbServer::dropClients(long long now) {
     for (auto& up : m_clients) {
         Client* c = up.get();
         long long quiet = now - c->lastActive;
-        bool idle = c->mode == Client::Mode::HostControl ? quiet > kHostSilence
+        bool idle = c->mode == Client::Mode::HostControl || c->mode == Client::Mode::Pool ? quiet > kHostSilence
                   : c->mode == Client::Mode::Pipe        ? quiet > kPipeSilence
                   : c->mode == Client::Mode::PendingJoin ? false
                   : quiet > 120 && c->conn->pendingBytes() == 0;
@@ -283,6 +329,7 @@ void GbServer::dropClients(long long now) {
     }
     for (auto& [id, s] : m_sessions)
         for (Client* c : dead) s.players.erase(c);
+    for (Client* c : dead) m_pools.erase(c);
     m_clients.erase(std::remove_if(m_clients.begin(), m_clients.end(),
                                    [&](const std::unique_ptr<Client>& c) { return dead.count(c.get()) > 0; }),
                     m_clients.end());

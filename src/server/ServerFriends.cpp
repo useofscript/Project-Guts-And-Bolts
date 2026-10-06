@@ -26,7 +26,7 @@ nlohmann::json GbServer::presence(const User& viewer, const User& u) const {
     if (const Session* s = sessionOf(u.id)) {
         auto g = findAsset(s->game);
         r["playing"] = {{"game", s->game}, {"title", !s->title.empty() ? s->title : g != m_assets.end() ? g->second.name : std::string("a game")},
-                        {"private", s->priv}, {"full", (int)s->players.size() + 1 >= s->max},
+                        {"private", s->priv}, {"full", headcount(*s) >= s->max},
                         {"session", allows(u.privacyJoin) ? json(s->id) : json(nullptr)}};
     }
     return r;

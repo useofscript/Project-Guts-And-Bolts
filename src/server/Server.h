@@ -99,7 +99,7 @@ private:
     // A connection to the server. Most just send requests; the relay turns some
     // into a host's control line or into one end of a pipe between a player and a host.
     struct Client {
-        enum class Mode { Request, HostControl, PendingJoin, Pipe };
+        enum class Mode { Request, HostControl, PendingJoin, Pipe, Pool };   // Pool: a game server machine
         std::unique_ptr<Net::Connection> conn;
         Mode        mode = Mode::Request;
         long long   lastActive = 0, since = 0;
@@ -114,6 +114,7 @@ private:
         bool        priv = false;
         int         max = 12;
         long long   created = 0;
+        bool        dedicated = false;   // run by a game server machine: nobody plays on it, so it stays when anyone leaves
         Client*     control = nullptr;
         std::set<Client*> players;               // the player end of each pipe
     };
@@ -200,6 +201,11 @@ private:
         long long   heirSince = 0, until = 0;
     };
     std::map<std::string, Moved> m_moved;   // old session id ->
+    // Game server machines (GutsAndBoltsGameServer), by their control line.
+    struct Pool { std::string account; int slots = 4; std::map<std::string, long long> starting; };   // game -> when asked
+    std::map<Client*, Pool> m_pools;
+    bool startOnPool(const Asset& game);
+    int  headcount(const Session& s) const { return (int)s.players.size() + (s.dedicated ? 0 : 1); }
     long long m_nextUserId = 2;                      // 1 is Guts (the staff account)
     std::set<std::string> m_takenNames;              // every username ever used (lower case)
     std::map<std::string, std::vector<long long>> m_failedLogins;   // username -> times of wrong passwords

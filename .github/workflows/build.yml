@@ -78,7 +78,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p GutsAndBolts-Linux
-          cp build/GutsAndBolts build/GutsAndBoltsPlayer GutsAndBolts-Linux/
+          cp build/GutsAndBolts build/GutsAndBoltsPlayer build/GutsAndBoltsGameServer GutsAndBolts-Linux/
           cp -r games catalog GutsAndBolts-Linux/
           tar czf GutsAndBolts-Linux.tar.gz GutsAndBolts-Linux
       - uses: actions/upload-artifact@v4
@@ -130,7 +130,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p GutsAndBolts-macOS
-          cp build/GutsAndBolts build/GutsAndBoltsPlayer GutsAndBolts-macOS/
+          cp build/GutsAndBolts build/GutsAndBoltsPlayer build/GutsAndBoltsGameServer GutsAndBolts-macOS/
           cp -r games catalog GutsAndBolts-macOS/
           zip -r GutsAndBolts-macOS.zip GutsAndBolts-macOS
       - uses: actions/upload-artifact@v4

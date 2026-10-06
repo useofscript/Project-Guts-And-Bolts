@@ -550,6 +550,7 @@ void PlayerApp::sendChat(const std::string& text) {
 }
 
 void PlayerApp::leaveGame() {
+    m_waitKey.clear();   // (stop waiting for a game server machine)
     m_server.reset();
     m_client.reset();
     m_session->stop();
@@ -589,6 +590,11 @@ void PlayerApp::fetchAvatarParts() {
 
 void PlayerApp::frame(float dt) {
     Online::update();   // replies from the Guts&Bolts server
+    if (!m_waitKey.empty() && ImGui::GetTime() >= m_waitAt) {   // a game server machine was starting it: ask again
+        const std::string key = std::move(m_waitKey), title = std::move(m_waitTitle);
+        m_waitKey.clear();
+        playGame(key, title, std::move(m_waitStart), m_waitTries);
+    }
     fetchAvatarParts();
     if (m_autoServers && Online::online()) {
         m_autoServers = false;

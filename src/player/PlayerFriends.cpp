@@ -92,16 +92,25 @@ void PlayerApp::giveGear(const std::string& gameKey) {
     }
 }
 
-void PlayerApp::playGame(const std::string& key, const std::string& title, Starter start) {
+void PlayerApp::playGame(const std::string& key, const std::string& title, Starter start, int tries) {
     if (!Online::online()) { m_status = "You need to be connected to the Guts&Bolts server to play."; return; }
-    startLoadingScreen(key, title);
+    if (tries == 0) startLoadingScreen(key, title);
     m_busy = true;
-    m_playMsg = "Finding a server...";
-    Online::request("servers.play", {{"game", key}}, [this, title, start](const json& r) {
+    m_playMsg = tries == 0 ? "Finding a server..." : "Starting a server...";
+    // A game server machine may start the game for us (then we ask again in a moment).
+    // If it takes too long, we host it ourselves like before.
+    constexpr int kMostTries = 12;
+    Online::request("servers.play", {{"game", key}, {"dedicated", tries < kMostTries}}, [this, key, title, start, tries](const json& r) {
         m_busy = false;
         m_playMsg.clear();
         if (!r.value("ok", false)) { m_status = r.value("error", std::string("Couldn't find a server. Try again.")); return; }
         if (r.contains("join")) joinRelay(r["join"].get<std::string>(), "", title);
+        else if (r.contains("wait")) {
+            m_waitKey = key; m_waitTitle = title; m_waitStart = start; m_waitTries = tries + 1;
+            m_waitAt = ImGui::GetTime() + std::clamp(r.value("wait", 2.0), 0.5, 10.0);
+            m_busy = true;
+            m_playMsg = "Starting a server...";
+        }
         else start(HostMode::Public);   // nobody's playing: you're the first in a new public server
     }, 10);
 }

@@ -24,6 +24,9 @@ public:
     // Replace the whole mesh (for shapes that change every frame, like waves).
     void update(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices);
     int  indexCount() const { return m_indexCount; }
+    // No graphics at all (the game server program): meshes keep their size but
+    // nothing goes to a graphics card.
+    static inline bool headless = false;
 
 private:
     void upload(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices);

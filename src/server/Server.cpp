@@ -66,7 +66,7 @@ void GbServer::step(int waitMs) {
                 continue;
             }
             json req = json::parse(msg, nullptr, false);
-            if (c->mode == Client::Mode::HostControl) continue;   // pings keep it alive
+            if (c->mode == Client::Mode::HostControl || c->mode == Client::Mode::Pool) continue;   // pings keep it alive
             if (c->mode == Client::Mode::PendingJoin) continue;   // waiting for the host
             if (!req.is_object()) { c->conn->send(fail("That wasn't a proper request.").dump()); continue; }
             if (req.value("t", std::string()) == "accept") { relayAccept(*c, req.value("ticket", std::string())); continue; }

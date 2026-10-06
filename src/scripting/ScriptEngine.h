@@ -92,6 +92,8 @@ public:
 
     GuiState& gui() { return m_gui; }
     void setPlayerName(const std::string& n) { m_playerName = n; }
+    // A game server machine: nobody plays here, so there's no LocalPlayer (only people who join).
+    void setNoLocalPlayer(bool on) { m_noLocalPlayer = on; }
     const std::string& playerName() const { return m_playerName; }
 
     // Compile without running — used by the script editor for live error checks.
@@ -171,4 +173,5 @@ private:
     std::vector<std::unique_ptr<SceneNode>> m_detached;
     GuiState                                m_gui;
     std::string                             m_playerName = "Player";
+    bool                                    m_noLocalPlayer = false;
 };

@@ -30,6 +30,7 @@ void Mesh::release() {
 
 void Mesh::upload(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices) {
     m_indexCount = (int)indices.size();
+    if (headless) return;
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -56,7 +57,7 @@ void Mesh::upload(const std::vector<Vertex>& verts, const std::vector<uint32_t>&
 }
 
 void Mesh::update(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices) {
-    if (!m_vao) { upload(verts, indices); return; }
+    if (!m_vao) { upload(verts, indices); return; }   // (headless: upload just counts)
     m_indexCount = (int)indices.size();
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);

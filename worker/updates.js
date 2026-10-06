@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'night-shift', name: 'Night Shift', time: 1791305600, tag: 'Server',
+    summary: 'Games can run on a game server machine with nobody hosting, so nobody gets kicked when someone leaves.',
+    items: [
+      'New program: GutsAndBoltsGameServer. Leave it running on a computer that stays on and it runs games by itself',
+      'Press Play and, if no server has room, a free game server machine starts one for you. You join it a few seconds later',
+      'Nobody is the host on those servers, so the game keeps going whoever leaves',
+      'No screen or graphics card needed: it runs fine on a cheap Linux cloud server',
+      'Empty games close after a minute. If no machine is free, the first player hosts like before',
+      'Server cards show "Guts&Bolts" as the host for these servers',
+    ],
+  },
+  {
     id: 'pass-the-bat', name: 'Pass the Bat', time: 1791303800, tag: 'Engine',
     summary: 'People who join someone else\'s game can carry tools now, not just the host.',
     items: [

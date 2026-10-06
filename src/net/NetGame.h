@@ -88,6 +88,10 @@ public:
     bool relayReady() const { return !m_sessionId.empty(); }
     const std::string& relayCode() const { return m_code; }      // private servers: what friends type in
     const std::string& relayError() const { return m_relayError; }
+    // A game server machine (GutsAndBoltsGameServer): nobody plays here, so there's
+    // no host in the player list, and the game goes on whoever leaves.
+    void setDedicated(bool on) { m_dedicated = on; }
+    int  playerCount() const;                          // people who've joined (not counting the host)
     // The dev console's server side (F9) is only for the game's owner (their account ID).
     void setOwner(const std::string& accountId) { m_owner = accountId; }
     bool iAmOwner() const;
@@ -111,6 +115,7 @@ private:
 
     void sendDevLog();
     std::string m_owner;
+    bool        m_dedicated = false;
     std::set<std::string> m_guestAccounts;   // joiners the server told us have no account (can't chat)
     Scene*       m_scene;
     GameSession* m_session;

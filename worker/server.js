@@ -127,6 +127,9 @@ const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHos
 // When a host leaves, the players left behind get kMoveWait seconds to move to a new server
 // (one of them hosts it), and each would-be new host gets kHeirWait seconds to start it.
 const kMoveWait = 90, kHeirWait = 12;
+// Game server machines (GutsAndBoltsGameServer): how many games each runs at once, and how long
+// a player waits for one to start a game before hosting it themselves.
+const kPoolMost = 50, kPoolStartWait = 25;
 const kStaffName = 'Guts';
 const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
@@ -416,7 +419,9 @@ export class GbServerObject extends DurableObject {
     this.lastPost = new Map();
     // The relay (in memory: a restart closes every game, like the C++ server).
     this.conns = new Map();      // conn id -> { ws, mode, account, session, ticket, peer, since, lastActive, closing }
-    this.sessions = new Map();   // session id -> { id, game, title, host, code, priv, max, created, control, players:Set }
+    this.sessions = new Map();   // session id -> { id, game, title, host, code, priv, max, created, control, players:Set, dedicated }
+    // Game server machines: control connection id -> { account, slots, starting: Map(game -> when asked) }
+    this.pools = new Map();
     // Servers whose host left: old session id -> { game, title, priv, code, max, members:[accounts], heir, heirSince, newId, until }
     this.moved = new Map();
     this.sweepTimer = null;
@@ -586,7 +591,7 @@ export class GbServerObject extends DurableObject {
     const s = this.sessionOf(u.id);
     const g = s && this.assets.get(s.game);
     const playing = s ? { game: s.game, title: s.title || (g ? g.name : 'a game'), private: s.priv,
-      full: s.players.size + 1 >= s.max, session: this.allows(pv.join, viewer, u) ? s.id : null } : null;
+      full: this.headcount(s) >= s.max, session: this.allows(pv.join, viewer, u) ? s.id : null } : null;
     return { online: this.isOnline(u), playing };
   }
   // The player badges `u` has earned (PLAYER_BADGES), each { key, name, need }.
@@ -787,7 +792,7 @@ export class GbServerObject extends DurableObject {
   }
   playingIn(gameId) {   // people in the game's servers right now
     let n = 0;
-    for (const s of this.sessions.values()) if (s.game === gameId) n += s.players.size + 1;
+    for (const s of this.sessions.values()) if (s.game === gameId) n += this.headcount(s);
     return n;
   }
   // Can `me` see and play this game? (Other kinds of things are always visible.)
@@ -2249,21 +2254,24 @@ export class GbServerObject extends DurableObject {
   }
 
   // --- the relay (ServerRelay.cpp) ---
+  // People in a server: its players, plus the host when the host is a player (not a game server machine).
+  headcount(s) { return s.players.size + (s.dedicated ? 0 : 1); }
   sessionJson(s) {
     const h = this.users.get(s.host);
     // Who's in it (the first few, with their avatars), for the Roblox-style server cards.
-    const ids = [s.host];
+    const ids = s.dedicated ? [] : [s.host];
     for (const p of s.players) { const c = this.conns.get(p); if (c && c.account) ids.push(c.account); }
     const people = ids.slice(0, 5).map((id) => {
       const u = this.users.get(id);
       return { id, name: u ? u.name : '?', avatar: (u && u.avatar) || null };
     });
-    return { id: s.id, game: s.game, title: s.title, players: s.players.size + 1, max: s.max, private: s.priv,
-      hostName: h ? h.name : '?', hostVerified: !!h && this.isVerified(h), people };
+    return { id: s.id, game: s.game, title: s.title, players: this.headcount(s), max: s.max, private: s.priv,
+      hostName: s.dedicated ? 'Guts&Bolts' : h ? h.name : '?', hostVerified: s.dedicated || (!!h && this.isVerified(h)),
+      dedicated: !!s.dedicated, people };
   }
   sessionOf(userId) {
     for (const s of this.sessions.values()) {
-      if (s.host === userId) return s;
+      if (s.host === userId && !s.dedicated) return s;
       for (const p of s.players) { const c = this.conns.get(p); if (c && c.account === userId) return s; }
     }
     return null;
@@ -2312,10 +2320,14 @@ export class GbServerObject extends DurableObject {
     if (name === 'servers.play') {
       let best = null;
       for (const s of this.sessions.values()) {
-        if (s.priv || s.game !== game || s.host === me.id || s.players.size + 1 >= s.max) continue;
+        if (s.priv || s.game !== game || (s.host === me.id && !s.dedicated) || this.headcount(s) + 1 > s.max) continue;
         if (!best || s.players.size > best.players.size) best = s;
       }
-      return best ? okay({ join: best.id }) : okay({ host: true });
+      if (best) return okay({ join: best.id });
+      // Nobody's playing: a game server machine starts it if one is free, so the game
+      // keeps going whoever leaves. (Players ask again shortly: "wait".) Otherwise you host it.
+      if (asset && asset.kind === 'game' && args.dedicated !== false && this.startOnPool(asset)) return okay({ wait: 2 });
+      return okay({ host: true });
     }
     if (name === 'servers.list') {
       const list = [];
@@ -2333,6 +2345,26 @@ export class GbServerObject extends DurableObject {
     return fail('Unknown request.');
   }
 
+  // Ask a game server machine with room to start `asset` (true if one is, or already was asked).
+  startOnPool(asset) {
+    const t = now();
+    let pick = null, pickFree = 0;
+    for (const [cid, pool] of this.pools) {
+      for (const [g, when] of pool.starting) if (t - when > kPoolStartWait) pool.starting.delete(g);
+      if (pool.starting.has(asset.id)) return true;   // on its way
+      let running = 0;
+      for (const s of this.sessions.values()) if (s.dedicated && s.host === pool.account) running++;
+      const free = pool.slots - running - pool.starting.size;
+      if (free > pickFree && this.conns.has(cid)) { pick = cid; pickFree = free; }
+    }
+    if (!pick) return false;
+    const pool = this.pools.get(pick);
+    pool.starting.set(asset.id, t);
+    this.sendTo(this.conns.get(pick), { t: 'start', game: asset.id, title: asset.name,
+      max: clamp(asset.maxPlayers || kDefaultMax, 2, kMostPlayers) });
+    return true;
+  }
+
   sendTo(c, message) {
     try { c.ws.send(typeof message === 'string' ? message : JSON.stringify(message)); } catch { /* already gone */ }
   }
@@ -2345,15 +2377,30 @@ export class GbServerObject extends DurableObject {
     if (checked.bad) { reply(checked.bad); close(); return; }
     const { me, args, opName: op } = checked;
     const t = now();
+    if (op === 'relay.pool') {   // a game server machine says it's ready to run games (staff only)
+      if (!this.isStaff(me)) { reply(fail('Only Guts&Bolts staff can run game servers.')); close(); return; }
+      c.mode = 'pool'; c.account = me.id;
+      this.pools.set(c.id, { account: me.id, slots: clamp(Number.isInteger(args.slots) ? args.slots : 4, 1, kPoolMost), starting: new Map() });
+      reply(okay({ pool: true }));
+      this.scheduleSweep();
+      return;
+    }
     if (op === 'relay.host') {
+      // A game server machine starting a game it was asked to: nobody plays on it, so the game
+      // keeps going whoever leaves.
+      const dedicated = !!args.dedicated && this.isStaff(me);
       let hosting = 0;
-      for (const s of this.sessions.values()) if (s.host === me.id) hosting++;
-      if (hosting >= kHostedEach) { reply(fail('You\'re already running ' + kHostedEach + ' servers.')); close(); return; }
+      for (const s of this.sessions.values()) if (s.host === me.id && !s.dedicated) hosting++;
+      if (!dedicated && hosting >= kHostedEach) { reply(fail('You\'re already running ' + kHostedEach + ' servers.')); close(); return; }
       const s = { id: 's-' + randomHex(6), game: this.assets.resolve(cleanText(typeof args.game === 'string' ? args.game : '', 80)),
         title: cleanText(typeof args.title === 'string' ? args.title : '', 60) || 'A game', host: me.id, code: '',
         priv: !!args.private, created: t,
         max: clamp((this.assets.get(args.game) || {}).maxPlayers || (Number.isInteger(args.max) ? args.max : kDefaultMax), 2, kMostPlayers),
-        control: c.id, players: new Set() };
+        control: c.id, players: new Set(), dedicated };
+      if (dedicated) {
+        s.priv = false;
+        for (const pool of this.pools.values()) if (pool.account === me.id) pool.starting.delete(s.game);
+      }
       // Taking over a server whose host left: same game, name, privacy and code, so everyone can follow.
       const old = typeof args.continues === 'string' ? this.moved.get(args.continues) : null;
       if (old) {
@@ -2394,7 +2441,7 @@ export class GbServerObject extends DurableObject {
         following = true;
       }
       if (!s) { reply(fail('That server has closed.')); close(); return; }
-      if (s.host === me.id) { reply(fail('That\'s your own server.')); close(); return; }
+      if (s.host === me.id && !s.dedicated) { reply(fail('That\'s your own server.')); close(); return; }
       if (s.priv && !code && !following && !me.friends.includes(s.host)) {
         reply(fail('That\'s a private server. You need to be the host\'s friend, or have its code.'));
         close();
@@ -2402,7 +2449,7 @@ export class GbServerObject extends DurableObject {
       }
       let waiting = 0;
       for (const o of this.conns.values()) if (o.mode === 'pending' && o.session === s.id) waiting++;
-      if (s.players.size + 1 + waiting >= s.max) { reply(fail('That server is full.')); close(); return; }
+      if (this.headcount(s) + 1 + waiting > s.max) { reply(fail('That server is full.')); close(); return; }
       c.mode = 'pending'; c.account = me.id; c.session = s.id; c.ticket = randomHex(16); c.since = t;
       const host = this.conns.get(s.control);
       if (host) this.sendTo(host, { t: 'incoming', ticket: c.ticket, account: me.id, name: me.name, guest: me.userId === 0 });
@@ -2451,6 +2498,7 @@ export class GbServerObject extends DurableObject {
     }
     for (const s of this.sessions.values()) for (const d of dead) s.players.delete(d);
     for (const d of dead) {
+      this.pools.delete(d);
       const c = this.conns.get(d);
       if (!c) continue;
       this.conns.delete(d);
@@ -2476,7 +2524,7 @@ export class GbServerObject extends DurableObject {
         continue;
       }
       const quiet = t - c.lastActive;
-      if ((c.mode === 'host' && quiet > kHostSilence) || (c.mode === 'pipe' && quiet > kPipeSilence) ||
+      if (((c.mode === 'host' || c.mode === 'pool') && quiet > kHostSilence) || (c.mode === 'pipe' && quiet > kPipeSilence) ||
           (c.mode === 'request' && quiet > 120)) this.drop(c.id);
     }
     this.scheduleSweep();
@@ -2489,7 +2537,7 @@ export class GbServerObject extends DurableObject {
       if (peer) { peer.lastActive = c.lastActive; try { peer.ws.send(data); } catch { this.drop(c.id); } }
       return;
     }
-    if (c.mode === 'host' || c.mode === 'pending') return;   // pings keep it alive
+    if (c.mode === 'host' || c.mode === 'pending' || c.mode === 'pool') return;   // pings keep it alive
     const text = typeof data === 'string' ? data : new TextDecoder().decode(new Uint8Array(data));
     let req;
     try { req = JSON.parse(text); } catch { req = null; }

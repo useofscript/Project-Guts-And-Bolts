@@ -499,6 +499,13 @@ add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
 target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
 
 # ---------------------------------------------------------------------------
+# GutsAndBoltsGameServer — runs online games by itself (no window, nobody playing
+# on it), so a game keeps going whoever leaves. See src/gameserver/main.cpp.
+# ---------------------------------------------------------------------------
+add_executable(GutsAndBoltsGameServer src/gameserver/main.cpp)
+target_link_libraries(GutsAndBoltsGameServer PRIVATE gb_engine)
+
+# ---------------------------------------------------------------------------
 # GutsAndBoltsServer — keeps accounts, Bolts, badges and uploads (no graphics)
 # ---------------------------------------------------------------------------
 add_executable(GutsAndBoltsServer ${GB_SERVER_SOURCES})

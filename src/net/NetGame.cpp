@@ -426,10 +426,17 @@ std::vector<std::pair<std::string, std::string>> statsFrom(const json& j) {
 std::vector<PlayerEntry> NetServer::players() const {
     std::vector<PlayerEntry> out;
     ScriptEngine& s = m_session->scripts();
-    out.push_back({Online::playerName() + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
-                   s.leaderstats(Online::playerName())});
+    if (!m_dedicated)
+        out.push_back({Online::playerName() + " (host)", Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
+                       s.leaderstats(Online::playerName())});
     for (auto& c : m_clients) if (c->joined) out.push_back({c->name, c->admin, c->verified, s.leaderstats(c->name)});
     return out;
+}
+
+int NetServer::playerCount() const {
+    int n = 0;
+    for (auto& c : m_clients) if (c->joined) ++n;
+    return n;
 }
 
 void NetServer::broadcast(const std::string& msg, const Client* except) {
@@ -603,7 +610,7 @@ void NetServer::handle(Client& c, const std::string& text) {
         if (Account::nameIsReserved(base) && !c.admin) base = "Player";   // only the real Guts is Guts
         std::string name = base;
         auto taken = [&](const std::string& n) {
-            if (n == Online::playerName()) return true;
+            if (!m_dedicated && n == Online::playerName()) return true;
             for (auto& o : m_clients) if (o.get() != &c && o->joined && o->name == n) return true;
             return false;
         };
@@ -665,7 +672,10 @@ void NetServer::handle(Client& c, const std::string& text) {
         // Prove who *we* are too, by signing the joiner's challenge.
         json proof = {{"id", Account::id()}, {"sig", Account::sign("gb-host:" + m.value("cnonce", std::string()))},
                       {"grants", myGrants()}};
+        Player* hostPlayer = m_scene->player();
+        const uint64_t hostChar = hostPlayer && hostPlayer->root() ? hostPlayer->rootId() : 0;   // 0: a game server machine (nobody)
         c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name}, {"host", proof},
+                          {"hostChar", hostChar},
                           {"scene", Serializer::saveScene(*m_scene)},
                           {"humanoid", humanoidJson(rc.humanoid)}, {"players", players}}.dump());
         // Everyone already in the scene snapshot counts as known.
@@ -746,7 +756,7 @@ void NetServer::handle(Client& c, const std::string& text) {
             };
             if (to.empty() || said.empty()) { tell(ChatLog::kWhisperHelp); return; }
             json w{{"t", "chat"}, {"from", c.name}, {"text", said}, {"wh", true}, {"adm", c.admin}, {"ver", c.verified}};
-            if (sameName(to, Online::playerName())) {          // to the host
+            if (!m_dedicated && sameName(to, Online::playerName())) {   // to the host
                 w["to"] = Online::playerName();
                 m_chat.addWhisper(c.name, Online::playerName(), said, c.admin, c.verified);
             } else if (Client* target = findClient(to); target && target != &c) {
@@ -1061,6 +1071,12 @@ void NetClient::handle(const std::string& text) {
         // The host's character is just another model here; build our own.
         Player* p = m_scene->player();
         uint64_t hostRoot = p ? p->rootId() : 0;
+        if (m.contains("hostChar")) {   // (older hosts don't say: their character is the scene's player)
+            const uint64_t said = m.value("hostChar", (uint64_t)0);
+            if (said != hostRoot)   // a game server machine: nobody to show (drop the stand-in the loader made)
+                if (SceneNode* extra = hostRoot ? m_scene->findById(hostRoot) : nullptr) m_scene->removeNode(extra);
+            hostRoot = said;
+        }
         if (p) {
             p->setRootId(0);
             p->setSpawn(spawnPoint(*m_scene));

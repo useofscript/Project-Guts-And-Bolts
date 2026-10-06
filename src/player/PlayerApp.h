@@ -220,7 +220,12 @@ private:
     void drawFriends();
     void refreshFriends();
     void friendButton(const std::string& accountId, const std::string& status);   // Add / Accept / Friends
-    void playGame(const std::string& gameKey, const std::string& title, Starter start);   // Play: a public server
+    // Play: a public server. `tries`: asking again while a game server machine starts one.
+    void playGame(const std::string& gameKey, const std::string& title, Starter start, int tries = 0);
+    std::string    m_waitKey, m_waitTitle;   // a game server machine is starting this game: ask again at m_waitAt
+    Starter        m_waitStart;
+    double         m_waitAt = 0.0;
+    int            m_waitTries = 0;
     void openServers(const std::string& gameKey, const std::string& title, Starter start);
     void drawServersDialog();
     void joinRelay(const std::string& session, const std::string& code, const std::string& title);
