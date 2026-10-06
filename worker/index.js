@@ -67,6 +67,10 @@ async function ask(address, text) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // The site lives at gutsandbolts.net. The old workers.dev address only keeps answering
+    // older apps (the server and its pictures); people opening it in a browser get moved.
+    if (url.hostname.endsWith('.workers.dev') && !/^\/(api|ws|thumb|icon|wear|decal)(\/|$)/.test(url.pathname))
+      return Response.redirect('https://gutsandbolts.net' + url.pathname + url.search, 301);
     if (url.pathname === '/api/info') {
       return reply({ ok: true, server: env.GB_SERVER || 'cloudflare', time: Math.floor(Date.now() / 1000) });
     }

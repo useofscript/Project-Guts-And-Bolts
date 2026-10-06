@@ -1427,6 +1427,7 @@ void Editor::renderMenuBar() {
         if (ImGui::MenuItem("Publish to Guts&Bolts...")) m_openPublish = true;
         if (ImGui::MenuItem("Publish Selection to Library...", nullptr, false, m_scene->selected() != nullptr)) m_openPublishModel = true;
         if (Online::staff() && ImGui::MenuItem("Make Gear...")) m_openMakeGear = true;   // staff: Tools sold in the catalog
+        if (ImGui::MenuItem("Upload Missing Item Pictures", nullptr, false, Online::online())) fixItemPictures();
         if (ImGui::MenuItem("Guts&Bolts Server...")) m_openServer = true;
         if (ImGui::MenuItem("Library (plugins, audio)")) m_showPluginLibrary = true;
         ImGui::Separator();

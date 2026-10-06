@@ -10,12 +10,21 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'paint-job', name: 'Paint Job', time: 1791244800, tag: 'Studio',
+    summary: 'Hats imported from Roblox files show their pictures for everyone, on the website too.',
+    items: [
+      'Some hats still used a picture that only lived on the computer that made them, so the website (and everyone else) saw them plain white',
+      'Studio: File > Upload Missing Item Pictures finds your hats and gear like that, uploads their pictures and fixes them in one go',
+      'New hats and gear upload their pictures by themselves when you publish them',
+    ],
+  },
+  {
     id: 'new-address', name: 'Moving Day', time: 1791241500, tag: 'Website',
     summary: 'Guts&Bolts has its own address now: gutsandbolts.net.',
     items: [
       'The website lives at gutsandbolts.net (www.gutsandbolts.net works too)',
       'The Player and Studio connect to gutsandbolts.net from the next update on',
-      'The old address keeps working, so nobody gets cut off while they update',
+      'The old address keeps working for the apps, so nobody gets cut off while they update. Opening it in a browser takes you to gutsandbolts.net',
     ],
   },
   {

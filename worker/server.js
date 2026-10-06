@@ -1452,7 +1452,14 @@ export class GbServerObject extends DurableObject {
       if (data.length > maxSize(a.kind)) return fail('That\'s too big.');
       if (a.kind === 'game' && !isJson(data)) return fail('That isn\'t a Guts&Bolts game file.');
       if (a.kind === 'gear') { const problem = gearProblem(data); if (problem) return fail(problem); }
-      if (!isClothing(a.kind)) this.writeFile(a.id, data);
+      // A 3D accessory made in Studio: a new version of its model (e.g. with its pictures uploaded).
+      const model = isAccessory(a.kind) && a.meta && a.meta.model && data.length;
+      if (model) {
+        let acc = null;
+        try { acc = JSON.parse(new TextDecoder().decode(data)); } catch { acc = null; }
+        if (!acc || acc.format !== 'gbaccessory' || !acc.node) return fail('That isn\'t a Guts&Bolts accessory.');
+      }
+      if (!isClothing(a.kind) || model) this.writeFile(a.id, data);
       const title = cleanText(str(args, 'name'), 50);
       if (title) a.name = title;
       if ('description' in args) a.description = cleanText(str(args, 'description'), 1000, true);
