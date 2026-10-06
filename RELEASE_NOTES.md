@@ -1,3 +1,27 @@
+# Guts&Bolts 0.6.8: Old Faithful (October 6, 2026)
+
+## New
+- **Classic BodyMovers are back**: BodyVelocity, BodyPosition, BodyGyro,
+  BodyAngularVelocity, BodyThrust and BodyForce, next to the newer movers
+  (LinearVelocity, AlignPosition, AlignOrientation, AngularVelocity,
+  VectorForce, Torque). They push whole welded builds and work on characters
+  too, so old vehicles and flying scripts keep their handling. Roblox files
+  bring them in with the right speeds and forces. New `part:GetMass()`.
+- **Sit anywhere**: `Humanoid.Sit = true` or `/e sit` sits you down where you
+  stand. Jump to get up.
+- **Game UI**: UIShadow (soft drop shadows), UIBlur (frosted glass over the
+  world) and UICorner corners rounded one at a time (TopLeft, TopRight,
+  BottomRight, BottomLeft).
+- **Orthographic camera** for 2D, isometric and puzzle games
+  (`workspace.Orthographic`, or the Player tab in Studio). Studio's view can go
+  orthographic too: the Ortho button or numpad 5.
+- **Water pushes things**: flat sides push hard, edges hardly at all, so a
+  river turns the new Water Wheel. Water parts have a Drag setting.
+- **Game passes**: buy them on game pages or inside games
+  (`MarketplaceService:PromptGamePassPurchase`, `UserOwnsGamePassAsync`).
+- **Studio right-click menu** in the Explorer and the 3D view: cut, copy,
+  paste, group, union, select, zoom to, anchor, lock, export, publish.
+
 # Guts&Bolts 0.6.7: Window Shopping (October 6, 2026)
 
 ## New
