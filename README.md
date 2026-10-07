@@ -231,11 +231,14 @@ what it needs, what it gives back and how risky it is):
 - Scene: `get_game_tree`, `find_objects`, `insert_object`, `delete_object`
 - Objects: `get_object`, `set_property`, `select`
 - Scripting: `create_script`, `read_script`, `edit_script`, `run_lua`
-- Runtime: `playtest`
+- Runtime: `playtest` (start, simulate, stop, pause, resume, step), `get_runtime_state`
+- Physics and navigation: `create_physical_object`, `spawn_explosion`,
+  `bake_navmesh`, `find_path`, `walk_character_to`
 - Docs: `get_engine_info` (overview, capabilities, concepts, coordinates,
   workflows, classes)
 - Debug: `get_output`, `get_errors`, `diagnose_object`, `validate_scene`
-- View and history: `screenshot`, `undo`
+- View and history: `screenshot`, `undo`, `redo`, `checkpoint` (named save
+  points to try things and roll back)
 
 Every tool answers with JSON: `success`, the `object_id` (`#42`) of what it
 touched, the state read back from the engine, `warnings`, and for failures an
@@ -250,8 +253,10 @@ MCP apps can also read the engine reference as resources: `gutsbolts://guide`,
 `gutsbolts://overview`, `gutsbolts://capabilities` (a JSON manifest of what the
 tools can and can't do), `gutsbolts://concepts`, `gutsbolts://coordinates`
 (Y up, -Z forward, units, rotations), `gutsbolts://workflows`,
-`gutsbolts://classes`, and live ones: `gutsbolts://scene/tree` and
-`gutsbolts://errors`. Objects are best named by id (`#42`); a path like
+`gutsbolts://examples`, `gutsbolts://classes`, and live ones:
+`gutsbolts://scene/tree`, `gutsbolts://runtime` and `gutsbolts://errors`.
+MCP prompts (`make_physical`, `navigate_enemies`, `explosion_push`,
+`fix_not_working`, `describe_scene`) start common jobs with the right workflow. Objects are best named by id (`#42`); a path like
 `Workspace.Twin` is refused with `AMBIGUOUS_NAME` and a list of candidates when
 two objects share that name.
 

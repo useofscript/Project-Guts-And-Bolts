@@ -91,12 +91,12 @@ const std::vector<Tool>& tools() {
           "(coordinates); before promising a feature (capabilities); when unsure which class to insert (classes) "
           "or which tools to chain (workflows).",
           "To see the person's actual game use get_game_tree / get_object: this tool describes the engine, not the game.",
-          "topic (required: overview, capabilities, concepts, coordinates, workflows, classes or all).",
+          "topic (required: overview, capabilities, concepts, coordinates, workflows, examples, classes or all).",
           "{topic, text} (capabilities also has `manifest`, classes also has `classes`).",
           "None.", "Nothing changes.",
           "get_engine_info -> get_game_tree -> plan -> act.",
           "\"Can Guts and Bolts do ragdolls?\" \"Which way is up?\" \"What can I insert?\""},
-         schema({{"topic", {{"type", "string"}, {"enum", {"overview", "capabilities", "concepts", "coordinates", "workflows", "classes", "all"}}}}}, {"topic"})},
+         schema({{"topic", {{"type", "string"}, {"enum", {"overview", "capabilities", "concepts", "coordinates", "workflows", "examples", "classes", "all"}}}}}, {"topic"})},
 
         // ---------------------------------------------------------------- SCENE
         {"get_game_tree", "Show the game's object tree", "SCENE", true, false, true, Risk::None,
@@ -255,18 +255,19 @@ const std::vector<Tool>& tools() {
 
         // -------------------------------------------------------------- RUNTIME
         {"playtest", "Start or stop a playtest", "RUNTIME", false, false, true, Risk::Medium,
-         {"Starts or stops playtesting (Studio's Play / Stop). While playing, scripts run, physics simulates "
-          "(unanchored parts fall, explosions push) and a character walks around. Stopping puts the whole game back "
-          "exactly how it was before Play.",
+         {"Starts or stops playtesting (Studio's Play / Run / Stop), or pauses it. While playing, scripts run, physics "
+          "simulates (unanchored parts fall, explosions push) and a character walks around. Stopping puts the whole "
+          "game back exactly how it was before Play.",
           "\"Test it\", \"run the game\", \"try it out\", \"play\", \"does it work?\", to see scripts or physics in action, "
           "and \"stop\" when you have seen enough.",
           "Don't keep a playtest running while you build: changes made during a playtest are lost when it stops.",
-          "action (required: start or stop).",
-          "{playing: true/false}.",
+          "action (required): start (Play, with your character), simulate (Run: physics and scripts, no character), "
+          "stop, pause (freeze physics and scripts), resume, step (move on one frame while paused).",
+          "{playing, mode, paused}.",
           "None.", "start: the game is running. stop: the saved game is back exactly as before Play.",
           "playtest start -> get_output / get_errors / screenshot / get_object (runtime) -> playtest stop -> fix -> repeat.",
           "\"Play the game and tell me if the door works.\""},
-         schema({{"action", {{"type", "string"}, {"enum", {"start", "stop"}}}}}, {"action"})},
+         schema({{"action", {{"type", "string"}, {"enum", {"start", "simulate", "stop", "pause", "resume", "step"}}}}}, {"action"})},
 
         // ---------------------------------------------------------------- DEBUG
         {"get_output", "Read the Output window", "DEBUG", true, false, true, Risk::None,
@@ -308,6 +309,129 @@ const std::vector<Tool>& tools() {
           "None.", "Nothing changes.", "validate_scene -> fix -> validate_scene.", "\"Is my game ready to publish?\""},
          schema({{"include_info", {{"type", "boolean"}}}, {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 1000}}}}, {})},
 
+        // ------------------------------------------------------------- COMPOUND
+        {"create_physical_object", "Create a physics object in one step", "PHYSICS", false, false, false, Risk::Low,
+         {"Creates a part that physics moves (unanchored by default), places, sizes, colours it and sets its "
+          "material and physical properties in ONE call, then checks it with diagnose_object. Saves chaining "
+          "insert_object + several set_property calls.",
+          "\"Add a crate/ball/barrel that falls\", \"drop a ball from up there\", \"spawn a physics box\", "
+          "\"make a bouncy ball\" (elasticity), \"a heavy block\" (density), stacks of things to knock over.",
+          "For something that should NOT move (floors, walls, platforms) use anchored: true, or insert_object. To make an "
+          "EXISTING part physical use set_property Anchored false instead.",
+          "shape (Part = box, Sphere, Cylinder; default Part); position [x,y,z] (its centre; default near the camera); "
+          "size [x,y,z] (default 2x2x2); color [r,g,b] 0-1; material (Plastic, Metal, Neon, Wood, Glass, Concrete, Ice); "
+          "name; parent (object); anchored (default false); can_collide (default true); density (mass per volume, "
+          "default from material); friction (0-2); elasticity (bounciness 0-1).",
+          "{object_id, resulting_state, findings (from diagnose_object), warnings}.",
+          "parent, if given, exists. Positions in units (Y up).",
+          "The part exists with those settings (one undo step each). It only falls / bounces during a playtest.",
+          "get_game_tree -> create_physical_object -> playtest start -> get_object (runtime) -> playtest stop.",
+          "\"Put a red bouncy ball 10 units above the spawn.\" \"Stack 3 wooden crates.\""},
+         schema({{"shape", {{"type", "string"}, {"enum", {"Part", "Sphere", "Cylinder"}}}},
+                 {"position", {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}}},
+                 {"size", {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}}},
+                 {"color", {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}}},
+                 {"material", {{"type", "string"}}}, {"name", {{"type", "string"}}}, {"parent", kObject},
+                 {"anchored", {{"type", "boolean"}}}, {"can_collide", {{"type", "boolean"}}},
+                 {"density", {{"type", "number"}}}, {"friction", {{"type", "number"}}}, {"elasticity", {{"type", "number"}}}}, {})},
+        {"spawn_explosion", "Set off an explosion now", "PHYSICS", false, false, false, Risk::Medium,
+         {"Sets off the engine's own explosion at a point in the RUNNING game: a shockwave that pushes unanchored parts, "
+          "hurts characters and breaks joints, with fire and smoke (optional craters). Returns every part it reached.",
+          "\"Blow it up\", \"test the explosion\", \"does the barrel get pushed?\", \"make an explosion here\" (to try it now).",
+          "To make explosions part of the game (a bomb, a landmine), write a script using Instance.new(\"Explosion\") or "
+          "insert a ready-made \"Exploding Barrel\" / \"Landmine\". Never fake an explosion by moving parts by hand.",
+          "position [x,y,z] (required); radius (default 8 units); power (1 = normal, 2 = twice as hard); destroy (rip "
+          "anchored parts loose near the middle: craters, default false); fire (seconds of fire left burning, default 0); "
+          "visible (default true; false = just the push); hurts (hurts characters, default true).",
+          "{hits: [{object_id, name, distance}], hit_count}.",
+          "A playtest is running (playtest start). Only UNANCHORED parts get pushed.",
+          "The blast has happened in the running game (it's thrown away when the playtest stops).",
+          "set_property Anchored false on targets -> playtest start -> spawn_explosion -> get_object (velocity) / screenshot -> playtest stop.",
+          "\"Set off an explosion next to the crates and tell me what moved.\""},
+         schema({{"position", {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}}},
+                 {"radius", {{"type", "number"}, {"minimum", 0.5}, {"maximum", 500}}}, {"power", {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}},
+                 {"destroy", {{"type", "boolean"}}}, {"fire", {{"type", "number"}}}, {"visible", {{"type", "boolean"}}},
+                 {"hurts", {{"type", "boolean"}}}}, {"position"})},
+
+        // ----------------------------------------------------------- NAVIGATION
+        {"bake_navmesh", "Bake the navigation mesh", "NAVIGATION", false, false, true, Risk::Medium,
+         {"Rebuilds the navigation mesh (where characters can walk: every floor of anchored, solid parts, plus jump "
+          "and drop links) from the game as it is now, and reports how big it is. Optionally shows it in Studio's 3D view.",
+          "\"Bake the navmesh\", \"bake/rebuild/regenerate navigation\", \"update the pathfinding mesh\", after moving "
+          "floors or walls, before testing paths.",
+          "To ask for ONE route between two points use find_path (it bakes by itself when needed). Games rebake "
+          "automatically while running, so scripts don't need this.",
+          "show (optional, draw it in Studio's 3D view: green floors, jump links; default false).",
+          "{spans: walkable floor cells, bake_ms, baked: true, settings: {cell, max_climb, max_slope, jump_height, jump_gap, max_drop}}.",
+          "None (works in the editor and during playtests).",
+          "The navmesh is fresh. The saved game doesn't change.",
+          "build floors -> bake_navmesh -> find_path -> (script) humanoid:PathfindTo / walk_character_to.",
+          "\"Rebuild navigation so enemies can walk around the new walls.\""},
+         schema({{"show", {{"type", "boolean"}}}}, {})},
+        {"find_path", "Find a walking route", "NAVIGATION", true, false, true, Risk::None,
+         {"Asks the navigation mesh for a walking route between two points (or objects) and returns its status and "
+          "waypoints, with which ones need a jump. Tests whether characters CAN get somewhere.",
+          "\"Can enemies reach the tower?\", \"is there a path from A to B\", \"test pathfinding\", checking a level is "
+          "walkable after building it.",
+          "To actually make a character walk, use walk_character_to (playtest) or a script with humanoid:PathfindTo. "
+          "To rebuild the whole mesh use bake_navmesh.",
+          "from, to (required: [x,y,z] feet positions or objects); agent_radius (default 0.6); agent_height (default 2.7); "
+          "can_jump (default true).",
+          "{status: Success | ClosestNoPath | NoPath | FailStartNotEmpty | FailFinishNotEmpty, waypoints: [{position, "
+          "action: Walk|Jump}], length}.",
+          "The points are on or near floors made of anchored, solid parts.", "Nothing changes.",
+          "bake_navmesh -> find_path -> fix the level if NoPath -> find_path again.",
+          "\"Check the zombies can reach the spawn.\""},
+         schema({{"from", {{"description", "[x, y, z] or an object"}}}, {"to", {{"description", "[x, y, z] or an object"}}},
+                 {"agent_radius", {{"type", "number"}}}, {"agent_height", {{"type", "number"}}}, {"can_jump", {{"type", "boolean"}}}},
+                {"from", "to"})},
+        {"walk_character_to", "Make a character walk somewhere", "NAVIGATION", false, false, false, Risk::Low,
+         {"During a playtest, makes a Humanoid character (an NPC like a Zombie or Rig) walk to a point or object by itself "
+          "using the engine's pathfinding (jumping, going around walls, re-planning when blocked), like humanoid:PathfindTo.",
+          "\"Make the zombie walk to the door\", \"test that the guard can reach X\", \"move the NPC over there\".",
+          "For permanent behaviour (enemies that always chase) write a Script that calls humanoid:PathfindTo. Don't "
+          "teleport characters or write your own path-following code.",
+          "character (required, the character Model); to (required, [x,y,z] or an object).",
+          "{started: true/false, status: Walking | Arrived | ...}. Check later with get_object on the character (position).",
+          "A playtest is running and the character is a Model with a Humanoid (HumanoidRootPart, Torso, Head).",
+          "The character is walking (runtime only).",
+          "playtest start -> walk_character_to -> get_runtime_state / get_object -> playtest stop.",
+          "\"Send the zombie to the tower and see if it gets there.\""},
+         schema({{"character", kObject}, {"to", {{"description", "[x, y, z] or an object"}}}}, {"character", "to"})},
+        {"get_runtime_state", "See the running game's state", "RUNTIME", true, false, true, Risk::None,
+         {"A summary of what's happening right now: whether a playtest is running (and paused), frame rate and frame "
+          "time, the player's character (position, health, speed), parts that are moving, characters (NPCs) and where "
+          "they are walking, the navmesh, and recent errors.",
+          "\"Is the game running?\", \"why is it laggy?\" (fps), \"what's moving?\", \"did the zombie get there?\", "
+          "checking the result of a playtest action.",
+          "For one object's details use get_object (it also shows velocity while playing).",
+          "moving_limit (optional, most moving parts to list, default 20).",
+          "{playing, mode, paused, fps, frame_ms, player?, moving_parts, moving_count, characters, navmesh, recent_errors}.",
+          "None.", "Nothing changes.",
+          "playtest start -> (act) -> get_runtime_state -> playtest stop.", "\"What's happening in the game right now?\""},
+         schema({{"moving_limit", {{"type", "integer"}, {"minimum", 0}, {"maximum", 200}}}}, {})},
+
+        // -------------------------------------------------------------- HISTORY
+        {"checkpoint", "Save or restore a save point", "HISTORY", false, true, false, Risk::Medium,
+         {"Named save points of the whole game, for trying things safely (like a transaction): save one, experiment, "
+          "then keep the result or restore the save point. Restoring is itself undoable.",
+          "Before a risky or experimental change (\"try making the explosion bigger\"), before a big run_lua build, "
+          "\"put it back how it was before\".",
+          "For just the last change use undo. Checkpoints only last while Studio is open; they don't save the file.",
+          "action (required: save, restore, list or delete); name (save / restore / delete; default \"default\").",
+          "save: {name, objects}. restore: {name, restored: true}. list: {checkpoints: [names]}.",
+          "restore: not playtesting, and the checkpoint exists.",
+          "restore replaces the whole game with the save point (one undo step brings the current version back).",
+          "checkpoint save -> change -> playtest -> (bad) checkpoint restore / (good) checkpoint delete.",
+          "\"Try a few layouts for the arena and keep the best one.\""},
+         schema({{"action", {{"type", "string"}, {"enum", {"save", "restore", "list", "delete"}}}}, {"name", {{"type", "string"}}}}, {"action"})},
+        {"redo", "Redo what was undone", "HISTORY", false, false, false, Risk::Low,
+         {"Redoes the last change that undo took back (like Ctrl+Y).",
+          "\"Actually, put it back\" right after an undo.", "Anything else.",
+          "None.", "{redone: true, redo_steps_left}.", "Not playtesting; something was undone.",
+          "The game is one step forward again.", "undo -> redo.", "\"Redo that.\""},
+         schema(json::object(), {})},
+
         // ----------------------------------------------------------------- VIEW
         {"screenshot", "Take a picture of the 3D view", "VIEW", true, false, true, Risk::None,
          {"A picture of what Studio's 3D view shows right now (the editor camera, or the game camera while playtesting).",
@@ -322,10 +446,11 @@ const std::vector<Tool>& tools() {
          {"Undoes the last change to the game (like Ctrl+Z): a tool call, a script edit, a run_lua build...",
           "When a change you made was wrong or the person says \"undo that\" / \"put it back\".",
           "Doesn't work during a playtest (stop it first; stopping already throws away playtest changes).",
-          "None.", "{undone: true, undo_steps_left}.", "Not playtesting, and there is something to undo.",
+          "steps (optional, how many changes to undo, default 1).", "{undone: number of steps, undo_steps_left}.",
+          "Not playtesting, and there is something to undo.",
           "The game is back to how it was one step earlier.", "set_property -> (wrong) -> undo -> try again.",
           "\"Undo that.\""},
-         schema(json::object(), {})},
+         schema({{"steps", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}}}}, {})},
     };
     return all;
 }
@@ -352,6 +477,14 @@ json workflowOf(const std::string& name) {
         {"validate_scene", {{}, {"diagnose_object", "playtest"}}},
         {"screenshot", {{"set_property", "insert_object", "playtest"}, {}}},
         {"undo", {{}, {"get_object"}}},
+        {"redo", {{"undo"}, {}}},
+        {"create_physical_object", {{"get_game_tree"}, {"playtest", "get_object"}}},
+        {"spawn_explosion", {{"playtest"}, {"get_object", "get_runtime_state", "screenshot"}}},
+        {"bake_navmesh", {{"get_game_tree"}, {"find_path"}}},
+        {"find_path", {{"bake_navmesh"}, {"walk_character_to"}}},
+        {"walk_character_to", {{"playtest", "find_path"}, {"get_runtime_state", "get_object"}}},
+        {"get_runtime_state", {{"playtest"}, {"get_object", "playtest"}}},
+        {"checkpoint", {{}, {"playtest", "checkpoint"}}},
     };
     auto it = flows.find(name);
     if (it == flows.end()) return {{"before", json::array()}, {"after", json::array()}};
@@ -381,8 +514,12 @@ Your loop: UNDERSTAND the request -> INSPECT the game -> PLAN -> ACT with tools 
 - "Make a red ball" -> insert_object Sphere, then set_property Color / Position.
 - "Make it fall" / "add physics" / "make it react to forces" -> set_property Anchored = false (parts are anchored by default), check CanCollide is true, then playtest to see it.
 - "Why doesn't it move/work?" -> diagnose_object first, then fix, then check again.
-- "Make enemies walk to the player" -> the engine's PathfindingService / humanoid:PathfindTo in a Script, not hand-made movement code.
-- "Make an explosion" -> the engine's Explosion (Instance.new("Explosion")) in a script or run_lua during a playtest, not moving parts by hand.
+- "Add a crate that falls" -> create_physical_object (one call: shape, place, size, colour, physics).
+- "Make enemies walk to the player" -> the engine's PathfindingService / humanoid:PathfindTo in a Script, not hand-made movement code. To test now: playtest start, walk_character_to.
+- "Bake/rebuild the navmesh" -> bake_navmesh. "Can they get there?" -> find_path.
+- "Make an explosion" -> for the game: an Explosion in a script; to try it now: playtest start, spawn_explosion. Never move parts by hand.
+- "Is it running? Is it laggy? What's moving?" -> get_runtime_state.
+- "Try something risky" -> checkpoint save first; checkpoint restore if it goes wrong.
 - Many similar changes at once -> run_lua with a loop.
 - "Test it" -> playtest start, then get_errors / get_output / screenshot, then playtest stop.
 
@@ -406,6 +543,13 @@ When a tool fails, read error.code / message / suggested_action, fix the cause (
 
 ## Don't invent capabilities
 A request mentioning something doesn't mean Guts and Bolts has it. Only use the tools you were given and the engine API that exists. Don't make up tools, classes, properties, paths or features. If no tool can do something, say the current tools can't do it.
+
+## Examples
+- "Make this barrel physical." -> find_objects barrel -> get_object -> set_property Anchored false (CanCollide stays true) -> diagnose_object -> playtest start -> get_runtime_state / get_object -> playtest stop -> "The barrel now falls and gets pushed by explosions."
+- "Make the enemies navigate this level." -> get_game_tree -> bake_navmesh -> find_path from an enemy to the player spawn -> create_script with humanoid:PathfindTo -> playtest start -> get_errors -> playtest stop.
+- "Make this explosion push nearby objects." -> find the targets -> set_property Anchored false on them -> playtest start -> spawn_explosion at the spot -> check the hits and their velocity -> playtest stop.
+- "What is in the scene?" -> get_game_tree, and answer only from what it returned.
+More in get_engine_info topic "examples".
 
 ## Learn the engine
 get_engine_info (or the gutsbolts:// resources) explains what the engine can do (capabilities), its concepts, the coordinate system, common workflows and every class you can insert. Check capabilities before promising a feature.
@@ -459,9 +603,10 @@ Guts and Bolts is a game engine, not a file editor. These tools act on the real 
 What the tools give you:
 - Look: get_game_tree, find_objects, get_object, read_script, screenshot, get_output, get_errors.
 - Change: insert_object, set_property, delete_object, create_script, edit_script, run_lua (any Lua, like the Command Bar).
-- Run and check: playtest (scripts + physics run), diagnose_object, validate_scene.
-- Stay safe: undo (everything you change outside a playtest can be undone).
-- Learn: get_engine_info (this text, capabilities, concepts, coordinates, workflows, classes).
+- Run and check: playtest (play, simulate, pause, step), get_runtime_state, diagnose_object, validate_scene.
+- Physics and navigation: create_physical_object, spawn_explosion, bake_navmesh, find_path, walk_character_to.
+- Stay safe: undo / redo, and checkpoint (save points to try things and roll back).
+- Learn: get_engine_info (this text, capabilities, concepts, coordinates, workflows, examples, classes).
 
 Work in this loop: UNDERSTAND -> INSPECT -> PLAN -> ACT -> VALIDATE -> REPORT.)DOC";
 
@@ -502,7 +647,7 @@ COLLISION
 CanCollide decides whether things bump into a part. A character touching a part fires Touched even when its CanCollide is off (coins, checkpoints). Water parts and FluidVolumes are swum through.
 
 NAVIGATION
-The navigation mesh (every floor a character can stand on) is baked from the anchored, solid parts and rebakes itself when they change. PathfindingService:Bake() rebakes now; Studio's Navmesh view shows it. PathfindingLabel / PathfindingPassThrough attributes and path Costs work like Roblox's PathfindingModifier.
+The navigation mesh (every floor a character can stand on) is baked from the anchored, solid parts and rebakes itself when they change. PathfindingService:Bake() (or the bake_navmesh tool) rebakes now; Studio's Navmesh view shows it. find_path tests a route. PathfindingLabel / PathfindingPassThrough attributes and path Costs work like Roblox's PathfindingModifier.
 
 EXPLOSIONS
 Instance.new("Explosion") with Position, BlastRadius, BlastPressure (500000 = normal) parented to workspace, or Explode(position, radius, power) / Effects.Explosion(...). They push unanchored parts, hurt characters, can break joints and (Destroy = true) rip anchored parts loose. Use them; don't push parts by hand.
@@ -523,7 +668,7 @@ AXES (right-handed, like OpenGL)
 
 UNITS
 - 1 unit = 2 Roblox studs. Distances, Size and Position are in units.
-- A character is about 2.6 units tall and walks 6 units per second (WalkSpeed); jumps clear about 3.2 units.
+- A character is about 2.6 units tall, walks 6 units per second (WalkSpeed 6) and jumps about 3.6 units high (JumpHeight 3.6).
 - Gravity: 22 units/s^2 (workspace.Gravity).
 - Time: seconds.
 
@@ -574,6 +719,35 @@ get_object (note the old value) -> set_property -> playtest to test -> playtest 
 CHECK BEFORE FINISHING
 validate_scene -> fix errors -> playtest start -> get_errors -> playtest stop -> report what changed and anything that couldn't be done.)DOC";
 
+const char* kExamples = R"DOC(# Examples: requests and the tool calls they should become
+
+"Make this barrel physical."
+find_objects {name: "barrel"} -> get_object (anchored? can_collide?) -> set_property Anchored false -> (CanCollide true if it was off) -> diagnose_object -> playtest start -> get_object (runtime: falling, then resting) -> playtest stop. Report: it falls and reacts to forces now.
+
+"Make the enemies navigate this level."
+get_game_tree (find the enemies: Models with a Humanoid; insert_object "Zombie" if there are none and they asked for some) -> bake_navmesh -> find_path from an enemy to where they should go (status Success?) -> create_script inside each enemy (or one script looping over them) that calls script.Parent.Humanoid:PathfindTo(target) -> playtest start -> get_errors -> get_runtime_state (characters walking?) -> playtest stop.
+
+"Make this explosion push nearby objects."
+Find the explosion point (the bomb part's position) -> find_objects near it, set_property Anchored false on what should fly -> playtest start -> spawn_explosion {position, radius} -> read hits -> get_object on a hit part (velocity) -> playtest stop. For the real game, put it in a script: local e = Instance.new("Explosion") e.Position = bomb.Position e.BlastRadius = 12 e.Parent = workspace.
+
+"What is in the scene?"
+get_game_tree -> answer from it. Never add objects it didn't list.
+
+"The barrel doesn't fall."
+find_objects -> diagnose_object (ANCHORED? FALLS_THROUGH? BELOW_WORLD?) -> fix the one cause it names -> playtest start -> get_object runtime -> playtest stop -> say what was wrong.
+
+"Try making the explosion more powerful."
+checkpoint save -> edit_script (BlastPressure higher) -> playtest start -> spawn_explosion / watch -> playtest stop -> too strong? checkpoint restore and try a smaller number -> keep the good one.
+
+"Build a staircase up to the platform."
+get_object platform (top height) -> run_lua with a loop making anchored steps (print each step's name) -> get_game_tree -> screenshot.
+
+"Add a ParticleEmitter to the torch."
+get_engine_info capabilities: there's no ParticleEmitter. Say so, and offer what exists (a PointLight, Neon material, Effects.Sparks in a script, a Trail or Beam).
+
+"Delete the trees."
+find_objects {name: "tree"} -> if it's clearly those objects, delete_object each (or run_lua over a list of ids) -> get_game_tree. If some are unclear (a "TreeHouse"?), list them and ask first.)DOC";
+
 } // namespace
 
 namespace AiTools {
@@ -590,16 +764,18 @@ json capabilities() {
             {"components", false},                    // classes and child objects instead
             {"scripting", true}, {"lua_execution", true},
             {"runtime", true},                        // playtest start / stop
-            {"runtime_inspection", "partial: get_object adds velocity while playtesting; Output and errors"},
+            {"runtime_inspection", true},             // get_runtime_state, get_object runtime values, errors
             {"physics", "via properties (Anchored, CanCollide, Density...), movers, constraints and scripts; simulates during playtests"},
-            {"navigation", "via PathfindingService and humanoid:PathfindTo in scripts / run_lua during playtests"},
-            {"explosions", "via Explosion / Explode() in scripts or run_lua during playtests"},
+            {"navigation", true},                     // bake_navmesh, find_path, walk_character_to; PathfindingService in scripts
+            {"explosions", true},                     // spawn_explosion (playtest); Explosion objects in scripts
             {"rendering", "partial: part colour, material, transparency, lights, decals; no shader or post-processing tools"},
             {"audio", "Sound objects and Sounds.Play"},
             {"ui", true},
             {"assets", false},                        // the Library isn't reachable from these tools
             {"prefabs", false},                       // ready-made things are copies, not linked
-            {"undo", true}, {"transactions", false},
+            {"undo", true}, {"redo", true},
+            {"transactions", "checkpoints: save, experiment, restore (Studio session only)"},
+            {"compound_tools", json::array({"create_physical_object", "spawn_explosion", "walk_character_to"})},
             {"screenshots", true},
             {"diagnostics", true},
             {"multiplayer_testing", false},
@@ -617,7 +793,62 @@ std::string engineDoc(const std::string& topic) {
     if (topic == "coordinates") return kCoordinates;
     if (topic == "workflows") return kWorkflows;
     if (topic == "capabilities") return "# Capabilities\n\n" + capabilities().dump(2);
+    if (topic == "examples") return kExamples;
     return "";
+}
+
+// MCP prompts: ready-made requests that walk an AI through a common job.
+const json& prompts() {
+    static const json list = json::array({
+        {{"name", "make_physical"}, {"title", "Make an object physical"},
+         {"description", "Make an object fall, collide and react to forces and explosions."},
+         {"arguments", json::array({{{"name", "object"}, {"description", "The object (id like #42, or its name)"}, {"required", true}}})}},
+        {{"name", "navigate_enemies"}, {"title", "Make enemies navigate the level"},
+         {"description", "Bake navigation, check routes and script enemies to walk with pathfinding."},
+         {"arguments", json::array({{{"name", "target"}, {"description", "Where they should go (\"the player\", a part...)"}, {"required", false}}})}},
+        {{"name", "explosion_push"}, {"title", "Make an explosion push things"},
+         {"description", "Set up and test an explosion that throws nearby objects."},
+         {"arguments", json::array({{{"name", "where"}, {"description", "The object or position it goes off at"}, {"required", true}}})}},
+        {{"name", "fix_not_working"}, {"title", "Find out why something doesn't work"},
+         {"description", "Inspect, diagnose, fix one cause and verify."},
+         {"arguments", json::array({{{"name", "object"}, {"description", "The object"}, {"required", true}},
+                                    {{"name", "problem"}, {"description", "What's wrong (\"doesn't fall\", \"script does nothing\")"}, {"required", true}}})}},
+        {{"name", "describe_scene"}, {"title", "Describe what's in the game"},
+         {"description", "Look at the real game and summarise it."}, {"arguments", json::array()}},
+    });
+    return list;
+}
+
+json prompt(const std::string& name, const json& args) {
+    auto arg = [&](const char* k, const char* fallback) {
+        return args.is_object() && args.contains(k) && args[k].is_string() ? args[k].get<std::string>() : std::string(fallback);
+    };
+    std::string text;
+    if (name == "make_physical")
+        text = "Make " + arg("object", "the object") + " physical: it should fall, collide and react to forces and explosions.\n\n"
+               "Workflow: find it (find_objects / get_object) -> check Anchored and CanCollide -> set_property Anchored false "
+               "(keep CanCollide true; keep its position) -> diagnose_object -> playtest start -> get_object (runtime: it "
+               "falls and comes to rest) -> playtest stop -> report what changed.";
+    else if (name == "navigate_enemies")
+        text = "Make the enemies navigate this level to reach " + arg("target", "the player") + ".\n\n"
+               "Workflow: get_game_tree (find the enemies: Models with a Humanoid) -> bake_navmesh -> find_path from an enemy "
+               "to the target (fix the level if NoPath) -> create_script using Humanoid:PathfindTo (don't hand-write path "
+               "following) -> playtest start -> get_errors / get_runtime_state -> playtest stop -> report.";
+    else if (name == "explosion_push")
+        text = "Make an explosion at " + arg("where", "that spot") + " push the objects near it.\n\n"
+               "Workflow: find what's nearby (find_objects / get_object) -> set_property Anchored false on what should fly -> "
+               "playtest start -> spawn_explosion at the spot -> check the hits and their velocity (get_object) -> playtest "
+               "stop. To make it part of the game, use an Explosion object in a script. Never move the parts by hand.";
+    else if (name == "fix_not_working")
+        text = arg("object", "The object") + ": " + arg("problem", "it doesn't work") + ". Find out why and fix it.\n\n"
+               "Workflow: find_objects / get_object -> diagnose_object -> read_script if a script is involved -> fix the ONE "
+               "cause you found (set_property / edit_script) -> diagnose_object again -> playtest start -> get_errors / "
+               "get_object -> playtest stop -> say what was wrong and what you changed. Don't change things you didn't check.";
+    else if (name == "describe_scene")
+        text = "What is in my game?\n\nWorkflow: get_game_tree (and get_object for anything interesting) -> describe only what "
+               "the tools returned. Never invent objects.";
+    else return nullptr;
+    return {{"description", name}, {"messages", json::array({{{"role", "user"}, {"content", {{"type", "text"}, {"text", text}}}}})}};
 }
 
 const json& resources() {
@@ -634,6 +865,10 @@ const json& resources() {
          {"description", "Axes (Y up, -Z forward), units, rotations (degrees, order), colours."}},
         {{"uri", "gutsbolts://workflows"}, {"name", "workflows"}, {"title", "Common workflows"}, {"mimeType", "text/markdown"},
          {"description", "Which tools to chain for common jobs."}},
+        {{"uri", "gutsbolts://examples"}, {"name", "examples"}, {"title", "Example requests and tool calls"}, {"mimeType", "text/markdown"},
+         {"description", "Realistic requests and the tool workflow each should become."}},
+        {{"uri", "gutsbolts://runtime"}, {"name", "runtime"}, {"title", "The running game (live)"}, {"mimeType", "application/json"},
+         {"description", "Playtest state, fps, moving parts, characters, like get_runtime_state."}},
         {{"uri", "gutsbolts://classes"}, {"name", "classes"}, {"title", "Insertable classes"}, {"mimeType", "application/json"},
          {"description", "Every kind insert_object can make."}},
         {{"uri", "gutsbolts://scene/tree"}, {"name", "scene-tree"}, {"title", "The game's object tree (live)"}, {"mimeType", "application/json"},

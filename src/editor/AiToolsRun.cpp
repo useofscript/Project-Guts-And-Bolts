@@ -8,7 +8,14 @@
 #include "../scene/Scene.h"
 #include "../scene/SceneNode.h"
 #include "../scene/Serializer.h"
+#include "../scene/Physics.h"
+#include "../scene/Effects.h"
+#include "../scene/Blast.h"
+#include "../scene/Player.h"
+#include "../game/GameSession.h"
 #include "../core/Log.h"
+
+#include <imgui.h>
 
 extern "C" {
 #include <lua.h>
@@ -312,7 +319,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     // ------------------------------------------------------------------- DOCS
     if (name == "get_engine_info") {
         const std::string topic = str("topic");
-        static const char* kTopics[] = {"overview", "capabilities", "concepts", "coordinates", "workflows", "classes"};
+        static const char* kTopics[] = {"overview", "capabilities", "concepts", "coordinates", "workflows", "examples", "classes"};
         auto one = [&](const std::string& t) {
             json d = {{"topic", t}};
             if (t == "classes") {
@@ -330,7 +337,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         }
         if (std::find(std::begin(kTopics), std::end(kTopics), topic) == std::end(kTopics))
             return fail("INVALID_INPUT", "Unknown topic \"" + topic + "\".",
-                        "Use overview, capabilities, concepts, coordinates, workflows, classes or all.");
+                        "Use overview, capabilities, concepts, coordinates, workflows, examples, classes or all.");
         return done(one(topic));
     }
 
@@ -552,14 +559,26 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     // ---------------------------------------------------------------- RUNTIME
     if (name == "playtest") {
         const std::string action = str("action");
-        if (action != "start" && action != "stop") return fail("INVALID_INPUT", "action must be start or stop.", "");
-        const bool start = action == "start";
-        json d;
-        if (start == m_playing) d["warnings"] = json::array({start ? "It was already playtesting." : "It wasn't playtesting."});
-        else togglePlay();
-        d["playing"] = m_playing;
-        d["note"] = start ? "Scripts and physics are running. Check get_errors, get_output, get_object and screenshot, then stop."
-                          : "Stopped. The game is back exactly how it was before Play.";
+        json warn = json::array();
+        if (action == "start" || action == "simulate") {
+            if (m_playing) warn.push_back("It was already playtesting.");
+            else startPlay(action == "simulate" ? 2 : 0);
+        } else if (action == "stop") {
+            if (!m_playing) warn.push_back("It wasn't playtesting.");
+            else togglePlay();
+        } else if (action == "pause" || action == "resume" || action == "step") {
+            if (!m_playing) return fail("NOT_PLAYING", "There's no playtest to " + action + ".", "playtest start first.");
+            m_state.simPaused = action != "resume";
+            if (action == "step") m_state.simStep = true;
+        } else {
+            return fail("INVALID_INPUT", "action must be start, simulate, stop, pause, resume or step.", "");
+        }
+        json d = {{"playing", m_playing}, {"mode", !m_playing ? "editing" : m_session->runOnly() ? "simulate" : "play"},
+                  {"paused", m_playing && m_state.simPaused}};
+        d["note"] = !m_playing ? "Stopped. The game is back exactly how it was before Play."
+                  : m_state.simPaused ? "Paused: physics and scripts are frozen (step moves one frame)."
+                  : "Scripts and physics are running. Check get_errors, get_runtime_state, get_object and screenshot, then stop.";
+        if (!warn.empty()) d["warnings"] = warn;
         return done(d);
     }
 
@@ -611,6 +630,256 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         return done(d);
     }
 
+    // ---------------------------------------------------------------- PHYSICS
+    // [x, y, z] from an argument.
+    auto vecArg = [&](const char* k, glm::vec3& out) -> bool {
+        if (!args.contains(k) || !args[k].is_array() || args[k].size() != 3) return false;
+        for (int i = 0; i < 3; ++i) { if (!args[k][i].is_number()) return false; out[i] = args[k][i].get<float>(); }
+        return true;
+    };
+    // Where an object is: a part's centre, a character's HumanoidRootPart, else the middle of its parts.
+    auto posOf = [&](SceneNode* n) {
+        if (isPartLike(n)) return glm::vec3(n->worldMatrix()[3]);
+        if (SceneNode* hrp = n->findChild("HumanoidRootPart")) return glm::vec3(hrp->worldMatrix()[3]);
+        glm::vec3 sum(0.0f);
+        int k = 0;
+        std::function<void(SceneNode*)> walk = [&](SceneNode* x) {
+            if (isPartLike(x)) { sum += glm::vec3(x->worldMatrix()[3]); ++k; }
+            for (auto& c : x->children) walk(c.get());
+        };
+        walk(n);
+        return k ? sum / (float)k : glm::vec3(n->worldMatrix()[3]);
+    };
+    // A point argument: [x, y, z] or an object.
+    auto pointArg = [&](const char* k, glm::vec3& out) -> bool {
+        if (vecArg(k, out)) return true;
+        SceneNode* n;
+        if (!args.contains(k) || !args[k].is_string()) {
+            refErr = fail("INVALID_INPUT", std::string("`") + k + "` must be [x, y, z] or an object.", "e.g. [0, 3, 10] or \"#42\".");
+            return false;
+        }
+        if (!need(k, n)) return false;
+        out = posOf(n);
+        return true;
+    };
+    auto navMesh = [&]() -> const NavMesh& {
+        if (!m_aiNav) m_aiNav = std::make_unique<Physics>();
+        m_aiNav->gather(*m_scene);
+        return m_aiNav->navMesh();
+    };
+
+    if (name == "create_physical_object") {
+        const std::string shape = str("shape").empty() ? "Part" : str("shape");
+        if (shape != "Part" && shape != "Sphere" && shape != "Cylinder")
+            return fail("INVALID_INPUT", "shape must be Part, Sphere or Cylinder.", "Leave it out for a box.");
+        json insertArgs = {{"kind", shape}};
+        if (args.contains("parent")) insertArgs["parent"] = args["parent"];
+        if (!str("name").empty()) insertArgs["name"] = str("name");
+        AiToolResult made = runAiTool("insert_object", insertArgs);
+        if (made.error) { made.data["operation"] = name; made.text = made.data.dump(1); return made; }
+        SceneNode* n = m_scene->findById(std::stoull(made.data["object_id"].get<std::string>().substr(1)));
+        if (!n) return fail("INTERNAL", "The new part went missing.", "Check get_game_tree.", false);
+        json warnings = made.data.value("warnings", json::array());
+        glm::vec3 v;
+        if (vecArg("size", v)) n->transform.scale = glm::max(v, glm::vec3(0.05f));
+        else if (shape != "Sphere") n->transform.scale = glm::vec3(2.0f);
+        if (vecArg("color", v)) n->color = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f));
+        if (!str("material").empty()) {
+            bool found = false;
+            for (int i = 0; i < kMaterialCount; ++i)
+                if (lower(kMaterialNames[i]) == lower(str("material"))) { n->material = (Material)i; found = true; }
+            if (!found) warnings.push_back("There's no material \"" + str("material") + "\" (there are Plastic, Metal, Neon, Wood, "
+                                           "Glass, Concrete, Ice); it stayed Plastic.");
+        }
+        n->anchored = args.value("anchored", false);
+        n->canCollide = args.value("can_collide", true);
+        if (args.contains("density") && args["density"].is_number()) n->density = std::max(0.01f, args["density"].get<float>());
+        if (args.contains("friction") && args["friction"].is_number()) n->friction = std::clamp(args["friction"].get<float>(), 0.0f, 2.0f);
+        if (args.contains("elasticity") && args["elasticity"].is_number()) n->elasticity = std::clamp(args["elasticity"].get<float>(), 0.0f, 1.0f);
+        if (vecArg("position", v)) {
+            glm::vec3 local = n->parent ? glm::vec3(glm::inverse(n->parent->worldMatrix()) * glm::vec4(v, 1.0f)) : v;
+            n->transform.position = local;
+        } else if (n->parent == root) {
+            n->transform.position.y = n->transform.scale.y * 0.5f;   // standing on the ground near the camera
+        }
+        m_scene->markDirty();
+        json findings = json::array();
+        diagnose(n, false, findings);
+        json d = {{"object_id", idOf(n)}, {"name", n->name}, {"class", classOf(n, root)}, {"resulting_state", state(n)},
+                  {"findings", findings}, {"note", n->anchored ? "Anchored: it won't move." : "It falls and reacts to forces during a playtest."}};
+        if (!warnings.empty()) d["warnings"] = warnings;
+        return done(d);
+    }
+    if (name == "spawn_explosion") {
+        if (!m_playing) return fail("NOT_PLAYING", "Explosions happen in the running game, and no playtest is running.",
+                                    "playtest start first (or put an Explosion in a script for the real game).");
+        glm::vec3 at;
+        if (!vecArg("position", at)) return fail("INVALID_INPUT", "position must be [x, y, z].", "e.g. [0, 2, 0].");
+        BlastOptions o;
+        o.radius = std::clamp(args.value("radius", 8.0f), 0.5f, 500.0f);
+        o.power = std::clamp(args.value("power", 1.0f), 0.0f, 100.0f);
+        o.destroy = args.value("destroy", false);
+        o.fire = std::max(0.0f, args.value("fire", 0.0f));
+        o.visible = args.value("visible", true);
+        o.hurts = args.value("hurts", true);
+        auto hits = Effects::blast(*m_scene, at, o);
+        json list = json::array();
+        for (const auto& [part, dist] : hits) list.push_back({{"object_id", idOf(part)}, {"name", part->name}, {"distance", dist}});
+        json d = {{"position", vec(at)}, {"radius", o.radius}, {"power", o.power}, {"hits", list}, {"hit_count", list.size()}};
+        if (list.empty()) d["warnings"] = json::array({"Nothing was in range. Only parts within the radius are hit, and only unanchored ones move."});
+        return done(d);
+    }
+
+    // ------------------------------------------------------------- NAVIGATION
+    if (name == "bake_navmesh") {
+        if (!m_aiNav) m_aiNav = std::make_unique<Physics>();
+        m_aiNav->gather(*m_scene);
+        m_aiNav->rebakeNavMesh();
+        const NavMesh& nav = m_aiNav->navMesh();
+        if (args.value("show", false)) { m_state.showNavMesh = true; m_state.bakeNavMesh = 1; }
+        const NavMesh::Settings& st = nav.settings();
+        json d = {{"baked", nav.baked()}, {"spans", nav.spanCount()}, {"bake_ms", nav.bakeMs()},
+                  {"settings", {{"cell", st.cell}, {"max_climb", st.maxClimb}, {"max_slope", st.maxSlope}, {"jump_height", st.jumpHeight},
+                                {"jump_gap", st.jumpGap}, {"max_drop", st.maxDrop}}},
+                  {"shown_in_studio", m_state.showNavMesh}};
+        if (nav.spanCount() == 0)
+            d["warnings"] = json::array({"No walkable floor was found. Floors must be anchored parts with CanCollide on."});
+        return done(d);
+    }
+    if (name == "find_path") {
+        glm::vec3 from, to;
+        if (!pointArg("from", from) || !pointArg("to", to)) return refErr;
+        NavMesh::Agent agent;
+        agent.radius = std::clamp(args.value("agent_radius", agent.radius), 0.1f, 10.0f);
+        agent.height = std::clamp(args.value("agent_height", agent.height), 0.5f, 20.0f);
+        agent.canJump = args.value("can_jump", true);
+        const NavMesh& nav = navMesh();
+        std::vector<NavMesh::Waypoint> wps;
+        NavMesh::Status st = nav.findPath(from, to, agent, wps);
+        json list = json::array();
+        float length = 0.0f;
+        for (size_t i = 0; i < wps.size(); ++i) {
+            if (i) length += glm::length(wps[i].pos - wps[i - 1].pos);
+            list.push_back({{"position", vec(wps[i].pos)}, {"action", wps[i].action == NavMesh::Action::Jump ? "Jump" : "Walk"}});
+        }
+        json d = {{"status", NavMesh::statusName(st)}, {"from", vec(from)}, {"to", vec(to)}, {"waypoints", list}, {"length", length}};
+        if (st != NavMesh::Status::Success)
+            d["warnings"] = json::array({"No full route. Check that both points are on (or just above) anchored, solid floors "
+                                         "and that the way isn't blocked; jumps over " + std::to_string(nav.settings().jumpHeight) +
+                                         " units high aren't planned."});
+        return done(d);
+    }
+    if (name == "walk_character_to") {
+        if (!m_playing) return fail("NOT_PLAYING", "Characters only walk in the running game.", "playtest start first.");
+        SceneNode* ch;
+        if (!need("character", ch)) return refErr;
+        if (!ch->findChild("HumanoidRootPart"))
+            return fail("NOT_A_CHARACTER", label(ch) + " isn't a character (a Model with HumanoidRootPart, Torso and Head).",
+                        "find_objects for the character Model, or insert_object \"Rig\" / \"Zombie\".");
+        glm::vec3 to;
+        if (!pointArg("to", to)) return refErr;
+        std::ostringstream code;
+        code << "local m = __gb_byId(" << ch->id << ")\nlocal h = m and m.Humanoid\nif not h then error('no Humanoid', 0) end\n"
+             << "local ok = h:PathfindStart(Vector3.new(" << to.x << ", " << to.y << ", " << to.z << "))\n"
+             << "print(\"\\1GBREAD\" .. tostring(ok) .. \" \" .. tostring(h.PathfindStatus))";
+        LuaRun r = lua(code.str());
+        if (!r.errors.empty()) return fail("LUA_ERROR", "Couldn't start walking: " + r.errors.front(), "Check it's a character with a Humanoid.");
+        std::string res;
+        for (auto& l : r.lines) if (l.rfind("\1GBREAD", 0) == 0) res = l.substr(7);
+        const bool started = res.rfind("true", 0) == 0;
+        json d = {{"object_id", idOf(ch)}, {"to", vec(to)}, {"started", started},
+                  {"status", res.find(' ') != std::string::npos ? res.substr(res.find(' ') + 1) : res}};
+        if (!started) d["warnings"] = json::array({"No route there: find_path explains why."});
+        return done(d);
+    }
+
+    // ---------------------------------------------------------------- RUNTIME
+    if (name == "get_runtime_state") {
+        const ImGuiIO& io = ImGui::GetIO();
+        json d = {{"playing", m_playing}, {"paused", m_playing && m_state.simPaused},
+                  {"mode", !m_playing ? "editing" : m_session->runOnly() ? "simulate" : "play"},
+                  {"fps", io.Framerate}, {"frame_ms", io.Framerate > 0 ? 1000.0f / io.Framerate : 0.0f}};
+        if (m_playing) {
+            if (Player* p = m_scene->player(); p && p->root() && !m_session->runOnly())
+                d["player"] = {{"object_id", idOf(p->root())}, {"position", vec(p->position())}, {"speed", glm::length(p->velocity())},
+                               {"health", p->humanoid().health}, {"max_health", p->humanoid().maxHealth}, {"dead", p->isDead()}};
+            const int limit = std::clamp(args.value("moving_limit", 20), 0, 200);
+            json moving = json::array();
+            int count = 0;
+            m_scene->forEach([&](SceneNode* n) {
+                if (!isPartLike(n) || n->anchored || n->internal || m_scene->isCharacterPart(n)) return;
+                const float speed = glm::length(n->velocity);
+                if (speed < 0.05f) return;
+                ++count;
+                if ((int)moving.size() < limit)
+                    moving.push_back({{"object_id", idOf(n)}, {"name", n->name}, {"position", vec(glm::vec3(n->worldMatrix()[3]))}, {"speed", speed}});
+            });
+            d["moving_parts"] = moving;
+            d["moving_count"] = count;
+            json chars = json::array();
+            static const char* kRoute[] = {"Idle", "Walking", "Arrived", "Failed"};
+            for (const auto& npc : m_scene->npcs().all()) {
+                SceneNode* model = m_scene->findById(npc->rootId);
+                if (!model) continue;
+                json c = {{"object_id", idOf(model)}, {"name", model->name}, {"position", vec(posOf(model))},
+                          {"health", npc->humanoid.health}, {"dead", npc->dead}, {"pathfind", kRoute[(int)npc->route.state]}};
+                if (npc->route.state == Npc::Route::Walking) c["going_to"] = vec(npc->route.goal);
+                chars.push_back(c);
+            }
+            d["characters"] = chars;
+        } else {
+            d["note"] = "Not playtesting: nothing is simulating. playtest start (or simulate) to run the game.";
+        }
+        if (m_aiNav && m_aiNav->navMesh().baked())
+            d["navmesh"] = {{"baked", true}, {"spans", m_aiNav->navMesh().spanCount()}, {"version", m_aiNav->navMesh().version()}};
+        int errs = 0;
+        const auto& e = Log::entries();
+        for (size_t i = e.size() > 200 ? e.size() - 200 : 0; i < e.size(); ++i) if (e[i].level == Log::Level::Error) ++errs;
+        d["recent_errors"] = errs;
+        return done(d);
+    }
+
+    // ---------------------------------------------------------------- HISTORY
+    if (name == "checkpoint") {
+        const std::string action = str("action");
+        const std::string cp = str("name").empty() ? "default" : str("name");
+        if (action == "list") {
+            json names = json::array();
+            for (auto& [k, v] : m_aiCheckpoints) names.push_back(k);
+            return done({{"checkpoints", names}});
+        }
+        if (action == "save") {
+            if (m_playing) return fail("PLAYTEST_RUNNING", "Save points are of the saved game, and a playtest is running.", "playtest stop first.");
+            m_aiCheckpoints[cp] = Serializer::saveScene(*m_scene);
+            int objects = 0;
+            m_scene->forEach([&](SceneNode* n) { if (!n->internal) ++objects; });
+            return done({{"name", cp}, {"objects", objects}, {"note", "checkpoint restore with this name puts the game back to now."}});
+        }
+        auto it = m_aiCheckpoints.find(cp);
+        if (action == "delete") {
+            if (it == m_aiCheckpoints.end()) return fail("CHECKPOINT_NOT_FOUND", "No checkpoint called \"" + cp + "\".", "checkpoint list");
+            m_aiCheckpoints.erase(it);
+            return done({{"name", cp}, {"deleted", true}});
+        }
+        if (action == "restore") {
+            if (m_playing) return fail("PLAYTEST_RUNNING", "Can't restore during a playtest.", "playtest stop first.");
+            if (it == m_aiCheckpoints.end()) return fail("CHECKPOINT_NOT_FOUND", "No checkpoint called \"" + cp + "\".", "checkpoint list");
+            trackChanges();                      // what's there now becomes one undo step
+            m_undo.push_back(m_committed);
+            if (m_undo.size() > 100) m_undo.erase(m_undo.begin());
+            m_redo.clear();
+            restore(it->second);
+            return done({{"name", cp}, {"restored", true}, {"note", "undo brings back the version from before the restore."}});
+        }
+        return fail("INVALID_INPUT", "action must be save, restore, list or delete.", "");
+    }
+    if (name == "redo") {
+        if (m_playing) return fail("PLAYTEST_RUNNING", "Redo doesn't work during a playtest.", "playtest stop first.");
+        if (m_redo.empty()) return fail("NOTHING_TO_REDO", "There's nothing to redo.", "", false);
+        redo();
+        return done({{"redone", true}, {"redo_steps_left", m_redo.size()}});
+    }
+
     // ------------------------------------------------------------------- VIEW
     if (name == "screenshot") {
         std::string png = m_viewport->snapshotPng(960, 540, true);
@@ -625,8 +894,9 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         if (m_playing) return fail("PLAYTEST_RUNNING", "Undo doesn't work during a playtest.", "playtest stop (that already throws away playtest changes).");
         trackChanges();
         if (m_undo.empty()) return fail("NOTHING_TO_UNDO", "There's nothing to undo.", "", false);
-        undo();
-        return done({{"undone", true}, {"undo_steps_left", m_undo.size()}});
+        int steps = std::clamp(args.value("steps", 1), 1, 100), doneSteps = 0;
+        while (doneSteps < steps && !m_undo.empty()) { undo(); ++doneSteps; }
+        return done({{"undone", doneSteps}, {"undo_steps_left", m_undo.size()}});
     }
 
     return fail("UNKNOWN_TOOL", "There's no tool called " + name + ".", "Use one of the tools from tools/list. Don't invent tools.", false);
