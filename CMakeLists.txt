@@ -313,6 +313,7 @@ add_library(gb_engine STATIC
     src/scene/NavMesh.cpp
     src/scene/Npc.cpp
     src/scene/Water.cpp
+    src/scene/Terrain.cpp
     src/scene/Liquid.cpp
     src/scene/LiquidGpu.cpp
     src/scene/Flood.cpp
@@ -459,6 +460,7 @@ set(EDITOR_SOURCES
     src/editor/EditorRibbon.cpp
     src/editor/Icons.cpp
     src/editor/panels/ViewportModeling.cpp
+    src/editor/panels/ViewportTerrain.cpp
     src/editor/EditorModes.cpp
     src/editor/EditorSolid.cpp
     src/editor/EditorAutosave.cpp

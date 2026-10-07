@@ -970,6 +970,18 @@ std::string NetServer::worldMessage(bool) {
     const WorldSettings& ws = m_scene->world();
     json cam = {{"ortho", ws.orthographic}, {"size", ws.orthographicSize}};
     if (cam.dump() != m_lastCam) { msg["cam"] = cam; m_lastCam = cam.dump(); }
+    // The terrain, when a script changed it (joiners get it with the scene). At most
+    // twice a second: it can be big, and a script might change it every frame.
+    {
+        const Terrain& tr = m_scene->terrain();
+        const double t = clockNow();
+        if (!m_terrainSent) m_terrainSent = tr.version();
+        else if (tr.version() != m_terrainSent && t - m_terrainAt >= 0.5) {
+            msg["terrain"] = tr.toJson();
+            m_terrainSent = tr.version();
+            m_terrainAt = t;
+        }
+    }
 
     const GuiState& gui = m_session->gui();
     json g = {{"labels", gui.labels}, {"msg", gui.message}, {"time", gui.message.empty() ? 0.0f : gui.messageTime}};
@@ -1371,6 +1383,7 @@ void NetClient::handle(const std::string& text) {
                 if (SceneNode* n = m_scene->findById(d.get<uint64_t>()))
                     if (!m_scene->isCharacterPart(n)) drop(n);
         if (m.contains("env")) Serializer::environmentFromString(m_scene->environment(), m["env"].get<std::string>());
+        if (m.contains("terrain")) m_scene->terrain().fromJson(m["terrain"]);
         if (m.contains("cam") && m["cam"].is_object()) {
             m_scene->world().orthographic = m["cam"].value("ortho", false);
             m_scene->world().orthographicSize = std::clamp(m["cam"].value("size", 0.0f), 0.0f, 2000.0f);
