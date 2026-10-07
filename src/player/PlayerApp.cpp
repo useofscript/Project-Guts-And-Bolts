@@ -674,6 +674,11 @@ void PlayerApp::frame(float dt) {
         openAsset(m_opts.page.substr(6));
         m_opts.page.clear();
     }
+    if (Online::online() && m_opts.page.rfind("online-servers:", 0) == 0) {   // test: an online game's Servers window ("online-servers:8")
+        const std::string id = m_opts.page.substr(15);
+        m_opts.page.clear();
+        openServers(id, "Game " + id, onlineStarter(id));
+    }
     if (Online::online() && m_opts.page.rfind("online:", 0) == 0 && m_opts.testOps.empty()) {   // test: an online game's popup ("online:7")
         Online::request("asset.info", {{"id", m_opts.page.substr(7)}}, [this](const nlohmann::json& r) {
             if (r.value("ok", false) && r.contains("asset")) { m_page = Page::Games; m_openGame = r["asset"]; m_openOnlineGame = 0; }

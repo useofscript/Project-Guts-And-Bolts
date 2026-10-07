@@ -369,7 +369,7 @@ function loginPopup(what) {
 }
 // Which clicks and forms need an account, and what to say.
 const NEEDS_ACCOUNT = {
-  buy: 'get items from the catalog', buyPass: 'buy game passes', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
+  buy: 'get items from the catalog', buyPass: 'buy game passes', buyPrivate: 'buy private servers', daily: 'claim your daily Bolts', saveAvatar: 'save your avatar',
   friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
   favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages', statusSet: 'post a status', blurbSet: 'edit your profile',
@@ -1058,6 +1058,19 @@ async function myModelsPage(head) {
 }
 
 let serverPage = 1;   // which page of a game's server cards
+// Paid private servers: the creator sets a price; buying one lasts 30 days, and friends join free with its code.
+function privateServerBox(g, s) {
+  const price = (s.ok && s.privatePrice) || g.privatePrice || 0;
+  if (!price) return '';
+  const until = (s.ok && s.privateUntil) || 0, free = s.ok && !s.privateNeedsBuy && !until;
+  return html`<h2>Private servers</h2><div class="box private-box">
+    <p>Your own server of this game, for you and your friends. It costs ${bolts(price)} for 30 days, and friends join free with its code.</p>
+    ${free ? html`<p class="muted">${signedIn() && g.creator === me.id ? 'It\'s your game, so private servers are free for you.' : 'Private servers are free for you.'}</p>`
+      : until ? html`<p><b>You have one until ${new Date(until * 1000).toLocaleDateString()}.</b> Start it from the Servers button in the app.</p>
+        <button class="btn small" data-act="buyPrivate" data-id="${g.id}" data-name="${g.name}" data-price="${price}">Add 30 days for ${price} Bolts</button>`
+      : html`<button class="btn green" data-act="buyPrivate" data-id="${g.id}" data-name="${g.name}" data-price="${price}">Buy a private server</button>`}</div>`;
+}
+
 pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
@@ -1117,6 +1130,7 @@ pages.game = async (id) => {
         ${gameBadgeIcon(b, 44)}<span class="grow"><b>${b.name}</b><br><span class="small muted">${b.description || ''}</span></span>
         <span class="small muted">Won ${b.awarded || 0} time${b.awarded === 1 ? '' : 's'}</span></div>`)}</div>` : ''}
     ${passes.length ? html`<h2>Passes</h2><div class="pass-grid">${passes.map(passCard)}</div>` : ''}
+    ${privateServerBox(g, s)}
     <h2>Servers</h2>
     ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
       : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}
@@ -1450,7 +1464,9 @@ pages.configure = async (id) => {
         <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
         <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px">
         <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label>
-        <label class="choice"><input type="checkbox" name="comments" ${g.comments !== false ? 'checked' : ''}> Allow comments <span class="muted small">(players can comment on its page; you can delete any comment)</span></label></div>
+        <label class="choice"><input type="checkbox" name="comments" ${g.comments !== false ? 'checked' : ''}> Allow comments <span class="muted small">(players can comment on its page; you can delete any comment)</span></label>
+        <label>Private server price <span class="muted small">(Bolts for 30 days; 0 = free. You get 70% of each sale, or your group does if the game is in one. Private servers are always free for you.)</span></label>
+        <input type="number" name="privatePrice" min="0" max="10000" value="${g.privatePrice || 0}" style="max-width:100px"></div>
       <div class="box"><h2 class="boxhead">Group</h2>
         <p class="small muted">Put the game in one of your groups: it shows as the group's game, and its game pass and product sales go to the group's Bolts instead of to you.</p>
         <select name="group" data-was="${g.group ? g.group.id : ''}"><option value="">No group (it's just yours)</option>
@@ -2534,6 +2550,13 @@ const actions = {
     el.closest('.modal').remove();
     if (r.ok && r.me) setMe(r.me);
   },
+  async buyPrivate(d) {
+    if (!confirm('Buy 30 days of your own private server of "' + d.name + '" for ' + Number(d.price).toLocaleString() + ' Bolts?')) return;
+    const r = await call('servers.buyPrivate', { game: d.id });
+    if (r.ok && r.me) me = r.me;
+    toast(r.ok ? 'It\'s yours until ' + new Date(r.until * 1000).toLocaleDateString() + '! Start it from the Servers button in the app.' : r.error);
+    render();
+  },
   async buyPass(d) {
     if (Number(d.price) > 0 && !confirm('Buy "' + d.name + '" for ' + Number(d.price).toLocaleString() + ' Bolts?')) return;
     const r = await call('buy', { id: d.id });
@@ -2864,6 +2887,7 @@ const forms = {
       if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
       let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
         genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked, comments: f.comments.checked,
+        privatePrice: Math.max(0, Math.trunc(Number(f.privatePrice.value) || 0)),
         ...(f.group.value !== f.group.dataset.was ? { group: f.group.value } : {}) });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
