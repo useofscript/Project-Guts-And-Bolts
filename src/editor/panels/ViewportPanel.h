@@ -106,6 +106,10 @@ private:
     void modelingView(const glm::mat4& view, const glm::mat4& proj,
                       const glm::vec2& imgMin, const glm::vec2& imgSize);   // ViewportModeling.cpp
     bool drawModeMenu(ImVec2 imgPos);   // true while the mouse is on it
+    // The TERRAIN tab's brushes: drag on the ground to sculpt it. ViewportTerrain.cpp.
+    void terrainView(const glm::mat4& view, const glm::mat4& proj, const glm::vec2& imgMin, const glm::vec2& imgSize, float dt);
+    bool  m_sculpting = false;     // the mouse is down with a brush (one undo step)
+    float m_sculptLevel = 0.0f;    // Flatten: the height where the stroke started
 
     GLFWwindow*  m_window;
     Scene*       m_scene;

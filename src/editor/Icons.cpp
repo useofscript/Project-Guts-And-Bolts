@@ -339,6 +339,42 @@ void draw(ImDrawList* dl, ImVec2 c, float s, Id id, ImU32 tint) {
                               ImVec2(c.x, c.y - s * 0.25f), rgb(255, 230, 90));
         break;
     }
+    // Terrain: green hills (with a snowy peak), and what each brush does to them.
+    case Id::Terrain: case Id::TerrainRaise: case Id::TerrainLower: case Id::TerrainSmooth:
+    case Id::TerrainFlatten: case Id::TerrainPaint: case Id::TerrainClear: {
+        const float base = c.y + s * 0.38f;
+        if (id == Id::TerrainFlatten) {
+            dl->AddRectFilled(ImVec2(c.x - s * 0.45f, c.y + s * 0.05f), ImVec2(c.x + s * 0.45f, base), rgb(90, 160, 70));
+            dl->AddLine(ImVec2(c.x - s * 0.45f, c.y + s * 0.05f), ImVec2(c.x + s * 0.45f, c.y + s * 0.05f), rgb(255, 150, 40), th);
+            break;
+        }
+        const bool smooth = id == Id::TerrainSmooth;
+        ImU32 hill = id == Id::TerrainClear ? rgb(120, 120, 120, 150) : id == Id::TerrainPaint ? rgb(200, 170, 90) : rgb(90, 160, 70);
+        // Two hills (round ones for Smooth).
+        if (smooth) {
+            dl->PathArcTo(ImVec2(c.x - s * 0.12f, base), s * 0.36f, kPi, kPi * 2.0f, 16);
+            dl->PathFillConvex(hill);
+            dl->PathArcTo(ImVec2(c.x + s * 0.22f, base), s * 0.24f, kPi, kPi * 2.0f, 12);
+            dl->PathFillConvex(hill);
+        } else {
+            dl->AddTriangleFilled(ImVec2(c.x - s * 0.48f, base), ImVec2(c.x - s * 0.08f, c.y - s * 0.3f), ImVec2(c.x + s * 0.3f, base), hill);
+            dl->AddTriangleFilled(ImVec2(c.x - s * 0.05f, base), ImVec2(c.x + s * 0.24f, c.y - s * 0.05f), ImVec2(c.x + s * 0.48f, base), hill);
+            if (id == Id::Terrain)
+                dl->AddTriangleFilled(ImVec2(c.x - s * 0.19f, c.y - s * 0.12f), ImVec2(c.x - s * 0.08f, c.y - s * 0.3f),
+                                      ImVec2(c.x + s * 0.03f, c.y - s * 0.12f), rgb(240, 242, 248));
+        }
+        if (id == Id::TerrainRaise) arrowHead(dl, ImVec2(c.x + s * 0.3f, c.y - s * 0.38f), ImVec2(0, -1), s * 0.2f, rgb(255, 150, 40));
+        if (id == Id::TerrainLower) arrowHead(dl, ImVec2(c.x + s * 0.3f, c.y - s * 0.2f), ImVec2(0, 1), s * 0.2f, rgb(255, 150, 40));
+        if (id == Id::TerrainPaint) {   // a brush
+            dl->AddLine(ImVec2(c.x + s * 0.42f, c.y - s * 0.45f), ImVec2(c.x + s * 0.12f, c.y - s * 0.12f), rgb(160, 110, 60), th * 1.4f);
+            dl->AddCircleFilled(ImVec2(c.x + s * 0.08f, c.y - s * 0.08f), s * 0.1f, rgb(90, 200, 90), 10);
+        }
+        if (id == Id::TerrainClear) {
+            dl->AddLine(ImVec2(c.x - s * 0.3f, c.y - s * 0.3f), ImVec2(c.x + s * 0.3f, c.y + s * 0.3f), rgb(230, 80, 80), th * 1.3f);
+            dl->AddLine(ImVec2(c.x + s * 0.3f, c.y - s * 0.3f), ImVec2(c.x - s * 0.3f, c.y + s * 0.3f), rgb(230, 80, 80), th * 1.3f);
+        }
+        break;
+    }
     // Solid modeling: a grey block and a round shape overlapping, joined / cut / overlapped / apart.
     case Id::Union:
         dl->AddRectFilled(ImVec2(c.x - s * 0.42f, c.y - s * 0.1f), ImVec2(c.x + s * 0.1f, c.y + s * 0.4f), rgb(150, 152, 160));

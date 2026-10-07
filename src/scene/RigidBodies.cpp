@@ -481,6 +481,18 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
     bool anyDynamic = false;
     for (auto& b : bodies) if (b.dynamic) { anyDynamic = true; break; }
     if (!anyDynamic) return;
+    // The terrain is one more body that never moves (it isn't in `index`, so no
+    // joint uses it, and it's not "solid" so the part-vs-part loop skips it: its
+    // contacts are made separately below).
+    const Terrain& terrain = scene.terrain();
+    const int terrainBody = terrain.empty() ? -1 : (int)bodies.size();
+    if (terrainBody >= 0) {
+        Body t;
+        t.solid = false;
+        t.friction = 0.6f;
+        t.elasticity = 0.1f;
+        bodies.push_back(t);
+    }
 
     // ---- 2. Joints --------------------------------------------------------------
     auto bodyOfAttachment = [&](uint64_t attId, glm::vec3& worldPos, glm::vec3& worldAxis) -> int {
@@ -646,6 +658,33 @@ void Physics::stepParts(Scene& scene, float dt, std::vector<uint64_t>& fallen) {
                 else                           boxBox(i, k, A, B, contacts);
             }
         }
+        // Against the terrain: a ball touches where it dips under the ground, a box
+        // wherever its corners (and the middles of its bottom edges) do.
+        if (terrainBody >= 0)
+            for (int i = 0; i < terrainBody; ++i) {
+                const Body& A = bodies[i];
+                if (!A.dynamic || !A.solid || !A.awake) continue;
+                float top;
+                if (!terrain.highestUnder(A.aabbMin.x, A.aabbMin.z, A.aabbMax.x, A.aabbMax.z, top) || top < A.aabbMin.y) continue;
+                auto touch = [&](const glm::vec3& p) {
+                    float g;
+                    if (!terrain.heightAt(p.x, p.z, g) || p.y >= g) return;
+                    const glm::vec3 n = terrain.normalAt(p.x, p.z);
+                    contacts.push_back({i, terrainBody, p, n, (g - p.y) * n.y});
+                };
+                if (A.sphere) {
+                    float g;
+                    if (!terrain.heightAt(A.pos.x, A.pos.z, g)) continue;
+                    const glm::vec3 n = terrain.normalAt(A.pos.x, A.pos.z);
+                    const float dist = (A.pos.y - g) * n.y;
+                    if (dist < A.radius) contacts.push_back({i, terrainBody, A.pos - n * A.radius, n, A.radius - dist});
+                    continue;
+                }
+                glm::vec3 corners[8];
+                boxCorners(A.obb(), corners);
+                for (const glm::vec3& p : corners) touch(p);
+            }
+
         for (auto& c : contacts) {
             Body &A = bodies[c.a], &B = bodies[c.b];
             if (B.dynamic && !B.awake && A.awake) B.awake = true;   // bumped: wake up

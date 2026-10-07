@@ -45,6 +45,14 @@ struct EditorState {
     unsigned long long connectFirst = 0;
     float connectPoint[3] = {0, 0, 0};
 
+    // TERRAIN tab: the sculpting brush (a Terrain::Brush, or -1 when off) and its settings.
+    int   terrainBrush = -1;
+    float terrainSize = 16.0f;       // the brush circle's radius, in studs
+    float terrainStrength = 0.5f;    // 0.1 .. 1
+    int   terrainMaterial = 0;       // TerrainMaterial (what Paint paints)
+    float terrainHills = 0.5f;       // Generate: how bumpy
+    int   terrainGenSize = 1;        // Generate: 0 = 256, 1 = 512, 2 = 1024 studs across
+
     // Animation Editor: the rig being animated (clicks pick its parts, not the whole model).
     unsigned long long animRig = 0;
 

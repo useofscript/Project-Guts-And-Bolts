@@ -95,6 +95,16 @@ SceneNode* Physics::raycastIf(Scene& scene, const glm::vec3& ro, const glm::vec3
             if (d > 0.0f && d < bestDist) { bestDist = d; best = node; }
         }
     }
+    // The terrain (hills sculpted in Studio).
+    const Terrain& terrain = scene.terrain();
+    if (!terrain.empty() && counts(scene.terrainNode())) {
+        const float len = glm::length(rd);
+        float t;
+        if (len > 1e-9f && terrain.raycast(ro, rd / len, std::min(bestDist * len, 1e5f), t)) {
+            float d = glm::dot(rd / len * t, rd);
+            if (d > 0.0f && d < bestDist) { bestDist = d; best = scene.terrainNode(); }
+        }
+    }
     if (distance) *distance = bestDist;
     return best;
 }
@@ -216,12 +226,14 @@ AABB Physics::characterBox(const glm::vec3& f) {
 
 void Physics::reset() {
     m_colliders.clear();
+    m_terrain = nullptr;
     m_bodies.clear();
     m_touching.clear();
 }
 
 void Physics::gather(Scene& scene) {
     m_colliders.clear();
+    m_terrain = scene.terrain().empty() ? nullptr : &scene.terrain();
     uint64_t hash = 1469598103934665603ull;
     // Manual walk so whole subtrees (hidden models, the character) can be skipped.
     std::vector<SceneNode*> stack{scene.root()};
@@ -246,6 +258,7 @@ void Physics::gather(Scene& scene) {
         }
         for (auto& c : n->children) stack.push_back(c.get());
     }
+    if (m_terrain) hash = (hash ^ m_terrain->version()) * 1099511628211ull;   // (reshaping the terrain rebakes it too)
     m_staticHash = hash;
 
     // Characters as solid bodies, so players (and NPCs) bump into each other
@@ -263,6 +276,9 @@ void Physics::gather(Scene& scene) {
 }
 
 bool Physics::blocked(const AABB& box) const {
+    float ground;
+    if (m_terrain && m_terrain->highestUnder(box.min.x, box.min.z, box.max.x, box.max.z, ground) && ground > box.min.y + 0.01f)
+        return true;
     OBB ob = OBB::fromAABB(box);
     for (const auto& c : m_colliders) {
         if (!c.solid || !box.overlaps(c.box)) continue;
@@ -276,6 +292,11 @@ bool Physics::blocked(const AABB& box) const {
 float Physics::pushUp(const AABB& box) const {
     float push = 0.0f;
     float h = box.max.y - box.min.y;
+    float ground;
+    if (m_terrain && m_terrain->highestUnder(box.min.x, box.min.z, box.max.x, box.max.z, ground)) {
+        float d = ground - box.min.y;
+        if (d > 0.0f && d <= h + 0.05f) push = std::max(push, d);
+    }
     OBB ob = OBB::fromAABB(box);
     for (const auto& c : m_colliders) {
         if (!c.solid || !box.overlaps(c.box)) continue;
@@ -291,6 +312,7 @@ float Physics::pushUp(const AABB& box) const {
 }
 
 bool Physics::solidAt(const glm::vec3& p) const {
+    if (m_terrain && m_terrain->solidAt(p)) return true;
     for (const auto& c : m_colliders) {
         if (!(c.solid && p.x > c.box.min.x && p.x < c.box.max.x && p.y > c.box.min.y &&
               p.y < c.box.max.y && p.z > c.box.min.z && p.z < c.box.max.z))
@@ -307,6 +329,17 @@ bool Physics::solidAt(const glm::vec3& p) const {
 
 bool Physics::resolveSphere(glm::vec3& c, float r, glm::vec3* normal) const {
     bool hit = false;
+    float ground;
+    if (m_terrain && m_terrain->heightAt(c.x, c.z, ground)) {
+        // Close enough to a flat-ish plane under the ball.
+        const glm::vec3 n = m_terrain->normalAt(c.x, c.z);
+        const float dist = (c.y - ground) * n.y;
+        if (dist < r) {
+            c += n * (r - dist);
+            if (normal) *normal = n;
+            hit = true;
+        }
+    }
     for (const auto& col : m_colliders) {
         if (!col.solid) continue;
         if (col.rotated) {
@@ -429,13 +462,32 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
     // Something moved into us (a door, a pusher, turning around next to a wall).
     resolve(false, false);
 
+    // The terrain under us: climb gentle slopes, stop at cliffs.
+    auto onTerrain = [&](const glm::vec3& before) {
+        float g;
+        if (!terrainGround(pos, yaw, g) || g <= pos.y) return;
+        const glm::vec3 n = m_terrain->normalAt(pos.x, pos.z);
+        if (n.y < 0.6f && g - before.y > 0.05f) {   // too steep to walk up (over about 53 degrees)
+            pos.x = before.x;
+            pos.z = before.z;
+            if (terrainGround(pos, yaw, g) && g > pos.y) pos.y = g;
+            return;
+        }
+        pos.y = g;
+        r.grounded = true;
+        r.groundId = 0;
+    };
+    onTerrain(pos);
+
     // Walk, in small steps so fast movement can't pass through thin walls.
     glm::vec2 h(delta.x, delta.z);
     int steps = std::max(1, (int)std::ceil(glm::length(h) / 0.2f));
     for (int s = 0; s < steps; ++s) {
+        const glm::vec3 before = pos;
         pos.x += h.x / steps;
         pos.z += h.y / steps;
         resolve(true, false);
+        if (m_terrain) onTerrain(before);
     }
 
     // Fall / jump.
@@ -443,6 +495,10 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
     bool wasGround = r.grounded;
     r.grounded = false;
     resolve(false, true);
+    if (m_terrain) {
+        float g;
+        if (terrainGround(pos, yaw, g) && g >= pos.y) { pos.y = g; r.grounded = true; r.groundId = 0; }
+    }
     if (delta.y > 0.0f && r.grounded && !wasGround) r.grounded = false;   // brushing a ledge on the way up isn't landing
     if (wasGround && delta.y <= 0.0f) r.grounded = true;
 
@@ -460,7 +516,9 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
             float y = probe.y + d / n.y;
             if (y <= pos.y + 0.01f && y > bestY) { bestY = y; bestId = c.node->id; }
         }
-        if (bestId) {
+        float g;
+        if (terrainGround(pos, yaw, g) && g <= pos.y + 0.01f && g >= pos.y - 0.6f && g > bestY) { bestY = g; bestId = 0; }
+        if (bestY > -1e29f) {
             r.dropped += pos.y - bestY;
             pos.y = bestY;
             r.grounded = true;
@@ -470,6 +528,13 @@ Physics::MoveResult Physics::moveCharacter(const glm::vec3& feet, const glm::vec
 
     r.position = pos;
     return r;
+}
+
+bool Physics::terrainGround(const glm::vec3& feet, float yaw, float& y) const {
+    if (!m_terrain) return false;
+    AABB b = bounds(charOBB(feet, yaw));
+    // (a little smaller than the body, so brushing past a hill doesn't climb it)
+    return m_terrain->highestUnder(b.min.x + 0.15f, b.min.z + 0.15f, b.max.x - 0.15f, b.max.z - 0.15f, y);
 }
 
 // stepParts (rigid bodies + constraints) lives in RigidBodies.cpp.

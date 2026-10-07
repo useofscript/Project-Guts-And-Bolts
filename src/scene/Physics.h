@@ -9,6 +9,7 @@
 
 class Scene;
 class SceneNode;
+class Terrain;
 
 struct AABB {
     glm::vec3 min{0.0f}, max{0.0f};
@@ -70,6 +71,7 @@ public:
     // out of `b` and `depth` how far.
     static bool obbOverlap(const OBB& a, const OBB& b, glm::vec3& normal, float& depth);
     // First visible part hit by a ray (skipping `ignore` and everything inside it).
+    // Hitting the terrain returns scene.terrainNode().
     static SceneNode* raycast(Scene& scene, const glm::vec3& origin, const glm::vec3& dir,
                               float* distance = nullptr, const SceneNode* ignore = nullptr);
     // The same, but only parts `counts` says yes to (and not the ones inside a skipped model).
@@ -130,7 +132,11 @@ private:
     };
     bool blocked(const AABB& box) const;
 
+    // The ground under a character standing at `feet` (false = no terrain there).
+    bool terrainGround(const glm::vec3& feet, float yaw, float& y) const;
+
     std::vector<Collider>                  m_colliders;
+    const Terrain*                         m_terrain = nullptr;   // this frame's terrain (null = none)
     std::vector<Collider>                  m_bodies;   // characters' body boxes (players bumping into players)
     std::set<std::pair<uint64_t, uint64_t>> m_touching;
     uint64_t                               m_staticHash = 0;     // the anchored solid parts, as a number

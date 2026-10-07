@@ -753,6 +753,7 @@ json settingsJson(Scene& scene) {
                  {"author", scene.info().author}};
     if (!scene.info().publishedId.empty()) j["info"]["published"] = scene.info().publishedId;
     j["environment"] = envToJson(scene.environment());
+    if (!scene.terrain().empty()) j["terrain"] = scene.terrain().toJson();
     const WorldSettings& ws = scene.world();
     j["world"] = {{"gravity", ws.gravity}, {"fallenPartsHeight", ws.fallenPartsHeight},
                   {"deathStyle", (int)ws.deathStyle}, {"gore", (int)ws.gore},
@@ -786,6 +787,12 @@ void applySettings(Scene& scene, const json& j) {
     scene.info() = info;
 
     scene.environment() = j.contains("environment") ? envFromJson(j["environment"]) : Environment{};
+    // Terrain: only rebuilt when it's different (undo and Team Create re-apply
+    // the settings often, and the terrain can be big).
+    {
+        const json t = j.contains("terrain") ? j["terrain"] : json();
+        if (t.is_null() ? !scene.terrain().empty() : t != scene.terrain().toJson()) scene.terrain().fromJson(t);
+    }
     WorldSettings w;
     if (j.contains("world")) {
         w.gravity           = get<float>(j["world"], "gravity", w.gravity);
