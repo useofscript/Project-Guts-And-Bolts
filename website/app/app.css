@@ -613,3 +613,5 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 
 /* A game's paid private servers */
 .private-box p { margin: 4px 0 8px; }
+/* Featured games (picked by staff) */
+.featured-pill { background: linear-gradient(#ffe59a, #f5c542); border-color: #d49a0a; color: #3b2a00; }

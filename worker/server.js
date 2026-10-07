@@ -845,6 +845,7 @@ export class GbServerObject extends DurableObject {
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
       favorites: a.kind === 'game' ? (a.favorites || 0) : undefined,
+      featured: a.kind === 'game' && a.featured > 0 ? true : undefined,
       comments: a.kind === 'game' ? !a.commentsOff : undefined, commentCount: a.kind === 'game' ? (a.comments || []).length : undefined,
       myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
       offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined,
@@ -1415,6 +1416,18 @@ export class GbServerObject extends DurableObject {
         this.saveAsset(a);
         return okay({ uploads: this.uploadsToReview() });
       }
+      // Featured games: staff pick games for the Featured row on the home page and the Games page.
+      if (name === 'admin.feature') {
+        const a = this.assets.get(str(args, 'id'));
+        if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+        const on = args.on !== false;
+        if (on && (a.access || 'public') !== 'public') return fail('Only public games can be featured.');
+        if (on && !a.featured) this.notify(this.users.get(a.creator), 'featured', 'Your game ' + a.name + ' is featured! Everyone sees it on the home page now.', a.id);
+        if (on) a.featured = a.featured || t; else delete a.featured;
+        this.staffDid(me, 'feature', (on ? 'Featured' : 'Unfeatured') + ' the game "' + a.name + '"', a.creator);
+        this.saveAsset(a);
+        return okay({ asset: this.publicAsset(a, me) });
+      }
       if (name === 'admin.reports') return okay({ reports: this.reportsJson(str(args, 'status') === 'closed' ? 'closed' : 'open') });
       if (name === 'admin.log') {   // the newest 200, or just what one person did or had done to them
         const who = str(args, 'user') ? this.findPerson(str(args, 'user')) : null;
@@ -1790,6 +1803,7 @@ export class GbServerObject extends DurableObject {
       const sort = str(args, 'sort'), genre = str(args, 'genre');
       const ownedOnly = args.owned === true;   // your inventory (the Avatar page)
       const found = [...this.assets.values()].filter((a) =>
+        (sort !== 'featured' || a.featured > 0) &&
         (!kind || a.kind === kind || (kind === 'clothing' && isCatalogItem(a.kind))) &&
         (!ownedOnly || me.owned.includes(a.id)) &&
         (!creator || a.creator === creator) && this.canPlay(a, me) &&
@@ -1801,6 +1815,7 @@ export class GbServerObject extends DurableObject {
         playing: (x, y) => playing.get(y.id) - playing.get(x.id) || y.plays - x.plays,
         rated: (x, y) => ratingOf(y) - ratingOf(x) || y.plays - x.plays,
         updated: (x, y) => (y.updated || y.created) - (x.updated || x.created),
+        featured: (x, y) => y.featured - x.featured,   // picked by staff, newest pick first
       }[sort] || ((x, y) => y.created - x.created);
       found.sort(by);
       const offset = Math.max(0, num(args, 'offset'));

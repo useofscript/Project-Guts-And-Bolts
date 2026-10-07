@@ -295,6 +295,7 @@ json GbServer::publicAsset(const Asset& a) const {
         j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL);
         j["comments"] = !a.meta.value("commentsOff", false); j["commentCount"] = a.comments.size();
         j["privatePrice"] = a.meta.value("privatePrice", 0LL);
+        if (a.meta.value("featured", 0LL) > 0) j["featured"] = true;
     }
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
@@ -631,6 +632,21 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             json r = okay(); r["reports"] = reportsJson(str("status") == "closed" ? "closed" : "open"); return r;
         }
         if (name == "admin.closeReport") return closeReport(me, str("id"), str("outcome"));
+        // Featured games (worker/server.js has the same): staff pick games for the Featured row.
+        if (name == "admin.feature") {
+            auto it = findAsset(str("id"));
+            if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
+            Asset& a = it->second;
+            const bool on = args.value("on", true) != false;
+            if (on && a.meta.value("access", std::string("public")) != "public") return fail("Only public games can be featured.");
+            if (on && a.meta.value("featured", 0LL) <= 0) {
+                notify(findUser(a.creator), "featured", "Your game " + a.name + " is featured! Everyone sees it on the home page now.", a.id);
+                a.meta["featured"] = Online::unixNow();
+            } else if (!on) a.meta.erase("featured");
+            staffDid(me, "feature", std::string(on ? "Featured" : "Unfeatured") + " the game \"" + a.name + "\"", a.creator);
+            saveAssets();
+            json r = okay(); r["asset"] = publicAsset(a); return r;
+        }
         if (name == "admin.log") {   // the newest 200, or just what one person did or had done to them
             std::string who;
             if (!str("user").empty()) {
@@ -1063,6 +1079,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         for (const auto& [id, a] : m_assets) {
             if (!kind.empty() && a.kind != kind && !(kind == "clothing" && Online::isCatalogItem(a.kind))) continue;
             if (ownedOnly && !me.owned.count(a.id)) continue;
+            if (sort == "featured" && a.meta.value("featured", 0LL) <= 0) continue;   // picked by staff
             if (!creator.empty() && a.creator != creator) continue;
             if (!q.empty() && lower(a.name).find(q) == std::string::npos) continue;
             if (!canSee(a, me)) continue;
@@ -1070,6 +1087,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         std::sort(found.begin(), found.end(), [&](const Asset* x, const Asset* y) {
             if (sort == "popular") return x->plays + x->sales > y->plays + y->sales;
+            if (sort == "featured") return x->meta.value("featured", 0LL) > y->meta.value("featured", 0LL);   // newest pick first
             return x->created > y->created;   // newest first
         });
         long long offset = std::max(0LL, num("offset")), limit = std::clamp(num("limit"), 1LL, 100LL);
