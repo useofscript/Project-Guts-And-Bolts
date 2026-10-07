@@ -644,3 +644,7 @@ table.forum tr.pinned td { background: var(--panel2); }
 @media (max-width: 560px) { .forum-post { flex-direction: column; } .forum-author { flex-direction: row; flex-basis: auto; } }
 /* Featured games (picked by staff) */
 .featured-pill { background: linear-gradient(#ffe59a, #f5c542); border-color: #d49a0a; color: #3b2a00; }
+
+/* Inventory on profiles: item cards with the numbers of the Limited copies someone holds */
+.inv-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-item .serials { color: #1a7f37; font-weight: bold; overflow-wrap: anywhere; }

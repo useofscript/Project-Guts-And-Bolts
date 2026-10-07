@@ -1664,6 +1664,16 @@ Find things in two places:
   Limiteds and up to 4 of theirs, and send the offer. They accept or decline
   on the **Trades** page. The swap only happens if both of you still have
   everything.
+- **Inventory:** every profile (website and app) has an **Inventory** box with
+  what that person owns from the catalog, newest first. **See all** shows the
+  whole thing in groups (Accessories, Clothing, Faces, Gear, Limiteds), and a
+  Limited shows the numbers of the copies they hold, so you know what to ask for
+  in a trade. *Settings > Privacy > Who can see my inventory* hides it from
+  everyone or keeps it for friends; people it's hidden from can't trade with you
+  either (and the item page shows "Hidden" for copies you hold that aren't for
+  sale). Staff can always see it, to sort out scams. (`profile.inventory` in
+  `worker/server.js` and `src/server/Server.cpp`; the C++ server has no Limiteds,
+  so its inventories are sorted by name.)
 
 ### Accessories and faces
 
@@ -2025,6 +2035,8 @@ same server.
 - **Who can see when I'm online and what I'm playing:** Everyone, Friends
   only, or No one (you look offline to everybody else);
 - **Who can join me:** Everyone, Friends only, or No one.
+- **Who can see my inventory (and trade with me):** Everyone, Friends only, or
+  No one.
 
 **Reporting and blocking.** Profiles, messages, games, catalog and Library items
 and groups have a **Report** link: pick what's wrong and (if you like) say what

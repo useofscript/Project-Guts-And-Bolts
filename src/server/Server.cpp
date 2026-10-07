@@ -132,7 +132,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"forum.boards", "forum.list", "forum.thread", "pass.list", "pass.owned", "list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"forum.boards", "forum.list", "forum.thread", "pass.list", "pass.owned", "list", "asset.info", "profile", "profile.inventory", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list", "comments.list",
                                                     "get", "servers.play", "relay.host", "relay.join", "product.pending", "product.grant"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -222,7 +222,7 @@ json GbServer::meJson(const User& u) const {
     j["bolts"] = balance(u);
     j["hasPassword"] = !u.keyBlob.empty();   // can log in on other devices
     j["authApp"] = !u.totpSecret.empty();    // logging in needs an authenticator-app code
-    j["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}, {"messages", u.privacyMessages}};
+    j["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}, {"messages", u.privacyMessages}, {"inventory", u.privacyInventory}};
     long long unread = 0;
     if (u.inbox.is_array()) for (const json& m : u.inbox) if (!m.value("read", false)) ++unread;
     j["unreadMessages"] = unread;
@@ -446,6 +446,39 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         r["status"] = u->posts.is_array() && !u->posts.empty() ? u->posts[0] : json();
         r["playerBadges"] = playerBadgesOf(*u);
         r["allPlayerBadges"] = allPlayerBadges();
+        {   // their inventory (the first few; profile.inventory has the rest), unless they hid it
+            const bool canSee = seesInventory(me, *u);
+            json owns = canSee ? inventoryOf(*u, "all") : json::array();
+            json first = json::array();
+            for (size_t i = 0; i < owns.size() && i < 12; ++i) first.push_back(owns[i]);
+            r["inventory"] = {{"hidden", !canSee}, {"total", owns.size()}, {"items", first}};
+        }
+        return r;
+    }
+    if (name == "profile.inventory") {   // everything someone owns from the catalog, a page at a time (worker/server.js)
+        std::string want = str("id");
+        User* u = !want.empty() && want.size() < 12 && std::all_of(want.begin(), want.end(), ::isdigit)
+                      ? findUserId(std::atoll(want.c_str())) : findPerson(want);
+        if (!u || u->userId == 0) return fail("There's no account with that ID on this server.");
+        json r = okay();
+        r["user"] = publicUser(*u);
+        if (!seesInventory(me, *u)) {
+            r["hidden"] = true; r["cat"] = "all"; r["total"] = 0; r["counts"] = json::object(); r["items"] = json::array();
+            return r;
+        }
+        static const char* kCats[] = {"all", "accessories", "clothing", "faces", "gear", "limited"};
+        std::string cat = "all";
+        json counts = json::object();
+        for (const char* c : kCats) {
+            counts[c] = inventoryOf(*u, c).size();
+            if (str("cat") == c) cat = c;
+        }
+        const json list = inventoryOf(*u, cat);
+        const long long offset = std::max(0LL, num("offset"));
+        const long long limit = args.contains("limit") ? std::clamp(num("limit"), 1LL, 100LL) : 60;
+        json items = json::array();
+        for (size_t i = (size_t)offset; i < list.size() && (long long)items.size() < limit; ++i) items.push_back(list[i]);
+        r["hidden"] = false; r["cat"] = cat; r["total"] = list.size(); r["counts"] = counts; r["items"] = items;
         return r;
     }
     if (name == "users.search") {
@@ -1267,7 +1300,7 @@ void GbServer::saveUsers() {
                    {"keyBlob", u.keyBlob}, {"avatar", u.avatar}, {"gameBadges", u.gameBadges}};
         if (!u.totpSecret.empty()) { all[id]["totpSecret"] = u.totpSecret; all[id]["totpLast"] = u.totpLast; }
         if (!u.totpPending.empty()) all[id]["totpPending"] = u.totpPending;
-        all[id]["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}, {"messages", u.privacyMessages}};
+        all[id]["privacy"] = {{"status", u.privacyStatus}, {"join", u.privacyJoin}, {"messages", u.privacyMessages}, {"inventory", u.privacyInventory}};
         all[id]["gear"] = u.gear;
         all[id]["outfits"] = u.outfits;
         all[id]["favorites"] = u.favorites;
@@ -1408,6 +1441,8 @@ void GbServer::load() {
                     u.privacyJoin = ok(jn) ? jn : "everyone";
                     std::string ms = j["privacy"].value("messages", std::string("everyone"));
                     u.privacyMessages = ok(ms) ? ms : "everyone";
+                    std::string inv = j["privacy"].value("inventory", std::string("everyone"));
+                    u.privacyInventory = ok(inv) ? inv : "everyone";
                 }
                 if (j.contains("outfits") && j["outfits"].is_array()) u.outfits = j["outfits"];
                 if (j.contains("inbox") && j["inbox"].is_array()) u.inbox = j["inbox"];

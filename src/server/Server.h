@@ -73,6 +73,7 @@ private:
         nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
         std::string messageDay; int messagesToday = 0;
         std::string privacyMessages = "everyone";            // who can send you messages
+        std::string privacyInventory = "everyone";           // who can see what you own (and trade with you)
         std::string blurb;                                   // "About me"
         nlohmann::json posts = nlohmann::json::array();     // "Right now I'm..." {text, at}, newest first
         std::string statusDay; int statusesToday = 0;
@@ -152,6 +153,10 @@ private:
     // ServerSafety.cpp: blocking people and reporting things to staff.
     nlohmann::json safetyOp(const std::string& name, User& me, const nlohmann::json& args);
     bool blocks(const User& a, const User& b) const;   // has either of them blocked the other?
+    // Inventory on profiles (ServerFriends.cpp, worker/server.js inventoryOf): the catalog
+    // items someone owns, in one group (all, accessories, clothing, faces, gear, limited).
+    bool seesInventory(const User& viewer, const User& u) const;
+    nlohmann::json inventoryOf(const User& u, const std::string& cat) const;
     nlohmann::json reportsJson(const std::string& status) const;   // for the Staff page
     nlohmann::json closeReport(const User& staff, const std::string& id, const std::string& outcome);
     void saveReports();

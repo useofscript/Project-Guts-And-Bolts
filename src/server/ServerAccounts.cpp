@@ -163,6 +163,7 @@ json GbServer::accountOp(const std::string& name, User& me, const json& args) {
         if (ok(str("status"))) me.privacyStatus = str("status");
         if (ok(str("join"))) me.privacyJoin = str("join");
         if (ok(str("messages"))) me.privacyMessages = str("messages");   // who can send you messages
+        if (ok(str("inventory"))) me.privacyInventory = str("inventory");   // who can see your inventory
         saveUsers();
         json r = okay(); r["me"] = meJson(me); return r;
     }
