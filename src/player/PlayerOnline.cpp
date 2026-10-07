@@ -1082,7 +1082,82 @@ void PlayerApp::drawOnlineGameDialog() {
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(100, 38))) { m_openOnlineGame = -1; ImGui::CloseCurrentPopup(); }
     if (!m_onlineMsg.empty()) ImGui::TextWrapped("%s", m_onlineMsg.c_str());
+    drawComments(id);
     ImGui::EndPopup();
+}
+
+// Comments under a game, newest first: a box to write one, then a scrolling list with Delete and Report.
+void PlayerApp::drawComments(const std::string& gameId) {
+    auto load = [this, gameId](const std::string& before) {
+        json args = {{"game", gameId}};
+        if (!before.empty()) args["before"] = before;
+        Online::request("comments.list", args, [this, gameId, before](const json& r) {
+            if (gameId != m_commentsGame || !r.value("ok", false)) return;
+            if (before.empty()) m_comments = r["comments"];
+            else for (const auto& c : r["comments"]) m_comments.push_back(c);
+            m_commentsMore = r.value("more", false);
+            m_commentsOff = r.value("off", false);
+            m_commentCount = r.value("count", 0LL);
+        });
+    };
+    // Posting and deleting answer with the first page again.
+    auto fresh = [this, gameId](const json& r) {
+        if (gameId != m_commentsGame) return;
+        if (!r.value("ok", false)) { m_commentMsg = r.value("error", std::string()); return; }
+        m_commentMsg.clear();
+        m_comments = r["comments"];
+        m_commentsMore = r.value("more", false);
+        m_commentCount = r.value("count", 0LL);
+    };
+    if (gameId != m_commentsGame) {
+        m_commentsGame = gameId;
+        m_comments = json::array();
+        m_commentText.clear();
+        m_commentMsg.clear();
+        m_commentCount = 0;
+        m_commentsOff = false;
+        load("");
+    }
+    ImGui::SeparatorText(("Comments (" + std::to_string(m_commentCount) + ")").c_str());
+    const bool member = !Online::isGuest() && Online::me().value("userId", 0LL) > 0;
+    if (m_commentsOff) ImGui::TextDisabled("Comments are turned off for this game.");
+    else if (!member) ImGui::TextDisabled("Sign up to comment.");
+    else {
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 70);
+        const bool enter = ImGui::InputTextWithHint("##comment", "Say something nice...", &m_commentText, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if ((Classic::button("Post", Classic::kBlue, ImVec2(62, 0)) || enter) && !m_commentText.empty()) {
+            Online::request("comments.post", {{"game", gameId}, {"text", m_commentText}}, fresh);
+            m_commentText.clear();
+        }
+    }
+    if (!m_commentMsg.empty()) ImGui::TextColored(ImVec4(0.75f, 0.2f, 0.15f, 1), "%s", m_commentMsg.c_str());
+    if (m_comments.empty()) { ImGui::TextDisabled("No comments yet."); return; }
+    ImGui::BeginChild("##comments", ImVec2(0, std::min(220.0f, 64.0f * m_comments.size() + 10)), ImGuiChildFlags_Borders);
+    const std::string myId = Online::me().value("id", std::string());
+    for (size_t i = 0; i < m_comments.size(); ++i) {
+        const json c = m_comments[i];
+        const json by = c.value("by", json::object());
+        const std::string cid = c.value("id", std::string()), who = by.value("name", std::string("?"));
+        ImGui::PushID(cid.c_str());
+        if (i) ImGui::Separator();
+        ImGui::TextUnformatted(who.c_str());
+        if (c.value("creator", false)) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.1f, 0.35f, 0.7f, 1), "Creator"); }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", ago(c.value("at", 0LL)).c_str());
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextUnformatted(c.value("text", std::string()).c_str());
+        ImGui::PopTextWrapPos();
+        const bool del = c.value("canDelete", false);
+        if (del && ImGui::SmallButton("Delete")) Online::request("comments.delete", {{"game", gameId}, {"id", cid}}, fresh);
+        if (member && canReport() && by.value("id", std::string()) != myId) {
+            if (del) ImGui::SameLine();
+            if (ImGui::SmallButton("Report")) { m_openOnlineGame = -1; openReport("comment", gameId + ":" + cid, who); }
+        }
+        ImGui::PopID();
+    }
+    if (m_commentsMore && ImGui::SmallButton("Show more")) load(m_comments.back().value("id", std::string()));
+    ImGui::EndChild();
 }
 
 // ---------------------------------------------------------------------------

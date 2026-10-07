@@ -989,7 +989,7 @@ pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
-  const pr = await pageCall('pass.list', { game: g.id });
+  const [pr, cr] = await Promise.all([pageCall('pass.list', { game: g.id }), pageCall('comments.list', { game: g.id })]);
   const passes = pr.ok ? pr.passes.filter((p) => !p.offsale || p.owned) : [];
   const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
@@ -1042,8 +1042,30 @@ pages.game = async (id) => {
     ${passes.length ? html`<h2>Passes</h2><div class="pass-grid">${passes.map(passCard)}</div>` : ''}
     <h2>Servers</h2>
     ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
-      : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
+      : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}
+    ${commentsBlock(g, cr)}`);
 };
+
+// Comments under a game, newest first, 20 at a time.
+const commentRow = (g, c) => html`<div class="comment" data-comment="${c.id}">
+    <a class="face" href="#/user/${c.by.userId || c.by.id}">${c.by.name.slice(0, 1).toUpperCase()}</a>
+    <div class="grow"><p class="comment-head"><a href="#/user/${c.by.userId || c.by.id}"><b>${c.by.name}</b></a>${verified(c.by.verified)}
+        ${c.creator ? html` <span class="badge-pill" title="Made this game">Creator</span>` : ''}
+        <span class="small muted">${ago(c.at)}</span></p>
+      <p class="comment-text">${c.text}</p>
+      <p class="small">${c.canDelete ? html`<a href="#" class="small" data-act="deleteComment" data-game="${g.id}" data-id="${c.id}">Delete</a> ` : ''}
+        ${signedIn() && c.by.id !== me.id ? reportLink('comment', g.id + ':' + c.id, c.by.name) : ''}</p></div></div>`;
+function commentsBlock(g, cr) {
+  if (!cr || !cr.ok) return '';
+  const box = cr.off ? html`<p class="muted">Comments are turned off for this game.</p>`
+    : signedIn() ? html`<form class="comment-form" data-form="comment"><input type="hidden" name="game" value="${g.id}">
+        <textarea name="text" maxlength="200" rows="2" placeholder="Say something nice about ${g.name}..." required></textarea>
+        <button class="btn blue">Post</button><span class="small muted">Up to 200 letters. Be kind.</span></form>`
+    : html`<p class="muted"><a href="#/login">Log in</a> or <a href="#/signup">sign up</a> to comment.</p>`;
+  return html`<h2 id="comments">Comments <span class="small muted">(${cr.count})</span></h2>${box}
+    <div class="comments">${cr.comments.length ? cr.comments.map((c) => commentRow(g, c)) : html`<p class="muted">No comments yet.</p>`}</div>
+    ${cr.more ? html`<p><button class="btn small" data-act="moreComments" data-game="${g.id}" data-before="${cr.comments[cr.comments.length - 1].id}">Show more</button></p>` : ''}`;
+}
 
 // The Catalog, laid out like the old one (see browsePage).
 const CATALOG_CATS = [['featured', 'Featured'], ['collectibles', 'Collectibles'], '-', ['all', 'All Categories'],
@@ -1348,7 +1370,8 @@ pages.configure = async (id) => {
         <p class="small muted">Pick up to 3 genres so people can find your game.</p>
         <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
         <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px">
-        <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label></div>
+        <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label>
+        <label class="choice"><input type="checkbox" name="comments" ${g.comments !== false ? 'checked' : ''}> Allow comments <span class="muted small">(players can comment on its page; you can delete any comment)</span></label></div>
       <div class="box"><h2 class="boxhead">Who can play</h2>
         ${choice('public', 'Public', 'Everyone can find and play it.')}
         ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
@@ -1820,6 +1843,7 @@ function reportsBox(rep, closed) {
     if (x.kind === 'message') return html`a message from ${person(x.about)}`;
     if (x.kind === 'game') return html`the game <a href="#/game/${x.target}">${x.name}</a> by ${person(x.about)}`;
     if (x.kind === 'group') return html`the group <a href="#/group/${x.target}">${x.name}</a> (owner ${person(x.about)})`;
+    if (x.kind === 'comment') return html`a comment by ${person(x.about)} on <a href="#/game/${x.game}">${x.name}</a>`;
     const href = isCatalogItem(x.assetKind) ? '#/item/' + x.target : '#/library/' + x.target;
     return html`<a href="${href}">${x.name}</a> (${KINDS[x.assetKind] || 'item'}) by ${person(x.about)}`;
   };
@@ -1902,6 +1926,7 @@ function noteLink(n) {
   if (n.kind === 'friend' || n.kind === 'follow') return '#/user/' + n.about;
   if (n.kind === 'trade') return '#/trades';
   if (n.kind === 'group') return '#/group/' + n.about;
+  if (n.kind === 'comment') return '#/game/' + n.about;
   if (n.kind === 'sale' || n.kind === 'upload') return '#/library/' + n.about;
   return '';
 }
@@ -1909,7 +1934,7 @@ pages.notifications = async () => {
   if (!signedIn()) { show(html`<h1>Notifications</h1>${needSignIn('see your notifications')}`); return; }
   const r = await pageCall('notes.list', {});
   if (!r.ok) { show(html`<h1>Notifications</h1><p class="error">${r.error}</p>`); return; }
-  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥' };
+  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥', comment: '💬' };
   show(html`<h1>Notifications</h1>
     <div class="list notes">${r.notes.length ? r.notes.map((n) => {
       const link = noteLink(n);
@@ -2263,6 +2288,21 @@ const actions = {
     toast(r.ok ? ({ 'trade.accept': 'Trade done!', 'trade.decline': 'Declined.', 'trade.cancel': 'Cancelled.' }[d.op]) : r.error);
     render();
   },
+  async deleteComment(d) {
+    if (!confirm('Delete this comment?')) return;
+    const r = await call('comments.delete', { game: d.game, id: d.id });
+    if (!r.ok) { toast(r.error); return; }
+    const el = view.querySelector('[data-comment="' + d.id + '"]');
+    if (el) el.remove();
+  },
+  async moreComments(d, el) {
+    const r = await call('comments.list', { game: d.game, before: d.before });
+    if (!r.ok) { toast(r.error); return; }
+    const g = { id: d.game };
+    view.querySelector('.comments').insertAdjacentHTML('beforeend', r.comments.map((c) => commentRow(g, c).s).join(''));
+    if (r.more && r.comments.length) el.dataset.before = r.comments[r.comments.length - 1].id;
+    else el.remove();
+  },
   async vote(d) {
     if (!signedIn()) { loginPopup('vote on games'); return; }
     const r = await call('game.vote', { id: d.id, vote: Number(d.vote) });
@@ -2282,7 +2322,7 @@ const actions = {
   // Report something to staff: pick what's wrong, add a note, and (for people and messages) block them too.
   report(d) {
     const what = { user: d.name, game: 'the game "' + d.name + '"', item: '"' + d.name + '"', message: 'this message from ' + d.name,
-      group: 'the group "' + d.name + '"' }[d.kind] || d.name;
+      group: 'the group "' + d.name + '"', comment: 'this comment by ' + d.name }[d.kind] || d.name;
     const blockId = d.kind === 'user' ? d.id : d.kind === 'message' ? d.user : '';
     popup(html`<h1 class="popup-title">Report ${what}</h1>
       <p>Guts&amp;Bolts staff will look at it. The person you report isn't told who sent it.</p>
@@ -2494,6 +2534,11 @@ const actions = {
 };
 
 const forms = {
+  async comment(f) {
+    const r = await call('comments.post', { game: f.game.value, text: f.text.value });
+    if (!r.ok) { toast(r.error); return; }
+    render();
+  },
   async postUpdate(f) {
     const r = await call('updates.post', { name: f.name.value, version: f.version.value, tag: f.tag.value,
       summary: f.summary.value, items: f.items.value.split('\n').map((x) => x.trim()).filter(Boolean) });
@@ -2642,7 +2687,7 @@ const forms = {
       const genres = [...f.querySelectorAll('input[name=genre]:checked')].map((x) => x.value);
       if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
       let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
-        genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked });
+        genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked, comments: f.comments.checked });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
         r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });

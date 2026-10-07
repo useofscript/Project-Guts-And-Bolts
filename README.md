@@ -2035,6 +2035,20 @@ lets you in, and when staff check something you uploaded. Each one takes you to 
 right page. The newest 50 are kept. Both servers do the same (`notify` in
 `worker/server.js` and `src/server/Server.cpp`).
 
+### Comments under games
+
+Every game's page has comments (the website's game page, and the game window in the
+Player). Anyone can read them; signed-up players can write one, up to 200 letters,
+one every 15 seconds. The text filter applies, like everywhere else.
+
+- You can delete your own comments. A game's creator and staff can delete any comment
+  on it, and the creator can turn comments off on the game's Configure page.
+- Each comment has a **Report** link, and staff see a copy of it with the report.
+- The creator gets a notification when someone comments. Blocked people's comments
+  are hidden from you, and they can't comment on your games.
+- The newest 500 comments are kept (`comments.*` in `worker/server.js` and
+  `src/server/ServerSocial.cpp`).
+
 ### Creator stats (how your stuff is doing)
 
 **Create > Stats** (on the website and in the Player) shows how everything you made

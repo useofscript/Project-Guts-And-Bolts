@@ -116,7 +116,9 @@ const kMaxInbox = 100, kMaxSent = 50, kMessagesPerDay = 40;
 const kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10, kStatusesPerDay = 30;
 // Blocking and reports (ServerSafety.cpp has the same).
 const kMaxBlocked = 200, kReportsPerDay = 20, kMaxReports = 3000;
-const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group'];
+const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group', 'comment'];
+// Comments under games (ServerSocial.cpp has the same): the newest kMaxComments are kept.
+const kMaxComments = 500, kCommentLength = 200, kCommentCooldown = 15, kCommentsPage = 20;
 // Player badges (ServerSocial.cpp has the same list): earned automatically, checked
 // whenever a profile is looked at. `need` says how to get one.
 const PLAYER_BADGES = [
@@ -141,7 +143,7 @@ const kPoolMost = 50, kPoolStartWait = 25;
 // DataStores: names and keys up to 100 letters, values up to 256 KB of JSON, 100,000 keys a game.
 const kDataName = 100, kDataValue = 256 * 1024, kDataKeys = 100000;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list', 'comments.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -821,6 +823,7 @@ export class GbServerObject extends DurableObject {
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
       favorites: a.kind === 'game' ? (a.favorites || 0) : undefined,
+      comments: a.kind === 'game' ? !a.commentsOff : undefined, commentCount: a.kind === 'game' ? (a.comments || []).length : undefined,
       myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
       offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined };
   }
@@ -1106,6 +1109,7 @@ export class GbServerObject extends DurableObject {
       }
       if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
       if ('allowGear' in args) a.allowGear = args.allowGear === true;
+      if ('comments' in args) a.commentsOff = args.comments === false;
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
@@ -1266,6 +1270,42 @@ export class GbServerObject extends DurableObject {
       a.dislikes = (a.dislikes || 0) + (v === -1 ? 1 : 0);
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
+    }
+    // --- Comments under a game, newest first. Anyone can read; signed-up players can write. ---
+    if (name === 'comments.list' || name === 'comments.post' || name === 'comments.delete') {
+      const a = this.assets.get(str(args, 'game'));
+      if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (!this.canPlay(a, me)) return fail(this.noPlay(a));
+      const list = a.comments || (a.comments = []);
+      const mod = a.creator === me.id || this.isStaff(me);
+      if (name === 'comments.post') {
+        if (me.userId === 0) return fail('Sign up to comment.');
+        if (a.commentsOff) return fail('Comments are turned off for this game.');
+        const owner = this.users.get(a.creator);
+        if (owner && this.blocks(me, owner)) return fail('You can\'t comment on this game.');
+        const text = say(str(args, 'text'), kCommentLength);
+        if (!text) return fail('Write something first.');
+        const key = 'c:' + me.id;
+        if (t - (this.lastPost.get(key) || 0) < kCommentCooldown) return fail('Slow down a little - wait a few seconds between comments.');
+        this.lastPost.set(key, t);
+        list.unshift({ id: randomHex(6), by: me.id, text, at: t });
+        if (list.length > kMaxComments) list.length = kMaxComments;
+        this.saveAsset(a);
+        if (owner && owner.id !== me.id) this.notify(owner, 'comment', me.name + ' commented on ' + a.name + ': "' + text.slice(0, 60) + '"', a.id);
+      }
+      if (name === 'comments.delete') {
+        const i = list.findIndex((c) => c.id === str(args, 'id'));
+        if (i < 0) return fail('That comment is already gone.');
+        if (list[i].by !== me.id && !mod) return fail('You can only delete your own comments.');
+        list.splice(i, 1);
+        this.saveAsset(a);
+      }
+      // A page of comments: "before" is the id of the last one you already have.
+      const before = str(args, 'before'), from = before ? list.findIndex((c) => c.id === before) + 1 : 0;
+      const shown = list.slice(from, from + kCommentsPage).filter((c) => !this.blocks(me, this.users.get(c.by)));
+      const who = (id) => { const u = this.users.get(id); return u ? { id: u.id, userId: u.userId, name: u.name, verified: this.isVerified(u), staff: this.isStaff(u) } : { id, userId: 0, name: '?' }; };
+      return okay({ comments: shown.map((c) => ({ id: c.id, text: c.text, at: c.at, by: who(c.by), creator: c.by === a.creator,
+        canDelete: me.userId !== 0 && (c.by === me.id || mod) })), more: from + kCommentsPage < list.length, off: !!a.commentsOff, count: list.length });
     }
     if (name === 'icon.get') {
       // A game's icon (the app shows it while you connect).
@@ -2347,6 +2387,13 @@ export class GbServerObject extends DurableObject {
         if (!m) return fail('That message isn\'t in your inbox any more.');
         // Staff see a copy: the sender can't delete it from here.
         target = m.id; about = m.from; copy = { subject: m.subject, body: m.body, at: m.at };
+      } else if (kind === 'comment') {
+        // id: "game:comment". Staff see a copy, in case it's deleted.
+        const [gid, cid] = id.split(':');
+        const a = this.assets.get(gid), c = a && (a.comments || []).find((x) => x.id === cid);
+        if (!c) return fail('That comment isn\'t there any more.');
+        if (c.by === me.id) return fail('You can\'t report yourself.');
+        target = id; about = c.by; copy = { subject: 'Comment on ' + a.name, body: c.text, at: c.at };
       } else {
         const g = this.groups.get(id);
         if (!g) return fail('That group isn\'t there any more.');
@@ -2378,6 +2425,7 @@ export class GbServerObject extends DurableObject {
         reports: list.filter((y) => y.kind === x.kind && y.target === x.target).length };
       if (x.kind === 'game' || x.kind === 'item') { const a = this.assets.get(x.target); r.name = a ? a.name : '(deleted)'; r.assetKind = a ? a.kind : ''; }
       if (x.kind === 'group') { const g = this.groups.get(x.target); r.name = g ? g.name : '(deleted)'; }
+      if (x.kind === 'comment') { const a = this.assets.get(x.target.split(':')[0]); r.name = a ? a.name : '(deleted)'; r.game = a ? a.id : ''; }
       if (x.status === 'closed') { r.outcome = x.outcome; r.closedBy = who(x.closedBy); r.closedAt = x.closedAt; }
       return r;
     });

@@ -10,6 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'peanut-gallery', name: 'The Peanut Gallery', time: 1791345000, tag: 'Website',
+    summary: 'Comments under games: tell a creator what you think of their game.',
+    items: [
+      'Every game page has comments now, on the website and in the app',
+      'Delete your own comments; creators can delete any on their game, or turn comments off',
+      'Report a comment if it breaks the rules, and creators get a notification for new ones',
+    ],
+  },
+  {
     id: 'number-go-up', name: 'Number Go Up', time: 1791343500, tag: 'Website',
     summary: 'Creator stats: see how your games and items are doing, day by day.',
     items: [
