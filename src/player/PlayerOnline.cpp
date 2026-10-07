@@ -358,9 +358,9 @@ void PlayerApp::drawOnlineItemDialog() {
 namespace {
 
 // The Create page's tabs. The first is your games; the rest are upload kinds.
-const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "T-Shirts", "Pants", "Plugins", "Library"};
-const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "tshirt", "pants", "plugin", "library"};
-constexpr int     kCreateTabCount = 9;   // (the last one is PlayerApp::kLibraryTab)
+const char* const kCreateTabs[]  = {"My Games", "Decals", "Audio", "Hats", "Shirts", "T-Shirts", "Pants", "Plugins", "Library", "Stats"};
+const char* const kCreateKinds[] = {"", "decal", "audio", "hat", "shirt", "tshirt", "pants", "plugin", "library", "stats"};
+constexpr int     kCreateTabCount = 10;   // (the last two are PlayerApp::kLibraryTab and kStatsTab)
 
 std::string readWholeFile(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
@@ -816,6 +816,93 @@ void PlayerApp::drawMyUploads(const std::string& kind) {
     if (shown == 0) ImGui::TextDisabled("Nothing yet.");
 }
 
+// Create > Stats (the website's Create > Stats has the same): totals for the last 30 days, then
+// each game or item with little bar charts of plays, sales and Bolts earned per day.
+void PlayerApp::drawStats() {
+    if (!Online::online() || Online::isGuest()) {
+        ImGui::TextDisabled("Log in to see how your games and items are doing.");
+        return;
+    }
+    if (ImGui::GetTime() - m_statsAt > 30.0) {
+        m_statsAt = ImGui::GetTime();
+        Online::request("creator.stats", json::object(), [this](const json& r) { if (r.value("ok", false)) m_stats = r; });
+    }
+    if (!m_stats.is_object() || !m_stats.contains("items")) { ImGui::TextDisabled("Loading..."); return; }
+    const json& items = m_stats["items"];
+    const json& days = m_stats["days"];
+    auto sum = [](const json& a) { long long n = 0; if (a.is_array()) for (const auto& v : a) n += v.get<long long>(); return n; };
+    auto counts = [](const json& a) { const std::string k = a.value("kind", std::string()); return k != "gamepass" && k != "devproduct"; };
+    long long plays = 0, sales = 0, earned = 0;
+    for (const auto& a : items) if (counts(a)) { plays += sum(a["plays30"]); sales += sum(a["sales30"]); earned += sum(a["bolts30"]); }
+
+    // The three totals, side by side.
+    const float tileW = std::max(120.0f, (ImGui::GetContentRegionAvail().x - 2 * ImGui::GetStyle().ItemSpacing.x) / 3);
+    auto tile = [&](const char* id, long long n, const char* label) {
+        ImGui::BeginChild(id, ImVec2(tileW, 64), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::SetWindowFontScale(1.6f);
+        ImGui::Text("%lld", n);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextDisabled("%s", label);
+        ImGui::EndChild();
+    };
+    tile("plays", plays, "plays in 30 days"); ImGui::SameLine();
+    tile("sales", sales, "sales in 30 days"); ImGui::SameLine();
+    tile("bolts", earned, "Bolts earned in 30 days");
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Plays count when someone else opens your game. Passes and products bought inside a game count on that game too.");
+    ImGui::PopTextWrapPos();
+
+    // A little bar chart; hovering a bar shows its day.
+    auto bars = [&](const char* label, const json& vals, const char* unit) {
+        ImGui::TextDisabled("%s, last 30 days: %lld", label, sum(vals));
+        const float w = std::min(ImGui::GetContentRegionAvail().x, 360.0f), h = 36.0f;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton(label, ImVec2(w, h));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), IM_COL32(235, 238, 243, 255), 2.0f);
+        long long top = 1;
+        for (const auto& v : vals) top = std::max(top, v.get<long long>());
+        const int n = (int)vals.size();
+        const float step = n > 0 ? w / n : w;
+        for (int i = 0; i < n; ++i) {
+            const long long v = vals[i].get<long long>();
+            const float bh = v ? std::max(2.0f, h * (float)v / (float)top) : 0.0f;
+            const ImVec2 a(p.x + i * step + 1, p.y + h - bh), b(p.x + (i + 1) * step - 1, p.y + h);
+            const bool hot = ImGui::IsItemHovered() && ImGui::GetIO().MousePos.x >= a.x - 1 && ImGui::GetIO().MousePos.x < b.x + 1;
+            if (bh > 0) dl->AddRectFilled(a, b, hot ? IM_COL32(22, 163, 74, 255) : IM_COL32(29, 111, 216, 255));
+            if (hot && i < (int)days.size()) ImGui::SetTooltip("%s: %lld %s", days[i].get<std::string>().c_str(), v, unit);
+        }
+    };
+    auto card = [&](const json& a) {
+        const std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
+        ImGui::PushID(id.c_str());
+        ImGui::Separator();
+        ImGui::Text("%s", a.value("name", std::string()).c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s)", Online::kindTitle(kind));
+        if (kind == "game")
+            ImGui::TextDisabled("%lld plays  -  %lld playing now  -  %lld favorites  -  %lld likes, %lld dislikes  -  %lld Bolts earned (60 days)",
+                                a.value("plays", 0LL), a.value("playing", 0LL), a.value("favorites", 0LL), a.value("likes", 0LL),
+                                a.value("dislikes", 0LL), a.value("bolts60", 0LL));
+        else
+            ImGui::TextDisabled("%lld sold  -  %lld Bolts each  -  %lld Bolts earned (60 days)", a.value("sales", 0LL), a.value("price", 0LL),
+                                a.value("bolts60", 0LL));
+        if (kind == "game") bars("Plays", a["plays30"], "plays");
+        bars(kind == "game" ? "Things bought in it" : "Sales", a["sales30"], "sales");
+        bars("Bolts earned", a["bolts30"], "Bolts");
+        ImGui::PopID();
+    };
+    ImGui::SeparatorText("Games");
+    int shown = 0;
+    for (const auto& a : items) if (a.value("kind", std::string()) == "game") { card(a); ++shown; }
+    if (!shown) ImGui::TextDisabled("You haven't published a game yet.");
+    ImGui::SeparatorText("Things you sell");
+    shown = 0;
+    for (const auto& a : items)
+        if (a.value("kind", std::string()) != "game" && (a.value("price", 0LL) > 0 || a.value("sales", 0LL) > 0)) { card(a); ++shown; }
+    if (!shown) ImGui::TextDisabled("Nothing sold yet.");
+}
+
 void PlayerApp::drawCreate() {
     ImGui::SetWindowFontScale(1.5f);
     ImGui::TextUnformatted("Create");
@@ -850,6 +937,7 @@ void PlayerApp::drawCreate() {
 
     if (m_createKind == 0) { drawMyGames(); return; }
     if (m_createKind == kLibraryTab) { drawLibrary(); return; }
+    if (m_createKind == kStatsTab) { drawStats(); return; }
     stopAssetSound();
     const std::string kind = kCreateKinds[m_createKind];
 

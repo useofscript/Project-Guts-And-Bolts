@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'number-go-up', name: 'Number Go Up', time: 1791343500, tag: 'Website',
+    summary: 'Creator stats: see how your games and items are doing, day by day.',
+    items: [
+      'New Stats tab on the Create page, on the website and in the app',
+      'Plays, people playing now, favorites, likes, sales and Bolts earned for everything you made',
+      'Little bar charts for the last 30 days (hover a bar to see the day)',
+      'Passes and products bought inside a game count toward that game',
+    ],
+  },
+  {
     id: 'cha-ching-forever', name: 'Cha-Ching Forever', time: 1791342000, tag: 'Engine',
     summary: 'Developer products: sell things inside your game that players can buy again and again, like coins or a revive.',
     items: [

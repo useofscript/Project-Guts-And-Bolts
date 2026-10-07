@@ -185,6 +185,10 @@ private:
     void drawFeed();
     // Create > Library: public models, decals, audio and plugins, each with its own page (PlayerLibrary.cpp)
     static constexpr int kLibraryTab = 8;
+    static constexpr int kStatsTab = 9;   // Create > Stats: how your games and items are doing
+    void     drawStats();
+    nlohmann::json m_stats;
+    double         m_statsAt = -100.0;
     void     drawLibrary();
     void     drawAsset();
     void     openAsset(const std::string& id);   // "gb:decal-..." or just "decal-..."
