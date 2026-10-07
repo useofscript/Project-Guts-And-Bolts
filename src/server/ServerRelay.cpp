@@ -168,7 +168,7 @@ void GbServer::relayRequest(Client& c, const json& req) {
         s.id = "s-" + Account::randomHex(6);
         s.game = Online::cleanText(args.value("game", std::string()), 80);
         if (auto f = findAsset(s.game); f != m_assets.end()) s.game = f->first;
-        s.title = Online::cleanText(args.value("title", std::string()), 60);
+        s.title = say(args.value("title", std::string()), 60);
         if (s.title.empty()) s.title = "A game";
         s.host = me->id;
         s.priv = args.value("private", false);

@@ -36,6 +36,88 @@ int PlayerApp::unreadMessages() const {
     return Online::online() ? (int)Online::me().value("unreadMessages", 0LL) : 0;
 }
 
+// ---------------------------------------------------------------------------
+// The bell: friend requests, sales, uploads checked by staff... (worker/server.js
+// "notes.list"). Opening it marks them all read.
+// ---------------------------------------------------------------------------
+
+void PlayerApp::drawBell(ImVec2 c) {
+    if (!Online::online() || Online::isGuest() || Online::me().value("userId", 0LL) == 0) return;
+    const int unread = (int)Online::me().value("unreadNotes", 0LL);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImGui::SetCursorScreenPos(ImVec2(c.x - 13, c.y - 13));
+    const bool clicked = ImGui::InvisibleButton("##bell", ImVec2(26, 26));
+    if (ImGui::IsItemHovered()) {
+        dl->AddCircleFilled(c, 13, IM_COL32(255, 255, 255, 60));
+        ImGui::SetTooltip("Notifications");
+    }
+    // A little bell: dome, rim and clapper.
+    const ImU32 col = IM_COL32(255, 255, 255, 255), shade = IM_COL32(0, 30, 80, 140);
+    for (int pass = 0; pass < 2; ++pass) {
+        const ImVec2 o = pass == 0 ? ImVec2(c.x + 1, c.y + 1) : c;
+        const ImU32 k = pass == 0 ? shade : col;
+        dl->PathArcTo(ImVec2(o.x, o.y - 1), 6.5f, 3.14159f, 6.28318f);
+        dl->PathLineTo(ImVec2(o.x + 6.5f, o.y + 4));
+        dl->PathLineTo(ImVec2(o.x + 8.5f, o.y + 6));
+        dl->PathLineTo(ImVec2(o.x - 8.5f, o.y + 6));
+        dl->PathLineTo(ImVec2(o.x - 6.5f, o.y + 4));
+        dl->PathFillConvex(k);
+        dl->AddCircleFilled(ImVec2(o.x, o.y + 8.5f), 2.2f, k);
+        dl->AddCircleFilled(ImVec2(o.x, o.y - 8.5f), 1.6f, k);
+    }
+    if (unread > 0) {
+        const std::string n = unread > 99 ? "99+" : std::to_string(unread);
+        const ImVec2 ts = ImGui::CalcTextSize(n.c_str());
+        const ImVec2 b(c.x + 8, c.y - 8);
+        const float r = std::max(7.0f, ts.x * 0.5f + 3);
+        dl->AddRectFilled(ImVec2(b.x - r, b.y - 7), ImVec2(b.x + r, b.y + 7), IM_COL32(214, 38, 28, 255), 7.0f);
+        dl->AddText(ImVec2(b.x - ts.x * 0.5f, b.y - ts.y * 0.5f), IM_COL32(255, 255, 255, 255), n.c_str());
+    }
+    if (clicked) {
+        ImGui::OpenPopup("##notes");
+        m_notesLoaded = false;
+        Online::request("notes.list", json::object(), [this](const json& r) {
+            if (!r.value("ok", false)) return;
+            m_notes = r.value("notes", json::array());
+            m_notesLoaded = true;
+            bool any = false;
+            for (const json& n : m_notes) if (!n.value("read", false)) any = true;
+            if (any) Online::request("notes.read", json::object());   // (the reply refreshes the count)
+        });
+    }
+    ImGui::SetNextWindowPos(ImVec2(c.x + 14, c.y + 16), ImGuiCond_Appearing, ImVec2(1, 0));
+    ImGui::SetNextWindowSize(ImVec2(360, 0));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(360, 420));
+    if (!ImGui::BeginPopup("##notes")) return;
+    ImGui::TextUnformatted("Notifications");
+    ImGui::Separator();
+    if (!m_notesLoaded) ImGui::TextDisabled("Loading...");
+    else if (m_notes.empty()) ImGui::TextDisabled("Nothing yet. Friend requests, sales and more show up here.");
+    for (size_t i = 0; i < m_notes.size(); ++i) {
+        const json& n = m_notes[i];
+        const std::string kind = n.value("kind", std::string()), about = n.value("about", std::string());
+        ImGui::PushID((int)i);
+        const bool unreadOne = !n.value("read", false);
+        if (unreadOne) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.05f, 0.25f, 0.6f, 1));
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextUnformatted(n.value("text", std::string()).c_str());   // (wraps; click it to go there)
+        ImGui::PopTextWrapPos();
+        if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        const bool go = ImGui::IsItemClicked();
+        if (unreadOne) ImGui::PopStyleColor();
+        ImGui::TextDisabled("%s", agoText(n.value("at", 0LL)).c_str());
+        if (go) {
+            if (kind == "friendRequest") { m_page = Page::Friends; m_friendsAt = -100.0; }
+            else if (kind == "friend" || kind == "follow") openProfile(about);
+            else if (kind == "group") openGroup(about);
+            else if (kind == "upload" || kind == "sale") openAsset(about);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndPopup();
+}
+
 void PlayerApp::openNewMessage(const std::string& to, const std::string& subject) {
     m_page = Page::Messages;
     m_msgBox = "new";

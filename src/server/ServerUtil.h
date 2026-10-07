@@ -9,6 +9,7 @@
 #include <string>
 #include <nlohmann/json.hpp>
 #include "../online/Protocol.h"
+#include "../core/TextFilter.h"
 
 namespace ServerUtil {
 
@@ -23,6 +24,10 @@ inline bool isHex(const std::string& s, size_t minLen, size_t maxLen) {
     if (s.size() < minLen || s.size() > maxLen) return false;
     for (char c : s) if (!std::isxdigit((unsigned char)c)) return false;
     return true;
+}
+// What people write for others to read goes through the text filter (core/TextFilter).
+inline std::string say(const std::string& s, size_t maxLen, bool allowNewlines = false) {
+    return TextFilter::filter(Online::cleanText(s, maxLen, allowNewlines));
 }
 inline json fail(const std::string& why) { return {{"ok", false}, {"error", why}}; }
 inline json okay() { return {{"ok", true}}; }

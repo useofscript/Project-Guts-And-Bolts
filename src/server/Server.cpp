@@ -151,6 +151,17 @@ GbServer::User* GbServer::findUser(const std::string& id) {
     return it == m_users.end() ? nullptr : &it->second;
 }
 
+// The bell (worker/server.js has the same): tell someone something happened. kind says what
+// (the apps pick an icon and a page from it), about is what it's about. Saved with the account.
+void GbServer::notify(User* u, const std::string& kind, const std::string& text, const std::string& about) {
+    if (!u || u->userId == 0) return;
+    if (!u->notes.is_array()) u->notes = json::array();
+    u->notes.insert(u->notes.begin(), json{{"id", Account::randomHex(5)}, {"kind", kind}, {"text", text}, {"about", about},
+                                           {"at", Online::unixNow()}, {"read", false}});
+    if (u->notes.size() > 50) u->notes.erase(u->notes.begin() + 50, u->notes.end());
+    saveUsers();
+}
+
 GbServer::User& GbServer::user(const std::string& id) {
     auto it = m_users.find(id);
     if (it != m_users.end()) return it->second;
@@ -215,6 +226,9 @@ json GbServer::meJson(const User& u) const {
     long long unread = 0;
     if (u.inbox.is_array()) for (const json& m : u.inbox) if (!m.value("read", false)) ++unread;
     j["unreadMessages"] = unread;
+    long long unreadNotes = 0;
+    if (u.notes.is_array()) for (const json& n : u.notes) if (!n.value("read", false)) ++unreadNotes;
+    j["unreadNotes"] = unreadNotes;
     json gear = json::array();
     for (const auto& g : u.gear) if (u.owned.count(g)) gear.push_back(g);
     j["gear"] = gear;
@@ -251,8 +265,25 @@ json GbServer::meJson(const User& u) const {
     return j;
 }
 
+ // Upload review (worker/server.js has the same): new decals, sounds and T-shirts from creators
+// who aren't Verified wait for staff (meta "review": "pending" or "rejected"). Until then only
+// the creator and staff can see them.
+static bool reviewedKind(const std::string& kind) { return kind == "decal" || kind == "audio" || kind == "tshirt"; }
+static std::string reviewOf(const nlohmann::json& meta) { return meta.is_object() ? meta.value("review", std::string()) : std::string(); }
+
 bool GbServer::canSee(const Asset& a, const User& me) const {
+    if (!reviewOf(a.meta).empty() && a.creator != me.id && !isStaff(me)) return false;
     return !Online::hasAccess(a.kind) || a.meta.value("access", std::string("public")) != "private" || a.creator == me.id || isStaff(me);
+}
+
+json GbServer::uploadsToReview() const {
+    std::vector<const Asset*> list;
+    for (const auto& [id, a] : m_assets) if (reviewOf(a.meta) == "pending") list.push_back(&a);
+    auto when = [](const Asset* a) { return std::max(a->created, a->meta.value("updated", 0LL)); };
+    std::sort(list.begin(), list.end(), [&](const Asset* x, const Asset* y) { return when(x) < when(y); });   // oldest first
+    json out = json::array();
+    for (size_t i = 0; i < list.size() && i < 50; ++i) out.push_back(publicAsset(*list[i]));
+    return out;
 }
 
 json GbServer::publicAsset(const Asset& a) const {
@@ -269,6 +300,10 @@ json GbServer::publicAsset(const Asset& a) const {
     const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL;
     j["offsaleAt"] = off;
     j["offsale"] = off > 0 && Online::unixNow() >= off;
+    if (const std::string review = reviewOf(a.meta); !review.empty()) {
+        j["review"] = review;
+        j["reviewNote"] = a.meta.value("reviewNote", std::string());
+    }
     return j;
 }
 
@@ -287,7 +322,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         std::string n = Online::cleanText(str("name"), 20);
         if (me.userId > 0) n = me.username;   // signed up: your name is your username
         if (!n.empty()) {
-            if (Account::nameIsReserved(n) && !isOfficial(me)) n = "Player";
+            if ((Account::nameIsReserved(n) && !isOfficial(me)) || TextFilter::changes(n)) n = "Player";
             me.name = n;
         }
         // Badges this player got offline (with a code) come along for the ride.
@@ -440,7 +475,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name.rfind("data.", 0) == 0) return dataOp(name, me, args);
     if (name.rfind("block.", 0) == 0 || name.rfind("report.", 0) == 0) return safetyOp(name, me, args);
-    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
+    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name.rfind("notes.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
         name == "profile.set" || name == "feed.list")
         return socialOp(name, me, args);
     if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
@@ -571,6 +606,21 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             }
             json r = okay(); r["users"] = list; return r;
         }
+        if (name == "admin.uploads") { json r = okay(); r["uploads"] = uploadsToReview(); return r; }
+        if (name == "admin.review") {
+            auto it = findAsset(str("id"));
+            if (it == m_assets.end() || reviewOf(it->second.meta).empty()) return fail("That isn't waiting for a check any more.");
+            Asset& a = it->second;
+            const bool ok = args.value("ok", false) == true;
+            if (ok) { a.meta.erase("review"); a.meta.erase("reviewNote"); }
+            else { a.meta["review"] = "rejected"; a.meta["reviewNote"] = Online::cleanText(str("note"), 200); }
+            const std::string note = a.meta.value("reviewNote", std::string());
+            notify(findUser(a.creator), "upload", ok ? a.name + " passed the staff check. Everyone can see it now."
+                   : a.name + " didn't pass the staff check." + (note.empty() ? "" : " Staff said: \"" + note + "\""), a.id);
+            a.meta["reviewedBy"] = me.id;
+            saveAssets();
+            json r = okay(); r["uploads"] = uploadsToReview(); return r;
+        }
         if (name == "admin.reports") {
             json r = okay(); r["reports"] = reportsJson(str("status") == "closed" ? "closed" : "open"); return r;
         }
@@ -643,9 +693,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name == "upload") {
         std::string kind = str("kind");
         if (!Online::validKind(kind)) return fail("You can't upload that kind of thing.");
-        std::string title = Online::cleanText(str("name"), 50);
+        std::string title = say(str("name"), 50);
         if (title.empty()) return fail("Give it a name.");
-        std::string desc = Online::cleanText(str("description"), 1000, true);
+        std::string desc = say(str("description"), 1000, true);
         const bool verified = isVerified(me);
         if (kind == "gear" && !isStaff(me)) return fail("Only Guts&Bolts staff can make gear.");
         if (Online::isAccessory(kind) && !verified && !isStaff(me))
@@ -668,6 +718,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         meta.erase("image");
         meta.erase("model");
         meta.erase("allowGear");
+        meta.erase("review");
+        meta.erase("reviewNote");
+        if (reviewedKind(kind) && !verified && !isStaff(me)) meta["review"] = "pending";
         if (kind == "gear")
             if (std::string problem = Online::gearProblem(data); !problem.empty()) return fail(problem);
         if (kind == "animation") {   // from Studio's Animation Editor (worker/server.js has the same)
@@ -766,7 +819,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             for (const auto& [id, x] : m_assets) count += x.kind == "gamepass" && x.meta.value("game", std::string()) == g.id;
             if (count >= Online::kMostPasses) return fail("A game can have at most " + std::to_string(Online::kMostPasses) + " passes.");
         }
-        const std::string title = creating || args.contains("name") ? Online::cleanText(str("name"), 50) : pass->name;
+        const std::string title = creating || args.contains("name") ? say(str("name"), 50) : pass->name;
         if (title.empty()) return fail("Give the pass a name.");
         const long long price = creating || args.contains("price") ? std::clamp(num("price"), 0LL, 1000000LL) : pass->price;
         if (price > 0 && !isVerified(me) && !isStaff(me))
@@ -795,7 +848,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         }
         pass->name = title;
         pass->price = price;
-        if (args.contains("description")) pass->description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("description")) pass->description = say(str("description"), 1000, true);
         if (args.contains("offsale")) pass->meta["offsaleAt"] = args["offsale"] == true ? 1LL : 0LL;
         if (!icon.empty() && writeFile(m_opts.data / "files" / ("thumb-" + pass->id), icon)) pass->thumb = t;
         saveAssets();
@@ -835,7 +888,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             json r = okay(); r["badges"] = g.badges; return r;
         }
         if (g.badges.size() >= 30) return fail("A game can have up to 30 badges.");
-        std::string title = Online::cleanText(str("name"), 40);
+        std::string title = say(str("name"), 40);
         if (title.empty()) return fail("Give the badge a name.");
         json col = json::array({240, 180, 40});
         if (args.contains("color") && args["color"].is_array() && args["color"].size() == 3) {
@@ -843,7 +896,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             for (const auto& v : args["color"]) col.push_back(std::clamp(v.is_number() ? v.get<int>() : 0, 0, 255));
         }
         json b = {{"id", "badge-" + Account::randomHex(5)}, {"name", title},
-                  {"description", Online::cleanText(str("description"), 300, true)}, {"color", col},
+                  {"description", say(str("description"), 300, true)}, {"color", col},
                   {"created", Online::unixNow()}, {"awarded", 0}};
         g.badges.push_back(b);
         saveAssets();
@@ -900,9 +953,14 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 return fail("That isn't a Guts&Bolts accessory.");
         }
         if ((!Online::isClothing(a.kind) || model) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
-        std::string title = Online::cleanText(str("name"), 50);
+        // A new picture or sound gets checked again.
+        if (reviewedKind(a.kind) && !Online::isClothing(a.kind) && !isVerified(me) && !isStaff(me)) {
+            a.meta["review"] = "pending";
+            a.meta.erase("reviewNote");
+        }
+        std::string title = say(str("name"), 50);
         if (!title.empty()) a.name = title;
-        if (args.contains("description")) a.description = Online::cleanText(str("description"), 1000, true);
+        if (args.contains("description")) a.description = say(str("description"), 1000, true);
         if (args.contains("price") && a.kind != "game" && !Online::alwaysFree(a.kind)) {
             long long price = std::clamp(num("price"), 0LL, 1000000LL);
             if (price > 0 && !isVerified(me)) return fail("Only Verified creators can sell things.");
@@ -980,7 +1038,11 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         const bool mine = me.owned.count(a.id) || a.creator == me.id;
         if (a.price > 0 && !mine && !isStaff(me) && (a.kind == "plugin" || a.kind == "audio" || a.kind == "gear"))
             return fail("Buy it first.");
-        if (!canSee(a, me)) return fail(a.kind == "animation" ? "This animation is private." : "This model is private.");
+        if (!canSee(a, me)) {
+            const std::string review = reviewOf(a.meta);
+            return fail(review == "pending" ? "This is waiting for a staff check." : review == "rejected" ? "This didn't pass the staff check."
+                        : a.kind == "animation" ? "This animation is private." : "This model is private.");
+        }
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
         if (a.kind == "game") { rememberPlayed(me, a.id); saveUsers(); }   // "Continue playing"
@@ -992,6 +1054,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
+        if (!reviewOf(a.meta).empty() && a.creator != me.id) return fail("This is waiting for a staff check.");
         if (a.meta.is_object() && a.meta.value("award", std::string()) == "email")
             return fail("This hat can't be bought: confirm an email in Settings and it's yours.");
         if (const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL; off > 0 && now >= off)
@@ -1003,6 +1066,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (User* seller = findUser(a.creator); seller && seller != &me) {
                 long long share = a.price * Online::kCreatorSharePercent / 100;
                 if (share > 0) add(*seller, share, "Sold " + a.name, "sale:" + a.id + ":" + Account::randomHex(4));
+                notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
             }
         }
         a.sales++;
@@ -1067,6 +1131,7 @@ void GbServer::saveUsers() {
         all[id]["favorites"] = u.favorites;
         all[id]["recent"] = u.recent;
         all[id]["inbox"] = u.inbox;
+        all[id]["notes"] = u.notes;
         all[id]["sent"] = u.sent;
         all[id]["messageDay"] = u.messageDay;
         all[id]["messagesToday"] = u.messagesToday;
@@ -1187,6 +1252,7 @@ void GbServer::load() {
                 }
                 if (j.contains("outfits") && j["outfits"].is_array()) u.outfits = j["outfits"];
                 if (j.contains("inbox") && j["inbox"].is_array()) u.inbox = j["inbox"];
+                if (j.contains("notes") && j["notes"].is_array()) u.notes = j["notes"];
                 if (j.contains("sent") && j["sent"].is_array()) u.sent = j["sent"];
                 for (const char* k : {"favorites", "recent"})
                     if (j.contains(k) && j[k].is_array())

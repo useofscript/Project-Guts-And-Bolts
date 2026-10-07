@@ -174,6 +174,10 @@ private:
     // PlayerMail.cpp: messages, saved outfits, favourite and recently played games.
     void drawMessages();
     void openNewMessage(const std::string& to, const std::string& subject = "");
+    // The bell (notifications), left of the account box. PlayerMail.cpp.
+    void drawBell(ImVec2 center);
+    nlohmann::json m_notes = nlohmann::json::array();
+    bool           m_notesLoaded = false;
     int  unreadMessages() const;
     void drawOutfits();
     void outfitPicture(ImDrawList* dl, ImVec2 c, float s, const nlohmann::json& outfit);
@@ -219,6 +223,9 @@ private:
     void setBlocked(const std::string& user, bool on);
     void drawBlockedList();   // Avatar > Your account
     void drawReportsBox();    // the Staff page
+    void drawUploadsBox();    // the Staff page: new uploads waiting for a check
+    nlohmann::json m_uploads = nlohmann::json::array();
+    double         m_uploadsAt = -100.0;
     std::string    m_reportKind, m_reportId, m_reportName, m_reportBlockUser, m_reportNote, m_reportMsg;
     int            m_reportReason = 0;
     bool           m_reportWanted = false, m_reportAlsoBlock = false, m_reportsClosed = false;
@@ -315,6 +322,11 @@ private:
     std::string m_devFilter, m_devCommand;
     std::string m_gameOwner;   // the account that made the game we're hosting
     bool        m_iMadeThis = false;   // the game we're in is ours (or a file on this computer)
+    // TeleportService: a script sent us to another game.
+    std::string    m_playingKey;                    // the published game we're in ("" = a file or joined)
+    nlohmann::json m_teleportData;                  // what we bring there: {"data", "from"} (null = not teleporting)
+    bool           m_teleporting = false;           // looking the game up
+    void teleportMe(const std::string& place, const nlohmann::json& data, const std::string& from);
     void drawDevConsole();
     // Game passes: the Buy window a game's script asked for (PlayerPasses.cpp).
     std::string    m_passPrompt, m_passMsg;   // the pass being offered ("" = none)
