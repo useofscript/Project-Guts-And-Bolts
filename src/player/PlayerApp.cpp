@@ -20,6 +20,7 @@
 #include "../scene/Serializer.h"
 #include "../net/NetGame.h"
 #include "../core/Audio.h"
+#include "../core/Voice.h"
 #include "../core/Account.h"
 #include "../game/Badges.h"
 #include "../game/Bolts.h"
@@ -27,6 +28,9 @@
 #include "../online/AssetCache.h"
 #include "../online/Protocol.h"
 
+#ifdef __ANDROID__
+#include <SDL.h>   // SDL_AndroidRequestPermission (voice chat's microphone)
+#endif
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -612,6 +616,9 @@ void PlayerApp::leaveGame() {
     m_playingKey.clear();
     m_server.reset();
     m_client.reset();
+    Voice::setActive(false);
+    Voice::forgetAll();
+    m_talkOn = false;
     m_session->stop();
     m_session->setRole(GameSession::Role::Solo);
     m_scene->buildDefault();
@@ -1584,6 +1591,7 @@ void PlayerApp::drawGame(float dt) {
             if (!m_joinedOnce) { m_joinedOnce = true; Online::fetchSounds(*m_scene); }   // server audio the host's game uses
         }
     }
+    updateVoice(!m_paused && !m_chatOpen && !io.WantTextInput);
     if (m_server) m_server->update(dt);
     if (!m_server && !m_client) m_soloChat->update(dt);
 
@@ -1750,6 +1758,8 @@ void PlayerApp::drawGame(float dt) {
         m_session->selectToolSlot(slot);
     Hud::drawNameTags(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), m_camera.position());
     Hud::drawBubbles(dl, pos, max, *m_scene, m_camera.projection() * m_camera.view(), chat().bubbles);
+    Hud::drawVoiceTags(dl, pos, max, m_camera.projection() * m_camera.view());
+    drawVoiceHud(dl, pos, max, touch);
     // Tab (or a controller's Back / Select) folds the leaderboard away (and back), like old Roblox.
     if (acceptInput && !m_chatOpen && !ImGui::GetIO().WantTextInput &&
         (ImGui::IsKeyPressed(ImGuiKey_Tab, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false)))
@@ -2038,9 +2048,75 @@ void PlayerApp::drawChat(ImVec2 min, ImVec2 max) {
     ImGui::End();
 }
 
+bool PlayerApp::voiceHere() const {
+    if (!GraphicsSettings::get().voiceChat || (Online::online() && Online::isGuest())) return false;
+    if (m_server) return m_server->voiceAllowed() && m_server->playerCount() > 0;   // (nobody to talk to yet)
+    if (m_client) return m_client->state() == NetClient::State::Joined && m_client->voiceAllowed();
+    return false;
+}
+
+void PlayerApp::askForMicrophone() {
+    if (m_micAsked) return;
+    m_micAsked = true;
+#ifdef __ANDROID__
+    // Waits for the answer (and returns at once if it was already allowed).
+    if (!SDL_AndroidRequestPermission("android.permission.RECORD_AUDIO"))
+        Log::system("Voice chat: no permission for the microphone, so you can listen but not talk.");
+#endif
+}
+
+// Every frame in a game: open or close the mic, push-to-talk (V) or the Talk button.
+void PlayerApp::updateVoice(bool acceptInput) {
+    const GraphicsSettings& gs = GraphicsSettings::get();
+    const bool here = voiceHere();
+    if (here) askForMicrophone();
+    Voice::setActive(here);
+    if (!here) m_talkOn = false;
+    const bool held = here && (m_talkOn || (acceptInput && ImGui::IsKeyDown(ImGuiKey_V)));
+    Voice::setTalking(held, here && gs.voiceOpenMic);
+    Voice::setVolume(gs.voiceVolume);
+    Voice::update(ImGui::GetIO().DeltaTime);
+    m_touch.setMic(here && !gs.voiceOpenMic, m_talkOn);
+}
+
+// Bottom left, above the Menu button: how to talk, and a light while you are.
+void PlayerApp::drawVoiceHud(ImDrawList* dl, ImVec2 min, ImVec2 max, bool touch) {
+    (void)min;
+    if (!voiceHere()) return;
+    const GraphicsSettings& gs = GraphicsSettings::get();
+    const bool talking = Voice::sending();
+    const char* text = !Voice::micWorks() ? "Listening (no microphone)"
+                     : talking            ? "Talking"
+                     : gs.voiceOpenMic    ? "Open Mic"
+                     : touch              ? "Tap the mic to talk"
+                                          : "Hold V to talk";
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const float h = 28.0f, w = ts.x + 74.0f;
+    // Next to the Menu button (on phones, after the Menu, Chat and mic buttons along the top).
+    const float bs = 46.0f * std::clamp(gs.touchSize, 0.5f, 2.0f);
+    const ImVec2 a = touch ? ImVec2(min.x + 12 + 3 * (bs + 10), min.y + 12 + (bs - h) * 0.5f) : ImVec2(min.x + 124, max.y - 42);
+    const ImVec2 b(a.x + w, a.y + h);
+    dl->AddRectFilled(a, b, talking ? IM_COL32(30, 110, 50, 200) : IM_COL32(0, 0, 0, 140), h * 0.5f);
+    Hud::drawSpeaker(dl, ImVec2(a.x + 18, a.y + h * 0.5f), 15.0f, talking, !Voice::micWorks());
+    dl->AddText(ImVec2(a.x + 32, a.y + (h - ts.y) * 0.5f), IM_COL32(255, 255, 255, 235), text);
+    // A little meter: how loud the mic is.
+    const float lv = Voice::micWorks() ? Voice::micLevel() : 0.0f;
+    const ImVec2 m0(b.x - 34, a.y + 10), m1(b.x - 10, a.y + h - 10);
+    dl->AddRectFilled(m0, m1, IM_COL32(255, 255, 255, 50), 3.0f);
+    if (lv > 0.01f) dl->AddRectFilled(m0, ImVec2(m0.x + (m1.x - m0.x) * lv, m1.y), IM_COL32(120, 235, 140, 230), 3.0f);
+}
+
 std::vector<PlayerEntry> PlayerApp::currentPlayers() const {
-    if (m_server) return m_server->players();
-    if (m_client) return m_client->players();
+    if (m_server || m_client) {
+        std::vector<PlayerEntry> list = m_server ? m_server->players() : m_client->players();
+        if (voiceHere()) {
+            const std::string me = m_session->scripts().playerName();   // (the name the host gave us)
+            for (PlayerEntry& e : list)
+                e.voice = Voice::muted(e.name) ? 2
+                        : (e.name == me || e.name == me + " (host)" ? Voice::sending() : Voice::speaking(e.name)) ? 1 : 0;
+        }
+        return list;
+    }
     return {{Online::playerName(), Account::iAmStaff(), Badges::iHave(Badges::Id::Verified),
              m_session->scripts().leaderstats(Online::playerName()), m_iMadeThis}};
 }
@@ -2221,6 +2297,24 @@ void PlayerApp::drawPauseMenu() {
         if (gs.graphicsApi != startedApi)
             ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Close and reopen Guts&Bolts to switch.");
         onOff("Show FPS", gs.showFps);
+        ImGui::SeparatorText("Voice chat");
+        if (Online::online() && Online::isGuest()) {
+            ImGui::TextDisabled("Sign up to use voice chat.");
+        } else {
+            onOff("Voice Chat", gs.voiceChat);
+            if (gs.voiceChat) {
+                onOff("Open Mic", gs.voiceOpenMic);
+                ImGui::SetCursorPosX(labelW);
+                ImGui::TextDisabled(gs.voiceOpenMic ? "Sends whenever you make a sound." : "Off: hold V (or tap the mic) to talk.");
+                row("Voice Volume");
+                int vv = (int)std::lround(gs.voiceVolume * 10.0f);
+                if (ImGui::SliderInt("##voicevol", &vv, 0, 20)) { gs.voiceVolume = vv / 10.0f; changed = true; }
+            }
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("Voices aren't filtered like the chat. Click someone on the player list to mute them. "
+                                "Games can turn voice chat off.");
+            ImGui::PopTextWrapPos();
+        }
         ImGui::SeparatorText("Other");
         onOff("Blood and Gore", gs.allowGore);
         row("Touch Controls");
@@ -2240,6 +2334,7 @@ void PlayerApp::drawPauseMenu() {
         key("Space", "Jump (again in the air to double-jump, if the game allows it)");
         key("Shift", "Shift Lock: camera over your shoulder (turn on in Settings)");
         key("C / Ctrl", "Swimming: dive (or swim forward looking down; Space goes up)");
+        key("V", "Hold to talk (voice chat, once it's on in Settings)");
         ImGui::SeparatorText("Camera");
         key("Right mouse", "Hold and drag to look around");
         key("Mouse wheel", "Zoom in and out; all the way in is first person");
@@ -2324,6 +2419,7 @@ void PlayerApp::updateTouch(ImVec2 min, ImVec2 max, bool acceptInput) {
     if (m_touch.zoom() != 0.0f) PlayCamera::zoom(m_camera, m_touch.zoom());
     if (m_touch.chatPressed()) m_chatOpen = true;
     if (m_touch.menuPressed()) m_paused = true;
+    if (m_touch.micPressed()) m_talkOn = !m_talkOn;
 }
 
 // ---------------------------------------------------------------------------
@@ -2919,6 +3015,10 @@ void PlayerApp::drawPlayerMenu() {
             send("follow.add", "You're following them now.");
         }
         ImGui::TextDisabled("%d follower%s", m_listRel.value("followers", 0), m_listRel.value("followers", 0) == 1 ? "" : "s");
+    }
+    if (voiceHere()) {   // voice chat: mute them (just for you; they aren't told)
+        const bool muted = Voice::muted(who);
+        if (ImGui::Button(muted ? "Unmute Voice" : "Mute Voice", full)) Voice::setMuted(who, !muted);
     }
     if (!m_listMsg.empty()) ImGui::TextWrapped("%s", m_listMsg.c_str());
     if (ImGui::Button("Close", full)) keep = false;

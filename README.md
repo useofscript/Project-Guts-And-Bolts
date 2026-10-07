@@ -1284,6 +1284,29 @@ chat. Only you and that player see it, with no speech bubble. Capitals don't
 matter, and the start of a name is enough if only one player's name starts
 that way.
 
+### Voice chat
+
+In multiplayer games you can talk to the other players out loud. It's off
+until you turn it on: **Esc > Settings > Voice chat**. Then **hold V** to talk
+(on phones, tap the microphone button next to Chat, and tap it again to stop).
+Turn on **Open Mic** to send whenever you make a sound instead.
+
+Voices come out of the speaker's character, so people close by are loud and
+people across the map fade away (nothing is sent past 100 studs). A little
+speaker shows over the head of whoever is talking, and next to their name on
+the player list. Click a name on the player list and press **Mute Voice** to
+stop hearing someone (just for you; they aren't told).
+
+Guests can't use voice chat, the same as the text chat. A game's creator can
+turn it off for their game in **Game Settings > Players > Voice Chat**, and
+scripts can too: `workspace.VoiceChatEnabled = false`.
+
+How it works: the microphone is squeezed with Opus (about 24 kbps) and sent to
+the game's host in small packets, 60 ms of sound each. The host checks the game
+allows voice and that the speaker has an account, and passes it on to everyone
+nearby who has voice chat on. It travels through the same connection as
+everything else, so online games still never share anyone's IP address.
+
 ### The play camera
 
 Like Roblox, the camera orbits your character's **head**. Right-drag to look

@@ -27,6 +27,11 @@ struct GraphicsSettings {
     // Sound and screen
     float volume        = 1.0f;        // everything's loudness, 0..1
     bool  fullscreen    = false;
+
+    // Voice chat (multiplayer games that allow it). Off until you turn it on.
+    bool  voiceChat     = false;
+    bool  voiceOpenMic  = false;       // false = hold V (or the Talk button) to talk
+    float voiceVolume   = 1.0f;        // other people's voices, 0..2
     bool  touchEnabled() const;
 
     // Graphics

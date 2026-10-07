@@ -20,6 +20,17 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
+    id: 'can-you-hear-me-now', name: 'Can You Hear Me Now?', time: 1791348000, tag: 'Player',
+    summary: 'Voice chat: hold V to talk to the players around you, and hear them from their characters.',
+    items: [
+      'Turn on Voice Chat in the in-game Settings, then hold V to talk (phones get a mic button, and there\'s an Open Mic option)',
+      'Voices come from each player\'s character: loud up close, fading away across the map',
+      'A speaker icon shows over whoever is talking and next to their name on the player list',
+      'Click someone on the player list to mute their voice, just for you',
+      'Game creators can turn voice chat off in Game Settings or with workspace.VoiceChatEnabled',
+    ],
+  },
+  {
     id: 'robot-qa-department', name: 'We Hired Robots to Break Things', time: 1791347000, tag: 'Server',
     summary: 'Automatic tests now check the website\'s server every time something changes.',
     items: [

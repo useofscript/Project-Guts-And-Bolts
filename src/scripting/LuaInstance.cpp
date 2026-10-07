@@ -1491,6 +1491,7 @@ int inst_index(lua_State* L) {
         if (is(k, "SafeFallSpeed"))   { lua_pushnumber(L, w.fallDamageSpeed); return 1; }
         if (is(k, "FallDamageScale")) { lua_pushnumber(L, w.fallDamageScale); return 1; }
         if (is(k, "PlayerCollisions")) { lua_pushboolean(L, w.playerCollisions); return 1; }
+        if (is(k, "VoiceChatEnabled")) { lua_pushboolean(L, w.voiceChat); return 1; }
         if (is(k, "Orthographic"))     { lua_pushboolean(L, w.orthographic); return 1; }
         if (is(k, "OrthographicSize")) { lua_pushnumber(L, w.orthographicSize); return 1; }
         if (is(k, "BloodColor"))  { LuaApi::pushColor3(L, w.bloodColor); return 1; }
@@ -1811,6 +1812,7 @@ int inst_newindex(lua_State* L) {
         if (is(k, "SafeFallSpeed"))   { w.fallDamageSpeed = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
         if (is(k, "FallDamageScale")) { w.fallDamageScale = std::max(0.0f, (float)luaL_checknumber(L, 3)); return 0; }
         if (is(k, "PlayerCollisions")) { w.playerCollisions = lua_toboolean(L, 3); return 0; }
+        if (is(k, "VoiceChatEnabled")) { w.voiceChat = lua_toboolean(L, 3); return 0; }
         if (is(k, "Orthographic"))     { w.orthographic = lua_toboolean(L, 3); return 0; }
         if (is(k, "OrthographicSize")) { w.orthographicSize = std::clamp((float)luaL_checknumber(L, 3), 0.0f, 2000.0f); return 0; }
         if (is(k, "BloodColor"))  { w.bloodColor = LuaApi::checkColor3(L, 3); return 0; }
