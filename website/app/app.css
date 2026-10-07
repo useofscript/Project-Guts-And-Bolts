@@ -610,3 +610,16 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 /* Staff action log */
 .stafflog > div { display: flex; align-items: baseline; gap: 8px; }
 .stafflog .grow { min-width: 0; overflow-wrap: anywhere; }
+
+/* Group pages: ranks, games and Bolts */
+form.row.inline { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin: 0; width: auto; }
+form.row.inline select { padding: 2px 4px; width: auto; }
+form[data-form="groupPayout"] select { width: auto; max-width: 200px; }
+.ranks .rank-edit { border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; max-width: 640px; }
+.perm-picks { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0; }
+.group-game { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.big-bolts { font-size: 22px; font-weight: bold; margin: 0; }
+table.ledger { border-collapse: collapse; width: 100%; max-width: 640px; margin-top: 8px; }
+table.ledger td { padding: 3px 8px; border-top: 1px solid #eee; }
+table.ledger td.pos { color: #16803c; font-weight: bold; }
+table.ledger td.neg { color: #b42318; font-weight: bold; }

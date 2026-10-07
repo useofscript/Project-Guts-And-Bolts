@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'corporate-ladder', name: 'The Corporate Ladder', time: 1791350000, tag: 'Website',
+    summary: 'Groups can own games, earn Bolts from them, pay their members, and make their own ranks.',
+    items: [
+      'Put a game in your group: its game pass and product sales go to the group\'s Bolts',
+      'Group owners and treasurers can pay members from the group\'s Bolts, and everyone\'s payouts are written down',
+      'Make your own ranks (up to 10), each with a level and what it\'s allowed to do',
+      'Works on the website and in the app',
+    ],
+  },
+  {
     id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
     summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
     items: [
