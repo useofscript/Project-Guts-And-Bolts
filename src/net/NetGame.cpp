@@ -13,6 +13,9 @@
 #include "../renderer/MeshLibrary.h"
 #include "../core/Log.h"
 #include "../core/Audio.h"
+#include "../core/Voice.h"
+#include "../core/Settings.h"
+#include "../online/Protocol.h"
 #include "../core/Account.h"
 #include "../core/TextFilter.h"
 #include "../online/OnlineClient.h"
@@ -445,6 +448,9 @@ struct NetServer::Client {
     std::map<uint64_t, std::string> fxSent;     // the Highlights / Trails / Beams on each character, as last sent
     double      remoteBudget = 60.0;  // RemoteEvent messages they may still send (refills over time)
     double      remoteAt = 0.0;
+    bool        voiceOn = false;      // they turned voice chat on (they hear others and may talk)
+    double      voiceBudget = 40.0;   // voice packets they may still send (about 17 a second while talking)
+    double      voiceAt = 0.0;
 };
 
 NetServer::NetServer(Scene* scene, GameSession* session) : m_scene(scene), m_session(session) {}
@@ -487,6 +493,7 @@ void NetServer::stop() {
     m_scene->recordFx = false;
     m_scene->fxQueue.clear();
     m_session->setRole(GameSession::Role::Solo);
+    Voice::forgetAll();
 }
 
 namespace {
@@ -586,6 +593,7 @@ void NetServer::dropClient(size_t index, const char* reason) {
         m_session->scripts().removePlayer(c.name);
         for (auto& o : m_clients) o->heldSent.erase(c.rootId);
         m_chat.add("", c.name + " " + reason, true);
+        Voice::forget(c.name);
         broadcast(json{{"t", "left"}, {"id", c.rootId}, {"name", c.name}}.dump(), &c);
         broadcast(json{{"t", "chat"}, {"from", ""}, {"text", c.name + " " + reason}, {"sys", true}}.dump(), &c);
     }
@@ -670,6 +678,7 @@ void NetServer::update(float dt) {
             if (c->joined && (out.to == 0 || out.to == c->id + 1)) c->conn->send(msg);
     }
     showSmoothly(*m_scene, m_poses);
+    updateVoice(clockNow());
 
     m_tick += dt;
     if (m_tick >= kTickRate) {
@@ -677,6 +686,62 @@ void NetServer::update(float dt) {
         sendTick();
     }
     m_chat.update(dt);
+}
+
+// ---------------------------------------------------------------------------
+// Voice chat. Packets come to us (the host) and we pass them to everyone near
+// enough who has voice chat on. We check the game allows it and the speaker
+// has an account, like the text chat; muting happens on each listener's side.
+// ---------------------------------------------------------------------------
+namespace {
+constexpr float  kVoiceRange = 100.0f;      // studs: further than this, voices aren't sent at all
+constexpr size_t kVoiceMaxBytes = 2400;     // one packet (60 ms) as base64: far more than Opus needs
+constexpr float  kHeadHeight = 1.5f;        // a voice comes from the head, not the middle of the body
+
+glm::vec3 headOf(Scene& scene, uint64_t rootId, bool& found) {
+    SceneNode* rig = rootId ? scene.findById(rootId) : nullptr;
+    found = rig != nullptr;
+    if (!rig) return glm::vec3(0.0f);
+    return glm::vec3(rig->worldMatrix()[3]) + glm::vec3(0.0f, kHeadHeight, 0.0f);
+}
+
+// Our own setting says we hear voices (and may talk), and we're allowed to.
+bool iUseVoice() { return GraphicsSettings::get().voiceChat && !(Online::isGuest() && Online::online()); }
+}
+
+bool NetServer::voiceAllowed() const { return m_scene->world().voiceChat; }
+
+void NetServer::passVoice(const std::string& name, uint64_t rootId, const std::string& data, const Client* from) {
+    bool found = false;
+    const glm::vec3 at = headOf(*m_scene, rootId, found);
+    const std::string msg = json{{"t", "voice"}, {"id", rootId}, {"n", name}, {"d", data}}.dump();
+    for (auto& c : m_clients) {
+        if (!c->joined || !c->voiceOn || c.get() == from) continue;
+        bool theirs = false;
+        const glm::vec3 them = headOf(*m_scene, c->rootId, theirs);
+        if (found && theirs && glm::length(them - at) > kVoiceRange) continue;
+        c->conn->send(msg);
+    }
+    // We hear them too (a game server machine has nobody listening).
+    if (from && !m_dedicated && iUseVoice()) {
+        std::string bytes;
+        if (Online::base64Decode(data, bytes)) Voice::receive(name, bytes, at);
+    }
+}
+
+void NetServer::updateVoice(double) {
+    const bool allowed = voiceAllowed();
+    if (m_voiceSent != (int)allowed) {   // the game turned voice on or off (a script, or just starting)
+        m_voiceSent = (int)allowed;
+        broadcast(json{{"t", "voicecfg"}, {"on", allowed}}.dump());
+        if (!allowed) Voice::forgetAll();
+    }
+    std::string packet;
+    while (Voice::takePacket(packet)) {   // what we (the host) said
+        Player* me = m_scene->player();
+        if (!allowed || m_dedicated || !iUseVoice() || !me || !me->root()) continue;
+        passVoice(Online::playerName(), me->rootId(), Online::base64Encode(packet), nullptr);
+    }
 }
 
 void NetServer::handle(Client& c, const std::string& text) {
@@ -766,7 +831,7 @@ void NetServer::handle(Client& c, const std::string& text) {
         std::string scene;
         { HideServerCode hide(m_scene->root()); scene = Serializer::saveScene(*m_scene); }
         c.conn->send(json{{"t", "welcome"}, {"version", kVersion}, {"you", rig->id}, {"name", name}, {"host", proof},
-                          {"hostChar", hostChar}, {"uid", c.id + 1},
+                          {"hostChar", hostChar}, {"uid", c.id + 1}, {"voice", voiceAllowed()},
                           {"scene", scene},
                           {"humanoid", humanoidJson(rc.humanoid)}, {"players", players}}.dump());
         // Everyone already in the scene snapshot counts as known.
@@ -894,6 +959,17 @@ void NetServer::handle(Client& c, const std::string& text) {
         if (c.remoteBudget < 1.0 || text.size() > 70 * 1024) return;
         c.remoteBudget -= 1.0;
         m_session->scripts().remoteIn(m, c.id + 1);
+    } else if (t == "voiceon") {   // they turned voice chat on or off (guests can't use it)
+        c.voiceOn = m.value("on", false) && !c.guest;
+    } else if (t == "voice") {
+        const double now = clockNow();
+        c.voiceBudget = std::min(40.0, c.voiceBudget + (now - c.voiceAt) * 20.0);
+        c.voiceAt = now;
+        if (!c.voiceOn || c.guest || !voiceAllowed() || c.voiceBudget < 1.0) return;
+        const std::string d = m.value("d", std::string());
+        if (d.empty() || d.size() > kVoiceMaxBytes) return;
+        c.voiceBudget -= 1.0;
+        passVoice(c.name, c.rootId, d, &c);
     } else if (t == "chat") {
         std::string msg = TextFilter::filter(cleanText(m.value("text", std::string()), 200));
         if (msg.empty()) return;
@@ -1136,6 +1212,8 @@ bool NetClient::connect(const std::string& host, int port) {
 
 void NetClient::disconnect() {
     m_conn.reset();
+    Voice::forgetAll();
+    m_voiceTold = -1;
     if (m_state == State::Joined) {
         m_session->stop();
         m_session->setRole(GameSession::Role::Solo);
@@ -1187,6 +1265,16 @@ void NetClient::update(float dt) {
     if (m_state == State::Joined) {
         for (auto& out : m_session->scripts().takeRemoteOut())   // our LocalScripts' FireServer / InvokeServer
             if (out.to == -1) m_conn->send(out.msg.dump());
+        // Voice chat: tell the host whether we're listening, then send what we said.
+        const bool voice = m_voiceAllowed && iUseVoice();
+        if (m_voiceTold != (int)voice) {
+            m_voiceTold = (int)voice;
+            m_conn->send(json{{"t", "voiceon"}, {"on", voice}}.dump());
+            if (!voice) Voice::forgetAll();
+        }
+        std::string packet;
+        while (Voice::takePacket(packet))
+            if (voice) m_conn->send(json{{"t", "voice"}, {"d", Online::base64Encode(packet)}}.dump());
         m_tick += dt;
         if (m_tick >= kTickRate) {
             m_tick = std::min(m_tick - kTickRate, kTickRate);
@@ -1256,6 +1344,7 @@ void NetClient::handle(const std::string& text) {
         // Objects we create ourselves get ids far away from the host's.
         SceneNode::reserveId(kLocalIdBase);
         m_myServerRoot = m.value("you", (uint64_t)0);
+        m_voiceAllowed = m.value("voice", false);
         if (SceneNode* mine = m_scene->findById(m_myServerRoot)) m_scene->removeNode(mine);
 
         // The host's character is just another model here; build our own.
@@ -1358,6 +1447,21 @@ void NetClient::handle(const std::string& text) {
         return;
     }
     if (m_state != State::Joined) return;
+    if (t == "voicecfg") {
+        m_voiceAllowed = m.value("on", false);
+        if (!m_voiceAllowed) Voice::forgetAll();
+        return;
+    }
+    if (t == "voice") {
+        if (!m_voiceAllowed || !iUseVoice()) return;
+        const std::string name = m.value("n", std::string());
+        std::string bytes;
+        if (name.empty() || !Online::base64Decode(m.value("d", std::string()), bytes)) return;
+        bool found = false;
+        const glm::vec3 at = headOf(*m_scene, m.value("id", (uint64_t)0), found);
+        Voice::receive(name, bytes, at);
+        return;
+    }
     Player* me = m_scene->player();
     ScriptEngine& scripts = m_session->scripts();
     // Gone from the world: their LocalScripts stop too.
@@ -1478,6 +1582,7 @@ void NetClient::handle(const std::string& text) {
     }
     if (t == "left") {
         uint64_t id = m.value("id", (uint64_t)0);
+        Voice::forget(m.value("name", std::string()));
         if (SceneNode* n = m_scene->findById(id)) drop(n);
         auto& rem = m_scene->remotes();
         rem.erase(std::remove_if(rem.begin(), rem.end(), [&](auto& r) { return r.rootId == id; }), rem.end());

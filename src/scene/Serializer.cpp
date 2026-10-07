@@ -761,7 +761,7 @@ json settingsJson(Scene& scene) {
                   {"fallDamageSpeed", ws.fallDamageSpeed}, {"spawnForceField", ws.spawnForceField},
                   {"fallDamageScale", ws.fallDamageScale}, {"bloodColor", vec(ws.bloodColor)},
                   {"bloodAmount", ws.bloodAmount}, {"bloodStay", ws.bloodStay},
-                  {"playerCollisions", ws.playerCollisions}, {"maxFluidParticles", ws.maxFluidParticles},
+                  {"playerCollisions", ws.playerCollisions}, {"voiceChat", ws.voiceChat}, {"maxFluidParticles", ws.maxFluidParticles},
                   {"orthographic", ws.orthographic}, {"orthographicSize", ws.orthographicSize}};
     if (Player* p = scene.player()) {
         const Humanoid& h = p->humanoid();
@@ -805,6 +805,7 @@ void applySettings(Scene& scene, const json& j) {
         w.spawnForceField   = get<float>(j["world"], "spawnForceField", w.spawnForceField);
         w.fallDamageScale   = get<float>(j["world"], "fallDamageScale", w.fallDamageScale);
         w.playerCollisions  = get<bool>(j["world"], "playerCollisions", w.playerCollisions);
+        w.voiceChat         = get<bool>(j["world"], "voiceChat", w.voiceChat);
         w.orthographic      = get<bool>(j["world"], "orthographic", w.orthographic);
         w.orthographicSize  = std::clamp(get<float>(j["world"], "orthographicSize", w.orthographicSize), 0.0f, 2000.0f);
         w.maxFluidParticles = std::clamp(get<int>(j["world"], "maxFluidParticles", w.maxFluidParticles), 0, 1 << 20);

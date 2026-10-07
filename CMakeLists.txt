@@ -130,6 +130,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(miniaudio)
 
+# Opus — squeezes voice chat down small enough to send over the internet.
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    opus
+    GIT_REPOSITORY https://github.com/xiph/opus.git
+    GIT_TAG        v1.5.2
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(opus)
+
 # JSON (scene files, undo history, copy / paste).
 FetchContent_Declare(
     json
@@ -294,6 +307,7 @@ add_library(gb_engine STATIC
     src/core/Paths.cpp
     src/core/FileDialog.cpp
     src/core/Audio.cpp
+    src/core/Voice.cpp
     src/core/UpdateChecker.cpp
     src/core/Account.cpp
     src/core/TextFilter.cpp
@@ -383,7 +397,7 @@ target_compile_definitions(gb_engine PRIVATE GB_WEBSOCKETS)
 target_include_directories(gb_engine PUBLIC src/ ${miniaudio_SOURCE_DIR} ${GB_GENERATED} ${stb_SOURCE_DIR} ${pfd_SOURCE_DIR})
 add_dependencies(gb_engine gb_version)
 find_package(Threads REQUIRED)
-target_link_libraries(gb_engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(gb_engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS} opus)
 if(APPLE)
     target_link_libraries(gb_engine PUBLIC "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
 endif()
@@ -512,6 +526,9 @@ add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
 target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
 if(APPLE)   # gutsandbolts:// links (src/player/LaunchLink.cpp)
     target_link_libraries(GutsAndBoltsPlayer PRIVATE "-framework CoreServices")
+    # Says why we want the microphone (voice chat) when macOS asks.
+    target_link_options(GutsAndBoltsPlayer PRIVATE
+        "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_SOURCE_DIR}/cmake/PlayerInfo.plist")
 endif()
 
 # ---------------------------------------------------------------------------
