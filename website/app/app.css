@@ -623,3 +623,5 @@ table.ledger { border-collapse: collapse; width: 100%; max-width: 640px; margin-
 table.ledger td { padding: 3px 8px; border-top: 1px solid #eee; }
 table.ledger td.pos { color: #16803c; font-weight: bold; }
 table.ledger td.neg { color: #b42318; font-weight: bold; }
+/* Featured games (picked by staff) */
+.featured-pill { background: linear-gradient(#ffe59a, #f5c542); border-color: #d49a0a; color: #3b2a00; }
