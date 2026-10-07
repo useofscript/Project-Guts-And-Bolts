@@ -684,8 +684,8 @@ void PlayerApp::frame(float dt) {
         if (signup) { m_loginUser = user; signUp(user, pass); }
         else        { m_loginUser = user; m_loginTab = 1; logIn(user, pass); }
     }
-#ifdef GB_MOBILE
-    if (ImGui::GetTime() >= m_linkPollAt) {   // Android: a website Play link opened (or re-opened) the app
+#if defined(GB_MOBILE) || defined(__APPLE__)
+    if (ImGui::GetTime() >= m_linkPollAt) {   // Android and Mac: a website Play link opened (or re-opened) the app
         m_linkPollAt = ImGui::GetTime() + 0.5;
         if (std::string link = LaunchLink::poll(); !link.empty()) takeLink(link);
     }
@@ -895,6 +895,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     ImVec2 a(b1.x - boxW - (shortScreen ? 6 : 10), boxY), c(b1.x - (shortScreen ? 6 : 10), boxY + 50);
     dl->AddRectFilled(a, c, IM_COL32(255, 255, 255, 215), 5.0f);
     dl->AddRect(a, c, IM_COL32(120, 140, 170, 255), 5.0f);
+    drawBell(ImVec2(a.x - 22, a.y + 25));
     if (staff) Badges::drawIcon(dl, ImVec2(a.x + 22, a.y + 15), 20.0f, Badges::Id::Administrator);
     float nameX = a.x + 12 + (staff ? 24.0f : 0.0f);
     dl->AddText(ImVec2(nameX, a.y + 7), IM_COL32(30, 30, 40, 255), hi.c_str());

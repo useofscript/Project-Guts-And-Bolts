@@ -60,7 +60,7 @@ std::string dateText(long long t) {
 unsigned PlayerApp::libraryPicture(const json& a, int& w, int& h) {
     const std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
     w = h = 0;
-    if (kind == "decal") {
+    if (kind == "decal" || kind == "tshirt") {   // (T-shirts: for the Staff page's upload check)
         const std::string texId = "gb:" + id;
         unsigned tex = Textures::get(texId);
         if (!tex && m_askedDownloads.insert(id).second) Online::download(id);
@@ -219,6 +219,16 @@ void PlayerApp::drawAsset() {
     ImGui::TextUnformatted(a.value("name", std::string()).c_str());
     ImGui::SetWindowFontScale(1.0f);
     ImGui::TextDisabled("Guts&Bolts %s", Online::kindTitle(kind));
+    // Upload review (worker/server.js): only its creator and staff see it until staff OK it.
+    const std::string review = a.value("review", std::string());
+    if (review == "pending") ImGui::TextColored(ImVec4(0.75f, 0.5f, 0.0f, 1), "Waiting for a staff check. Only you can see this until staff look at it.");
+    else if (review == "rejected") {
+        ImGui::PushTextWrapPos(0);
+        const std::string note = a.value("reviewNote", std::string());
+        ImGui::TextColored(ImVec4(0.75f, 0.1f, 0.1f, 1), "This didn't pass the staff check, so nobody else can see it.%s",
+                           note.empty() ? "" : (" Staff said: \"" + note + "\"").c_str());
+        ImGui::PopTextWrapPos();
+    }
     ImGui::Spacing();
 
     // Left: the picture. Right: who made it, what it is and what to do with it.

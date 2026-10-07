@@ -1,5 +1,6 @@
 #include "Protocol.h"
 #include "../core/Account.h"
+#include "../core/TextFilter.h"
 
 #include <cctype>
 #include <chrono>
@@ -190,6 +191,7 @@ std::string usernameProblem(const std::string& name, bool official) {
     static const char* reserved[] = {"admin", "administrator", "staff", "moderator", "mod", "gutsandbolts",
                                      "gutsbolts", "official", "system", "server", "roblox", "support", "help"};
     for (const char* r : reserved) if (l == r) return "That username is reserved.";
+    if (TextFilter::nameHasHateWord(name)) return "That username isn't allowed.";
     return "";
 }
 

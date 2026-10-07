@@ -140,6 +140,62 @@ void PlayerApp::drawBlockedList() {
     }
 }
 
+// Upload review: new decals, sounds and T-shirts from creators who aren't Verified wait here
+// (worker/server.js). Nobody else can see or hear them until staff press OK.
+void PlayerApp::drawUploadsBox() {
+    ImGui::SeparatorText("Uploads to check");
+    if (ImGui::GetTime() - m_uploadsAt > 60.0) {
+        m_uploadsAt = ImGui::GetTime();
+        Online::request("admin.uploads", json::object(), [this](const json& r) {
+            if (r.value("ok", false) && r.contains("uploads")) m_uploads = r["uploads"];
+        });
+    }
+    if (!m_uploads.is_array() || m_uploads.empty()) {
+        ImGui::TextDisabled("Nothing waiting. New decals, sounds and T-shirts from people who aren't Verified show up here.");
+        return;
+    }
+    for (size_t i = 0; i < m_uploads.size(); ++i) {
+        const json a = m_uploads[i];
+        const std::string id = a.value("id", std::string()), kind = a.value("kind", std::string());
+        ImGui::PushID(id.c_str());
+        ImGui::Separator();
+        int w = 0, h = 0;
+        const unsigned tex = libraryPicture(a, w, h);
+        const float box = 72.0f;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(box, box));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRect(p, ImVec2(p.x + box, p.y + box), IM_COL32(200, 200, 205, 255));
+        if (tex && w > 0 && h > 0) {
+            const float s = std::min(box / (float)w, box / (float)h), dw = w * s, dh = h * s;
+            const ImVec2 q(p.x + (box - dw) * 0.5f, p.y + (box - dh) * 0.5f);
+            dl->AddImage((ImTextureID)(intptr_t)tex, q, ImVec2(q.x + dw, q.y + dh), ImVec2(0, 1), ImVec2(1, 0));
+        } else {
+            const char* t = kind == "audio" ? "Sound" : "...";
+            const ImVec2 ts = ImGui::CalcTextSize(t);
+            dl->AddText(ImVec2(p.x + (box - ts.x) * 0.5f, p.y + (box - ts.y) * 0.5f), IM_COL32(120, 125, 135, 255), t);
+        }
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::Text("%s", a.value("name", std::string()).c_str());
+        ImGui::TextDisabled("%s by %s  -  %s", Online::kindTitle(kind), a.value("creatorName", std::string("?")).c_str(),
+                            agoShort(a.value("created", 0LL)).c_str());
+        auto decide = [this, id](bool ok) {
+            Online::request("admin.review", {{"id", id}, {"ok", ok}}, [this](const json& r) {
+                if (r.value("ok", false) && r.contains("uploads")) m_uploads = r["uploads"];
+                else m_staffMsg = r.value("error", std::string());
+            });
+        };
+        if (ImGui::SmallButton(kind == "audio" ? "Listen" : "Look")) openAsset(id);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("OK")) decide(true);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Turn down")) decide(false);
+        ImGui::EndGroup();
+        ImGui::PopID();
+    }
+}
+
 void PlayerApp::drawReportsBox() {
     ImGui::SeparatorText("Reports");
     if (ImGui::RadioButton("Open", !m_reportsClosed)) { m_reportsClosed = false; m_reportsAt = -100.0; }

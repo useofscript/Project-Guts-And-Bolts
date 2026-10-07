@@ -14,11 +14,16 @@ struct Link {
 };
 bool parse(const std::string& url, Link& out);
 
-// Computers: make gutsandbolts:// links open this program (Windows and Linux;
-// quietly does nothing where it can't).
+// Computers: make gutsandbolts:// links open this program (Windows, Linux and Mac;
+// quietly does nothing where it can't). On a Mac that means a small app in
+// ~/Applications ("Guts&Bolts Player.app") that runs this program.
 void registerScheme();
 
-// Android: a link that opened (or re-opened) the app since the last call, or "".
+// Mac: start listening for links (macOS hands them over as messages, not on the
+// command line). Call it first thing in main(), before any window opens.
+void listen();
+
+// Android and Mac: a link that opened (or re-opened) the app since the last call, or "".
 std::string poll();
 
 } // namespace LaunchLink

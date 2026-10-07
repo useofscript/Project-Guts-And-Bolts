@@ -1469,9 +1469,12 @@ point when you publish), shown on the website's game cards. A red number on
 **Friends** means friend requests are waiting.
 
 Playing games still happens in the app. The website's **Play** button opens the
-app on that game with a `gutsandbolts://play/<game>` link (the Player sets that
-up by itself on Windows and Linux, and the Android app has it built in; on a Mac,
-open the app yourself). Visitors who aren't signed in pick **Play As Boy** or
+app on that game with a `gutsandbolts://play/<game>` link. The Player sets that
+up by itself the first time you open it on Windows, Linux and Mac, and the
+Android app has it built in. (On a Mac it makes a small **Guts&Bolts Player**
+app in your user's Applications folder that runs the Player you opened, because
+macOS only lets apps open links. Keep the Player where it is, or open it once
+again after moving it.) Visitors who aren't signed in pick **Play As Boy** or
 **Play As Girl** first and play as a guest.
 
 Visitors who aren't signed in can see every page. Buying, claiming Bolts,
@@ -1924,6 +1927,51 @@ Every request the apps send is signed with the player's account key, so the
 server always knows who is asking. Nobody can spend someone else's Bolts or
 pretend to be staff. The server doesn't use encryption (TLS), so treat
 everything on it as public: don't upload anything secret.
+
+### The text filter
+
+Things people write for other people to read go through a text filter, on the
+website server (`worker/textfilter.js`) and the C++ server (`src/core/TextFilter.cpp`)
+alike. That covers in-game chat, messages, profile blurbs and statuses, names and
+descriptions of uploads, game passes, badges, groups and servers, and group posts
+and shouts.
+
+If something has any of these in it, the whole thing is replaced with
+`[ Content Deleted ]`, like classic Roblox:
+
+- Hateful slurs, even when written with spaces, dots or look-alike characters
+  (like `1` for `i`).
+- Links, except links to gutsandbolts.net.
+- Email addresses and phone numbers, so nobody shares personal info.
+
+- Usernames can't contain slurs at all: "That username isn't allowed." A guest name
+  in a game that the filter would catch becomes "Player".
+- Searches, staff notes and report reasons aren't filtered, so staff see exactly
+  what was written.
+
+### Upload review
+
+New decals, sounds and T-shirts from creators who aren't Verified wait for a staff
+check before anyone else can see or hear them, like Roblox's moderation queue.
+
+- Until then, only the creator and staff can see it. Its page says "Waiting for a
+  staff check", and in games it doesn't show up (or play) for other players yet.
+- Staff find the list under **Uploads to check** on the Staff page (website and
+  Player). They can look or listen, then press **OK** or **Turn down** (with a
+  reason the creator sees).
+- Replacing the picture or sound of a checked upload sends it back for a new check.
+- Verified creators and staff skip the check.
+
+### Notifications (the bell)
+
+A bell next to your name (top of the website, and top right in the Player) shows
+how many new things happened. Click it to see them; that marks them read.
+
+You get one when someone sends you a friend request, becomes your friend, follows
+you, buys something you made, sends or answers a trade, asks to join your group or
+lets you in, and when staff check something you uploaded. Each one takes you to the
+right page. The newest 50 are kept. Both servers do the same (`notify` in
+`worker/server.js` and `src/server/Server.cpp`).
 
 ### Bolts (the currency)
 
