@@ -746,6 +746,8 @@ void PlayerApp::drawUploadForm(const std::string& kind) {
                 m_busy = false;
                 if (r.value("ok", false)) {
                     m_createMsg = "Uploaded \"" + r["asset"].value("name", std::string()) + "\"!";
+                    if (r["asset"].value("review", std::string()) == "pending")
+                        m_createMsg += " Staff check it before anyone else can see or hear it (Verified creators skip this).";
                     long long paid = r.value("fee", 0LL);
                     if (paid > 0) m_createMsg += " (" + std::to_string(paid) + " Bolts)";
                     m_createName.clear(); m_createDesc.clear(); m_createPath.clear();
@@ -1091,6 +1093,7 @@ void PlayerApp::drawOnlineBolts() {
 // ---------------------------------------------------------------------------
 
 void PlayerApp::drawOnlineStaff() {
+    drawUploadsBox();
     drawReportsBox();
     ImGui::SeparatorText("People on the server");
     ImGui::PushTextWrapPos(0);

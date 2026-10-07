@@ -23,6 +23,26 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
+    id: 'ding-dong-ditch', name: 'Ding Dong Ditch', version: '0.7.0', time: 1791341000, tag: 'Website',
+    summary: 'A notification bell: see friend requests, sales, trades, group news and upload checks in one place.',
+    items: [
+      'A bell next to your name on the website and in the Player, with a red number for new things',
+      'Friend requests, new friends and followers, sales, trades and group requests all ring it',
+      'You also hear back when staff check something you uploaded (and why, if it was turned down)',
+      'Click one to go straight to that page',
+    ],
+  },
+  {
+    id: 'bouncer-at-the-door', name: 'Bouncer at the Door', version: '0.7.0', time: 1791340000, tag: 'Server',
+    summary: 'New decals, sounds and T-shirts from creators who aren\'t Verified wait for a staff check before anyone else sees them.',
+    items: [
+      'Until staff OK it, only you can see or hear your new upload, and its page says it\'s waiting',
+      'Staff get an "Uploads to check" list on the Staff page, on the website and in the Player',
+      'Uploads that get turned down say why, so you know what to fix',
+      'Verified creators skip the line',
+    ],
+  },
+  {
     id: 'robot-brain-transplant', name: 'Robot Brain Transplant', version: '0.7.0', time: 1791339011, tag: 'Studio',
     summary: 'AI helpers (the Assistant tab and MCP apps like Claude) now really understand Studio: they look before they touch, check their work, and stop making things up.',
     items: [
@@ -37,6 +57,37 @@ export const BUILT_IN_UPDATES = [
       'Power tools for AIs: make a physics object in one go, set off explosions, bake the navmesh, find walking routes and send characters walking',
       'AIs can watch the running game (frame rate, what\'s moving, where characters are) and pause or step it',
       'Save points: an AI can save the game, try something wild, and roll back if it goes wrong (plus redo)',
+    ],
+  },
+  {
+    id: 'soap-in-the-mouth', name: 'Soap in the Mouth', version: '0.7.0', time: 1791330000, tag: 'Server',
+    summary: 'A text filter: anything with slurs, links or personal info in it becomes [ Content Deleted ], like classic Roblox.',
+    items: [
+      'Chat, messages, profiles, group posts and the names and descriptions of things are all filtered',
+      'Slurs are caught even with spaces, dots or look-alike letters in them',
+      'Links (except to gutsandbolts.net), email addresses and phone numbers are covered so nobody shares personal info',
+      'Usernames and guest names with slurs in them aren\'t allowed',
+    ],
+  },
+  {
+    id: 'apple-of-my-eye', name: 'Apple of My Eye', version: '0.7.0', time: 1791328060, tag: 'Player',
+    summary: 'The website\'s Play button opens the Player on a Mac too, not just on Windows, Linux and Android.',
+    items: [
+      'Open the Player once on your Mac, and Play and Join on the website open it straight into the game',
+      'It adds a small Guts&Bolts Player app to your Applications folder, which macOS needs for links',
+      'If the Player is already open, the link goes to it instead of opening another one',
+      '"Edit in Studio" links work on a Mac the same way',
+    ],
+  },
+  {
+    id: 'portal-hopper', name: 'Portal Hopper', version: '0.7.0', time: 1791327890, tag: 'Engine',
+    summary: 'TeleportService: games can send players to another game, and bring some data along, like Roblox.',
+    items: [
+      'TeleportService:Teleport and TeleportAsync send one player or a whole group to another game by its ID',
+      'Send data with them (TeleportOptions:SetTeleportData), and read it there with player:GetJoinData()',
+      'Players land in an open server of that game, or a new one if none is open',
+      'Works from game server machines, from whoever is hosting, and from LocalScripts for your own player',
+      'In Studio\'s play test, Output says where a player would have gone',
     ],
   },
   {

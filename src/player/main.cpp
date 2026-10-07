@@ -1,4 +1,5 @@
 #include "PlayerApp.h"
+#include "LaunchLink.h"
 #ifdef GB_MOBILE
 #include <SDL.h>   // on Android, SDL starts the app through this main()
 #endif
@@ -13,6 +14,7 @@
 //   GutsAndBoltsPlayer MyGame.gbscene  jump straight into a game
 int main(int argc, char** argv) {
     CrashHandler::install();
+    LaunchLink::listen();   // Mac: links arrive as messages (start listening before the window opens)
 
     PlayerOptions opts;
     for (int i = 1; i < argc; ++i) {

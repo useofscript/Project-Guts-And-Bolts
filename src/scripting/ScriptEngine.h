@@ -77,6 +77,21 @@ public:
     // require(ID): a model from the Library, fetched once per game. 0 = still getting it,
     // 1 = ready (module = its MainModule), 2 = couldn't (error says why).
     int  libraryModule(const std::string& assetId, uint64_t& module, std::string& error);
+    // TeleportService: players a script sent to another game. The app moves them (only the
+    // Player does; elsewhere, like Studio's play test, scripts just get a note in Output).
+    struct Teleport { std::string player, place; nlohmann::json data; };
+    void setTeleportsWork(bool on) { m_teleportsWork = on; }
+    bool teleportsWork() const { return m_teleportsWork; }
+    void queueTeleport(Teleport t) { m_teleports.push_back(std::move(t)); }
+    std::vector<Teleport> takeTeleports() { return std::move(m_teleports); }
+    // What a player brought along when they were teleported here: {"data": ..., "from": "123"}
+    // (player:GetJoinData(), TeleportService:GetLocalPlayerTeleportData()). Kept across start().
+    void setJoinData(const std::string& player, const nlohmann::json& joinData) { m_joinData[player] = joinData; }
+    void clearJoinData() { m_joinData.clear(); }
+    const nlohmann::json* joinData(const std::string& player) const {
+        auto it = m_joinData.find(player);
+        return it == m_joinData.end() ? nullptr : &it->second;
+    }
     // BadgeService:AwardBadge calls waiting to be sent to the server: (player name, badge id).
     // The app sends them (only the host of a published game's server can award).
     std::vector<std::pair<std::string, std::string>> takeBadgeAwards() { return std::move(m_badgeAwards); }
@@ -201,6 +216,9 @@ private:
     int         m_dataNext = 1, m_dataGen = 0;
     std::vector<DataJob> m_dataQueue;              // waiting for dataDecide
     std::map<int, nlohmann::json> m_dataDone;      // ticket -> value
+    bool m_teleportsWork = false;
+    std::vector<Teleport> m_teleports;
+    std::map<std::string, nlohmann::json> m_joinData;
     struct LibraryModule { int state = 0; uint64_t module = 0; std::string error; };
     std::map<std::string, LibraryModule> m_libraryModules;   // require(ID): asset ID -> what we got
     std::map<std::string, DataCached> m_dataCache; // "store\nkey" -> what we last saw or wrote
