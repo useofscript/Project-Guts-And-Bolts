@@ -64,11 +64,15 @@ void AssistantPanel::send(const std::string& text) {
 }
 
 void AssistantPanel::requestNext() {
+    // The guide and the tool list are the same every time: let the API cache them
+    // (much cheaper and faster from the second message on).
+    json tools = AiTools::list();
+    tools.back()["cache_control"] = {{"type", "ephemeral"}};
     json body = {
         {"model", m_model},
         {"max_tokens", 16000},
-        {"system", AiTools::guide()},
-        {"tools", AiTools::list()},
+        {"system", json::array({{{"type", "text"}, {"text", AiTools::guide()}, {"cache_control", {{"type", "ephemeral"}}}}})},
+        {"tools", tools},
         {"messages", m_messages},
     };
     std::string headers = "x-api-key: " + m_apiKey + "\r\nanthropic-version: 2023-06-01\r\n";

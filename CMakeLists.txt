@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GutsAndBolts VERSION 0.6.9 LANGUAGES C CXX)
+project(GutsAndBolts VERSION 0.7.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -452,6 +452,7 @@ set(EDITOR_SOURCES
     src/editor/ModelImport.cpp
     src/editor/EditorImport.cpp
     src/editor/AiTools.cpp
+    src/editor/AiToolsRun.cpp
     src/editor/StudioMcp.cpp
     src/editor/panels/AssistantPanel.cpp
     src/editor/EditorRibbon.cpp

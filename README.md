@@ -225,9 +225,40 @@ Studio's Assistant. Two ways to use it:
   - Claude Desktop and apps that start a program: run `GutsAndBolts --mcp` (it
     passes messages to the Studio that's open).
 
-The tools: `get_game_tree`, `get_object`, `set_property`, `insert_object`,
-`delete_object`, `create_script`, `read_script`, `edit_script`, `run_lua`,
-`get_output`, `playtest`, `screenshot`, `select` and `undo`.
+The tools, by area (each one's description says when to use it, when not to,
+what it needs, what it gives back and how risky it is):
+
+- Scene: `get_game_tree`, `find_objects`, `insert_object`, `delete_object`
+- Objects: `get_object`, `set_property`, `select`
+- Scripting: `create_script`, `read_script`, `edit_script`, `run_lua`
+- Runtime: `playtest` (start, simulate, stop, pause, resume, step), `get_runtime_state`
+- Physics and navigation: `create_physical_object`, `spawn_explosion`,
+  `bake_navmesh`, `find_path`, `walk_character_to`
+- Docs: `get_engine_info` (overview, capabilities, concepts, coordinates,
+  workflows, classes)
+- Debug: `get_output`, `get_errors`, `diagnose_object`, `validate_scene`
+- View and history: `screenshot`, `undo`, `redo`, `checkpoint` (named save
+  points to try things and roll back)
+
+Every tool answers with JSON: `success`, the `object_id` (`#42`) of what it
+touched, the state read back from the engine, `warnings`, and for failures an
+`error` with a `code` (like `OBJECT_NOT_FOUND`), whether it's `recoverable` and a
+`suggested_action`. MCP apps also get it as `structuredContent`, and each tool
+is marked read-only or not (`readOnlyHint`, `destructiveHint`) with a
+`gutsbolts/risk_level` in its `_meta`. The guide the AI reads first (MCP's
+server instructions, the Assistant's system prompt) teaches it to look first,
+use the engine's own systems, check its work and never invent things.
+
+MCP apps can also read the engine reference as resources: `gutsbolts://guide`,
+`gutsbolts://overview`, `gutsbolts://capabilities` (a JSON manifest of what the
+tools can and can't do), `gutsbolts://concepts`, `gutsbolts://coordinates`
+(Y up, -Z forward, units, rotations), `gutsbolts://workflows`,
+`gutsbolts://examples`, `gutsbolts://classes`, and live ones:
+`gutsbolts://scene/tree`, `gutsbolts://runtime` and `gutsbolts://errors`.
+MCP prompts (`make_physical`, `navigate_enemies`, `explosion_push`,
+`fix_not_working`, `describe_scene`) start common jobs with the right workflow. Objects are best named by id (`#42`); a path like
+`Workspace.Twin` is refused with `AMBIGUOUS_NAME` and a list of candidates when
+two objects share that name.
 
 ### Plugins
 
