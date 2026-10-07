@@ -2086,6 +2086,16 @@ person shows just what was done by or to them. The newest 3,000 are kept
 (`staffDid` in `worker/server.js` and `src/server/ServerSafety.cpp`, which saves
 `stafflog.json`).
 
+### Featured games
+
+Staff can pick games to show off. On a game's page, staff see a **Feature** button
+(and **Unfeature** to take it back off). Featured games get a gold "Featured" tag,
+show up in the **Featured Games** row at the top of the home page (website and
+Player), and can be picked with the **Featured** sort on the Games page. Only public
+games can be featured, and the game's creator gets a notification when it happens.
+Newest picks come first. (`admin.feature` in `worker/server.js` and
+`src/server/Server.cpp`; it's written to the staff action log too.)
+
 ### Comments under games
 
 Every game's page has comments (the website's game page, and the game window in the
