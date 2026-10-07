@@ -202,6 +202,9 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
             auto c = std::find_if(a.comments.begin(), a.comments.end(), [&](const json& x) { return x.value("id", std::string()) == str("id"); });
             if (c == a.comments.end()) return fail("That comment is already gone.");
             if (c->value("by", std::string()) != me.id && !mod) return fail("You can only delete your own comments.");
+            if (c->value("by", std::string()) != me.id && a.creator != me.id)
+                staffDid(me, "comment", "Deleted a comment on \"" + a.name + "\": \"" + c->value("text", std::string()).substr(0, 80) + "\"",
+                         c->value("by", std::string()));
             a.comments.erase(c);
             saveAssets();
         }

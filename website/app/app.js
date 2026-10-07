@@ -1893,8 +1893,9 @@ pages.staff = async () => {
   if (!signedIn() || !me.staff) { show(html`<h1>Staff</h1><p class="muted">Only Guts&amp;Bolts staff can see this page.</p>`); return; }
   const query = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
   const closed = new URLSearchParams(location.hash.split('?')[1] || '').get('reports') === 'closed';
-  const [r, rep, up] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' }),
-    pageCall('admin.uploads', {})]);
+  const logFor = new URLSearchParams(location.hash.split('?')[1] || '').get('log') || '';
+  const [r, rep, up, lg] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' }),
+    pageCall('admin.uploads', {}), pageCall('admin.log', logFor ? { user: logFor } : {})]);
   show(html`<h1>Staff</h1>
     ${uploadsBox(up)}
     ${reportsBox(rep, closed)}
@@ -1915,9 +1916,25 @@ pages.staff = async () => {
           <button class="btn small" data-act="staff" data-op="bolts" data-id="${u.id}" data-name="${u.username || u.name}">Give Bolts</button>
           <button class="btn small" data-act="staff" data-op="warn" data-id="${u.id}">Warn</button>
           <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
-      </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
+        <a class="btn small" href="#/staff?log=${u.userId || u.id}" title="What staff did to or by them">Log</a>
+      </div>`) : html`<p class="error">${r.error}</p>`}</div>
+    ${staffLogBox(lg, logFor)}`);
   loadReviewPreviews();
 };
+
+// The staff action log: who banned, warned, verified, checked or deleted what (newest first).
+const STAFF_ACTION = { ban: '🔨', unban: '🕊️', warn: '⚠️', bolts: '💰', badge: '🏅', unbadge: '🏅', review: '🖼️', report: '🚩', delete: '🗑️', comment: '💬' };
+function staffLogBox(lg, logFor) {
+  const person = (u) => (u ? html`<a href="#/user/${u.userId || u.id}">${u.name}</a>` : '');
+  const body = !lg.ok ? html`<p class="error">${lg.error}</p>`
+    : lg.log.length ? html`<div class="list stafflog">${lg.log.map((x) => html`<div>
+        <span aria-hidden="true">${STAFF_ACTION[x.action] || '•'}</span>
+        <span class="grow"><b>${person(x.by)}</b>: ${x.text}</span><span class="small muted">${ago(x.at)}</span></div>`)}</div>`
+    : html`<p class="muted">Nothing yet.</p>`;
+  return html`<div class="box"><h2 class="boxhead">Staff action log</h2>
+    <p class="small muted">${logFor ? html`Just what was done by or to this person. <a href="#/staff">Show everything</a>`
+      : 'Everything staff did lately: bans, warnings, badges, Bolts, upload checks, closed reports and deletes.'}</p>${body}</div>`;
+}
 
 // The bell: friend requests, sales, trades, uploads checked by staff... (newest first).
 // Opening the page marks them all read.

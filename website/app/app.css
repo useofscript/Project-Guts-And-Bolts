@@ -606,3 +606,7 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 .comment .grow { min-width: 0; }
 .comment p { margin: 0 0 3px; }
 .comment-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Staff action log */
+.stafflog > div { display: flex; align-items: baseline; gap: 8px; }
+.stafflog .grow { min-width: 0; overflow-wrap: anywhere; }

@@ -199,7 +199,9 @@ json GbServer::closeReport(const User& staff, const std::string& id, const std::
             x["closedBy"] = staff.id;
             x["closedAt"] = Online::unixNow();
         }
-    log(staff.name + " closed the reports about a " + kind + " (" + outcome + ")");
+    const char* why = Online::banReasonTitle(found->value("reason", std::string()));
+    staffDid(staff, "report", std::string(outcome == "dismissed" ? "Dismissed" : "Closed") + " the reports about a " + kind + " (" +
+             (why ? why : found->value("reason", std::string())) + ")", found->value("about", std::string()));
     saveReports();
     json r = okay(); r["reports"] = reportsJson("open"); return r;
 }
@@ -216,6 +218,39 @@ void GbServer::saveReports() {
         m_reports = kept;
     }
     writeFile(m_opts.data / "reports.json", m_reports.dump(1));
+}
+
+// The staff action log (worker/server.js has the same): bans, warnings, badges, Bolts, upload
+// checks, closed reports and things staff deleted. The newest kMaxStaffLog are kept.
+void GbServer::staffDid(const User& staff, const std::string& action, const std::string& text, const std::string& about) {
+    constexpr size_t kMaxStaffLog = 3000;
+    m_staffLog.push_back({{"at", Online::unixNow()}, {"by", staff.id}, {"action", action}, {"text", text}, {"about", about}});
+    if (m_staffLog.size() > kMaxStaffLog) m_staffLog.erase(m_staffLog.begin(), m_staffLog.begin() + (m_staffLog.size() - kMaxStaffLog));
+    log(staff.name + ": " + text);
+    writeFile(m_opts.data / "stafflog.json", m_staffLog.dump(1));
+}
+
+json GbServer::staffLogJson(const std::string& who) const {
+    auto name = [&](const std::string& id) {
+        auto it = m_users.find(id);
+        return it != m_users.end() ? json{{"id", id}, {"userId", it->second.userId}, {"name", it->second.name}} : json{{"id", id}, {"userId", 0}, {"name", "?"}};
+    };
+    json out = json::array();
+    for (size_t i = m_staffLog.size(); i > 0 && out.size() < 200; --i) {
+        const json& x = m_staffLog[i - 1];
+        const std::string by = x.value("by", std::string()), about = x.value("about", std::string());
+        if (!who.empty() && by != who && about != who) continue;
+        out.push_back({{"at", x.value("at", 0LL)}, {"by", name(by)}, {"action", x.value("action", std::string())},
+                       {"text", x.value("text", std::string())}, {"about", about.empty() ? json() : name(about)}});
+    }
+    return out;
+}
+
+void GbServer::loadStaffLog() {
+    std::string text;
+    if (!readFile(m_opts.data / "stafflog.json", text)) return;
+    json all = json::parse(text, nullptr, false);
+    if (all.is_array()) m_staffLog = all;
 }
 
 void GbServer::loadReports() {
