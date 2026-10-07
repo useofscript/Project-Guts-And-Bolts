@@ -1928,6 +1928,27 @@ server always knows who is asking. Nobody can spend someone else's Bolts or
 pretend to be staff. The server doesn't use encryption (TLS), so treat
 everything on it as public: don't upload anything secret.
 
+### The text filter
+
+Things people write for other people to read go through a text filter, on the
+website server (`worker/textfilter.js`) and the C++ server (`src/core/TextFilter.cpp`)
+alike. That covers in-game chat, messages, profile blurbs and statuses, names and
+descriptions of uploads, game passes, badges, groups and servers, and group posts
+and shouts.
+
+If something has any of these in it, the whole thing is replaced with
+`[ Content Deleted ]`, like classic Roblox:
+
+- Hateful slurs, even when written with spaces, dots or look-alike characters
+  (like `1` for `i`).
+- Links, except links to gutsandbolts.net.
+- Email addresses and phone numbers, so nobody shares personal info.
+
+- Usernames can't contain slurs at all: "That username isn't allowed." A guest name
+  in a game that the filter would catch becomes "Player".
+- Searches, staff notes and report reasons aren't filtered, so staff see exactly
+  what was written.
+
 ### Bolts (the currency)
 
 (With a server, your Bolts live on the server instead, and everything below

@@ -26,6 +26,7 @@ set(GB_SERVER_SOURCES
     src/server/ServerSafety.cpp
     src/online/Protocol.cpp
     src/core/Account.cpp
+    src/core/TextFilter.cpp
     src/core/Paths.cpp
     src/core/Log.cpp
     src/net/Socket.cpp
@@ -294,6 +295,7 @@ add_library(gb_engine STATIC
     src/core/Audio.cpp
     src/core/UpdateChecker.cpp
     src/core/Account.cpp
+    src/core/TextFilter.cpp
     src/scene/ObjImport.cpp
     src/scene/PlayerModel.cpp
     src/renderer/Shader.cpp
