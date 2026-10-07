@@ -39,6 +39,12 @@ namespace {
 void byLine(const json& a) {
     ImGui::TextDisabled("by");
     ImGui::SameLine(0, 4);
+    if (a.contains("group") && a["group"].is_object()) {   // a group's game
+        ImGui::TextColored(Classic::kLink, "%s", a["group"].value("name", std::string("?")).c_str());
+        ImGui::SameLine(0, 4);
+        ImGui::TextDisabled("(made by %s)", a.value("creatorName", std::string("?")).c_str());
+        return;
+    }
     ImGui::TextColored(Classic::kLink, "%s", a.value("creatorName", std::string("?")).c_str());
     if (a.value("creatorVerified", false)) { ImGui::SameLine(0, 3); Badges::check(); }
 }

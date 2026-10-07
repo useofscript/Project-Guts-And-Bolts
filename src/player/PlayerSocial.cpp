@@ -141,7 +141,7 @@ void PlayerApp::openProfile(const std::string& id) {
 }
 
 void PlayerApp::openGroup(const std::string& id) {
-    if (id != m_groupId) { m_group = json::object(); m_editingGroup = false; }
+    if (id != m_groupId) { m_group = json::object(); m_editingGroup = false; m_rankEdits.clear(); m_groupMyGames = json::array(); }
     m_groupId = id;
     m_page = Page::Group;
     if (!Online::online()) return;   // drawGroup asks again once we're connected
@@ -769,6 +769,13 @@ void PlayerApp::drawGroups() {
     if (!m_socialMsg.empty()) ImGui::TextColored(ImVec4(0.8f, 0.15f, 0.1f, 1), "%s", m_socialMsg.c_str());
 }
 
+namespace {
+// What each group permission lets a rank do (the server checks the same).
+const char* const kGroupPerms[][2] = {{"shout", "Shout"}, {"manage", "Let people in, remove people, change settings"},
+                                      {"ranks", "Change people's ranks"}, {"games", "Add their games to the group"},
+                                      {"funds", "See the group's Bolts and pay people"}};
+} // namespace
+
 void PlayerApp::drawGroup() {
     if (backLink()) { m_page = Page::Groups; m_loaded.clear(); }
     if (needsServer("Groups")) return;
@@ -776,8 +783,22 @@ void PlayerApp::drawGroup() {
     if (!m_group.contains("group")) { ImGui::TextDisabled("%s", m_socialMsg.empty() ? "Loading..." : m_socialMsg.c_str()); return; }
     const json g = m_group["group"];
     const std::string myRole = m_group.value("myRole", std::string());
-    const bool member = !myRole.empty(), owner = myRole == "Owner", manage = owner || myRole == "Admin";
+    // My rank and what it can do. (An older server only says Owner / Admin / Member.)
+    json myRank = m_group.contains("myRank") && m_group["myRank"].is_object() ? m_group["myRank"] : json();
+    if (myRank.is_null() && !myRole.empty())
+        myRank = {{"id", myRole}, {"name", myRole}, {"level", myRole == "Owner" ? 255 : myRole == "Admin" ? 200 : 1},
+                  {"perms", myRole == "Admin" ? json{"shout", "manage", "games"} : json::array()}};
+    const bool member = myRank.is_object(), owner = member && myRank.value("id", std::string()) == "Owner";
+    const int myLevel = member ? myRank.value("level", 0) : 0;
+    auto can = [&](const char* perm) {
+        if (!member) return false;
+        if (owner) return true;
+        for (const auto& p : myRank.value("perms", json::array())) if (p == perm) return true;
+        return false;
+    };
+    const bool manage = can("manage");
     const bool staff = Online::staff();
+    const json ranks = m_group.value("ranks", json::array());
     auto act = [this](const std::string& op, json args) {
         args["id"] = m_groupId;
         Online::request(op, args, [this](const json& r) {
@@ -803,7 +824,7 @@ void PlayerApp::drawGroup() {
         openProfile(g.value("owner", std::string()));
     ImGui::TextDisabled("%lld member%s  -  %s", g.value("members", 0LL), g.value("members", 0LL) == 1 ? "" : "s",
                         g.value("open", true) ? "anyone can join" : "ask to join");
-    if (member) ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "You're %s %s", myRole == "Member" ? "a" : "an", myRole.c_str());
+    if (member) ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Your rank: %s", myRank.value("name", myRole).c_str());
     ImGui::Spacing();
     if (!member) {
         bool requested = m_group.value("requested", false);
@@ -831,7 +852,7 @@ void PlayerApp::drawGroup() {
 
     // --- Shout: the group's pinned message ---
     const json& shout = m_group.contains("shoutInfo") ? m_group["shoutInfo"] : json::object();
-    if (shout.contains("text") || manage) {
+    if (shout.contains("text") || can("shout")) {
         ImVec2 s0 = ImGui::GetCursorScreenPos();
         float w = ImGui::GetContentRegionAvail().x;
         dl->AddRectFilled(s0, ImVec2(s0.x + w, s0.y + 58), IM_COL32(255, 248, 225, 255), 6);
@@ -848,8 +869,8 @@ void PlayerApp::drawGroup() {
         ImGui::PopTextWrapPos();
         ImGui::EndGroup();
         ImGui::SetCursorScreenPos(ImVec2(s0.x, s0.y + 64));
-    ImGui::Dummy(ImVec2(0, 0));
-        if (manage) {
+        ImGui::Dummy(ImVec2(0, 0));
+        if (can("shout")) {
             ImGui::SetNextItemWidth(std::min(400.0f, ImGui::GetContentRegionAvail().x - 90));
             ImGui::InputTextWithHint("##shout", "New shout", &m_shoutInput);
             ImGui::SameLine();
@@ -857,102 +878,224 @@ void PlayerApp::drawGroup() {
         }
     }
 
-    // Wall / Members / Admin, as simple buttons (they match the rest of the site)
+    // Wall / Members / Games / Bolts / Admin, as simple buttons (they match the rest of the site)
+    enum Tab { Wall, Members, Games, Funds, Admin };
     const json& reqList = m_group.contains("requests") ? m_group["requests"] : json::array();
-    std::string adminLabel = reqList.empty() ? std::string("Admin") : "Admin (" + std::to_string(reqList.size()) + ")";
-    std::string membersLabel = "Members (" + std::to_string(g.value("members", 0LL)) + ")";
-    const char* tabs[] = {"Wall", membersLabel.c_str(), adminLabel.c_str()};
-    int tabCount = (manage || staff) ? 3 : 2;
-    if (m_groupTab >= tabCount) m_groupTab = 0;
+    const json& games = m_group.contains("games") ? m_group["games"] : json::array();
+    std::vector<std::pair<Tab, std::string>> tabs = {{Wall, "Wall"}, {Members, "Members (" + std::to_string(g.value("members", 0LL)) + ")"}};
+    if (!games.empty() || can("games")) tabs.push_back({Games, "Games (" + std::to_string(games.size()) + ")"});
+    if (m_group.contains("funds")) tabs.push_back({Funds, "Group Bolts"});
+    if (manage || owner || staff) tabs.push_back({Admin, reqList.empty() ? std::string("Admin") : "Admin (" + std::to_string(reqList.size()) + ")"});
+    if (m_groupTab >= (int)tabs.size()) m_groupTab = 0;
+    const Tab tab = tabs[m_groupTab].first;
     ImGui::Spacing();
-    for (int i = 0; i < tabCount; ++i) {
+    for (int i = 0; i < (int)tabs.size(); ++i) {
         if (i) ImGui::SameLine();
         ImGui::PushID(i);
-        if (m_groupTab == i ? Classic::button(tabs[i], Classic::kBlue, ImVec2(120, 28)) : ImGui::Button(tabs[i], ImVec2(120, 28)))
+        const char* label = tabs[i].second.c_str();
+        if (m_groupTab == i ? Classic::button(label, Classic::kBlue, ImVec2(118, 28)) : ImGui::Button(label, ImVec2(118, 28)))
             m_groupTab = i;
         ImGui::PopID();
     }
     ImGui::Separator();
-    {
-        // --- Wall ---
-        if (m_groupTab == 0) {
-            if (member) {
-                ImGui::SetNextItemWidth(std::min(460.0f, ImGui::GetContentRegionAvail().x - 80));
-                bool enter = ImGui::InputTextWithHint("##post", "Say something to the group", &m_wallInput,
-                                                      ImGuiInputTextFlags_EnterReturnsTrue);
+
+    // --- Wall ---
+    if (tab == Wall) {
+        if (member) {
+            ImGui::SetNextItemWidth(std::min(460.0f, ImGui::GetContentRegionAvail().x - 80));
+            bool enter = ImGui::InputTextWithHint("##post", "Say something to the group", &m_wallInput,
+                                                  ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::SameLine();
+            if ((ImGui::Button("Post") || enter) && !m_wallInput.empty()) {
+                act("groups.post", {{"text", m_wallInput}});
+                m_wallInput.clear();
+            }
+        } else {
+            ImGui::TextDisabled("Join the group to post here.");
+        }
+        const json& wall = m_group.contains("wall") ? m_group["wall"] : json::array();
+        if (wall.empty()) ImGui::TextDisabled("Nothing on the wall yet.");
+        for (size_t k = wall.size(); k-- > 0;) {
+            const json& post = wall[k];
+            ImGui::PushID((int)k);
+            ImGui::Separator();
+            if (nameLink(post, "poster")) openProfile(post.value("id", std::string()));
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", when(post.value("time", 0LL)).c_str());
+            if (post.value("id", std::string()) == Account::id() || manage || staff) {
                 ImGui::SameLine();
-                if ((ImGui::Button("Post") || enter) && !m_wallInput.empty()) {
-                    act("groups.post", {{"text", m_wallInput}});
-                    m_wallInput.clear();
+                if (ImGui::SmallButton("delete"))
+                    act("groups.deletePost", {{"time", post.value("time", 0LL)}, {"by", post.value("id", std::string())}});
+            }
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextUnformatted(post.value("text", std::string()).c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopID();
+        }
+    }
+    // --- Members ---
+    if (tab == Members) {
+        const json& list = m_group.contains("memberList") ? m_group["memberList"] : json::array();
+        for (size_t i = 0; i < list.size(); ++i) {
+            const json& m = list[i];
+            const std::string id = m.value("id", std::string()), role = m.value("role", std::string());
+            const std::string rankId = m.value("rank", role);
+            const int level = m.value("level", role == "Owner" ? 255 : role == "Admin" ? 200 : 1);
+            const bool below = level < myLevel && id != Account::id() && rankId != "Owner";
+            ImGui::PushID((int)i);
+            avatarCircle(ImGui::GetWindowDrawList(), ImVec2(ImGui::GetCursorScreenPos().x + 11, ImGui::GetCursorScreenPos().y + 10),
+                         10, id, m.value("name", std::string()));
+            ImGui::Dummy(ImVec2(24, 20));
+            ImGui::SameLine();
+            if (nameLink(m, "member")) openProfile(id);
+            ImGui::SameLine();
+            if (can("ranks") && below && !ranks.empty()) {
+                ImGui::SetNextItemWidth(130);
+                if (ImGui::BeginCombo("##rank", role.c_str())) {
+                    for (const auto& r : ranks) {
+                        const std::string rid = r.value("id", std::string());
+                        if (rid == "Owner" || (!owner && r.value("level", 0) >= myLevel)) continue;
+                        if (ImGui::Selectable(r.value("name", std::string()).c_str(), rid == rankId) && rid != rankId)
+                            act("groups.member", {{"user", id}, {"action", "rank"}, {"rank", rid}});
+                    }
+                    ImGui::EndCombo();
                 }
             } else {
-                ImGui::TextDisabled("Join the group to post here.");
+                ImGui::TextDisabled("%s", role.c_str());
             }
-            const json& wall = m_group.contains("wall") ? m_group["wall"] : json::array();
-            if (wall.empty()) ImGui::TextDisabled("Nothing on the wall yet.");
-            for (size_t k = wall.size(); k-- > 0;) {
-                const json& post = wall[k];
-                ImGui::PushID((int)k);
-                ImGui::Separator();
-                if (nameLink(post, "poster")) openProfile(post.value("id", std::string()));
+            if (owner && rankId != "Owner") {
                 ImGui::SameLine();
-                ImGui::TextDisabled("%s", when(post.value("time", 0LL)).c_str());
-                if (post.value("id", std::string()) == Account::id() || manage || staff) {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("delete"))
-                        act("groups.deletePost", {{"time", post.value("time", 0LL)}, {"by", post.value("id", std::string())}});
+                if (ImGui::SmallButton("Give ownership")) ImGui::OpenPopup("##giveaway");
+                if (ImGui::BeginPopup("##giveaway")) {
+                    ImGui::Text("Make %s the owner? You'll get the next rank down.", m.value("name", std::string()).c_str());
+                    if (ImGui::Button("Yes, give it to them")) {
+                        act("groups.member", {{"user", id}, {"action", "owner"}});
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+            }
+            if ((manage && below) || (staff && rankId != "Owner" && id != Account::id())) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) act("groups.member", {{"user", id}, {"action", "kick"}});
+            }
+            ImGui::PopID();
+        }
+    }
+    // --- Games: the group's games (their pass and product sales go to the group's Bolts) ---
+    if (tab == Games) {
+        if (games.empty()) ImGui::TextDisabled("No games yet.");
+        for (size_t i = 0; i < games.size(); ++i) {
+            const json& a = games[i];
+            ImGui::PushID((int)i + 2000);
+            ImGui::PushStyleColor(ImGuiCol_Text, Classic::kLink);
+            if (ImGui::Selectable(a.value("name", std::string()).c_str(), false, 0, ImVec2(std::min(320.0f, ImGui::GetContentRegionAvail().x * 0.5f), 0))) {
+                m_page = Page::Games;
+                m_openGame = a;
+                m_openOnlineGame = 0;
+            }
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextDisabled("%lld visits  -  made by %s", a.value("plays", 0LL), a.value("creatorName", std::string("?")).c_str());
+            if (owner || (can("games") && a.value("creator", std::string()) == Account::id())) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Take out")) act("groups.removeGame", {{"game", a.value("id", std::string())}});
+            }
+            ImGui::PopID();
+        }
+        if (can("games")) {
+            ImGui::SeparatorText("Add one of your games");
+            if (m_loaded.find("groupgames ") == std::string::npos) {
+                m_loaded += "groupgames ";
+                Online::request("list", {{"creator", Account::id()}, {"kind", "game"}, {"limit", 100}}, [this](const json& r) {
+                    if (r.value("ok", false)) m_groupMyGames = r["assets"];
+                });
+            }
+            std::vector<const json*> mine;
+            for (const auto& a : m_groupMyGames)
+                if (!a.contains("group") || !a["group"].is_object() || a["group"].value("id", std::string()) != m_groupId) mine.push_back(&a);
+            if (mine.empty()) ImGui::TextDisabled("You don't have any other published games.");
+            else {
+                if (m_groupAddGame >= (int)mine.size()) m_groupAddGame = 0;
+                ImGui::SetNextItemWidth(std::min(300.0f, ImGui::GetContentRegionAvail().x - 90));
+                if (ImGui::BeginCombo("##addgame", mine[m_groupAddGame]->value("name", std::string()).c_str())) {
+                    for (int i = 0; i < (int)mine.size(); ++i)
+                        if (ImGui::Selectable((mine[i]->value("name", std::string()) + "##" + std::to_string(i)).c_str(), i == m_groupAddGame))
+                            m_groupAddGame = i;
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                if (Classic::button("Add", Classic::kPlay)) {
+                    const std::string gameId = mine[m_groupAddGame]->value("id", std::string());
+                    Online::request("game.settings", {{"id", gameId}, {"group", m_groupId}}, [this](const json& r) {
+                        m_socialMsg = r.value("ok", false) ? std::string() : r.value("error", std::string());
+                        if (size_t at = m_loaded.find("groupgames "); at != std::string::npos) m_loaded.erase(at, 11);
+                        openGroup(m_groupId);
+                    });
                 }
                 ImGui::PushTextWrapPos(0);
-                ImGui::TextUnformatted(post.value("text", std::string()).c_str());
+                ImGui::TextDisabled("Its game pass and product sales go to the group's Bolts instead of to you.");
                 ImGui::PopTextWrapPos();
-                ImGui::PopID();
             }
         }
-        // --- Members ---
-        if (m_groupTab == 1) {
-            const json& list = m_group.contains("memberList") ? m_group["memberList"] : json::array();
-            for (size_t i = 0; i < list.size(); ++i) {
-                const json& m = list[i];
-                std::string id = m.value("id", std::string()), role = m.value("role", std::string());
-                ImGui::PushID((int)i);
-                avatarCircle(ImGui::GetWindowDrawList(), ImVec2(ImGui::GetCursorScreenPos().x + 11, ImGui::GetCursorScreenPos().y + 10),
-                             10, id, m.value("name", std::string()));
-                ImGui::Dummy(ImVec2(24, 20));
-                ImGui::SameLine();
-                if (nameLink(m, "member")) openProfile(id);
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", role.c_str());
-                if (id != Account::id() && role != "Owner") {
-                    if (owner) {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton(role == "Admin" ? "Make member" : "Make admin"))
-                            act("groups.member", {{"user", id}, {"action", role == "Admin" ? "member" : "admin"}});
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Give ownership")) ImGui::OpenPopup("##giveaway");
-                        if (ImGui::BeginPopup("##giveaway")) {
-                            ImGui::Text("Make %s the owner? You'll become an admin.", m.value("name", std::string()).c_str());
-                            if (ImGui::Button("Yes, give it to them")) {
-                                act("groups.member", {{"user", id}, {"action", "owner"}});
-                                ImGui::CloseCurrentPopup();
-                            }
-                            ImGui::EndPopup();
-                        }
-                    }
-                    if (owner || (manage && role == "Member") || staff) {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Remove")) act("groups.member", {{"user", id}, {"action", "kick"}});
-                    }
+    }
+    // --- Group Bolts: what came in, what went out, and paying members ---
+    if (tab == Funds) {
+        const long long funds = m_group.value("funds", 0LL);
+        Bolts::drawIcon(dl, ImVec2(ImGui::GetCursorScreenPos().x + 10, ImGui::GetCursorScreenPos().y + 12), 20.0f);
+        ImGui::Dummy(ImVec2(22, 0));
+        ImGui::SameLine();
+        ImGui::SetWindowFontScale(1.4f);
+        ImGui::Text("%lld", funds);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::TextDisabled("Sales from the group's games come in here. Pay members from it.");
+        const json& list = m_group.contains("memberList") ? m_group["memberList"] : json::array();
+        if (can("funds") && !list.empty()) {
+            if (m_payTo >= (int)list.size()) m_payTo = 0;
+            const std::string who = list[m_payTo].value("name", std::string());
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::BeginCombo("##payto", who.c_str())) {
+                for (int i = 0; i < (int)list.size(); ++i)
+                    if (ImGui::Selectable((list[i].value("name", std::string()) + "##" + std::to_string(i)).c_str(), i == m_payTo)) m_payTo = i;
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100);
+            ImGui::InputInt("##payamount", &m_payAmount, 0);
+            m_payAmount = std::clamp(m_payAmount, 0, 100000000);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(m_payAmount < 1 || m_payAmount > funds);
+            if (Classic::button("Pay", Classic::kPlay, ImVec2(70, 0))) ImGui::OpenPopup("##payout");
+            ImGui::EndDisabled();
+            if (ImGui::BeginPopup("##payout")) {
+                ImGui::Text("Pay %s %d Bolts from the group?", who.c_str(), m_payAmount);
+                if (ImGui::Button("Yes, pay them")) {
+                    act("groups.payout", {{"user", list[m_payTo].value("id", std::string())}, {"amount", m_payAmount}});
+                    m_payAmount = 0;
+                    ImGui::CloseCurrentPopup();
                 }
-                ImGui::PopID();
+                ImGui::EndPopup();
             }
         }
-        // --- Admin ---
-        if (m_groupTab == 2) {
+        ImGui::SeparatorText("History");
+        const json& ledger = m_group.contains("ledger") ? m_group["ledger"] : json::array();
+        if (ledger.empty()) ImGui::TextDisabled("Nothing yet.");
+        for (const auto& e : ledger) {
+            const long long n = e.value("amount", 0LL);
+            ImGui::TextColored(n < 0 ? ImVec4(0.7f, 0.15f, 0.1f, 1) : ImVec4(0.1f, 0.5f, 0.2f, 1), "%s%lld", n > 0 ? "+" : "", n);
+            ImGui::SameLine(80);
+            ImGui::TextUnformatted(e.value("reason", std::string()).c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", when(e.value("at", 0LL)).c_str());
+        }
+    }
+    // --- Admin ---
+    if (tab == Admin) {
+        if (manage) {
             ImGui::SeparatorText("Asking to join");
-            const json& reqs = reqList;
-            if (reqs.empty()) ImGui::TextDisabled("Nobody's waiting.");
-            for (size_t i = 0; i < reqs.size(); ++i) {
-                const json& u = reqs[i];
+            if (reqList.empty()) ImGui::TextDisabled("Nobody's waiting.");
+            for (size_t i = 0; i < reqList.size(); ++i) {
+                const json& u = reqList[i];
                 ImGui::PushID((int)i + 1000);
                 if (nameLink(u, "req")) openProfile(u.value("id", std::string()));
                 ImGui::SameLine();
@@ -961,28 +1104,88 @@ void PlayerApp::drawGroup() {
                 if (ImGui::SmallButton("No")) act("groups.request", {{"user", u.value("id", std::string())}, {"accept", false}});
                 ImGui::PopID();
             }
-            if (manage) {
-                ImGui::SeparatorText("Group settings");
-                if (!m_editingGroup) { m_editDesc = g.value("description", std::string()); m_editingGroup = true; }
-                ImGui::InputTextMultiline("About##edit", &m_editDesc, ImVec2(std::min(460.0f, ImGui::GetContentRegionAvail().x - 60), 70));
-                bool open = g.value("open", true);
-                if (ImGui::Checkbox("Anyone can join", &open)) act("groups.edit", {{"open", open}});
-                if (ImGui::Button("Save")) act("groups.edit", {{"description", m_editDesc}});
-            }
-            if (owner || staff) {
-                ImGui::SeparatorText("Danger zone");
-                if (bigButton("Delete group", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(140, 30))) ImGui::OpenPopup("##delgroup");
-                if (ImGui::BeginPopup("##delgroup")) {
-                    ImGui::TextUnformatted("Delete this group for everyone? This can't be undone.");
-                    if (ImGui::Button("Yes, delete it")) {
-                        Online::request("groups.delete", {{"id", m_groupId}}, [this](const json& r) {
-                            if (r.value("ok", false)) { m_page = Page::Groups; m_loaded.clear(); m_groupsTab = 0; }
-                            else m_socialMsg = r.value("error", std::string());
-                        });
-                        ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::EndPopup();
+            ImGui::SeparatorText("Group settings");
+            if (!m_editingGroup) { m_editDesc = g.value("description", std::string()); m_editingGroup = true; }
+            ImGui::InputTextMultiline("About##edit", &m_editDesc, ImVec2(std::min(460.0f, ImGui::GetContentRegionAvail().x - 60), 70));
+            bool open = g.value("open", true);
+            if (ImGui::Checkbox("Anyone can join", &open)) act("groups.edit", {{"open", open}});
+            if (ImGui::Button("Save")) act("groups.edit", {{"description", m_editDesc}});
+        }
+        if (owner && !ranks.empty()) {
+            ImGui::SeparatorText("Ranks");
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("Higher levels are more in charge. People can only change the rank of people below them. Up to 10 ranks.");
+            ImGui::PopTextWrapPos();
+            // Each rank's form keeps what you typed until you save (or the group reloads).
+            std::vector<json> rows(ranks.begin(), ranks.end());
+            if (rows.size() < 10) rows.push_back({{"id", ""}, {"name", ""}, {"level", 0}, {"perms", json::array()}});
+            for (size_t i = 0; i < rows.size(); ++i) {
+                const std::string rid = rows[i].value("id", std::string());
+                json& e = m_rankEdits[rid];
+                if (e.is_null()) e = rows[i];
+                ImGui::PushID((int)i + 3000);
+                if (rid.empty()) ImGui::TextUnformatted("New rank");
+                std::string name = e.value("name", std::string());
+                ImGui::SetNextItemWidth(160);
+                if (ImGui::InputTextWithHint("##rname", "Rank name", &name)) e["name"] = name.substr(0, 24);
+                if (rid != "Owner" && rid != "Member") {
+                    ImGui::SameLine();
+                    int level = e.value("level", 0);
+                    ImGui::SetNextItemWidth(90);
+                    if (ImGui::InputInt("level", &level, 0)) e["level"] = std::clamp(level, 0, 254);
+                } else {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("level %d", e.value("level", 0));
                 }
+                if (rid != "Owner") {
+                    for (const auto& perm : kGroupPerms) {
+                        bool on = false;
+                        for (const auto& x : e.value("perms", json::array())) if (x == perm[0]) on = true;
+                        if (ImGui::Checkbox(perm[1], &on)) {
+                            json list = json::array();
+                            for (const auto& other : kGroupPerms) {
+                                bool keep = std::string(other[0]) == perm[0] ? on : false;
+                                if (std::string(other[0]) != perm[0])
+                                    for (const auto& x : e.value("perms", json::array())) if (x == other[0]) keep = true;
+                                if (keep) list.push_back(other[0]);
+                            }
+                            e["perms"] = list;
+                        }
+                    }
+                } else {
+                    ImGui::TextDisabled("The owner can do everything.");
+                }
+                if (ImGui::Button(rid.empty() ? "Add rank" : "Save rank")) {
+                    json send = e;
+                    act("groups.rank", {{"rank", send}});
+                    m_rankEdits.clear();
+                }
+                if (rid != "Owner" && rid != "Member" && !rid.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Delete rank")) ImGui::OpenPopup("##delrank");
+                    if (ImGui::BeginPopup("##delrank")) {
+                        ImGui::Text("Delete %s? Everyone in it becomes a Member.", e.value("name", std::string()).c_str());
+                        if (ImGui::Button("Yes, delete it")) { act("groups.rankDelete", {{"rank", rid}}); m_rankEdits.clear(); ImGui::CloseCurrentPopup(); }
+                        ImGui::EndPopup();
+                    }
+                }
+                ImGui::Separator();
+                ImGui::PopID();
+            }
+        }
+        if (owner || staff) {
+            ImGui::SeparatorText("Danger zone");
+            if (bigButton("Delete group", ImVec4(0.75f, 0.25f, 0.25f, 1), ImVec2(140, 30))) ImGui::OpenPopup("##delgroup");
+            if (ImGui::BeginPopup("##delgroup")) {
+                ImGui::TextUnformatted("Delete this group for everyone? Its games stay, but its Bolts are gone. This can't be undone.");
+                if (ImGui::Button("Yes, delete it")) {
+                    Online::request("groups.delete", {{"id", m_groupId}}, [this](const json& r) {
+                        if (r.value("ok", false)) { m_page = Page::Groups; m_loaded.clear(); m_groupsTab = 0; }
+                        else m_socialMsg = r.value("error", std::string());
+                    });
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
             }
         }
     }

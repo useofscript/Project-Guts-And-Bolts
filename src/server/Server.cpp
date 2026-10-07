@@ -294,6 +294,8 @@ json GbServer::publicAsset(const Asset& a) const {
     if (a.kind == "game") {
         j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL);
         j["comments"] = !a.meta.value("commentsOff", false); j["commentCount"] = a.comments.size();
+        if (auto g = m_groups.find(a.meta.value("group", std::string())); g != m_groups.end())
+            j["group"] = {{"id", g->second.id}, {"name", g->second.name}, {"color", g->second.color}};
         if (a.meta.value("featured", 0LL) > 0) j["featured"] = true;
     }
     auto it = m_users.find(a.creator);
@@ -382,7 +384,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         json groups = json::array();
         for (const Group* g : groupsOf(u->id)) {
             json pg = publicGroup(*g);
-            pg["role"] = g->members.at(u->id);
+            pg["role"] = rankIn(*g, u->id).value("name", std::string("Member"));
             groups.push_back(pg);
         }
         r["groups"] = groups;
@@ -929,12 +931,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         const std::string rid = "r-" + Account::randomHex(6);
         if (a.price > 0) {
             add(me, -a.price, "Bought " + a.name, "product:" + rid);
-            if (User* seller = findUser(a.creator); seller && seller != &me) {
-                const long long share = a.price * Online::kCreatorSharePercent / 100;
-                if (share > 0) add(*seller, share, "Sold " + a.name, "productsale:" + rid);
-                tally(&a, "bolts", share);
-                notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
-            }
+            paySeller(a, me, a.price * Online::kCreatorSharePercent / 100, "productsale:" + rid);
         }
         if (!me.receipts.is_array()) me.receipts = json::array();
         me.receipts.insert(me.receipts.begin(), json{{"id", rid}, {"product", a.id}, {"game", a.meta.value("game", std::string())},
@@ -1122,6 +1119,16 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change your own games.");
         if (args.contains("allowGear")) a.meta["allowGear"] = args["allowGear"] == true;
         if (args.contains("comments")) a.meta["commentsOff"] = args["comments"] == false;
+        if (args.contains("group")) {   // put the game in one of your groups (its sales go to the group), or "" to take it out
+            const std::string gid = str("group");
+            if (!gid.empty()) {
+                auto g = m_groups.find(gid);
+                if (g == m_groups.end()) return fail("That group doesn't exist (any more).");
+                if (!groupCan(g->second, me, "games") && !isStaff(me))
+                    return fail("You need the \"Add games\" permission in " + g->second.name + ".");
+            }
+            a.meta["group"] = gid;
+        }
         saveAssets();
         json r = okay(); r["asset"] = publicAsset(a); return r;
     }
@@ -1167,12 +1174,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (balance(me) < a.price)
                 return fail("You need " + std::to_string(a.price - balance(me)) + " more Bolts for that.");
             add(me, -a.price, "Bought " + a.name, "buy:" + a.id);
-            if (User* seller = findUser(a.creator); seller && seller != &me) {
-                long long share = a.price * Online::kCreatorSharePercent / 100;
-                if (share > 0) add(*seller, share, "Sold " + a.name, "sale:" + a.id + ":" + Account::randomHex(4));
-                tally(&a, "bolts", share);
-                notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
-            }
+            paySeller(a, me, a.price * Online::kCreatorSharePercent / 100, "sale:" + a.id + ":" + Account::randomHex(4));
         }
         a.sales++;
         if (a.creator != me.id) tally(&a, "sales");
