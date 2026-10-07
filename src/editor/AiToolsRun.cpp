@@ -108,6 +108,9 @@ SceneNode* Editor::aiFind(const std::string& ref) {
     if (ref[0] == '#') {
         try { return m_scene->findById(std::stoull(ref.substr(1))); } catch (...) { return nullptr; }
     }
+    if (ref.find_first_not_of("0123456789") == std::string::npos) {   // "42" = "#42"
+        try { return m_scene->findById(std::stoull(ref)); } catch (...) { return nullptr; }
+    }
     std::stringstream ss(ref);
     std::string part;
     SceneNode* n = m_scene->root();
@@ -173,9 +176,34 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         return fail("OBJECT_NOT_FOUND", "No object " + ref + " exists.",
                     "Search with find_objects or get_game_tree and use the object_id it returns.");
     };
-    auto need = [&](const char* k, SceneNode*& out) -> bool {
-        out = aiFind(str(k));
-        return out != nullptr;
+    // Find the object a ref names. A path is refused when a name on it is used by
+    // more than one object (the wrong one could be changed): ask for an id instead.
+    AiToolResult refErr;
+    auto resolve = [&](const std::string& ref, const char* key, SceneNode*& out) -> bool {
+        out = aiFind(ref);
+        if (!out) { refErr = notFound(key); return false; }
+        if (ref[0] == '#' || ref.find_first_not_of("0123456789") == std::string::npos) return true;
+        for (const SceneNode* n = out; n && n->parent; n = n->parent) {
+            json same = json::array();
+            for (auto& c : n->parent->children)
+                if (c->name == n->name && !c->internal) same.push_back(json{{"object_id", idOf(c.get())}, {"path", c->fullName()}});
+            if (same.size() > 1) {
+                refErr = fail("AMBIGUOUS_NAME", std::to_string(same.size()) + " objects are called \"" + n->name + "\" in " +
+                              n->parent->fullName() + ", so \"" + ref + "\" could mean more than one thing.",
+                              "Use the object_id of the one you mean (see candidates).");
+                refErr.data["error"]["candidates"] = same;
+                refErr.text = refErr.data.dump(1);
+                out = nullptr;
+                return false;
+            }
+        }
+        return true;
+    };
+    auto need = [&](const char* k, SceneNode*& out) -> bool { return resolve(str(k), k, out); };
+    // An optional object argument: `fallback` when it's not given.
+    auto optional = [&](const char* k, SceneNode* fallback, SceneNode*& out) -> bool {
+        if (!args.contains(k)) { out = fallback; return true; }
+        return need(k, out);
     };
     // Run Lua and collect what it printed.
     struct LuaRun { std::vector<std::string> lines; std::vector<std::string> errors; };
@@ -281,10 +309,35 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         return k;
     };
 
+    // ------------------------------------------------------------------- DOCS
+    if (name == "get_engine_info") {
+        const std::string topic = str("topic");
+        static const char* kTopics[] = {"overview", "capabilities", "concepts", "coordinates", "workflows", "classes"};
+        auto one = [&](const std::string& t) {
+            json d = {{"topic", t}};
+            if (t == "classes") {
+                d["classes"] = insertKinds();
+                d["text"] = "Every kind insert_object can make (the names after the classes are ready-made things, each an "
+                            "independent copy). Plus Team (goes in the Teams folder).";
+            } else d["text"] = AiTools::engineDoc(t);
+            if (t == "capabilities") d["manifest"] = AiTools::capabilities();
+            return d;
+        };
+        if (topic == "all") {
+            json pages = json::array();
+            for (const char* t : kTopics) pages.push_back(one(t));
+            return done({{"topic", "all"}, {"pages", pages}});
+        }
+        if (std::find(std::begin(kTopics), std::end(kTopics), topic) == std::end(kTopics))
+            return fail("INVALID_INPUT", "Unknown topic \"" + topic + "\".",
+                        "Use overview, capabilities, concepts, coordinates, workflows, classes or all.");
+        return done(one(topic));
+    }
+
     // ------------------------------------------------------------------ SCENE
     if (name == "get_game_tree") {
-        SceneNode* top = args.contains("root") ? aiFind(str("root")) : root;
-        if (!top) return notFound("root");
+        SceneNode* top;
+        if (!optional("root", root, top)) return refErr;
         int depth = std::max(0, args.value("depth", 4));
         std::string out;
         int shown = 0;
@@ -309,8 +362,8 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         const std::string want = lower(str("name")), cls = str("class"), tag = str("tag");
         if (want.empty() && cls.empty() && tag.empty())
             return fail("INVALID_INPUT", "Give at least one of name, class or tag.", "e.g. {\"name\": \"barrel\"} or {\"class\": \"Script\"}.");
-        SceneNode* top = args.contains("under") ? aiFind(str("under")) : root;
-        if (!top) return notFound("under");
+        SceneNode* top;
+        if (!optional("under", root, top)) return refErr;
         const int limit = std::clamp(args.value("limit", 50), 1, 500);
         json matches = json::array();
         int total = 0;
@@ -330,8 +383,8 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         return done({{"matches", matches}, {"count", total}, {"truncated", total > (int)matches.size()}});
     }
     if (name == "insert_object") {
-        SceneNode* parent = args.contains("parent") ? aiFind(str("parent")) : nullptr;
-        if (args.contains("parent") && !parent) return notFound("parent");
+        SceneNode* parent;
+        if (!optional("parent", nullptr, parent)) return refErr;
         const std::string kind = str("kind");
         if (kind.empty()) return fail("INVALID_INPUT", "`kind` is missing.", "Give a class like Part, Model, Script or PointLight.");
         std::vector<uint64_t> before;
@@ -361,7 +414,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     }
     if (name == "delete_object") {
         SceneNode* n;
-        if (!need("object", n)) return notFound("object");
+        if (!need("object", n)) return refErr;
         if (m_scene->isProtected(n) || n == root)
             return fail("PROTECTED", label(n) + " can't be deleted.", "Delete the objects inside it instead, if that's what was asked.", false);
         json gone = brief(n), affected = json::array();
@@ -375,7 +428,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     // ---------------------------------------------------------------- OBJECTS
     if (name == "get_object") {
         SceneNode* n;
-        if (!need("object", n)) return notFound("object");
+        if (!need("object", n)) return refErr;
         json props = json::parse(Serializer::nodeToString(*n), nullptr, false);
         if (props.is_object()) {
             props.erase("children");
@@ -398,7 +451,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     }
     if (name == "set_property") {
         SceneNode* n;
-        if (!need("object", n)) return notFound("object");
+        if (!need("object", n)) return refErr;
         std::string prop = str("property");
         if (prop.empty() || prop.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
             return fail("INVALID_INPUT", "\"" + prop + "\" isn't a property name.", "Use a property name like Position, Color or Anchored.");
@@ -406,8 +459,8 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
         json value = args["value"];
         std::string v = luaValue(value, prop);
         if (prop == "Parent" && value.is_string()) {
-            SceneNode* p = aiFind(value.get<std::string>());
-            if (!p) return fail("OBJECT_NOT_FOUND", "No object " + value.get<std::string>() + " to put it in.", "Find the new parent with find_objects.");
+            SceneNode* p;
+            if (!resolve(value.get<std::string>(), "value", p)) return refErr;
             v = "__gb_byId(" + std::to_string(p->id) + ")";
         }
         const uint64_t id = n->id;
@@ -439,8 +492,8 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
 
     // -------------------------------------------------------------- SCRIPTING
     if (name == "create_script") {
-        SceneNode* parent = args.contains("parent") ? aiFind(str("parent")) : root;
-        if (!parent) return notFound("parent");
+        SceneNode* parent;
+        if (!optional("parent", root, parent)) return refErr;
         const std::string type = str("type").empty() ? "Script" : str("type");
         if (type != "Script" && type != "LocalScript" && type != "ModuleScript")
             return fail("INVALID_INPUT", "type must be Script, LocalScript or ModuleScript.", "Leave it out for a normal Script.");
@@ -456,14 +509,14 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     }
     if (name == "read_script") {
         SceneNode* n;
-        if (!need("object", n)) return notFound("object");
+        if (!need("object", n)) return refErr;
         if (!n->isScript()) return fail("NOT_A_SCRIPT", label(n) + " isn't a script.", "Use get_object for other objects.");
         return done({{"object_id", idOf(n)}, {"class", classOf(n, root)}, {"source", n->source},
                      {"lines", state(n)["lines"]}});
     }
     if (name == "edit_script") {
         SceneNode* n;
-        if (!need("object", n)) return notFound("object");
+        if (!need("object", n)) return refErr;
         if (!n->isScript()) return fail("NOT_A_SCRIPT", label(n) + " isn't a script.", "find_objects with class Script to find it.");
         if (args.contains("source")) n->source = str("source");
         else {
@@ -532,7 +585,7 @@ AiToolResult Editor::runAiTool(const std::string& name, const json& args) {
     }
     if (name == "diagnose_object") {
         SceneNode* n;
-        if (!need("object", n)) return notFound("object");
+        if (!need("object", n)) return refErr;
         json findings = json::array();
         diagnose(n, args.value("recursive", true), findings);
         return done({{"object_id", idOf(n)}, {"resulting_state", state(n)}, {"findings", findings},

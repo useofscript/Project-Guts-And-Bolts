@@ -1235,18 +1235,11 @@ void Editor::insertObject(const std::string& what, SceneNode* parent) {
     }
 }
 
-void Editor::renderInsertObject() {
-    if (m_openInsert) { ImGui::OpenPopup("Insert Object"); m_openInsert = false; m_insertFilter.clear(); }
-    ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImGui::GetMousePos(), ImGuiCond_Appearing, ImVec2(0.0f, 0.0f));
-    if (!ImGui::BeginPopup("Insert Object")) return;
-    SceneNode* parent = m_insertParent;
-    ImGui::TextDisabled("Insert into: %s", parent ? parent->name.c_str() : "Workspace");
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::SetNextItemWidth(-1);
-    bool enter = ImGui::InputTextWithHint("##find", "Search objects", &m_insertFilter, ImGuiInputTextFlags_EnterReturnsTrue);
-    struct O { const char* name; Icons::Id icon; };
-    std::vector<O> list = {
+namespace {
+// Everything the Insert Object window offers (the ready-made things are added after).
+struct InsertItem { const char* name; Icons::Id icon; };
+const std::vector<InsertItem>& insertItems() {
+    static const std::vector<InsertItem> list = {
         {"Part", Icons::Id::Part}, {"Sphere", Icons::Id::Sphere}, {"Cylinder", Icons::Id::Cylinder},
         {"MeshPart", Icons::Id::Mesh}, {"SpawnLocation", Icons::Id::Part}, {"TrussPart", Icons::Id::Part}, {"Seat", Icons::Id::Part}, {"Water", Icons::Id::Part}, {"FluidVolume", Icons::Id::Part}, {"WaterSource", Icons::Id::Part}, {"FluidSystem", Icons::Id::Value}, {"FluidEmitter", Icons::Id::Sound}, {"Model", Icons::Id::Model}, {"Folder", Icons::Id::Folder},
         {"Script", Icons::Id::Script}, {"LocalScript", Icons::Id::LocalScript}, {"ModuleScript", Icons::Id::ModuleScript},
@@ -1266,12 +1259,34 @@ void Editor::renderInsertObject() {
         {"UIGridLayout", Icons::Id::GuiCorner}, {"UIPadding", Icons::Id::GuiCorner},
         {"BillboardGui", Icons::Id::ScreenGui}, {"SurfaceGui", Icons::Id::ScreenGui},
         {"IntValue", Icons::Id::Value}, {"NumberValue", Icons::Id::Value}, {"StringValue", Icons::Id::Value}, {"BoolValue", Icons::Id::Value}};
+    return list;
+}
+} // namespace
+
+std::vector<std::string> Editor::insertKinds() {
+    std::vector<std::string> out;
+    for (const InsertItem& o : insertItems()) out.push_back(o.name);
+    for (const PremadeInfo& p : premadeList()) out.push_back(p.name);
+    return out;
+}
+
+void Editor::renderInsertObject() {
+    if (m_openInsert) { ImGui::OpenPopup("Insert Object"); m_openInsert = false; m_insertFilter.clear(); }
+    ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImGui::GetMousePos(), ImGuiCond_Appearing, ImVec2(0.0f, 0.0f));
+    if (!ImGui::BeginPopup("Insert Object")) return;
+    SceneNode* parent = m_insertParent;
+    ImGui::TextDisabled("Insert into: %s", parent ? parent->name.c_str() : "Workspace");
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::SetNextItemWidth(-1);
+    bool enter = ImGui::InputTextWithHint("##find", "Search objects", &m_insertFilter, ImGuiInputTextFlags_EnterReturnsTrue);
+    std::vector<InsertItem> list = insertItems();
     for (const PremadeInfo& p : premadeList()) list.push_back({p.name, Icons::Id::Model});
     std::string f = m_insertFilter;
     for (char& c : f) c = (char)std::tolower((unsigned char)c);
     ImGui::BeginChild("##list");
     bool first = true;
-    for (const O& o : list) {
+    for (const InsertItem& o : list) {
         std::string n = o.name;
         for (char& c : n) c = (char)std::tolower((unsigned char)c);
         if (!f.empty() && n.find(f) == std::string::npos) continue;

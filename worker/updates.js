@@ -39,6 +39,8 @@ export const BUILT_IN_UPDATES = [
       'New tools: find_objects, get_errors, diagnose_object ("why won\'t my barrel fall?") and validate_scene',
       'Script changes are checked for Lua mistakes straight away',
       'Delete is marked as risky, so AIs only delete what you clearly asked for',
+      'AIs can read how the engine works: what it can and can\'t do, its words for things, which way is up, and step-by-step recipes',
+      'Every object is picked by its id (#42); if a name is used twice, the AI is asked which one instead of guessing',
     ],
   },
   {

@@ -27,4 +27,11 @@ const nlohmann::json& list();
 const nlohmann::json& mcpTools();
 // Instructions for an AI working in Studio (the Assistant's system prompt, MCP's server instructions).
 const char* guide();
+// The engine reference (get_engine_info, MCP resources): "overview", "concepts",
+// "coordinates", "workflows" or "capabilities" (text); "" for anything else.
+std::string engineDoc(const std::string& topic);
+// What the tools can and can't do, as JSON (the capability manifest).
+nlohmann::json capabilities();
+// MCP resources/list: the gutsbolts:// pages.
+const nlohmann::json& resources();
 }

@@ -73,13 +73,31 @@ std::string StudioMcp::handle(Editor& editor, const std::string& body, bool& any
             for (const char* v : kProtocolVersions) if (want == v) use = v;
             return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {
                 {"protocolVersion", use},
-                {"capabilities", {{"tools", {{"listChanged", false}}}}},
+                {"capabilities", {{"tools", {{"listChanged", false}}}, {"resources", {{"listChanged", false}}}}},
                 {"serverInfo", {{"name", "guts-and-bolts-studio"}, {"version", GB_VERSION}}},
                 {"instructions", AiTools::guide()}}}};
         }
         if (method == "ping") return {{"jsonrpc", "2.0"}, {"id", id}, {"result", json::object()}};
         if (method == "tools/list") {
             return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"tools", AiTools::mcpTools()}}}};
+        }
+        // Resources: the engine reference (gutsbolts://concepts ...) and live views of the game.
+        if (method == "resources/list")
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"resources", AiTools::resources()}}}};
+        if (method == "resources/templates/list")
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"resourceTemplates", json::array()}}}};
+        if (method == "resources/read") {
+            const std::string uri = params.value("uri", "");
+            const std::string page = uri.rfind("gutsbolts://", 0) == 0 ? uri.substr(12) : std::string();
+            std::string text, mime = "text/markdown";
+            if (page == "guide") text = AiTools::guide();
+            else if (page == "capabilities") { text = AiTools::capabilities().dump(2); mime = "application/json"; }
+            else if (page == "classes") { text = editor.runAiTool("get_engine_info", {{"topic", "classes"}}).text; mime = "application/json"; }
+            else if (page == "scene/tree") { text = editor.runAiTool("get_game_tree", {{"depth", 6}}).text; mime = "application/json"; }
+            else if (page == "errors") { text = editor.runAiTool("get_errors", json::object()).text; mime = "application/json"; }
+            else if (!page.empty()) text = AiTools::engineDoc(page);
+            if (text.empty()) return rpcError(id, -32002, "There's no resource \"" + uri + "\". See resources/list.");
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"contents", json::array({{{"uri", uri}, {"mimeType", mime}, {"text", text}}})}}}};
         }
         if (method == "tools/call") {
             std::string name = params.value("name", "");
