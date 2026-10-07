@@ -135,7 +135,7 @@ function canon(v) {
     return '{' + Object.keys(v).filter((k) => v[k] !== undefined).sort()
       .map((k) => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
   }
-  if (typeof v === 'number') return String(Math.trunc(v));
+  if (typeof v === 'number') return Number.isFinite(v) ? String(Math.trunc(v)) : 'null';   // (NaN would make the request unreadable)
   return JSON.stringify(v === undefined ? null : v);
 }
 

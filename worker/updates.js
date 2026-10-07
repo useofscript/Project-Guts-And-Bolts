@@ -10,6 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
+    summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
+    items: [
+      'Saving changes to an item no longer fails with "That wasn\'t a proper request"',
+      'Making an item a timed item saves properly, and a half-typed date now says what to fix',
+      'Removed the Colour box from editing items, since it didn\'t do anything',
+    ],
+  },
+  {
     id: 'we-outsourced-the-update', name: 'We Outsourced the Update', version: '0.7.0', time: 1791341100, tag: 'Engine',
     summary: 'An AI wrote most of this one: smarter AI helpers, teleporting between games, a chat filter, upload checks and a notification bell.',
     items: [

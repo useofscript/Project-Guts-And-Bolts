@@ -1087,7 +1087,6 @@ pages.item = async (id) => {
   const mineCopies = copies.filter((c) => c.mine);
   const soldOut = L && L.left <= 0;
   const offsale = !!a.offsale;
-  const hex = (c) => '#' + (Array.isArray(c) ? c : [200, 60, 60]).map((v) => Number(v).toString(16).padStart(2, '0')).join('');
   const isNew = Date.now() / 1000 - (a.created || 0) < 7 * 86400;
   const timed = a.offsaleAt && !offsale;
   // The buy box (like the 2016 catalog): what's left, the price, the button, how many sold.
@@ -1146,7 +1145,6 @@ pages.item = async (id) => {
         <label>Name</label><input type="text" name="name" maxlength="50" value="${a.name}" required>
         <label>Description</label><textarea name="description" maxlength="1000">${a.description || ''}</textarea>
         <label>Price (Bolts)</label><input type="number" name="price" min="0" value="${a.price || 0}" style="max-width:140px">
-        ${drawable3d(a) ? html`<label>Colour</label><input type="color" name="color" value="${hex(a.meta && a.meta.color)}">` : ''}
         ${a.kind === 'face' ? html`<label>New picture <span class="muted small">(optional, a .png face)</span></label><input type="file" name="picture" accept="image/png">`
           : a.kind === 'tshirt' ? html`<label>New picture <span class="muted small">(optional, a .png or .jpg)</span></label><input type="file" name="picture" accept="image/png,image/jpeg">`
           : a.kind === 'gear' ? html`<p class="small muted">To change the tool itself, publish it again from Studio.</p>`
@@ -2665,12 +2663,19 @@ const forms = {
   },
   async itemEdit(f) {
     const args = { id: f.id.value, name: f.name.value, description: f.description.value, price: Number(f.price.value) || 0 };
-    if (f.color) { const hex = f.color.value.replace('#', ''); args.color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16)); }
-    if (f.style) args.style = Number(f.style.value);
-    if (f.offsaleAt) args.offsaleAt = f.offsaleAt.value ? Math.floor(new Date(f.offsaleAt.value).getTime() / 1000) : 0;
-    if (f.picture && f.picture.files[0]) args.data = await gb.fileBase64(f.picture.files[0]);
+    // (Ask the form's own list: a plain f.style is the form's CSS style when there's no Shape box,
+    // which sent NaN and broke the whole request.)
+    const field = (n) => f.elements.namedItem(n);
+    if (field('style')) args.style = Number(field('style').value) || 2;
+    const m = $('#itemEditMsg');
+    if (field('offsaleAt')) {
+      const when = field('offsaleAt').value ? Math.floor(new Date(field('offsaleAt').value).getTime() / 1000) : 0;
+      if (Number.isNaN(when)) { m.className = 'error'; m.textContent = ' Pick a whole date and time for it to go off sale (or clear the box).'; return; }
+      args.offsaleAt = when;
+    }
+    if (field('picture') && field('picture').files[0]) args.data = await gb.fileBase64(field('picture').files[0]);
     const r = await call('item.edit', args);
-    if (!r.ok) { const m = $('#itemEditMsg'); m.className = 'error'; m.textContent = ' ' + r.error; return; }
+    if (!r.ok) { m.className = 'error'; m.textContent = ' ' + r.error; return; }
     toast('Saved!');
     render();
   },
