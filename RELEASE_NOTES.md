@@ -1,3 +1,57 @@
+# Guts&Bolts 0.7.1: We Can Hear You. Unfortunately (October 7, 2026)
+
+Voice chat is here, so now you can hear everyone. We also added terrain, a
+forum, games owned by groups, paid private servers and inventories on
+profiles.
+
+## New
+- **Voice chat**: turn it on in the in-game Settings, then hold V to talk
+  (phones get a mic button, and there's an Open Mic option). Voices come from
+  each player's character, loud up close and fading with distance. A speaker
+  icon shows who's talking, and you can mute anyone from the player list.
+  Creators can turn it off in Game Settings or with
+  `workspace.VoiceChatEnabled`.
+- **Terrain**: a new TERRAIN tab in Studio. Generate rolling hills, then
+  Raise, Lower, Smooth, Flatten and Paint with brushes, in grass, dirt, sand,
+  rock, snow and mud. Characters walk up slopes, loose parts roll down them,
+  and pathfinding works on it. Scripts can change it with `workspace.Terrain`
+  (`FillBlock`, `FillBall`, `Generate`, `Sculpt`, `GetHeight`).
+- **Forum**: boards for Help, Scripting, Building, Game Ads, Trading and Off
+  Topic, plus News & Announcements. Start threads, reply, get a notification
+  when someone answers, and report posts. Staff can delete, pin and lock.
+- **Group games**: put a game in your group and its game pass, product and
+  private server sales go to the group's Bolts. Owners and treasurers can pay
+  members, and every payout is written down. Groups can make up to 10 ranks of
+  their own, each with its own permissions.
+- **Paid private servers**: creators can set a price in Bolts for 30 days of a
+  private server. Buying again adds 30 more days, friends still join free with
+  the code, and creators get 70% of each sale.
+- **Inventories**: every profile has an Inventory box and a See all page,
+  sorted into Accessories, Clothing, Faces, Gear and Limiteds (with the copy
+  numbers someone holds). You choose who can see yours. People it's hidden from
+  can't trade with you.
+- **Developer products**: sell things players can buy again and again, like
+  coins or a revive, with `MarketplaceService:PromptProductPurchase` and
+  `MarketplaceService.ProcessReceipt`. Every purchase is kept until the game
+  hands it out.
+- **Creator stats**: a Stats tab on the Create page with plays, players,
+  favorites, likes, sales and Bolts for everything you made, and bar charts
+  for the last 30 days.
+- **Game comments**: comment under any game. Creators can delete comments or
+  turn them off, and anyone can report one.
+- **Featured Games**: staff can feature great games. They show first on the
+  home page, with a gold Featured tag and a Featured sort.
+- **Staff action log**: every ban, warning, badge, Bolts change, upload check
+  and delete is written down on the Staff page.
+
+## Changed
+- The website's server is now tested automatically every time something
+  changes.
+
+## Fixed
+- Saving an item's Edit box (like making it a timed item) works again, and the
+  Colour box that didn't do anything is gone.
+
 # Guts&Bolts 0.7.0: We Outsourced the Update (October 7, 2026)
 
 An AI wrote most of this update. It taught other AIs to build your games, put
