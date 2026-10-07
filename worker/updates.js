@@ -20,6 +20,15 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
+    id: 'robot-qa-department', name: 'We Hired Robots to Break Things', time: 1791347000, tag: 'Server',
+    summary: 'Automatic tests now check the website\'s server every time something changes.',
+    items: [
+      'Signing up, the daily Bolts, buying items, comments, the filter and staff tools are all tested automatically',
+      'The update log, the "Library" wording and the C++ filter\'s word list are checked too',
+      'Every website script is checked for typing mistakes before it goes live',
+    ],
+  },
+  {
     id: 'touch-grass', name: 'Touch Grass', time: 1791349000, tag: 'Studio',
     summary: 'Terrain! Sculpt hills, valleys, beaches and mountains in Studio, then go outside (in the game).',
     items: [
