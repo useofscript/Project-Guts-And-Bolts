@@ -7,16 +7,16 @@ Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indice
 Mesh::~Mesh() { release(); }
 
 Mesh::Mesh(Mesh&& o) noexcept
-    : m_vao(o.m_vao), m_vbo(o.m_vbo), m_ebo(o.m_ebo), m_indexCount(o.m_indexCount) {
-    o.m_vao = o.m_vbo = o.m_ebo = 0;
+    : m_vao(o.m_vao), m_vbo(o.m_vbo), m_ebo(o.m_ebo), m_extra(o.m_extra), m_indexCount(o.m_indexCount) {
+    o.m_vao = o.m_vbo = o.m_ebo = o.m_extra = 0;
 }
 
 Mesh& Mesh::operator=(Mesh&& o) noexcept {
     if (this != &o) {
         release();
-        m_vao = o.m_vao; m_vbo = o.m_vbo; m_ebo = o.m_ebo;
+        m_vao = o.m_vao; m_vbo = o.m_vbo; m_ebo = o.m_ebo; m_extra = o.m_extra;
         m_indexCount = o.m_indexCount;
-        o.m_vao = o.m_vbo = o.m_ebo = 0;
+        o.m_vao = o.m_vbo = o.m_ebo = o.m_extra = 0;
     }
     return *this;
 }
@@ -25,7 +25,8 @@ void Mesh::release() {
     if (m_vao) glDeleteVertexArrays(1, &m_vao);
     if (m_vbo) glDeleteBuffers(1, &m_vbo);
     if (m_ebo) glDeleteBuffers(1, &m_ebo);
-    m_vao = m_vbo = m_ebo = 0;
+    if (m_extra) glDeleteBuffers(1, &m_extra);
+    m_vao = m_vbo = m_ebo = m_extra = 0;
 }
 
 void Mesh::upload(const std::vector<Vertex>& verts, const std::vector<uint32_t>& indices) {
@@ -64,6 +65,17 @@ void Mesh::update(const std::vector<Vertex>& verts, const std::vector<uint32_t>&
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(verts.size() * sizeof(Vertex)), verts.data(), GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(indices.size() * sizeof(uint32_t)), indices.data(), GL_DYNAMIC_DRAW);
+    glBindVertexArray(0);
+}
+
+void Mesh::setExtra(const std::vector<glm::vec4>& extra) {
+    if (!m_vao) return;
+    glBindVertexArray(m_vao);
+    if (!m_extra) glGenBuffers(1, &m_extra);
+    glBindBuffer(GL_ARRAY_BUFFER, m_extra);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(extra.size() * sizeof(glm::vec4)), extra.data(), GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), nullptr);
     glBindVertexArray(0);
 }
 
