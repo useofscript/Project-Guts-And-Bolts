@@ -503,6 +503,9 @@ if(WIN32)
 endif()
 add_executable(GutsAndBoltsPlayer ${PLAYER_SOURCES})
 target_link_libraries(GutsAndBoltsPlayer PRIVATE gb_engine)
+if(APPLE)   # gutsandbolts:// links (src/player/LaunchLink.cpp)
+    target_link_libraries(GutsAndBoltsPlayer PRIVATE "-framework CoreServices")
+endif()
 
 # ---------------------------------------------------------------------------
 # GutsAndBoltsGameServer — runs online games by itself (no window, nobody playing

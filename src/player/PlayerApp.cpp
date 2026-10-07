@@ -684,8 +684,8 @@ void PlayerApp::frame(float dt) {
         if (signup) { m_loginUser = user; signUp(user, pass); }
         else        { m_loginUser = user; m_loginTab = 1; logIn(user, pass); }
     }
-#ifdef GB_MOBILE
-    if (ImGui::GetTime() >= m_linkPollAt) {   // Android: a website Play link opened (or re-opened) the app
+#if defined(GB_MOBILE) || defined(__APPLE__)
+    if (ImGui::GetTime() >= m_linkPollAt) {   // Android and Mac: a website Play link opened (or re-opened) the app
         m_linkPollAt = ImGui::GetTime() + 0.5;
         if (std::string link = LaunchLink::poll(); !link.empty()) takeLink(link);
     }

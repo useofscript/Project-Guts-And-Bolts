@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'apple-of-my-eye', name: 'Apple of My Eye', time: 1791328060, tag: 'Player',
+    summary: 'The website\'s Play button opens the Player on a Mac too, not just on Windows, Linux and Android.',
+    items: [
+      'Open the Player once on your Mac, and Play and Join on the website open it straight into the game',
+      'It adds a small Guts&Bolts Player app to your Applications folder, which macOS needs for links',
+      'If the Player is already open, the link goes to it instead of opening another one',
+      '"Edit in Studio" links work on a Mac the same way',
+    ],
+  },
+  {
     id: 'portal-hopper', name: 'Portal Hopper', time: 1791327890, tag: 'Engine',
     summary: 'TeleportService: games can send players to another game, and bring some data along, like Roblox.',
     items: [
