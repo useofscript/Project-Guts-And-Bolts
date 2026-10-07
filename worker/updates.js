@@ -10,13 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'we-outsourced-the-update', name: 'We Outsourced the Update', version: '0.7.0', time: 1791341100, tag: 'Studio',
-    summary: 'An AI wrote most of this one, so naturally it\'s about making AIs better at building your games.',
+    id: 'we-outsourced-the-update', name: 'We Outsourced the Update', version: '0.7.0', time: 1791341100, tag: 'Engine',
+    summary: 'An AI wrote most of this one: smarter AI helpers, teleporting between games, a chat filter, upload checks and a notification bell.',
     items: [
-      'AI helpers (the Assistant tab, and MCP apps like Claude) now really know how Guts&Bolts works',
-      'They look before they touch, check their work, and tell you exactly what went wrong',
-      'New AI tools for physics, explosions, the navmesh, walking characters and watching the running game',
-      'Save points, so an AI can try something wild and roll it back',
+      'AI helpers (the Assistant tab, and MCP apps like Claude) now really know how Guts&Bolts works and check their own work',
+      'New AI tools for physics, explosions, the navmesh, walking characters, watching the game, and save points',
+      'TeleportService: send players to another game, with data, like Roblox',
+      'The website\'s Play button opens the Player on a Mac too',
+      'A text filter: slurs, links and personal info become [ Content Deleted ]',
+      'New decals, sounds and T-shirts wait for a staff check (Verified creators skip the line)',
+      'A notification bell for friend requests, sales, trades, groups and upload checks',
     ],
   },
   {
