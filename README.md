@@ -2004,6 +2004,18 @@ lets you in, and when staff check something you uploaded. Each one takes you to 
 right page. The newest 50 are kept. Both servers do the same (`notify` in
 `worker/server.js` and `src/server/Server.cpp`).
 
+### Creator stats (how your stuff is doing)
+
+**Create > Stats** (on the website and in the Player) shows how everything you made
+is doing: plays, people playing right now, favorites, likes, sales and Bolts earned,
+with little bar charts for each of the last 30 days. Hover a bar to see its day.
+
+- A **play** counts when someone else opens your game (you opening your own doesn't).
+- Passes and developer products bought inside a game also count on that game, so a
+  game's chart shows everything it earned.
+- Days are counted in UTC and kept for 60 days (`tally` and `creator.stats` in
+  `worker/server.js` and `src/server/Server.cpp`).
+
 ### Bolts (the currency)
 
 (With a server, your Bolts live on the server instead, and everything below

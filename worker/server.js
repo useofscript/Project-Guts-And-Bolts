@@ -517,6 +517,19 @@ export class GbServerObject extends DurableObject {
     this.saveUser(u);
   }
   saveAsset(a) { this.dirty.assets.add(a.id); }
+  // Creator stats: count something on a day (plays, sales, bolts earned), kept for 60 days.
+  // Passes and products also count on their game, so a game's page adds them up.
+  tally(a, field, n = 1) {
+    if (!a || !n) return;
+    const day = utcDay(now());
+    a.days = a.days || {};
+    const d = a.days[day] || (a.days[day] = {});
+    d[field] = (d[field] || 0) + n;
+    const keys = Object.keys(a.days).sort();
+    while (keys.length > 60) delete a.days[keys.shift()];
+    this.saveAsset(a);
+    if ((a.kind === 'gamepass' || a.kind === 'devproduct') && field !== 'plays') this.tally(this.assets.get((a.meta || {}).game), field, n);
+  }
   // Give every asset without one its number (oldest first), and never hand a number out twice.
   numberAssets() {
     for (const a of this.assets.values()) if (a.num) this.nextAssetNum = Math.max(this.nextAssetNum, a.num + 1);
@@ -1571,11 +1584,13 @@ export class GbServerObject extends DurableObject {
         if (seller && seller !== me) {
           const share = Math.floor(a.price * kCreatorSharePercent / 100);
           if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'productsale:' + receipt.id);
+          this.tally(a, 'bolts', share);
           this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
         }
       }
       me.receipts = [receipt, ...(me.receipts || [])].slice(0, 200);
       a.sales++;
+      this.tally(a, 'sales');
       this.saveAsset(a); this.saveUser(me);
       return okay({ receipt: receipt.id, me: this.meJson(me) });
     }
@@ -1726,7 +1741,7 @@ export class GbServerObject extends DurableObject {
       }
       if (a.kind === 'game' && a.creator !== me.id) {
         a.plays++;
-        this.saveAsset(a);
+        this.tally(a, 'plays');
         me.played = me.played || [];
         if (!me.played.includes(a.id)) { me.played.push(a.id); if (me.played.length > 500) me.played.shift(); this.saveUser(me); }
       }
@@ -1748,10 +1763,12 @@ export class GbServerObject extends DurableObject {
         if (seller && seller !== me) {
           const share = Math.floor(a.price * kCreatorSharePercent / 100);
           if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'sale:' + a.id + ':' + randomHex(4));
+          this.tally(a, 'bolts', share);
           this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
         }
       }
       a.sales++;
+      if (a.creator !== me.id) this.tally(a, 'sales');
       if (a.limited) { a.copies = a.copies || []; a.copies.push({ serial: a.sales, owner: me.id, price: 0 }); }
       me.owned.push(a.id);
       this.saveAsset(a); this.saveUser(me);
@@ -1938,6 +1955,22 @@ export class GbServerObject extends DurableObject {
       this.assets.delete(a.id);
       this.dirty.assets.add(a.id);
       return okay();
+    }
+    // Creator stats: everything you made, with totals and the last 30 days (plays, sales, Bolts earned).
+    if (name === 'creator.stats') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const t0 = now(), days = [];
+      for (let i = 29; i >= 0; i--) days.push(utcDay(t0 - i * 86400));
+      const mine = [...this.assets.values()].filter((a) => a.creator === me.id);
+      const items = mine.map((a) => {
+        const d = a.days || {};
+        const series = (f) => days.map((k) => (d[k] && d[k][f]) || 0);
+        const sum = (f) => Object.values(d).reduce((n, x) => n + (x[f] || 0), 0);
+        return { id: a.id, num: a.num || 0, kind: a.kind, name: a.name, plays: a.plays || 0, sales: a.sales || 0, price: a.price || 0,
+          favorites: a.favorites || 0, likes: a.likes || 0, dislikes: a.dislikes || 0, playing: a.kind === 'game' ? this.playingIn(a.id) : 0,
+          plays30: series('plays'), sales30: series('sales'), bolts30: series('bolts'), bolts60: sum('bolts') };
+      }).sort((x, y) => (y.plays + y.sales) - (x.plays + x.sales));
+      return okay({ days, items });
     }
     if (name === 'stats') return okay({ users: this.users.size, assets: this.assets.size, name: this.name });
     return fail('The server doesn\'t know how to do "' + name + '". It might need updating.');

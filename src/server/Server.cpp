@@ -895,6 +895,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (User* seller = findUser(a.creator); seller && seller != &me) {
                 const long long share = a.price * Online::kCreatorSharePercent / 100;
                 if (share > 0) add(*seller, share, "Sold " + a.name, "productsale:" + rid);
+                tally(&a, "bolts", share);
                 notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
             }
         }
@@ -903,6 +904,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                                                      {"price", a.price}, {"at", now}, {"granted", false}});
         if (me.receipts.size() > 200) me.receipts.erase(me.receipts.begin() + 200, me.receipts.end());
         a.sales++;
+        tally(&a, "sales");
         saveAssets();
         saveUsers();
         json r = okay(); r["receipt"] = rid; r["me"] = meJson(me); return r;
@@ -1107,7 +1109,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
         if (a.kind == "game") { rememberPlayed(me, a.id); saveUsers(); }   // "Continue playing"
-        if (a.kind == "game" && a.creator != me.id) { a.plays++; saveAssets(); }   // creators opening their own game don't count
+        if (a.kind == "game" && a.creator != me.id) { a.plays++; tally(&a, "plays"); saveAssets(); }   // creators opening their own game don't count
         json r = okay(); r["asset"] = publicAsset(a); r["data"] = Online::base64Encode(data); return r;
     }
     if (name == "buy") {
@@ -1128,10 +1130,12 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (User* seller = findUser(a.creator); seller && seller != &me) {
                 long long share = a.price * Online::kCreatorSharePercent / 100;
                 if (share > 0) add(*seller, share, "Sold " + a.name, "sale:" + a.id + ":" + Account::randomHex(4));
+                tally(&a, "bolts", share);
                 notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
             }
         }
         a.sales++;
+        if (a.creator != me.id) tally(&a, "sales");
         me.owned.insert(a.id);
         saveAssets();
         saveUsers();
@@ -1148,6 +1152,35 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         m_assets.erase(it);
         saveAssets();
         return okay();
+    }
+    // Creator stats: everything you made, with totals and the last 30 days (plays, sales, Bolts earned).
+    if (name == "creator.stats") {
+        if (me.userId == 0) return fail("Sign up first.");
+        json days = json::array();
+        for (int i = 29; i >= 0; i--) days.push_back(Online::utcDay(now - i * 86400LL));
+        json items = json::array();
+        for (const auto& [id, a] : m_assets) {
+            if (a.creator != me.id) continue;
+            auto series = [&](const char* f) {
+                json out = json::array();
+                for (const auto& d : days) {
+                    const std::string k = d.get<std::string>();
+                    out.push_back(a.days.contains(k) && a.days[k].is_object() ? a.days[k].value(f, 0LL) : 0LL);
+                }
+                return out;
+            };
+            long long bolts60 = 0;
+            for (const auto& [k, v] : a.days.items()) if (v.is_object()) bolts60 += v.value("bolts", 0LL);
+            int playing = 0;
+            if (a.kind == "game") for (const auto& [sid, s] : m_sessions) if (s.game == a.id) playing += headcount(s);
+            items.push_back({{"id", a.id}, {"num", a.num}, {"kind", a.kind}, {"name", a.name}, {"plays", a.plays}, {"sales", a.sales},
+                             {"price", a.price}, {"favorites", a.meta.value("favorites", 0LL)}, {"likes", a.meta.value("likes", 0LL)},
+                             {"dislikes", a.meta.value("dislikes", 0LL)}, {"playing", playing},
+                             {"plays30", series("plays")}, {"sales30", series("sales")}, {"bolts30", series("bolts")}, {"bolts60", bolts60}});
+        }
+        std::sort(items.begin(), items.end(), [](const json& x, const json& y) {
+            return x["plays"].get<long long>() + x["sales"].get<long long>() > y["plays"].get<long long>() + y["sales"].get<long long>(); });
+        json r = okay(); r["days"] = days; r["items"] = items; return r;
     }
     if (name == "stats") {
         json r = okay();
@@ -1209,12 +1242,27 @@ void GbServer::saveUsers() {
     writeFile(m_opts.data / "accounts.json", all.dump(1));
 }
 
+// Creator stats: count something on today's date, keeping 60 days. Passes and products
+// also count on their game, so a game's numbers include what was bought inside it.
+void GbServer::tally(Asset* a, const std::string& field, long long n) {
+    if (!a || n == 0) return;
+    const std::string day = Online::utcDay(Online::unixNow());
+    json& d = a->days[day];
+    if (!d.is_object()) d = json::object();
+    d[field] = d.value(field, 0LL) + n;
+    while (a->days.size() > 60) a->days.erase(a->days.begin());   // keys sort by date, so the oldest is first
+    if ((a->kind == "gamepass" || a->kind == "devproduct") && field != "plays") {
+        auto it = findAsset(a->meta.value("game", std::string()));
+        if (it != m_assets.end()) tally(&it->second, field, n);
+    }
+}
+
 void GbServer::saveAssets() {
     json all = json::object();
     for (const auto& [id, a] : m_assets)
         all[id] = {{"kind", a.kind}, {"name", a.name}, {"description", a.description}, {"creator", a.creator},
                    {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
-                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}, {"num", a.num}};
+                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}, {"num", a.num}, {"days", a.days}};
     writeFile(m_opts.data / "assets.json", all.dump(1));
 }
 
@@ -1381,6 +1429,7 @@ void GbServer::load() {
                 a.size = j.value("size", (size_t)0);
                 if (j.contains("meta")) a.meta = j["meta"];
                 if (j.contains("badges") && j["badges"].is_array()) a.badges = j["badges"];
+                if (j.contains("days") && j["days"].is_object()) a.days = j["days"];
                 a.thumb = j.value("thumb", 0LL);
                 a.num = j.value("num", 0LL);
                 if (Online::validKind(a.kind)) m_assets[id] = a;

@@ -1220,9 +1220,10 @@ async function decalPicture(img) {
 
 pages.create = async (tab = 'games') => {
   const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['accessory', 'Accessories'],
-    ['shirt', 'Shirts'], ['tshirt', 'T-Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library']];
+    ['shirt', 'Shirts'], ['tshirt', 'T-Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library'], ['stats', 'Stats']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
   if (tab === 'library') { await libraryPage(head); return; }
+  if (tab === 'stats') { await statsPage(head); return; }
   if (tab === 'model') { await myModelsPage(head); return; }
   if (tab === 'accessory') { await myAccessoriesPage(head); return; }
   const r = signedIn() ? await pageCall('list', { creator: me.id, limit: 100 }) : { ok: true, assets: [] };
@@ -1288,6 +1289,42 @@ pages.create = async (tab = 'games') => {
   loadThumbs();
   const file = view.querySelector('input[type=file]'), prev = $('#preview');
   if (file && prev) file.addEventListener('change', () => { if (file.files[0]) { prev.src = URL.createObjectURL(file.files[0]); prev.hidden = false; } });
+};
+
+// Creator stats: how your games and items are doing, with the last 30 days as little bar charts.
+const statBars = (vals, days, unit) => {
+  const top = Math.max(1, ...vals), w = 6, gap = 2, h = 40;
+  return html`<svg class="bars" viewBox="0 0 ${vals.length * (w + gap)} ${h}" preserveAspectRatio="none" role="img"
+    aria-label="${vals.reduce((a, b) => a + b, 0)} ${unit} in the last 30 days">${vals.map((v, i) =>
+      html`<rect x="${i * (w + gap)}" y="${h - Math.max(v ? 2 : 0, (v / top) * h)}" width="${w}" height="${Math.max(v ? 2 : 0, (v / top) * h)}">
+        <title>${days[i]}: ${v} ${unit}</title></rect>`)}</svg>`;
+};
+const statsPage = async (head) => {
+  if (!signedIn()) { show(html`${head}${needSignIn('see how your games are doing')}`); return; }
+  const r = await pageCall('creator.stats', {});
+  if (!r.ok) { show(html`${head}<p class="error">${r.error}</p>`); return; }
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const games = r.items.filter((a) => a.kind === 'game'), sold = r.items.filter((a) => a.kind !== 'game' && (a.price > 0 || a.sales > 0));
+  const all = (f) => sum(r.items.filter((a) => a.kind === 'game' || !a.kind.match(/gamepass|devproduct/)).map((a) => sum(a[f])));
+  const tile = (n, label) => html`<div class="stat"><b>${n.toLocaleString()}</b><span class="small muted">${label}</span></div>`;
+  const card = (a) => html`<div class="statcard">
+      <div class="row"><b class="grow">${a.kind === 'game' ? html`<a href="#/game/${a.id}">${a.name}</a>` : a.name}</b>
+        <span class="small muted">${KINDS[a.kind] || a.kind}</span></div>
+      <div class="small muted">${a.kind === 'game'
+        ? html`${a.plays.toLocaleString()} plays · ${a.playing} playing now · ${a.favorites} favorites · 👍 ${a.likes} 👎 ${a.dislikes}`
+        : html`${a.sales.toLocaleString()} sold · ${a.price > 0 ? bolts(a.price) + ' each' : 'free'}`}
+        · ${bolts(a.bolts60)} earned (60 days)</div>
+      <div class="charts">
+        ${a.kind === 'game' ? html`<div><span class="small muted">Plays, last 30 days: ${sum(a.plays30)}</span>${statBars(a.plays30, r.days, 'plays')}</div>` : ''}
+        <div><span class="small muted">${a.kind === 'game' ? 'Things bought in it' : 'Sales'}, last 30 days: ${sum(a.sales30)}</span>${statBars(a.sales30, r.days, 'sales')}</div>
+        <div><span class="small muted">Bolts earned, last 30 days: ${sum(a.bolts30)}</span>${statBars(a.bolts30, r.days, 'Bolts')}</div>
+      </div></div>`;
+  show(html`${head}
+    <div class="stats-tiles">${tile(all('plays30'), 'plays in 30 days')}${tile(all('sales30'), 'sales in 30 days')}${tile(all('bolts30'), 'Bolts earned in 30 days')}</div>
+    <p class="small muted">Plays count when someone else opens your game. Passes and products bought inside a game count on that game too.
+      Days are in UTC; hover a bar to see its day.</p>
+    <h2>Games</h2>${games.length ? games.map(card) : html`<p class="muted">You haven't published a game yet.</p>`}
+    <h2>Things you sell</h2>${sold.length ? sold.map(card) : html`<p class="muted">Nothing sold yet.</p>`}`);
 };
 
 // Configure a game: name, description, who can play, thumbnail, icon, new version.

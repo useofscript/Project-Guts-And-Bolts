@@ -87,6 +87,7 @@ private:
         long long   num = 0;                     // its number, counting up like Roblox's asset IDs
         nlohmann::json meta = nlohmann::json::object();
         nlohmann::json badges = nlohmann::json::array();   // games: badges its creator made
+        nlohmann::json days = nlohmann::json::object();    // creator stats: "YYYY-MM-DD" -> {plays, sales, bolts}, last 60 days
     };
 
     struct Post { std::string by, text; long long time = 0; };
@@ -192,6 +193,7 @@ private:
     void addExampleGames();   // the games folder's example games, as the staff account's
     void saveUsers();
     void saveAssets();
+    void tally(Asset* a, const std::string& field, long long n = 1);   // creator stats (worker/server.js has the same)
     void saveGroups();
     void loadGroups();
     std::filesystem::path blobPath(const std::string& assetId) const;
