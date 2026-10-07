@@ -610,3 +610,21 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 /* Staff action log */
 .stafflog > div { display: flex; align-items: baseline; gap: 8px; }
 .stafflog .grow { min-width: 0; overflow-wrap: anywhere; }
+
+/* The forum: boards and threads in tables, posts with the author on the left (like the old forum). */
+.table-wrap { overflow-x: auto; }
+table.forum { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+table.forum th { text-align: left; font-size: 12px; padding: 6px 8px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+table.forum td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.forum .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.forum tr.pinned td { background: var(--panel2); }
+.pager { display: flex; gap: 8px; align-items: center; }
+.forum-posts { display: flex; flex-direction: column; gap: 8px; }
+.forum-post { display: flex; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 10px; }
+.forum-author { flex: 0 0 120px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; overflow-wrap: anywhere; }
+.forum-author .face { width: 44px; height: 44px; border-radius: 50%; background: var(--panel2); display: flex; align-items: center;
+  justify-content: center; font-weight: bold; font-size: 18px; text-decoration: none; }
+.forum-post .grow { min-width: 0; flex: 1; }
+.forum-post p { margin: 0 0 4px; }
+.forum-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 6px; }
+@media (max-width: 560px) { .forum-post { flex-direction: column; } .forum-author { flex-direction: row; flex-basis: auto; } }

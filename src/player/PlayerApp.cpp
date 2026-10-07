@@ -187,6 +187,9 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     if (m_opts.page == "create") { m_page = Page::Create; m_createKind = m_opts.createTab; }
     if (m_opts.page == "people") m_page = Page::People;
     if (m_opts.page == "groups") m_page = Page::Groups;
+    if (m_opts.page == "forum") m_page = Page::Forum;   // (loads once online)
+    if (m_opts.page.rfind("forum:", 0) == 0) { m_page = Page::Forum; m_forumThread = m_opts.page.substr(6); m_forumPage = -1; }   // test: a thread
+    if (m_opts.page.rfind("board:", 0) == 0) { m_page = Page::Forum; m_forumBoard = m_opts.page.substr(6); }
     if (m_opts.page == "friends") m_page = Page::Friends;
     if (m_opts.page == "messages") m_page = Page::Messages;
     if (m_opts.page == "outfits") { m_page = Page::Avatar; m_avatarTab = 2; }
@@ -677,7 +680,7 @@ void PlayerApp::frame(float dt) {
         const std::string op = t.substr(0, sp);
         nlohmann::json args = sp == std::string::npos ? nlohmann::json::object() : nlohmann::json::parse(t.substr(sp + 1), nullptr, false);
         Online::request(op, args.is_object() ? args : nlohmann::json::object(), [op](const nlohmann::json& r) {
-            std::printf("OP %s %s\n", op.c_str(), r.dump().substr(0, 300).c_str());
+            std::printf("OP %s %s\n", op.c_str(), r.dump().substr(0, 8000).c_str());
             std::fflush(stdout);
         });
     }
@@ -775,6 +778,7 @@ void PlayerApp::frame(float dt) {
             case Page::Profile:  drawProfile(); break;
             case Page::Groups:   drawGroups(); break;
             case Page::Group:    drawGroup(); break;
+            case Page::Forum:    drawForum(); break;
             case Page::Friends:  drawFriends(); break;
             case Page::Login:    drawLogin(); break;
             case Page::Messages: drawMessages(); break;
@@ -937,7 +941,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
     static std::string messagesLabel;   // "Messages (2)" when there are unread ones
     const int unread = unreadMessages();
     messagesLabel = unread ? "Messages (" + std::to_string(unread) + ")" : std::string("Messages");
-    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Friends", 3}, {"Messages", 13}, {"People", 11}, {"Groups", 12}, {"Avatar", 2},
+    std::vector<Item> items = {{"Home", 0}, {"Games", 1}, {"Catalog", 6}, {"Bolts", 8}, {"Create", 9}, {"Friends", 3}, {"Messages", 13}, {"People", 11}, {"Groups", 12}, {"Forum", 14}, {"Avatar", 2},
                                {"Develop", 4}, {"Settings", 5}};
     if (Badges::canVerify()) items.push_back({"Staff", 7});
 #ifdef GB_MOBILE
@@ -980,7 +984,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                       (it.action == 9 && m_page == Page::Create) || (it.action == 3 && m_page == Page::Friends) ||
                       (it.action == 11 && (m_page == Page::People || m_page == Page::Profile)) ||
                       (it.action == 12 && (m_page == Page::Groups || m_page == Page::Group)) ||
-                      (it.action == 13 && m_page == Page::Messages);
+                      (it.action == 13 && m_page == Page::Messages) || (it.action == 14 && m_page == Page::Forum);
         if (ImGui::IsItemHovered() || active)
             dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, active ? 60 : 35));
         dl->AddText(ImVec2(x + 1, rowY + (navH - sz.y) * 0.5f + 1), IM_COL32(0, 30, 80, 180), it.label);
@@ -1003,6 +1007,7 @@ void PlayerApp::drawTopBar(ImVec2 pos, float width) {
                 case 9: m_page = Page::Create; m_loaded.clear(); break;
                 case 11: m_page = Page::People; m_socialMsg.clear(); m_loaded.clear(); break;
                 case 12: m_page = Page::Groups; m_socialMsg.clear(); m_loaded.clear(); break;
+                case 14: m_loaded.clear(); openForum(""); break;
                 case 13: m_page = Page::Messages; if (m_msgBox == "new") m_msgBox = "inbox"; m_messagesAt = -100.0; m_msgStatus.clear(); break;
                 case 10: if (!Online::online()) Online::connect(); break;
             }

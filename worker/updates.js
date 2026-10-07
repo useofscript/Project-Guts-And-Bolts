@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'reply-guy-simulator', name: 'Reply Guy Simulator', time: 1791349000, tag: 'Website',
+    summary: 'The Forum is here: ask for help, show off your games, and argue about nothing in Off Topic.',
+    items: [
+      'A new Forum tab on the website and in the app, with boards for Help, Scripting, Building, Game Ads, Trading and Off Topic',
+      'Start threads, reply, and get a notification when someone answers you',
+      'Report posts that break the rules; staff can delete posts and pin or lock threads',
+      'News & Announcements is where the Guts&Bolts team posts what\'s new',
+    ],
+  },
+  {
     id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
     summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
     items: [

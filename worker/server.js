@@ -119,9 +119,22 @@ const kMaxBlocked = 200, kReportsPerDay = 20, kMaxReports = 3000;
 // The staff action log: what staff did (bans, checks, badges...), newest kept (ServerSafety.cpp has the same).
 const kMaxStaffLog = 3000;
 const KIND_TITLE = (a) => ({ tshirt: 'T-shirt', devproduct: 'product', gamepass: 'pass' })[a.kind] || a.kind;
-const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group', 'comment'];
+const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group', 'comment', 'forum'];
 // Comments under games (ServerSocial.cpp has the same): the newest kMaxComments are kept.
 const kMaxComments = 500, kCommentLength = 200, kCommentCooldown = 15, kCommentsPage = 20;
+// The forum (ServerForum.cpp has the same boards and limits). Boards are fixed; anyone can
+// read, signed-up players post, staff pin, lock and delete. Each thread keeps its posts, oldest first.
+const FORUM_BOARDS = [
+  { id: 'news', name: 'News & Announcements', about: 'Updates from the Guts&Bolts team.', staffOnly: true },
+  { id: 'help', name: 'Help', about: 'Stuck? Ask how to do something in Guts&Bolts.' },
+  { id: 'scripting', name: 'Scripting Helpers', about: 'Lua questions, scripts that won\'t work, and cool code.' },
+  { id: 'building', name: 'Building & Studio', about: 'Tips, tricks and things you built in Studio.' },
+  { id: 'games', name: 'Game Ads', about: 'Show off a game you made and get people playing it.' },
+  { id: 'trading', name: 'Trading', about: 'Find people to trade Limiteds with.' },
+  { id: 'offtopic', name: 'Off Topic', about: 'Anything else. Keep it friendly.' },
+];
+const kForumTitle = 80, kForumText = 3000, kForumPage = 20, kMaxForumPosts = 500, kMaxBoardThreads = 1000;
+const kThreadCooldown = 60, kReplyCooldown = 15;
 // Player badges (ServerSocial.cpp has the same list): earned automatically, checked
 // whenever a profile is looked at. `need` says how to get one.
 const PLAYER_BADGES = [
@@ -146,7 +159,7 @@ const kPoolMost = 50, kPoolStartWait = 25;
 // DataStores: names and keys up to 100 letters, values up to 256 KB of JSON, 100,000 keys a game.
 const kDataName = 100, kDataValue = 256 * 1024, kDataKeys = 100000;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list', 'comments.list']);
+const LOOK_ONLY = new Set(['forum.boards', 'forum.list', 'forum.thread', 'pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list', 'comments.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -394,6 +407,7 @@ export class GbServerObject extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS forum (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS files (id TEXT NOT NULL, part INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (id, part));
       CREATE TABLE IF NOT EXISTS nonces (key TEXT PRIMARY KEY, time INTEGER NOT NULL);
@@ -401,9 +415,9 @@ export class GbServerObject extends DurableObject {
         updated INTEGER NOT NULL, PRIMARY KEY (game, store, key));`);
     this.official = lower(env.OFFICIAL || '');
     this.name = env.SERVER_NAME || 'Guts&Bolts';
-    this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map();
+    this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map(); this.forum = new Map();
     // What changed and needs writing (set up first: loading can already change things).
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), forum: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
     for (const r of this.sql.exec('SELECT id, data FROM assets')) {
       const a = JSON.parse(r.data);
@@ -411,6 +425,7 @@ export class GbServerObject extends DurableObject {
       this.assets.set(r.id, a);
     }
     for (const r of this.sql.exec('SELECT id, data FROM groups')) this.groups.set(r.id, JSON.parse(r.data));
+    for (const r of this.sql.exec('SELECT id, data FROM forum')) this.forum.set(r.id, JSON.parse(r.data));
     this.trades = this.getMeta('trades', []);   // trade offers between players (limited items)
     this.posted = this.getMeta('updates', []);  // updates staff posted on the website (the rest are in updates.js)
     this.reports = this.getMeta('reports', []);  // what players reported, for staff to look at (newest last)
@@ -470,6 +485,11 @@ export class GbServerObject extends DurableObject {
       if (g) this.sql.exec('INSERT OR REPLACE INTO groups (id, data) VALUES (?, ?)', id, JSON.stringify(g));
       else this.sql.exec('DELETE FROM groups WHERE id = ?', id);
     }
+    for (const id of this.dirty.forum) {
+      const th = this.forum.get(id);
+      if (th) this.sql.exec('INSERT OR REPLACE INTO forum (id, data) VALUES (?, ?)', id, JSON.stringify(th));
+      else this.sql.exec('DELETE FROM forum WHERE id = ?', id);
+    }
     if (this.dirty.trades) {
       this.trades = this.trades.filter((x) => x.status === 'open' || now() - x.updated < 30 * 86400).slice(-3000);
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'trades', JSON.stringify(this.trades));
@@ -493,7 +513,7 @@ export class GbServerObject extends DurableObject {
       if (this.staffLog.length > kMaxStaffLog) this.staffLog.splice(0, this.staffLog.length - kMaxStaffLog);
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'stafflog', JSON.stringify(this.staffLog));
     }
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), forum: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
   }
   // --- Limited items: numbered copies (a.copies = [{ serial, owner, price }]) ---
   copiesOf(u) {   // every limited copy this account holds
@@ -1025,6 +1045,7 @@ export class GbServerObject extends DurableObject {
     }
     if (name.startsWith('account.')) return this.accountOp(name, me, args);
     if (name.startsWith('groups.')) return this.groupOp(name, me, args);
+    if (name.startsWith('forum.')) return this.forumOp(name, me, args);
     if (name.startsWith('friends.') || name.startsWith('follow.')) return this.friendOp(name, me, args);
     if (name.startsWith('servers.')) return this.serverOp(name, me, args);
     if (name.startsWith('data.')) return this.dataOp(name, me, args);
@@ -2429,6 +2450,13 @@ export class GbServerObject extends DurableObject {
         if (!c) return fail('That comment isn\'t there any more.');
         if (c.by === me.id) return fail('You can\'t report yourself.');
         target = id; about = c.by; copy = { subject: 'Comment on ' + a.name, body: c.text, at: c.at };
+      } else if (kind === 'forum') {
+        // id: "thread:post". Staff see a copy, in case it's deleted.
+        const [tid, pid] = id.split(':');
+        const th = this.forum.get(tid), p = th && th.posts.find((x) => x.id === pid);
+        if (!p) return fail('That post isn\'t there any more.');
+        if (p.by === me.id) return fail('You can\'t report yourself.');
+        target = id; about = p.by; copy = { subject: 'Forum: ' + th.title, body: p.text, at: p.at };
       } else {
         const g = this.groups.get(id);
         if (!g) return fail('That group isn\'t there any more.');
@@ -2461,9 +2489,121 @@ export class GbServerObject extends DurableObject {
       if (x.kind === 'game' || x.kind === 'item') { const a = this.assets.get(x.target); r.name = a ? a.name : '(deleted)'; r.assetKind = a ? a.kind : ''; }
       if (x.kind === 'group') { const g = this.groups.get(x.target); r.name = g ? g.name : '(deleted)'; }
       if (x.kind === 'comment') { const a = this.assets.get(x.target.split(':')[0]); r.name = a ? a.name : '(deleted)'; r.game = a ? a.id : ''; }
+      if (x.kind === 'forum') { const th = this.forum.get(x.target.split(':')[0]); r.name = th ? th.title : '(deleted)'; r.thread = th ? th.id : ''; }
       if (x.status === 'closed') { r.outcome = x.outcome; r.closedBy = who(x.closedBy); r.closedAt = x.closedAt; }
       return r;
     });
+  }
+
+  // --- The forum: boards of threads, each a list of posts (oldest first). ---
+  forumOp(name, me, args) {
+    const t = now();
+    const staff = this.isStaff(me);
+    const who = (id) => { const u = this.users.get(id); return u ? { id: u.id, userId: u.userId, name: u.name, verified: this.isVerified(u), staff: this.isStaff(u) } : { id, userId: 0, name: '?' }; };
+    const hidden = (id) => { const u = this.users.get(id); return !!u && this.blocks(me, u); };
+    const boardOf = (id) => FORUM_BOARDS.find((b) => b.id === id);
+    const threadsIn = (board) => [...this.forum.values()].filter((th) => th.board === board)
+      .sort((x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || y.last - x.last);
+    const summary = (th) => ({ id: th.id, title: th.title, by: who(th.by), at: th.at, last: th.last, lastBy: who(th.lastBy),
+      replies: th.posts.length - 1, views: th.views || 0, pinned: !!th.pinned, locked: !!th.locked });
+    // One page of a thread (page -1 = the last page).
+    const threadPage = (th, page) => {
+      const pages = Math.max(1, Math.ceil(th.posts.length / kForumPage));
+      const p = page < 0 ? pages - 1 : clamp(page, 0, pages - 1);
+      const b = boardOf(th.board) || { name: '?' };
+      const posts = th.posts.slice(p * kForumPage, (p + 1) * kForumPage).filter((x) => !hidden(x.by))
+        .map((x) => ({ id: x.id, text: x.text, at: x.at, edited: x.edited || 0, by: who(x.by), first: x.id === th.posts[0].id,
+          canDelete: me.userId !== 0 && (x.by === me.id || staff) }));
+      return okay({ thread: Object.assign(summary(th), { board: th.board, boardName: b.name }), posts, page: p, pages,
+        canReply: me.userId !== 0 && (!th.locked || staff), canModerate: staff });
+    };
+    if (name === 'forum.boards') {
+      return okay({ boards: FORUM_BOARDS.map((b) => {
+        const list = threadsIn(b.id);
+        const newest = list.slice().sort((x, y) => y.last - x.last)[0];
+        return { id: b.id, name: b.name, about: b.about, staffOnly: !!b.staffOnly, threads: list.length,
+          posts: list.reduce((n, th) => n + th.posts.length, 0),
+          last: newest ? { thread: newest.id, title: newest.title, by: who(newest.lastBy), at: newest.last } : null };
+      }) });
+    }
+    if (name === 'forum.list') {
+      const b = boardOf(str(args, 'board'));
+      if (!b) return fail('That board doesn\'t exist.');
+      const list = threadsIn(b.id).filter((th) => !hidden(th.by));
+      const pages = Math.max(1, Math.ceil(list.length / kForumPage)), page = clamp(num(args, 'page'), 0, pages - 1);
+      return okay({ board: { id: b.id, name: b.name, about: b.about, staffOnly: !!b.staffOnly },
+        threads: list.slice(page * kForumPage, (page + 1) * kForumPage).map(summary), page, pages,
+        canPost: me.userId !== 0 && (!b.staffOnly || staff) });
+    }
+    if (name === 'forum.post') {
+      if (me.userId === 0) return fail('Sign up to post on the forum.');
+      const b = boardOf(str(args, 'board'));
+      if (!b) return fail('That board doesn\'t exist.');
+      if (b.staffOnly && !staff) return fail('Only Guts&Bolts staff post in ' + b.name + '.');
+      const title = say(str(args, 'title'), kForumTitle), text = say(str(args, 'text'), kForumText, true);
+      if (!title) return fail('Give your thread a title.');
+      if (!text) return fail('Write something first.');
+      const key = 'ft:' + me.id;
+      if (t - (this.lastPost.get(key) || 0) < kThreadCooldown) return fail('Slow down a little - wait a minute between new threads.');
+      this.lastPost.set(key, t);
+      const th = { id: 'f' + randomHex(6), board: b.id, title, by: me.id, at: t, last: t, lastBy: me.id, views: 0,
+        pinned: false, locked: false, posts: [{ id: randomHex(6), by: me.id, text, at: t }] };
+      this.forum.set(th.id, th);
+      this.dirty.forum.add(th.id);
+      // A full board: the threads quiet the longest go (pinned ones stay).
+      const all = threadsIn(b.id).filter((x) => !x.pinned);
+      for (const old of all.slice(kMaxBoardThreads)) { this.forum.delete(old.id); this.dirty.forum.add(old.id); }
+      return threadPage(th, 0);
+    }
+    const th = this.forum.get(str(args, 'thread'));
+    if (!th) return fail('That thread isn\'t there any more.');
+    if (name === 'forum.thread') {
+      if (me.userId !== 0 && me.id !== th.by) { th.views = (th.views || 0) + 1; this.dirty.forum.add(th.id); }
+      return threadPage(th, num(args, 'page'));
+    }
+    if (name === 'forum.reply') {
+      if (me.userId === 0) return fail('Sign up to post on the forum.');
+      if (th.locked && !staff) return fail('This thread is locked, so nobody can reply.');
+      if (th.posts.length >= kMaxForumPosts) return fail('This thread is full. Start a new one!');
+      const starter = this.users.get(th.by);
+      if (starter && this.blocks(me, starter)) return fail('You can\'t reply to this thread.');
+      const text = say(str(args, 'text'), kForumText, true);
+      if (!text) return fail('Write something first.');
+      const key = 'fr:' + me.id;
+      if (t - (this.lastPost.get(key) || 0) < kReplyCooldown) return fail('Slow down a little - wait a few seconds between posts.');
+      this.lastPost.set(key, t);
+      th.posts.push({ id: randomHex(6), by: me.id, text, at: t });
+      th.last = t; th.lastBy = me.id;
+      this.dirty.forum.add(th.id);
+      if (starter && starter.id !== me.id) this.notify(starter, 'forum', me.name + ' replied to "' + th.title.slice(0, 60) + '"', th.id);
+      return threadPage(th, -1);
+    }
+    if (name === 'forum.delete') {
+      const i = th.posts.findIndex((x) => x.id === str(args, 'post'));
+      if (i < 0) return fail('That post is already gone.');
+      const p = th.posts[i];
+      if (p.by !== me.id && !staff) return fail('You can only delete your own posts.');
+      if (p.by !== me.id) this.staffDid(me, 'forum', 'Deleted a forum post in "' + th.title + '": "' + p.text.slice(0, 80) + '"', p.by);
+      if (i === 0) {   // the first post: the whole thread goes
+        this.forum.delete(th.id);
+        this.dirty.forum.add(th.id);
+        return okay({ gone: true, board: th.board });
+      }
+      th.posts.splice(i, 1);
+      const lastPost = th.posts[th.posts.length - 1];
+      th.last = lastPost.at; th.lastBy = lastPost.by;
+      this.dirty.forum.add(th.id);
+      return threadPage(th, num(args, 'page'));
+    }
+    if (name === 'forum.mod') {   // staff: pin it to the top, or lock it (no more replies)
+      if (!staff) return fail('Only staff can do that.');
+      if ('pinned' in args) th.pinned = !!args.pinned;
+      if ('locked' in args) th.locked = !!args.locked;
+      this.staffDid(me, 'forum', (th.pinned ? 'Pinned' : 'Unpinned') + ' and ' + (th.locked ? 'locked' : 'unlocked') + ' the thread "' + th.title + '"', th.by);
+      this.dirty.forum.add(th.id);
+      return threadPage(th, num(args, 'page'));
+    }
+    return fail('Unknown request.');
   }
 
   groupOp(name, me, args) {

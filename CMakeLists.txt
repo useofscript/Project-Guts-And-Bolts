@@ -24,6 +24,7 @@ set(GB_SERVER_SOURCES
     src/server/ServerRelay.cpp
     src/server/ServerData.cpp
     src/server/ServerSafety.cpp
+    src/server/ServerForum.cpp
     src/online/Protocol.cpp
     src/core/Account.cpp
     src/core/TextFilter.cpp
@@ -405,7 +406,7 @@ endif()
 if(GB_MOBILE)
     # Phones and tablets get the Player only. On Android it's a library that
     # SDL's Java activity loads (it must be called "main").
-    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/ItemRenders.cpp src/player/PlayerMail.cpp src/player/PlayerLibrary.cpp src/player/PlayerDevConsole.cpp src/player/PlayerPasses.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/PlayerSafety.cpp src/player/LaunchLink.cpp)
+    set(PLAYER_SOURCES src/player/main.cpp src/player/PlayerApp.cpp src/player/PlayerOnline.cpp src/player/PlayerSocial.cpp src/player/PlayerForum.cpp src/player/ItemRenders.cpp src/player/PlayerMail.cpp src/player/PlayerLibrary.cpp src/player/PlayerDevConsole.cpp src/player/PlayerPasses.cpp src/player/PlayerFriends.cpp src/player/PlayerLogin.cpp src/player/PlayerSafety.cpp src/player/LaunchLink.cpp)
     if(ANDROID)
         add_library(main SHARED ${PLAYER_SOURCES})
         target_link_libraries(main PRIVATE gb_engine)
@@ -491,6 +492,7 @@ set(PLAYER_SOURCES
     src/player/PlayerApp.cpp
     src/player/PlayerOnline.cpp
     src/player/PlayerSocial.cpp
+    src/player/PlayerForum.cpp
     src/player/ItemRenders.cpp
     src/player/PlayerMail.cpp
     src/player/PlayerLibrary.cpp
