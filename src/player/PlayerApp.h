@@ -218,6 +218,14 @@ private:
     long long      m_peopleTotal = 0;
     nlohmann::json m_people = nlohmann::json::array();
     std::string    m_peopleMsg;
+    // Someone's inventory (a popup over their profile): what they own from the catalog.
+    void openInventory(const std::string& user, const std::string& cat, int page = 0);
+    void drawInventoryDialog();
+    void drawItemTiles(const nlohmann::json& items, int perRow);   // item pictures in a grid (+ Limited numbers)
+    std::string    m_invUser, m_invCat, m_invMsg;   // m_invCat empty = closed
+    int            m_invPage = 0;
+    long long      m_invTotal = 0;
+    nlohmann::json m_inv = nlohmann::json::array(), m_invCounts = nlohmann::json::object();
     void drawGroups();
     void drawGroup();
     void openProfile(const std::string& accountId);

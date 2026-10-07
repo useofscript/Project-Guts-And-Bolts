@@ -660,6 +660,12 @@ void PlayerApp::frame(float dt) {
         const GameCard& g = m_games[m_selected];
         openServers("local:" + g.path.stem().string(), g.info.title, localStarter(g.path));
     }
+    if (Online::online() && m_opts.page.rfind("inventory:", 0) == 0) {   // test: someone's inventory ("inventory:2")
+        const std::string id = m_opts.page.substr(10);
+        m_opts.page.clear();
+        openProfile(id);
+        openInventory(id, "all");
+    }
     if (Online::online() && m_opts.page.rfind("asset:", 0) == 0 && m_opts.testOps.empty()) {   // test: an asset's page ("asset:gb:decal-...")
         openAsset(m_opts.page.substr(6));
         m_opts.page.clear();
@@ -2382,6 +2388,7 @@ void PlayerApp::drawAccount() {
         pick("Who sees me online##pvs", "status", kSee);
         pick("Who can join me##pvj", "join", kJoin);
         pick("Who can message me##pvm", "messages", kJoin);
+        pick("Who sees my inventory##pvi", "inventory", kJoin);   // (and can trade with me)
         drawBlockedList();
     }
     ImGui::Text("Account ID: %s...", Account::shortId().c_str());

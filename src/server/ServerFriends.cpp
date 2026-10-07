@@ -15,6 +15,36 @@ constexpr long long kOnlineFor   = 150;   // seconds since we last heard from th
 constexpr size_t    kMaxFollowing = 2000;
 } // namespace
 
+// Can `viewer` see what `u` owns? (Staff always can, to sort out trades and scams.)
+bool GbServer::seesInventory(const User& viewer, const User& u) const {
+    if (isStaff(viewer) || viewer.id == u.id) return true;
+    const std::string& s = u.privacyInventory;
+    return (s == "everyone" || (s == "friends" && u.friends.count(viewer.id) > 0)) && !blocks(viewer, u);
+}
+
+// The catalog items someone owns, in one group, sorted by name (this server has no
+// purchase order or Limiteds, so "limited" is always empty and serials too).
+nlohmann::json GbServer::inventoryOf(const User& u, const std::string& cat) const {
+    std::vector<const Asset*> found;
+    for (const std::string& id : u.owned) {
+        auto it = findAsset(id);
+        if (it == m_assets.end()) continue;
+        const std::string& k = it->second.kind;
+        if (!Online::isCatalogItem(k)) continue;
+        const bool in = cat == "accessories" ? Online::isAccessory(k) : cat == "clothing" ? (k == "shirt" || k == "pants" || k == "tshirt")
+                      : cat == "faces" ? k == "face" : cat == "gear" ? k == "gear" : cat == "limited" ? false : true;
+        if (in) found.push_back(&it->second);
+    }
+    std::sort(found.begin(), found.end(), [](const Asset* a, const Asset* b) { return a->name < b->name; });
+    json out = json::array();
+    for (const Asset* a : found) {
+        json j = publicAsset(*a);
+        j["serials"] = json::array();
+        out.push_back(j);
+    }
+    return out;
+}
+
 nlohmann::json GbServer::presence(const User& viewer, const User& u) const {
     auto allows = [&](const std::string& setting) {
         if (viewer.id == u.id || setting == "everyone") return true;

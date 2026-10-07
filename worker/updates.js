@@ -10,6 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'show-me-your-stuff', name: 'Show Me Your Stuff', time: 1791352000, tag: 'Website',
+    summary: 'Profiles now have an Inventory: see what anyone owns before you send them a trade.',
+    items: [
+      'A new Inventory box on every profile, on the website and in the app, with a See all page sorted into Accessories, Clothing, Faces, Gear and Limiteds',
+      'Limiteds show the numbers of the copies someone holds, so you know exactly what to ask for in a trade',
+      'New privacy switch: let everyone, only friends, or no one see your inventory (people it\'s hidden from can\'t trade with you)',
+    ],
+  },
+  {
     id: 'staff-picks', name: 'Staff Picks (No Bribes Accepted)', time: 1791346500, tag: 'Website',
     summary: 'Staff can now feature great games, and they show up first on the home page.',
     items: [

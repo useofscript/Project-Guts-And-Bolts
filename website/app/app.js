@@ -1486,6 +1486,7 @@ pages.trade = async (id) => {
   if (!signedIn()) { show(html`<h1>Trade</h1>${needSignIn('trade Limited items')}`); return; }
   const [theirs, mine] = await Promise.all([pageCall('trade.inventory', { user: id }), pageCall('trade.inventory', { user: me.id })]);
   if (!theirs.ok) { show(html`<h1>Trade</h1><p class="error">${theirs.error}</p>`); return; }
+  if (theirs.hidden) { show(html`<h1>Trade</h1><p class="muted">${theirs.user.name} keeps their inventory private, so you can't trade with them.</p>`); return; }
   const pickList = (items, side) => items.length ? html`<div class="trade-pick">${items.map((i) => html`<label class="choice">
       <input type="checkbox" name="${side}" value="${i.id}|${i.serial}"> ${i.name} <b>#${i.serial}</b></label>`)}</div>`
     : html`<p class="muted">No Limited items.</p>`;
@@ -1527,8 +1528,37 @@ async function peoplePage(id, which, page) {
       : html`<p class="muted">${{ friends: 'No friends yet.', following: 'Not following anyone yet.', followers: 'No followers yet.' }[r.which]}</p>`}`);
 }
 
-pages.user = async (id, tab, page) => {
+// Someone's inventory: #/user/5/inventory (or /inventory/limited/2 for a group and a page).
+const INVENTORY_TABS = [['all', 'All'], ['accessories', 'Accessories'], ['clothing', 'Clothing'], ['faces', 'Faces'], ['gear', 'Gear'], ['limited', 'Limiteds']];
+function inventoryCard(a) {   // an item card, plus which numbered copies of a Limited they hold
+  return html`<div class="inv-item">${itemCard(a)}${(a.serials || []).length ? html`<div class="small serials">${a.serials.map((n) => '#' + n).join(', ')}</div>` : ''}</div>`;
+}
+function inventoryHidden(u, f) {
+  return html`<p class="muted small">${f === 'self' ? 'Only you can see this.' : u.username + ' keeps their inventory private.'}</p>`;
+}
+async function inventoryPage(id, cat, page) {
+  if (!INVENTORY_TABS.some(([k]) => k === cat)) { page = cat; cat = 'all'; }
+  const per = 60, at = Math.max(0, (Number(page) || 1) - 1);
+  const r = await pageCall('profile.inventory', { id: String(id), cat, offset: at * per, limit: per });
+  if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
+  const u = r.user, pages = Math.max(1, Math.ceil(r.total / per)), base = '#/user/' + u.userId + '/inventory/' + r.cat;
+  const pager = pages > 1 ? html`<p class="row">${at > 0 ? html`<a class="btn small" href="${base}/${at}">&lt; Back</a>` : ''}
+      <span class="muted small">Page ${at + 1} of ${pages}</span>
+      ${at + 1 < pages ? html`<a class="btn small" href="${base}/${at + 2}">Next &gt;</a>` : ''}</p>` : '';
+  const mine = signedIn() && me.id === u.id;
+  show(html`<p><a href="#/user/${u.userId}">&lt; ${u.username}'s profile</a></p>
+    <h1><a href="#/user/${u.userId}">${u.username}</a>${verified(u.verified)}: Inventory</h1>
+    ${r.hidden ? html`<div class="box info">${u.username} keeps their inventory private.</div>` : html`
+      <div class="tabs">${INVENTORY_TABS.map(([k, label]) => html`<a class="btn ${k === r.cat ? 'blue' : ''}" href="#/user/${u.userId}/inventory/${k}">${label} (${r.counts[k] || 0})</a>`)}</div>
+      ${r.items.length ? html`<div class="grid">${r.items.map(inventoryCard)}</div>${pager}`
+        : html`<p class="muted">${r.cat === 'all' ? 'Nothing from the catalog yet.' : 'Nothing here.'}</p>`}
+      ${mine ? html`<p class="small muted">Who can see this is up to you: <a href="#/settings">Settings</a> &gt; Privacy.</p>`
+        : signedIn() && r.counts.limited ? html`<p><a class="btn small" href="#/trade/${u.id}">Trade with ${u.username}</a></p>` : ''}`}`);
+}
+
+pages.user = async (id, tab, page, more) => {
   if (tab === 'friends' || tab === 'following' || tab === 'followers') { await peoplePage(id, tab, page); return; }
+  if (tab === 'inventory') { await inventoryPage(id, page, more); return; }
   const r = await pageCall('profile', { id });
   if (!r.ok) { show(html`<h1>Not found</h1><p class="muted">${r.error}</p>`); return; }
   const u = r.user;
@@ -1614,6 +1644,10 @@ pages.user = async (id, tab, page) => {
         <div class="box"><h2 class="boxhead">Games</h2>
           ${games.length ? html`<div class="grid">${games.map(gameCard)}</div>` : html`<p class="muted small">None yet.</p>`}</div>
         ${items.length ? html`<div class="box"><h2 class="boxhead">Creations</h2><div class="grid">${items.map(itemCard)}</div></div>` : ''}
+        ${r.inventory ? html`<div class="box"><h2 class="boxhead">Inventory${r.inventory.hidden ? '' : ` (${r.inventory.total})`}
+            ${r.inventory.hidden ? '' : html`<a class="small" href="#/user/${u.userId}/inventory" style="float:right">See all</a>`}</h2>
+          ${r.inventory.hidden ? inventoryHidden(u, f) : r.inventory.items.length ? html`<div class="grid">${r.inventory.items.map(inventoryCard)}</div>`
+            : html`<p class="muted small">Nothing from the catalog yet.</p>`}</div>` : ''}
         <div class="box"><h2 class="boxhead">Groups</h2>
           ${r.groups.length ? html`<div class="list">${r.groups.map((g) => html`<div><a class="grow" href="#/group/${g.id}">${g.name}</a>
             <span class="muted small">${g.role}</span></div>`)}</div>` : html`<p class="muted small">None yet.</p>`}</div>
@@ -2061,6 +2095,8 @@ pages.settings = async () => {
           <select name="join">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${(me.privacy || {}).join === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
           <label>Who can send me messages</label>
           <select name="messages">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${((me.privacy || {}).messages || 'everyone') === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
+          <label>Who can see my inventory (and trade with me)</label>
+          <select name="inventory">${['everyone', 'friends', 'nobody'].map((v) => html`<option value="${v}"${((me.privacy || {}).inventory || 'everyone') === v ? raw(' selected') : ''}>${{ everyone: 'Everyone', friends: 'Friends only', nobody: 'No one' }[v]}</option>`)}</select>
           <p><button class="btn green">Save</button></p></form></div>
       <div class="box"><h2 class="boxhead">Blocked people</h2>
         <p class="small muted">People you block can't message, friend, follow, trade with or join you, and you won't see each other online.
@@ -2650,7 +2686,7 @@ const forms = {
     location.hash = '#/messages/sent';
   },
   async privacy(f) {
-    const r = await call('account.privacy', { status: f.status.value, join: f.join.value, messages: f.messages.value });
+    const r = await call('account.privacy', { status: f.status.value, join: f.join.value, messages: f.messages.value, inventory: f.inventory.value });
     if (!r.ok) { toast(r.error); return; }
     me = r.me; toast('Privacy saved.');
   },

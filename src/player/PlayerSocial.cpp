@@ -364,24 +364,7 @@ void PlayerApp::drawProfile() {
 
     boxTitle("Currently Wearing");
     if (wearing.empty()) ImGui::TextDisabled("Nothing from the catalog.");
-    {
-        const float tile = (ImGui::GetContentRegionAvail().x - 16) / 3.0f;
-        for (size_t i = 0; i < wearing.size(); ++i) {
-            Catalog::Item it = Catalog::fromServer(wearing[i]);
-            if (i % 3 != 0) ImGui::SameLine(0, 8);
-            ImGui::BeginGroup();
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
-            dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(170, 175, 185, 255));
-            itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
-            ImGui::Dummy(ImVec2(tile, tile));
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
-            ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::EndGroup();
-        }
-    }
+    drawItemTiles(wearing, 3);
     ImGui::Spacing();
 
     boxTitle("Statistics");
@@ -590,6 +573,20 @@ void PlayerApp::drawProfile() {
         if (!n) ImGui::TextDisabled("Nothing published yet.");
     }
     ImGui::Spacing();
+    if (m_profile.contains("inventory") && m_profile["inventory"].is_object()) {   // what they own (older servers don't say)
+        const json& inv = m_profile["inventory"];
+        const bool hidden = inv.value("hidden", false);
+        boxTitle(hidden ? "Inventory" : ("Inventory (" + std::to_string(inv.value("total", 0LL)) + ")").c_str());
+        if (!hidden && inv.value("total", 0LL) > 0) {
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 50);
+            if (nameLink({{"name", "See all"}}, "invall")) openInventory(id, "all");
+        }
+        const json& items = inv.contains("items") && inv["items"].is_array() ? inv["items"] : json::array();
+        if (hidden) ImGui::TextDisabled("%s keeps their inventory private.", name.c_str());
+        else if (items.empty()) ImGui::TextDisabled("Nothing from the catalog yet.");
+        else drawItemTiles(items, std::max(3, (int)(ImGui::GetContentRegionAvail().x / 110.0f)));
+        ImGui::Spacing();
+    }
     boxTitle("Groups");
     const json& groups = m_profile.contains("groups") ? m_profile["groups"] : json::array();
     if (groups.empty()) ImGui::TextDisabled("Not in any groups.");
@@ -597,6 +594,102 @@ void PlayerApp::drawProfile() {
         if (groupRow(groups[i], (int)i)) openGroup(groups[i].value("id", std::string()));
     ImGui::EndChild();
     drawPeopleDialog();
+    drawInventoryDialog();
+}
+
+void PlayerApp::drawItemTiles(const json& items, int perRow) {
+    const float tile = (ImGui::GetContentRegionAvail().x - 8.0f * (perRow - 1)) / (float)perRow;
+    for (size_t i = 0; i < items.size(); ++i) {
+        Catalog::Item it = Catalog::fromServer(items[i]);
+        if (i % perRow != 0) ImGui::SameLine(0, 8);
+        ImGui::BeginGroup();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(255, 255, 255, 255));
+        dl->AddRect(p, ImVec2(p.x + tile, p.y + tile), IM_COL32(170, 175, 185, 255));
+        itemPicture(dl, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.8f, it);
+        if (items[i].contains("limited") && items[i]["limited"].is_object())   // like the website's green LIMITED tag
+            dl->AddText(ImVec2(p.x + 4, p.y + 3), IM_COL32(26, 127, 55, 255), "LIMITED");
+        ImGui::Dummy(ImVec2(tile, tile));
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+        ImGui::TextColored(Classic::kLink, "%s", it.name.c_str());
+        if (items[i].contains("serials") && items[i]["serials"].is_array() && !items[i]["serials"].empty()) {
+            std::string nums;   // which numbered copies they hold
+            for (const json& n : items[i]["serials"]) nums += (nums.empty() ? "#" : ", #") + std::to_string(n.get<long long>());
+            ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.22f, 1), "%s", nums.c_str());
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::EndGroup();
+    }
+}
+
+void PlayerApp::openInventory(const std::string& user, const std::string& cat, int page) {
+    m_invUser = user;
+    m_invCat = cat;
+    m_invPage = std::max(0, page);
+    m_inv = json::array();
+    m_invTotal = 0;
+    m_invMsg = "Loading...";
+    const int per = 30;
+    Online::request("profile.inventory", {{"id", user}, {"cat", cat}, {"offset", m_invPage * per}, {"limit", per}},
+                    [this, user, cat](const json& r) {
+        if (user != m_invUser || cat != m_invCat) return;
+        if (!r.value("ok", false)) { m_invMsg = r.value("error", std::string("Couldn't load that.")); return; }
+        if (r.value("hidden", false)) { m_invMsg = "This inventory is private."; return; }
+        m_inv = r.value("items", json::array());
+        m_invCounts = r.value("counts", json::object());
+        m_invTotal = r.value("total", 0LL);
+        m_invMsg.clear();
+    });
+}
+
+void PlayerApp::drawInventoryDialog() {
+    if (m_invCat.empty()) return;
+    if (!ImGui::IsPopupOpen("##inventory")) ImGui::OpenPopup("##inventory");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(fitWidth(640), 0));
+    if (!ImGui::BeginPopupModal("##inventory", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar)) return;
+    if (tappedOutside()) m_invCat.clear();
+    if (m_invCat.empty()) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+    const json& u = m_profile.contains("user") ? m_profile["user"] : json::object();
+    ImGui::SetWindowFontScale(1.3f);
+    ImGui::Text("%s's Inventory", u.value("name", std::string()).c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    // The same groups as the website (worker/server.js INVENTORY_CATS); they wrap on narrow screens.
+    static const char* kTabs[][2] = {{"all", "All"}, {"accessories", "Accessories"}, {"clothing", "Clothing"},
+                                     {"faces", "Faces"}, {"gear", "Gear"}, {"limited", "Limiteds"}};
+    for (int i = 0; i < 6; ++i) {
+        const std::string label = std::string(kTabs[i][1]) + " (" + std::to_string(m_invCounts.value(kTabs[i][0], 0LL)) + ")";
+        const float w = ImGui::CalcTextSize(label.c_str()).x + 20;
+        if (i && ImGui::GetItemRectMax().x + 8 + w < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) ImGui::SameLine(0, 6);
+        const bool on = m_invCat == kTabs[i][0];
+        if (on ? Classic::button(label.c_str(), Classic::kBlue, ImVec2(w, 26)) : ImGui::Button(label.c_str(), ImVec2(w, 26)))
+            if (!on) openInventory(m_invUser, kTabs[i][0]);
+    }
+    ImGui::Separator();
+    if (!m_invMsg.empty()) ImGui::TextDisabled("%s", m_invMsg.c_str());
+    else if (m_inv.empty()) ImGui::TextDisabled(m_invCat == "all" ? "Nothing from the catalog yet." : "Nothing here.");
+    // As tall as the rows need (a tile plus two lines of text each), scrolling past that.
+    const int perRow = std::max(2, (int)(ImGui::GetContentRegionAvail().x / 110.0f)), rows = ((int)m_inv.size() + perRow - 1) / perRow;
+    const float tileH = (ImGui::GetContentRegionAvail().x - 8.0f * (perRow - 1)) / (float)perRow + ImGui::GetTextLineHeightWithSpacing() * 2 + 8;
+    ImGui::BeginChild("##invlist", ImVec2(0, std::min({380.0f, ImGui::GetMainViewport()->Size.y * 0.55f, rows * tileH + 8})));
+    drawItemTiles(m_inv, perRow);
+    ImGui::EndChild();
+    const int per = 30, pages = (int)std::max(1LL, (m_invTotal + per - 1) / per);
+    if (pages > 1) {
+        ImGui::BeginDisabled(m_invPage <= 0);
+        if (ImGui::Button("< Back")) openInventory(m_invUser, m_invCat, m_invPage - 1);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("Page %d of %d", m_invPage + 1, pages);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_invPage + 1 >= pages);
+        if (ImGui::Button("Next >")) openInventory(m_invUser, m_invCat, m_invPage + 1);
+        ImGui::EndDisabled();
+    }
+    if (ImGui::Button("Close", ImVec2(100, 30))) m_invCat.clear();
+    if (m_invCat.empty()) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
 }
 
 void PlayerApp::openPeople(const std::string& user, const std::string& which, int page) {

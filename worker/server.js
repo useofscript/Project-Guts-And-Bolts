@@ -60,6 +60,16 @@ const MAX_SIZE = { audio: 6 << 20, game: 24 << 20, plugin: 512 << 10, decal: 4 <
 // creator ticked "Allow gear". (src/server has the same rules.)
 const kMostGear = 4;
 const isCatalogItem = (k) => isClothing(k) || k === 'gear';   // sold in the catalog
+// Inventory on profiles: what someone owns from the catalog, in these groups. (src/server has the same.)
+const INVENTORY_CATS = ['all', 'accessories', 'clothing', 'faces', 'gear', 'limited'];
+function inventoryCat(cat, a) {
+  if (cat === 'accessories') return isAccessory(a.kind);
+  if (cat === 'clothing') return a.kind === 'shirt' || a.kind === 'pants' || a.kind === 'tshirt';
+  if (cat === 'faces') return a.kind === 'face';
+  if (cat === 'gear') return a.kind === 'gear';
+  if (cat === 'limited') return !!a.limited;
+  return true;
+}
 function gearProblem(data) {
   let m = null;
   try { m = JSON.parse(new TextDecoder().decode(data)); } catch { m = null; }
@@ -146,7 +156,7 @@ const kPoolMost = 50, kPoolStartWait = 25;
 // DataStores: names and keys up to 100 letters, values up to 256 KB of JSON, 100,000 keys a game.
 const kDataName = 100, kDataValue = 256 * 1024, kDataKeys = 100000;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list', 'comments.list']);
+const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'profile.inventory', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list', 'comments.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -632,7 +642,23 @@ export class GbServerObject extends DurableObject {
   privacyOf(u) {
     const p = u.privacy || {};
     return { status: PRIVACY.includes(p.status) ? p.status : 'everyone', join: PRIVACY.includes(p.join) ? p.join : 'everyone',
-      messages: PRIVACY.includes(p.messages) ? p.messages : 'everyone' };
+      messages: PRIVACY.includes(p.messages) ? p.messages : 'everyone',
+      inventory: PRIVACY.includes(p.inventory) ? p.inventory : 'everyone' };   // who sees your inventory
+  }
+  // Can `viewer` see what `u` owns? (Staff always can, to sort out trades and scams.)
+  seesInventory(viewer, u) {
+    return (!!viewer && this.isStaff(viewer)) || (this.allows(this.privacyOf(u).inventory, viewer, u) && !this.blocks(viewer, u));
+  }
+  // Someone's inventory: the catalog items they own, newest first, with the numbers of the Limited copies they hold.
+  inventoryOf(u, cat = 'all') {
+    const items = [];
+    for (const id of [...(u.owned || [])].reverse()) {
+      const a = this.assets.get(id);
+      if (!a || !isCatalogItem(a.kind) || !inventoryCat(cat, a)) continue;
+      const serials = a.limited ? (a.copies || []).filter((c) => c.owner === u.id).map((c) => c.serial).sort((x, y) => x - y) : [];
+      items.push(Object.assign(this.publicAsset(a), { serials }));
+    }
+    return items;
   }
   allows(setting, viewer, u) {
     if (viewer && viewer.id === u.id) return true;
@@ -988,11 +1014,28 @@ export class GbServerObject extends DurableObject {
         const g = this.assets.get(gid), b = g && (g.badges || []).find((x) => x.id === bid);
         return b ? { id: b.id, name: b.name, description: b.description, color: b.color, game: gid, gameName: g.name, earned: when } : null;
       }).filter(Boolean).reverse();
-      return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends,
+      // Their inventory (the first few; profile.inventory has the rest), unless they hid it.
+      const canSee = this.seesInventory(me, u), owns = canSee ? this.inventoryOf(u) : [];
+      const inventory = { hidden: !canSee, total: owns.length, items: owns.slice(0, 12) };
+      return okay({ user, creations, groups, friendCount: u.friends.length, friendship, wearing, friends, inventory,
         followerCount: (u.followers || []).length, followingCount: (u.following || []).length,
         isFollowing: (me.following || []).includes(u.id), blocked: (me.blocked || []).includes(u.id),
         online: this.presence(me, u).online, playing: this.presence(me, u).playing, placeVisits, gameBadges,
         blurb: u.blurb || '', status: (u.posts || [])[0] || null, playerBadges: this.playerBadgesOf(u), allPlayerBadges: PLAYER_BADGES });
+    }
+    if (name === 'profile.inventory') {
+      // Everything someone owns from the catalog, a page at a time, in one group (INVENTORY_CATS).
+      const want = str(args, 'id');
+      const u = want && want.length < 12 && /^[0-9]+$/.test(want) ? this.findUserId(Number(want)) : this.findPerson(want);
+      if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
+      if (!this.seesInventory(me, u)) return okay({ user: this.publicUser(u), hidden: true, cat: 'all', total: 0, counts: {}, items: [] });
+      const cat = INVENTORY_CATS.includes(str(args, 'cat')) ? str(args, 'cat') : 'all';
+      const all = this.inventoryOf(u);
+      const counts = Object.fromEntries(INVENTORY_CATS.map((c) => [c, all.filter((a) => inventoryCat(c, a)).length]));
+      const list = cat === 'all' ? all : all.filter((a) => inventoryCat(cat, a));
+      const offset = Math.max(0, num(args, 'offset'));
+      const limit = 'limit' in args ? clamp(num(args, 'limit'), 1, 100) : 60;
+      return okay({ user: this.publicUser(u), hidden: false, cat, total: list.length, counts, items: list.slice(offset, offset + limit) });
     }
     if (name === 'people.list') {
       // Someone's friends, who they follow, or their followers (anyone can look, like a
@@ -1946,7 +1989,11 @@ export class GbServerObject extends DurableObject {
       // A limited item's copies: who has which number, and which are for sale.
       const a = this.assets.get(str(args, 'id'));
       if (!a || !a.limited) return okay({ copies: [] });
-      const copies = (a.copies || []).map((c) => { const u = this.users.get(c.owner); return { serial: c.serial, price: c.price || 0, owner: c.owner, ownerName: u ? u.name : '?', mine: c.owner === me.id }; });
+      // (Who holds a copy that isn't for sale stays hidden when they hid their inventory from you.)
+      const copies = (a.copies || []).map((c) => {
+        const u = this.users.get(c.owner), shown = c.price > 0 || !u || this.seesInventory(me, u);
+        return { serial: c.serial, price: c.price || 0, owner: shown ? c.owner : '', ownerName: !shown ? 'Hidden' : u ? u.name : '?', mine: c.owner === me.id };
+      });
       return okay({ copies });
     }
     if (name === 'resale.list') {
@@ -1982,13 +2029,16 @@ export class GbServerObject extends DurableObject {
     if (name === 'trade.inventory') {
       const u = this.findPerson(args.user);
       if (!u) return fail('There\'s no account with that ID on this server.');
-      return okay({ user: this.publicUser(u), items: this.copiesOf(u) });
+      // Someone who hid their inventory from you: you see nothing (and can't trade with them).
+      const canSee = this.seesInventory(me, u);
+      return okay({ user: this.publicUser(u), items: canSee ? this.copiesOf(u) : [], hidden: !canSee });
     }
     if (name === 'trade.send') {
       const to = this.findPerson(args.to);
       if (!to || to.userId === 0) return fail('There\'s no account with that ID on this server.');
       if (to.id === me.id) return fail('You can\'t trade with yourself.');
       if (this.blocks(me, to)) return fail('You can\'t trade with that account.');
+      if (!this.seesInventory(me, to)) return fail(to.name + ' keeps their inventory private, so you can\'t trade with them.');
       const pick = (list) => (Array.isArray(list) ? list : []).slice(0, 4).map((x) => ({ id: String(x && x.id || ''), serial: Number(x && x.serial) | 0 }));
       const give = pick(args.give), get = pick(args.get);
       if (!give.length || !get.length) return fail('Pick at least one of your limiteds and one of theirs.');
@@ -2153,6 +2203,7 @@ export class GbServerObject extends DurableObject {
       if (PRIVACY.includes(args.status)) p.status = args.status;
       if (PRIVACY.includes(args.join)) p.join = args.join;
       if (PRIVACY.includes(args.messages)) p.messages = args.messages;   // who can send you messages
+      if (PRIVACY.includes(args.inventory)) p.inventory = args.inventory;   // who can see your inventory
       me.privacy = p;
       this.saveUser(me);
       return okay({ me: this.meJson(me) });
