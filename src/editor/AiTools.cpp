@@ -647,7 +647,10 @@ COLLISION
 CanCollide decides whether things bump into a part. A character touching a part fires Touched even when its CanCollide is off (coins, checkpoints). Water parts and FluidVolumes are swum through.
 
 NAVIGATION
-The navigation mesh (every floor a character can stand on) is baked from the anchored, solid parts and rebakes itself when they change. PathfindingService:Bake() (or the bake_navmesh tool) rebakes now; Studio's Navmesh view shows it. find_path tests a route. PathfindingLabel / PathfindingPassThrough attributes and path Costs work like Roblox's PathfindingModifier.
+The navigation mesh (every floor a character can stand on) is baked from the anchored, solid parts and rebakes itself when they change. PathfindingService:Bake() (or the bake_navmesh tool) rebakes now; Studio's Navmesh view shows it. find_path tests a route. PathfindingLabel / PathfindingPassThrough attributes and path Costs work like Roblox's PathfindingModifier. The terrain counts as floor (its materials are the area names for Costs).
+
+TERRAIN
+workspace.Terrain is a height map (hills, not caves or overhangs) the user sculpts in Studio's TERRAIN tab. Scripts: Terrain:Generate(seed, hills 0..1, sizeInStuds), :FillBlock(cframe, size, material) raises the ground to the block's top ("Air" digs down to its bottom), :FillBall(center, radius, material), :Sculpt("Raise"|"Lower"|"Smooth"|"Flatten"|"Paint", position, radius, strength, material), :GetHeight(x, z), :GetMaterial(position), :Clear(). Materials: Grass, Dirt, Sand, Rock, Snow, Mud (Roblox names like Ground or Basalt map to the closest). Raycasts hit it (Instance is workspace.Terrain). Water on terrain is still a Water part.
 
 EXPLOSIONS
 Instance.new("Explosion") with Position, BlastRadius, BlastPressure (500000 = normal) parented to workspace, or Explode(position, radius, power) / Effects.Explosion(...). They push unanchored parts, hurt characters, can break joints and (Destroy = true) rip anchored parts loose. Use them; don't push parts by hand.

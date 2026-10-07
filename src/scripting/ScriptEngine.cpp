@@ -501,10 +501,10 @@ function RaycastParams.new()
     return { ClassName = "RaycastParams", FilterDescendantsInstances = {}, FilterType = "Exclude", IgnoreWater = false }
 end
 local function castWith(origin, direction, list, include)
-    local part, pos, normal, dist = raycast(origin, direction, list or {}, include)
+    local part, pos, normal, dist, material = raycast(origin, direction, list or {}, include)
     if not part then return nil end
     return { ClassName = "RaycastResult", Instance = part, Position = pos, Normal = normal, Distance = dist,
-             Material = part.Material }
+             Material = material or part.Material }
 end
 addMethod("Raycast", function(_, origin, direction, params)
     params = params or RaycastParams.new()
@@ -1621,6 +1621,7 @@ int gui_clear(lua_State* L) {
 // Explode(position, radius, power)
 // __gb_navPath(from, to, params) -> status, { {position, action, label}, ... } (PathfindingService).
 // __gb_raycast(origin, direction, filterList, includeOnly) -> part, position, normal, distance
+// (and the terrain material, when it hits workspace.Terrain)
 // (workspace:Raycast / FindPartOnRay). `direction`'s length is how far to look.
 int l_raycast(lua_State* L) {
     Scene* scene = LuaApi::engine(L)->scene();
@@ -1655,6 +1656,14 @@ int l_raycast(lua_State* L) {
     });
     if (!hit || dist > range) return 0;
     const glm::vec3 at = from + rd * dist;
+    if (hit->id == Scene::kTerrainId) {   // the ground: its slope there, and which ground it is
+        LuaApi::pushInstance(L, hit->id);
+        LuaApi::pushVector3(L, at);
+        LuaApi::pushVector3(L, scene->terrain().normalAt(at.x, at.z));
+        lua_pushnumber(L, dist);
+        lua_pushstring(L, kTerrainMaterialNames[(int)scene->terrain().materialAt(at.x, at.z)]);
+        return 5;
+    }
     const OBB box = Physics::worldOBB(hit);
     glm::vec3 normal(0, 1, 0);
     if (hit->primitiveType == PrimitiveType::Sphere) {
