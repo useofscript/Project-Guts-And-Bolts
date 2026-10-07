@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'velvet-rope', name: 'The Velvet Rope', time: 1791351000, tag: 'Server',
+    summary: 'Creators can now charge Bolts for private servers of their games.',
+    items: [
+      'Set a private server price on your game\'s Configure page (0 keeps them free)',
+      'Buy one from the game\'s page or its Servers window. It lasts 30 days, and buying again adds 30 more',
+      'Friends still join your private server for free with its code',
+      'Creators get 70% of each sale, and their own private servers are always free',
+    ],
+  },
+  {
     id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
     summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
     items: [

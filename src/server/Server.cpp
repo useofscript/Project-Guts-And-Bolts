@@ -294,6 +294,7 @@ json GbServer::publicAsset(const Asset& a) const {
     if (a.kind == "game") {
         j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL);
         j["comments"] = !a.meta.value("commentsOff", false); j["commentCount"] = a.comments.size();
+        j["privatePrice"] = a.meta.value("privatePrice", 0LL);
     }
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
@@ -1103,6 +1104,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change your own games.");
         if (args.contains("allowGear")) a.meta["allowGear"] = args["allowGear"] == true;
         if (args.contains("comments")) a.meta["commentsOff"] = args["comments"] == false;
+        if (args.contains("privatePrice"))   // paid private servers (0 = free)
+            a.meta["privatePrice"] = std::clamp(args["privatePrice"].is_number_integer() ? args["privatePrice"].get<long long>() : 0LL, 0LL, 10000LL);
         saveAssets();
         json r = okay(); r["asset"] = publicAsset(a); return r;
     }
@@ -1251,6 +1254,7 @@ void GbServer::saveUsers() {
         all[id]["inbox"] = u.inbox;
         all[id]["notes"] = u.notes;
         all[id]["receipts"] = u.receipts;
+        if (!u.privateServers.empty()) all[id]["privateServers"] = u.privateServers;
         all[id]["sent"] = u.sent;
         all[id]["messageDay"] = u.messageDay;
         all[id]["messagesToday"] = u.messagesToday;
@@ -1388,6 +1392,7 @@ void GbServer::load() {
                 if (j.contains("inbox") && j["inbox"].is_array()) u.inbox = j["inbox"];
                 if (j.contains("notes") && j["notes"].is_array()) u.notes = j["notes"];
                 if (j.contains("receipts") && j["receipts"].is_array()) u.receipts = j["receipts"];
+                if (j.contains("privateServers") && j["privateServers"].is_object()) u.privateServers = j["privateServers"];
                 if (j.contains("sent") && j["sent"].is_array()) u.sent = j["sent"];
                 for (const char* k : {"favorites", "recent"})
                     if (j.contains(k) && j[k].is_array())

@@ -69,6 +69,7 @@ private:
         nlohmann::json inbox = nlohmann::json::array();     // {id, from, subject, body, at, read}, newest first
         nlohmann::json notes = nlohmann::json::array();     // the bell: {id, kind, text, about, at, read}, newest first
         nlohmann::json receipts = nlohmann::json::array();  // developer products bought: {id, product, game, price, at, granted}
+        nlohmann::json privateServers = nlohmann::json::object();   // game id -> when their paid private server runs out
         nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
         std::string messageDay; int messagesToday = 0;
         std::string privacyMessages = "everyone";            // who can send you messages
@@ -180,6 +181,9 @@ private:
     nlohmann::json publicAsset(const Asset& a) const;
     // Private models and animations: only their creator (and staff) see them.
     bool canSee(const Asset& a, const User& me) const;
+    // Paid private servers (ServerRelay.cpp; worker/server.js has the same).
+    long long   privateUntil(const User& u, const std::string& gameId) const;   // 0 = they don't have one
+    std::string privateBlocked(const User& u, const std::string& gameId) const; // why they can't start one ("" = they can)
     nlohmann::json uploadsToReview() const;   // new decals, sounds and T-shirts waiting for staff
 
     // Accounts

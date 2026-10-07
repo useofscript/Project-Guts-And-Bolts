@@ -172,9 +172,13 @@ void PlayerApp::openServers(const std::string& key, const std::string& title, St
     m_serversStart = std::move(start);
     m_serversMsg.clear();
     m_serverList = json::array();
+    m_serverPrivate = json::object();
     if (Online::online())
         Online::request("servers.list", {{"game", key}}, [this, key](const json& r) {
-            if (key == m_serversKey && r.value("ok", false)) m_serverList = r["servers"];
+            if (key != m_serversKey || !r.value("ok", false)) return;
+            m_serverList = r["servers"];
+            m_serverPrivate = {{"price", r.value("privatePrice", 0LL)}, {"until", r.value("privateUntil", 0LL)},
+                               {"needsBuy", r.value("privateNeedsBuy", false)}};
         });
 }
 
@@ -201,11 +205,52 @@ void PlayerApp::drawServersDialog() {
 
     ImGui::SeparatorText("Start your own");
     const float bw = std::min(170.0f, (ImGui::GetContentRegionAvail().x - 16) / 3);
-    ImGui::BeginDisabled(!online);
-    if (Classic::button("Private server", Classic::kBlue, ImVec2(bw, 34))) start(HostMode::Private);
+    // Paid private servers: the game's creator can charge for them (30 days at a time).
+    const long long privPrice = m_serverPrivate.value("price", 0LL), privUntil = m_serverPrivate.value("until", 0LL);
+    const bool mustBuy = m_serverPrivate.value("needsBuy", false);
+    ImGui::BeginDisabled(!online || m_busy);
+    if (mustBuy) {
+        std::string label = "Buy private server (" + std::to_string(privPrice) + " Bolts)";
+        if (Classic::button(label.c_str(), Classic::kPlay, ImVec2(std::min(300.0f, ImGui::GetContentRegionAvail().x), 34)))
+            ImGui::OpenPopup("##buyprivate");
+    } else if (Classic::button("Private server", Classic::kBlue, ImVec2(bw, 34))) {
+        start(HostMode::Private);
+    }
     ImGui::EndDisabled();
+    if (ImGui::BeginPopup("##buyprivate")) {
+        ImGui::Text("Buy 30 days of your own private server for %lld Bolts?", privPrice);
+        if (Classic::button("Buy it", Classic::kPlay, ImVec2(100, 30))) {
+            m_busy = true;
+            const std::string key = m_serversKey;
+            Online::request("servers.buyPrivate", {{"game", key}}, [this, key](const json& r) {
+                m_busy = false;
+                if (!r.value("ok", false)) { m_serversMsg = r.value("error", std::string()); return; }
+                if (key == m_serversKey) {
+                    m_serverPrivate["until"] = r.value("until", 0LL);
+                    m_serverPrivate["needsBuy"] = false;
+                    m_serversMsg = "It's yours for 30 days. Press Private server to start it.";
+                }
+            });
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(90, 30))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("Private: only your friends, and people you give the code to, can join.");
+    if (privPrice > 0 && privUntil > 0) {
+        std::time_t tt = (std::time_t)privUntil;
+        char date[32];
+        std::strftime(date, sizeof(date), "%b %d", std::localtime(&tt));
+        ImGui::TextColored(ImVec4(0.1f, 0.5f, 0.2f, 1), "Your private server lasts until %s.", date);
+    } else if (privPrice > 0 && mustBuy) {
+        ImGui::TextDisabled("This game's private servers cost %lld Bolts for 30 days. Friends join yours free.", privPrice);
+    }
+    if (!m_serversMsg.empty()) {
+        const bool good = m_serversMsg.rfind("It's yours", 0) == 0;
+        ImGui::TextColored(good ? ImVec4(0.1f, 0.5f, 0.2f, 1) : ImVec4(0.75f, 0.2f, 0.1f, 1), "%s", m_serversMsg.c_str());
+    }
     ImGui::PopTextWrapPos();
 
     if (online) {
