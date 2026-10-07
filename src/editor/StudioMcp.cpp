@@ -79,10 +79,7 @@ std::string StudioMcp::handle(Editor& editor, const std::string& body, bool& any
         }
         if (method == "ping") return {{"jsonrpc", "2.0"}, {"id", id}, {"result", json::object()}};
         if (method == "tools/list") {
-            json tools = json::array();
-            for (const auto& t : AiTools::list())
-                tools.push_back({{"name", t["name"]}, {"description", t["description"]}, {"inputSchema", t["input_schema"]}});
-            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"tools", tools}}}};
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"tools", AiTools::mcpTools()}}}};
         }
         if (method == "tools/call") {
             std::string name = params.value("name", "");
@@ -93,7 +90,9 @@ std::string StudioMcp::handle(Editor& editor, const std::string& body, bool& any
             json content = json::array({{{"type", "text"}, {"text", r.text}}});
             if (!r.png.empty())
                 content.push_back({{"type", "image"}, {"data", Online::base64Encode(r.png)}, {"mimeType", "image/png"}});
-            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"content", content}, {"isError", r.error}}}};
+            json result = {{"content", content}, {"isError", r.error}};
+            if (r.data.is_object()) result["structuredContent"] = r.data;   // the same JSON, for apps that read it directly
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", result}};
         }
         return rpcError(id, -32601, "Studio doesn't know \"" + method + "\".");
     };

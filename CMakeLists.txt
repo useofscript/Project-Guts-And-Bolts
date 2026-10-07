@@ -452,6 +452,7 @@ set(EDITOR_SOURCES
     src/editor/ModelImport.cpp
     src/editor/EditorImport.cpp
     src/editor/AiTools.cpp
+    src/editor/AiToolsRun.cpp
     src/editor/StudioMcp.cpp
     src/editor/panels/AssistantPanel.cpp
     src/editor/EditorRibbon.cpp
