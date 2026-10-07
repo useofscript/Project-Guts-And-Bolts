@@ -30,6 +30,8 @@ const char* const kWords[] = {
     "CFrame.new", "CFrame.Angles", "CFrame.lookAt", "task.wait", "task.spawn", "task.delay", "wait", "spawn", "delay",
     "time", "tick", "Explode", "Effects", "Sounds", "Gui", "Lighting", "Enum",
     "Players", "RunService", "UserInputService", "CollectionService", "PathfindingService", "TweenService", "TweenInfo", "HttpService", "JSONEncode", "JSONDecode", "Raycast", "RaycastParams", "FindPartOnRay", "GetPartBoundsInRadius", "BindableEvent", "BindableFunction", "ReplicatedStorage", "ServerStorage", "NextInteger", "NextNumber",
+    "PromptProductPurchase", "ProcessReceipt", "PromptProductPurchaseFinished", "ProductPurchaseDecision", "PurchaseGranted",
+    "NotProcessedYet", "UserOwnsGamePassAsync", "PromptGamePassPurchase",
     "TeleportService", "TeleportOptions", "Teleport", "TeleportAsync", "TeleportPartyAsync", "SetTeleportData", "GetJoinData",
     "GetLocalPlayerTeleportData",
     "game:GetService", "Players.LocalPlayer", "RunService.Heartbeat", "UserInputService.InputBegan",

@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'cha-ching-forever', name: 'Cha-Ching Forever', time: 1791342000, tag: 'Engine',
+    summary: 'Developer products: sell things inside your game that players can buy again and again, like coins or a revive.',
+    items: [
+      'Make them on your game\'s Configure page, then pop up a Buy window with MarketplaceService:PromptProductPurchase',
+      'MarketplaceService.ProcessReceipt hands out what they bought, like on Roblox',
+      'Every purchase is kept until the game says it handed it out, so nobody loses what they paid for',
+      'You get 70% of every sale',
+    ],
+  },
+  {
     id: 'ding-dong-ditch', name: 'Ding Dong Ditch', time: 1791341000, tag: 'Website',
     summary: 'A notification bell: see friend requests, sales, trades, group news and upload checks in one place.',
     items: [

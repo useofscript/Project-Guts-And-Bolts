@@ -2818,9 +2818,15 @@ bool ScriptEngine::checkSyntax(const std::string& source, std::string& error, in
 
 // --- Game passes -------------------------------------------------------------------
 
+// The game's ID on the server: the one it was started as (an online game), else the one
+// saved in its file when it was published.
+std::string ScriptEngine::onlineGameId() const {
+    return !m_dataGame.empty() ? m_dataGame : m_scene->info().publishedId;
+}
+
 void ScriptEngine::lookUpPasses(int userId) {
     if (userId <= 0 || !m_passAsked.insert(userId).second) return;
-    const std::string game = m_scene->info().publishedId;
+    const std::string game = onlineGameId();
     // In scripts players are numbered 1 (us), 2, 3...: their accounts are what the server knows.
     std::string account = userId == 1 ? Account::id() : "";
     if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
@@ -2852,7 +2858,7 @@ void ScriptEngine::passPromptDone(int userId, const std::string& pass, bool boug
 // --- Developer products ------------------------------------------------------------
 
 void ScriptEngine::checkReceipts(int userId) {
-    const std::string game = m_scene->info().publishedId;
+    const std::string game = onlineGameId();
     std::string account = userId == 1 ? Account::id() : "";
     if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
     if (game.empty() || account.empty() || !Online::online()) return;
@@ -2871,7 +2877,7 @@ void ScriptEngine::checkReceipts(int userId) {
 void ScriptEngine::receiptDone(int userId, const std::string& receipt, bool granted) {
     m_receiptsBusy.erase(receipt);
     if (!granted) return;   // (it stays waiting: the game is asked again later)
-    const std::string game = m_scene->info().publishedId;
+    const std::string game = onlineGameId();
     std::string account = userId == 1 ? Account::id() : "";
     if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
     if (game.empty() || account.empty()) return;

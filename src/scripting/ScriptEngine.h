@@ -103,6 +103,7 @@ public:
     // itself; a purchase prompt needs the app: it takes them, shows the player a Buy
     // window (or sends it to that player's computer) and says how it went.
     void lookUpPasses(int userId);                       // ask the server (once per player)
+    std::string onlineGameId() const;
     void setPlayerAccount(int userId, const std::string& accountId) { m_playerAccounts[userId] = accountId; }
     bool passesReady(int userId) const { return m_passReady.count(userId) > 0; }
     bool ownsPass(int userId, const std::string& pass) const;
