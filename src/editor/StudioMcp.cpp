@@ -73,16 +73,39 @@ std::string StudioMcp::handle(Editor& editor, const std::string& body, bool& any
             for (const char* v : kProtocolVersions) if (want == v) use = v;
             return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {
                 {"protocolVersion", use},
-                {"capabilities", {{"tools", {{"listChanged", false}}}}},
+                {"capabilities", {{"tools", {{"listChanged", false}}}, {"resources", {{"listChanged", false}}}, {"prompts", {{"listChanged", false}}}}},
                 {"serverInfo", {{"name", "guts-and-bolts-studio"}, {"version", GB_VERSION}}},
                 {"instructions", AiTools::guide()}}}};
         }
         if (method == "ping") return {{"jsonrpc", "2.0"}, {"id", id}, {"result", json::object()}};
         if (method == "tools/list") {
-            json tools = json::array();
-            for (const auto& t : AiTools::list())
-                tools.push_back({{"name", t["name"]}, {"description", t["description"]}, {"inputSchema", t["input_schema"]}});
-            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"tools", tools}}}};
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"tools", AiTools::mcpTools()}}}};
+        }
+        // Resources: the engine reference (gutsbolts://concepts ...) and live views of the game.
+        if (method == "resources/list")
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"resources", AiTools::resources()}}}};
+        if (method == "resources/templates/list")
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"resourceTemplates", json::array()}}}};
+        if (method == "resources/read") {
+            const std::string uri = params.value("uri", "");
+            const std::string page = uri.rfind("gutsbolts://", 0) == 0 ? uri.substr(12) : std::string();
+            std::string text, mime = "text/markdown";
+            if (page == "guide") text = AiTools::guide();
+            else if (page == "capabilities") { text = AiTools::capabilities().dump(2); mime = "application/json"; }
+            else if (page == "classes") { text = editor.runAiTool("get_engine_info", {{"topic", "classes"}}).text; mime = "application/json"; }
+            else if (page == "scene/tree") { text = editor.runAiTool("get_game_tree", {{"depth", 6}}).text; mime = "application/json"; }
+            else if (page == "runtime") { text = editor.runAiTool("get_runtime_state", json::object()).text; mime = "application/json"; }
+            else if (page == "errors") { text = editor.runAiTool("get_errors", json::object()).text; mime = "application/json"; }
+            else if (!page.empty()) text = AiTools::engineDoc(page);
+            if (text.empty()) return rpcError(id, -32002, "There's no resource \"" + uri + "\". See resources/list.");
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"contents", json::array({{{"uri", uri}, {"mimeType", mime}, {"text", text}}})}}}};
+        }
+        if (method == "prompts/list")
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"prompts", AiTools::prompts()}}}};
+        if (method == "prompts/get") {
+            json p = AiTools::prompt(params.value("name", ""), params.value("arguments", json::object()));
+            if (p.is_null()) return rpcError(id, -32602, "There's no prompt called \"" + params.value("name", "") + "\".");
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", p}};
         }
         if (method == "tools/call") {
             std::string name = params.value("name", "");
@@ -93,7 +116,9 @@ std::string StudioMcp::handle(Editor& editor, const std::string& body, bool& any
             json content = json::array({{{"type", "text"}, {"text", r.text}}});
             if (!r.png.empty())
                 content.push_back({{"type", "image"}, {"data", Online::base64Encode(r.png)}, {"mimeType", "image/png"}});
-            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", {{"content", content}, {"isError", r.error}}}};
+            json result = {{"content", content}, {"isError", r.error}};
+            if (r.data.is_object()) result["structuredContent"] = r.data;   // the same JSON, for apps that read it directly
+            return {{"jsonrpc", "2.0"}, {"id", id}, {"result", result}};
         }
         return rpcError(id, -32601, "Studio doesn't know \"" + method + "\".");
     };
