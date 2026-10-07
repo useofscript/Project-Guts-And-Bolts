@@ -10,7 +10,20 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'show-me-your-stuff', name: 'Show Me Your Stuff', time: 1791352000, tag: 'Website',
+    id: 'we-can-hear-you-unfortunately', name: 'We Can Hear You. Unfortunately', version: '0.7.1', time: 1791353000, tag: 'Player',
+    summary: 'Voice chat, terrain, a forum, group games, paid private servers, inventories and a lot more, all in one go.',
+    items: [
+      'Voice chat: hold V to talk, and hear people from their characters (we\'re sorry in advance)',
+      'Terrain in Studio: sculpt and paint hills, beaches and mountains',
+      'A Forum with boards for help, scripting, building, trading and Off Topic',
+      'Groups can own games, earn Bolts, pay members and make their own ranks',
+      'Creators can charge Bolts for private servers',
+      'Inventories on profiles, with privacy settings',
+      'Developer products, creator stats, game comments, Featured Games and a staff action log',
+    ],
+  },
+  {
+    id: 'show-me-your-stuff', name: 'Show Me Your Stuff', version: '0.7.1', time: 1791352000, tag: 'Website',
     summary: 'Profiles now have an Inventory: see what anyone owns before you send them a trade.',
     items: [
       'A new Inventory box on every profile, on the website and in the app, with a See all page sorted into Accessories, Clothing, Faces, Gear and Limiteds',
@@ -19,7 +32,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'velvet-rope', name: 'The Velvet Rope', time: 1791351000, tag: 'Server',
+    id: 'velvet-rope', name: 'The Velvet Rope', version: '0.7.1', time: 1791351000, tag: 'Server',
     summary: 'Creators can now charge Bolts for private servers of their games.',
     items: [
       'Set a private server price on your game\'s Configure page (0 keeps them free)',
@@ -29,7 +42,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'corporate-ladder', name: 'The Corporate Ladder', time: 1791350000, tag: 'Website',
+    id: 'corporate-ladder', name: 'The Corporate Ladder', version: '0.7.1', time: 1791350000, tag: 'Website',
     summary: 'Groups can own games, earn Bolts from them, pay their members, and make their own ranks.',
     items: [
       'Put a game in your group: its game pass and product sales go to the group\'s Bolts',
@@ -39,7 +52,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'reply-guy-simulator', name: 'Reply Guy Simulator', time: 1791349000, tag: 'Website',
+    id: 'reply-guy-simulator', name: 'Reply Guy Simulator', version: '0.7.1', time: 1791349000, tag: 'Website',
     summary: 'The Forum is here: ask for help, show off your games, and argue about nothing in Off Topic.',
     items: [
       'A new Forum tab on the website and in the app, with boards for Help, Scripting, Building, Game Ads, Trading and Off Topic',
@@ -49,7 +62,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'can-you-hear-me-now', name: 'Can You Hear Me Now?', time: 1791348000, tag: 'Player',
+    id: 'can-you-hear-me-now', name: 'Can You Hear Me Now?', version: '0.7.1', time: 1791348000, tag: 'Player',
     summary: 'Voice chat: hold V to talk to the players around you, and hear them from their characters.',
     items: [
       'Turn on Voice Chat in the in-game Settings, then hold V to talk (phones get a mic button, and there\'s an Open Mic option)',
@@ -60,7 +73,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'robot-qa-department', name: 'We Hired Robots to Break Things', time: 1791347000, tag: 'Server',
+    id: 'robot-qa-department', name: 'We Hired Robots to Break Things', version: '0.7.1', time: 1791347000, tag: 'Server',
     summary: 'Automatic tests now check the website\'s server every time something changes.',
     items: [
       'Signing up, the daily Bolts, buying items, comments, the filter and staff tools are all tested automatically',
@@ -69,7 +82,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'touch-grass', name: 'Touch Grass', time: 1791349000, tag: 'Studio',
+    id: 'touch-grass', name: 'Touch Grass', version: '0.7.1', time: 1791349000, tag: 'Studio',
     summary: 'Terrain! Sculpt hills, valleys, beaches and mountains in Studio, then go outside (in the game).',
     items: [
       'New TERRAIN tab in Studio: Generate rolling hills, then Raise, Lower, Smooth, Flatten and Paint with brushes',
@@ -80,7 +93,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'staff-picks', name: 'Staff Picks (No Bribes Accepted)', time: 1791346500, tag: 'Website',
+    id: 'staff-picks', name: 'Staff Picks (No Bribes Accepted)', version: '0.7.1', time: 1791346500, tag: 'Website',
     summary: 'Staff can now feature great games, and they show up first on the home page.',
     items: [
       'New "Featured Games" row at the top of the home page, on the website and in the Player',
@@ -90,7 +103,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
+    id: 'the-save-button-works-now', name: 'The Save Button Works Now', version: '0.7.1', time: 1791346000, tag: 'Fix',
     summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
     items: [
       'Saving changes to an item no longer fails with "That wasn\'t a proper request"',
@@ -99,7 +112,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'receipts-please', name: 'Receipts, Please', time: 1791345500, tag: 'Server',
+    id: 'receipts-please', name: 'Receipts, Please', version: '0.7.1', time: 1791345500, tag: 'Server',
     summary: 'A staff action log: every ban, warning, badge and delete is written down.',
     items: [
       'The Staff page shows what staff did lately, and who did it',
@@ -108,7 +121,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'peanut-gallery', name: 'The Peanut Gallery', time: 1791345000, tag: 'Website',
+    id: 'peanut-gallery', name: 'The Peanut Gallery', version: '0.7.1', time: 1791345000, tag: 'Website',
     summary: 'Comments under games: tell a creator what you think of their game.',
     items: [
       'Every game page has comments now, on the website and in the app',
@@ -117,7 +130,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'number-go-up', name: 'Number Go Up', time: 1791343500, tag: 'Website',
+    id: 'number-go-up', name: 'Number Go Up', version: '0.7.1', time: 1791343500, tag: 'Website',
     summary: 'Creator stats: see how your games and items are doing, day by day.',
     items: [
       'New Stats tab on the Create page, on the website and in the app',
@@ -127,7 +140,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'cha-ching-forever', name: 'Cha-Ching Forever', time: 1791342000, tag: 'Engine',
+    id: 'cha-ching-forever', name: 'Cha-Ching Forever', version: '0.7.1', time: 1791342000, tag: 'Engine',
     summary: 'Developer products: sell things inside your game that players can buy again and again, like coins or a revive.',
     items: [
       'Make them on your game\'s Configure page, then pop up a Buy window with MarketplaceService:PromptProductPurchase',
