@@ -116,7 +116,12 @@ const kMaxInbox = 100, kMaxSent = 50, kMessagesPerDay = 40;
 const kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10, kStatusesPerDay = 30;
 // Blocking and reports (ServerSafety.cpp has the same).
 const kMaxBlocked = 200, kReportsPerDay = 20, kMaxReports = 3000;
-const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group'];
+// The staff action log: what staff did (bans, checks, badges...), newest kept (ServerSafety.cpp has the same).
+const kMaxStaffLog = 3000;
+const KIND_TITLE = (a) => ({ tshirt: 'T-shirt', devproduct: 'product', gamepass: 'pass' })[a.kind] || a.kind;
+const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group', 'comment'];
+// Comments under games (ServerSocial.cpp has the same): the newest kMaxComments are kept.
+const kMaxComments = 500, kCommentLength = 200, kCommentCooldown = 15, kCommentsPage = 20;
 // Player badges (ServerSocial.cpp has the same list): earned automatically, checked
 // whenever a profile is looked at. `need` says how to get one.
 const PLAYER_BADGES = [
@@ -141,7 +146,7 @@ const kPoolMost = 50, kPoolStartWait = 25;
 // DataStores: names and keys up to 100 letters, values up to 256 KB of JSON, 100,000 keys a game.
 const kDataName = 100, kDataValue = 256 * 1024, kDataKeys = 100000;
 const kStaffName = 'Guts';
-const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list']);
+const LOOK_ONLY = new Set(['pass.list', 'pass.owned', 'list', 'asset.info', 'item.copies', 'profile', 'people.list', 'users.search', 'groups.list', 'groups.get', 'servers.list', 'stats', 'thumb.get', 'icon.get', 'updates.list', 'comments.list']);
 const UPDATE_TAGS = ['Engine', 'Studio', 'Website', 'Player', 'Server', 'Fix'];
 // Email codes (adding an email, forgot password, two-step login).
 const kCodeMinutes = 15, kCodeTries = 5, kMailGap = 60, kMailsPerDay = 8;
@@ -161,7 +166,7 @@ const GENRES = ['Adventure', 'Obby', 'Fighting', 'Horror', 'Roleplay', 'Simulato
 // How well liked a game is, for sorting: likes out of votes, pulled towards 50% while there are few votes.
 const ratingOf = (a) => ((a.likes || 0) + 1) / ((a.likes || 0) + (a.dislikes || 0) + 2);
 // Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
-const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join']);
+const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join', 'product.pending', 'product.grant']);   // (product.*: guests can host games too)
 
 // Assets have plain numbers counting up, like Roblox's asset IDs (1, 2, 3...). New ones
 // use the number as their ID; older ones ("decal-1a2b3c4d5e") got a number too and
@@ -398,7 +403,7 @@ export class GbServerObject extends DurableObject {
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map();
     // What changed and needs writing (set up first: loading can already change things).
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
     for (const r of this.sql.exec('SELECT id, data FROM assets')) {
       const a = JSON.parse(r.data);
@@ -409,6 +414,7 @@ export class GbServerObject extends DurableObject {
     this.trades = this.getMeta('trades', []);   // trade offers between players (limited items)
     this.posted = this.getMeta('updates', []);  // updates staff posted on the website (the rest are in updates.js)
     this.reports = this.getMeta('reports', []);  // what players reported, for staff to look at (newest last)
+    this.staffLog = this.getMeta('stafflog', []);   // what staff did, newest last
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
     this.nextAssetNum = Math.max(1, ids.asset || 1);
@@ -483,7 +489,11 @@ export class GbServerObject extends DurableObject {
       }
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'reports', JSON.stringify(this.reports));
     }
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false };
+    if (this.dirty.staffLog) {
+      if (this.staffLog.length > kMaxStaffLog) this.staffLog.splice(0, this.staffLog.length - kMaxStaffLog);
+      this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'stafflog', JSON.stringify(this.staffLog));
+    }
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
   }
   // --- Limited items: numbered copies (a.copies = [{ serial, owner, price }]) ---
   copiesOf(u) {   // every limited copy this account holds
@@ -517,6 +527,19 @@ export class GbServerObject extends DurableObject {
     this.saveUser(u);
   }
   saveAsset(a) { this.dirty.assets.add(a.id); }
+  // Creator stats: count something on a day (plays, sales, bolts earned), kept for 60 days.
+  // Passes and products also count on their game, so a game's page adds them up.
+  tally(a, field, n = 1) {
+    if (!a || !n) return;
+    const day = utcDay(now());
+    a.days = a.days || {};
+    const d = a.days[day] || (a.days[day] = {});
+    d[field] = (d[field] || 0) + n;
+    const keys = Object.keys(a.days).sort();
+    while (keys.length > 60) delete a.days[keys.shift()];
+    this.saveAsset(a);
+    if ((a.kind === 'gamepass' || a.kind === 'devproduct') && field !== 'plays') this.tally(this.assets.get((a.meta || {}).game), field, n);
+  }
   // Give every asset without one its number (oldest first), and never hand a number out twice.
   numberAssets() {
     for (const a of this.assets.values()) if (a.num) this.nextAssetNum = Math.max(this.nextAssetNum, a.num + 1);
@@ -617,6 +640,17 @@ export class GbServerObject extends DurableObject {
     return setting === 'friends' && !!viewer && u.friends.includes(viewer.id);
   }
   // Has either of them blocked the other? (Then they can't message, friend, follow, trade or join each other.)
+  // The staff action log. action: ban, unban, warn, bolts, badge, unbadge, review, report, delete, comment.
+  // about: who it was done to (an account id), so the log can link to them.
+  staffDid(me, action, text, about = '') {
+    this.staffLog.push({ at: now(), by: me.id, action, text, about });
+    this.dirty.staffLog = true;
+  }
+  staffLogJson(who) {
+    const name = (id) => { const u = this.users.get(id); return u ? { id: u.id, userId: u.userId, name: u.name } : { id, userId: 0, name: '?' }; };
+    const list = who ? this.staffLog.filter((x) => x.by === who || x.about === who) : this.staffLog;
+    return list.slice(-200).reverse().map((x) => ({ at: x.at, by: name(x.by), action: x.action, text: x.text, about: x.about ? name(x.about) : null }));
+  }
   blocks(a, b) {
     return !!a && !!b && a.id !== b.id && ((a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id));
   }
@@ -808,6 +842,7 @@ export class GbServerObject extends DurableObject {
       updated: a.updated || a.created, playing: a.kind === 'game' ? this.playingIn(a.id) : undefined,
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
       favorites: a.kind === 'game' ? (a.favorites || 0) : undefined,
+      comments: a.kind === 'game' ? !a.commentsOff : undefined, commentCount: a.kind === 'game' ? (a.comments || []).length : undefined,
       myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
       offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined };
   }
@@ -1093,6 +1128,7 @@ export class GbServerObject extends DurableObject {
       }
       if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
       if ('allowGear' in args) a.allowGear = args.allowGear === true;
+      if ('comments' in args) a.commentsOff = args.comments === false;
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
@@ -1254,6 +1290,44 @@ export class GbServerObject extends DurableObject {
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
     }
+    // --- Comments under a game, newest first. Anyone can read; signed-up players can write. ---
+    if (name === 'comments.list' || name === 'comments.post' || name === 'comments.delete') {
+      const a = this.assets.get(str(args, 'game'));
+      if (!a || a.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      if (!this.canPlay(a, me)) return fail(this.noPlay(a));
+      const list = a.comments || (a.comments = []);
+      const mod = a.creator === me.id || this.isStaff(me);
+      if (name === 'comments.post') {
+        if (me.userId === 0) return fail('Sign up to comment.');
+        if (a.commentsOff) return fail('Comments are turned off for this game.');
+        const owner = this.users.get(a.creator);
+        if (owner && this.blocks(me, owner)) return fail('You can\'t comment on this game.');
+        const text = say(str(args, 'text'), kCommentLength);
+        if (!text) return fail('Write something first.');
+        const key = 'c:' + me.id;
+        if (t - (this.lastPost.get(key) || 0) < kCommentCooldown) return fail('Slow down a little - wait a few seconds between comments.');
+        this.lastPost.set(key, t);
+        list.unshift({ id: randomHex(6), by: me.id, text, at: t });
+        if (list.length > kMaxComments) list.length = kMaxComments;
+        this.saveAsset(a);
+        if (owner && owner.id !== me.id) this.notify(owner, 'comment', me.name + ' commented on ' + a.name + ': "' + text.slice(0, 60) + '"', a.id);
+      }
+      if (name === 'comments.delete') {
+        const i = list.findIndex((c) => c.id === str(args, 'id'));
+        if (i < 0) return fail('That comment is already gone.');
+        if (list[i].by !== me.id && !mod) return fail('You can only delete your own comments.');
+        if (list[i].by !== me.id && a.creator !== me.id)
+          this.staffDid(me, 'comment', 'Deleted a comment on "' + a.name + '": "' + list[i].text.slice(0, 80) + '"', list[i].by);
+        list.splice(i, 1);
+        this.saveAsset(a);
+      }
+      // A page of comments: "before" is the id of the last one you already have.
+      const before = str(args, 'before'), from = before ? list.findIndex((c) => c.id === before) + 1 : 0;
+      const shown = list.slice(from, from + kCommentsPage).filter((c) => !this.blocks(me, this.users.get(c.by)));
+      const who = (id) => { const u = this.users.get(id); return u ? { id: u.id, userId: u.userId, name: u.name, verified: this.isVerified(u), staff: this.isStaff(u) } : { id, userId: 0, name: '?' }; };
+      return okay({ comments: shown.map((c) => ({ id: c.id, text: c.text, at: c.at, by: who(c.by), creator: c.by === a.creator,
+        canDelete: me.userId !== 0 && (c.by === me.id || mod) })), more: from + kCommentsPage < list.length, off: !!a.commentsOff, count: list.length });
+    }
     if (name === 'icon.get') {
       // A game's icon (the app shows it while you connect).
       const a = this.assets.get(str(args, 'id'));
@@ -1324,10 +1398,16 @@ export class GbServerObject extends DurableObject {
         this.notify(this.users.get(a.creator), 'upload', args.ok === true ? a.name + ' passed the staff check. Everyone can see it now.'
           : a.name + ' didn\'t pass the staff check.' + (a.reviewNote ? ' Staff said: "' + a.reviewNote + '"' : ''), a.id);
         a.reviewedBy = me.id;
+        this.staffDid(me, 'review', (args.ok === true ? 'Passed ' : 'Rejected ') + KIND_TITLE(a) + ' "' + a.name + '"' + (a.reviewNote ? ' ("' + a.reviewNote + '")' : ''), a.creator);
         this.saveAsset(a);
         return okay({ uploads: this.uploadsToReview() });
       }
       if (name === 'admin.reports') return okay({ reports: this.reportsJson(str(args, 'status') === 'closed' ? 'closed' : 'open') });
+      if (name === 'admin.log') {   // the newest 200, or just what one person did or had done to them
+        const who = str(args, 'user') ? this.findPerson(str(args, 'user')) : null;
+        if (str(args, 'user') && !who) return fail('There\'s no account with that ID on this server.');
+        return okay({ log: this.staffLogJson(who ? who.id : '') });
+      }
       if (name === 'admin.closeReport') {
         // Staff looked at it: "done" (they did something, like a ban or a warning) or "dismissed" (nothing wrong).
         const outcome = str(args, 'outcome') === 'dismissed' ? 'dismissed' : 'done';
@@ -1338,6 +1418,7 @@ export class GbServerObject extends DurableObject {
           if (x.status === 'open' && x.kind === r.kind && x.target === r.target) {
             x.status = 'closed'; x.outcome = outcome; x.closedBy = me.id; x.closedAt = now();
           }
+        this.staffDid(me, 'report', (outcome === 'dismissed' ? 'Dismissed' : 'Closed') + ' the reports about a ' + r.kind + ' (' + (BAN_REASONS[r.reason] || r.reason) + ')', r.about);
         this.dirty.reports = true;
         return okay({ reports: this.reportsJson('open') });
       }
@@ -1346,6 +1427,7 @@ export class GbServerObject extends DurableObject {
         const key = str(args, 'key'), sig = str(args, 'sig');
         if (!grantValid(this.official, key, to.id, sig)) return fail('That badge signature isn\'t valid.');
         to.grants[key] = sig;
+        this.staffDid(me, 'badge', 'Gave ' + to.name + ' the ' + key + ' badge', to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1353,6 +1435,7 @@ export class GbServerObject extends DurableObject {
         const key = str(args, 'key');
         if (key !== 'verified' && !this.isOfficial(me)) return fail('Only the official account can take that badge away.');
         delete to.grants[key];
+        this.staffDid(me, 'unbadge', 'Took the ' + key + ' badge from ' + to.name, to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1362,6 +1445,7 @@ export class GbServerObject extends DurableObject {
         if (amount === 0 || Math.abs(amount) > 10000000) return fail('Pick an amount between 1 and 10,000,000.');
         const why = cleanText(str(args, 'reason'), 80);
         this.add(to, amount, why || (amount > 0 ? 'Bolts from Guts&Bolts staff' : 'Taken by staff'), 'gift:' + randomHex(6));
+        this.staffDid(me, 'bolts', (amount > 0 ? 'Gave ' + to.name + ' ' + amount : 'Took ' + -amount + ' from ' + to.name) + ' Bolts' + (why ? ' ("' + why + '")' : ''), to.id);
         return okay({ user: this.publicUser(to), bolts: this.balance(to) });
       }
       if (name === 'admin.ban') {
@@ -1379,6 +1463,8 @@ export class GbServerObject extends DurableObject {
           delete to.banReason; delete to.banNote; delete to.bannedAt; delete to.bannedUntil;
         }
         to.banned = on;
+        this.staffDid(me, on ? 'ban' : 'unban', on ? 'Banned ' + to.name + ' (' + (BAN_REASONS[to.banReason] || to.banReason) + ', '
+          + (to.bannedUntil ? clamp(num(args, 'days'), 0, 3650) + ' days' : 'for good') + ')' + (to.banNote ? ': "' + to.banNote + '"' : '') : 'Unbanned ' + to.name, to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1389,6 +1475,7 @@ export class GbServerObject extends DurableObject {
         to.warnings = to.warnings || [];
         to.warnings.push({ id: randomHex(4), reason, note: cleanText(str(args, 'note'), 200), at: now(), seen: false });
         if (to.warnings.length > kMaxWarnings) to.warnings.splice(0, to.warnings.length - kMaxWarnings);
+        this.staffDid(me, 'warn', 'Warned ' + to.name + ' (' + (BAN_REASONS[reason] || reason) + ')', to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1498,16 +1585,20 @@ export class GbServerObject extends DurableObject {
     if (name === 'pass.create' || name === 'pass.edit') {
       const creating = name === 'pass.create';
       const a = creating ? null : this.assets.get(str(args, 'id'));
-      if (!creating && (!a || a.kind !== 'gamepass')) return fail('That pass doesn\'t exist (any more).');
+      // Developer products (kind 'devproduct'): like passes, but bought again and again inside the game
+      // (MarketplaceService:PromptProductPurchase), each purchase a receipt the game's scripts hand out.
+      const product = creating ? args.product === true : !!a && a.kind === 'devproduct';
+      const kindName = product ? 'devproduct' : 'gamepass', what = product ? 'product' : 'pass';
+      if (!creating && (!a || (a.kind !== 'gamepass' && a.kind !== 'devproduct'))) return fail('That pass doesn\'t exist (any more).');
       const g = this.assets.get(creating ? str(args, 'game') : (a.meta || {}).game);
       if (!g || g.kind !== 'game') return fail('That game doesn\'t exist (any more).');
       if (g.creator !== me.id && !this.isStaff(me)) return fail('Only the game\'s creator can make or change its passes.');
-      if (creating && [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === g.id).length >= kMostPasses)
-        return fail('A game can have at most ' + kMostPasses + ' passes.');
+      if (creating && [...this.assets.values()].filter((x) => x.kind === kindName && (x.meta || {}).game === g.id).length >= kMostPasses)
+        return fail('A game can have at most ' + kMostPasses + ' ' + what + (product ? 's.' : 'es.'));
       const title = 'name' in args || creating ? say(str(args, 'name'), 50) : a.name;
-      if (!title) return fail('Give the pass a name.');
+      if (!title) return fail('Give the ' + what + ' a name.');
       const price = 'price' in args || creating ? clamp(num(args, 'price'), 0, 1000000) : a.price;
-      if (price > 0 && !this.isVerified(me) && !this.isStaff(me)) return fail('Only Verified creators can sell passes. Make it free for now, or get Verified!');
+      if (price > 0 && !this.isVerified(me) && !this.isStaff(me)) return fail('Only Verified creators can sell ' + what + (product ? 's' : 'es') + '. Make it free for now, or get Verified!');
       let icon = null;
       if (str(args, 'icon')) {
         try { icon = b64ToBytes(str(args, 'icon')); } catch { return fail('The picture got scrambled. Try again.'); }
@@ -1519,12 +1610,12 @@ export class GbServerObject extends DurableObject {
       if (creating) {
         const assetNo = this.nextAssetNum++;
         this.dirty.ids = true;
-        pass = { id: String(assetNo), num: assetNo, kind: 'gamepass', name: title, description: '', creator: g.creator, price, created: t,
+        pass = { id: String(assetNo), num: assetNo, kind: kindName, name: title, description: '', creator: g.creator, price, created: t,
           sales: 0, plays: 0, size: 0, meta: { game: g.id } };
         this.writeFile(pass.id, new Uint8Array(0));
         this.assets.set(pass.id, pass);
         const owner = this.findUser(g.creator);
-        if (owner && !owner.owned.includes(pass.id)) { owner.owned.push(pass.id); this.saveUser(owner); }   // creators have their own passes
+        if (!product && owner && !owner.owned.includes(pass.id)) { owner.owned.push(pass.id); this.saveUser(owner); }   // creators have their own passes
       }
       pass.name = title;
       pass.price = price;
@@ -1535,9 +1626,9 @@ export class GbServerObject extends DurableObject {
       this.saveAsset(pass);
       return okay({ asset: this.publicAsset(pass, me) });
     }
-    if (name === 'pass.list') {
-      const gameId = str(args, 'game');
-      const list = [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === gameId)
+    if (name === 'pass.list') {   // (products: true lists the game's developer products instead)
+      const gameId = str(args, 'game'), kindName = args.products === true ? 'devproduct' : 'gamepass';
+      const list = [...this.assets.values()].filter((x) => x.kind === kindName && (x.meta || {}).game === gameId)
         .sort((x, y) => x.created - y.created)
         .map((x) => ({ ...this.publicAsset(x, me), owned: me.owned.includes(x.id) }));
       return okay({ passes: list });
@@ -1551,6 +1642,52 @@ export class GbServerObject extends DurableObject {
       const passes = [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === gameId && who.owned.includes(x.id))
         .map((x) => ({ id: x.id, num: x.num || 0 }));
       return okay({ passes });
+    }
+    // Developer products: buying one makes a receipt; the game's scripts (ProcessReceipt, on whoever
+    // runs the server) ask for the buyer's waiting receipts and say when each one was handed out.
+    if (name === 'product.buy') {
+      if (me.userId === 0) return fail('Sign up to buy things.');
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'devproduct') return fail('That product doesn\'t exist (any more).');
+      if (this.isOffsale(a)) return fail('That isn\'t for sale right now.');
+      if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
+      const receipt = { id: 'r-' + randomHex(6), product: a.id, game: (a.meta || {}).game, price: a.price, at: t, granted: false };
+      if (a.price > 0) {
+        this.add(me, -a.price, 'Bought ' + a.name, 'product:' + receipt.id);
+        const seller = this.findUser(a.creator);
+        if (seller && seller !== me) {
+          const share = Math.floor(a.price * kCreatorSharePercent / 100);
+          if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'productsale:' + receipt.id);
+          this.tally(a, 'bolts', share);
+          this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
+        }
+      }
+      me.receipts = [receipt, ...(me.receipts || [])].slice(0, 200);
+      a.sales++;
+      this.tally(a, 'sales');
+      this.saveAsset(a); this.saveUser(me);
+      return okay({ receipt: receipt.id, me: this.meJson(me) });
+    }
+    if (name === 'product.pending' || name === 'product.grant') {
+      // Only the buyer, or whoever runs an online server of that game, may look and say "handed out".
+      const gameId = str(args, 'game');
+      const who = typeof args.user === 'number' ? this.findUserId(args.user) : this.findUser(str(args, 'user'));
+      if (!who) return okay({ receipts: [] });
+      const hosts = [...this.sessions.values()].some((x) => x.host === me.id && x.game === gameId);
+      if (who.id !== me.id && !hosts) return fail('Only a server of that game can see its receipts.');
+      const mine = (who.receipts || []).filter((r) => r.game === gameId);
+      if (name === 'product.grant') {
+        const r = mine.find((x) => x.id === str(args, 'receipt'));
+        if (!r) return fail('There\'s no receipt like that.');
+        r.granted = true;
+        this.saveUser(who);
+        return okay();
+      }
+      const receipts = mine.filter((r) => !r.granted).reverse().map((r) => {   // oldest first
+        const a = this.assets.get(r.product);
+        return { id: r.id, product: r.product, num: a ? a.num || 0 : 0, price: r.price, at: r.at };
+      });
+      return okay({ receipts });
     }
     // --- Game badges: creators make them on their game's page, game scripts award them.
     if (name === 'gamebadge.create' || name === 'gamebadge.delete') {
@@ -1678,7 +1815,7 @@ export class GbServerObject extends DurableObject {
       }
       if (a.kind === 'game' && a.creator !== me.id) {
         a.plays++;
-        this.saveAsset(a);
+        this.tally(a, 'plays');
         me.played = me.played || [];
         if (!me.played.includes(a.id)) { me.played.push(a.id); if (me.played.length > 500) me.played.shift(); this.saveUser(me); }
       }
@@ -1689,6 +1826,7 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
       if (a.review && a.creator !== me.id) return fail(this.noPlay(a));
+      if (a.kind === 'devproduct') return fail('Developer products are bought inside their game.');
       if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
       if (this.isOffsale(a)) return fail('This item is off sale: it was only for sale for a limited time.' + (a.limited ? ' Buy one from a reseller on the item\'s page.' : ''));
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
@@ -1699,10 +1837,12 @@ export class GbServerObject extends DurableObject {
         if (seller && seller !== me) {
           const share = Math.floor(a.price * kCreatorSharePercent / 100);
           if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'sale:' + a.id + ':' + randomHex(4));
+          this.tally(a, 'bolts', share);
           this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
         }
       }
       a.sales++;
+      if (a.creator !== me.id) this.tally(a, 'sales');
       if (a.limited) { a.copies = a.copies || []; a.copies.push({ serial: a.sales, owner: me.id, price: 0 }); }
       me.owned.push(a.id);
       this.saveAsset(a); this.saveUser(me);
@@ -1885,10 +2025,27 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only delete your own things.');
       if (a.limited && (a.copies || []).length && !this.isOfficial(me)) return fail('People own copies of this Limited, so it can\'t be deleted.');
+      if (a.creator !== me.id) this.staffDid(me, 'delete', 'Deleted ' + KIND_TITLE(a) + ' "' + a.name + '"', a.creator);
       this.sql.exec('DELETE FROM files WHERE id = ? OR id = ? OR id = ?', a.id, 'thumb:' + a.id, 'icon:' + a.id);
       this.assets.delete(a.id);
       this.dirty.assets.add(a.id);
       return okay();
+    }
+    // Creator stats: everything you made, with totals and the last 30 days (plays, sales, Bolts earned).
+    if (name === 'creator.stats') {
+      if (me.userId === 0) return fail('Sign up first.');
+      const t0 = now(), days = [];
+      for (let i = 29; i >= 0; i--) days.push(utcDay(t0 - i * 86400));
+      const mine = [...this.assets.values()].filter((a) => a.creator === me.id);
+      const items = mine.map((a) => {
+        const d = a.days || {};
+        const series = (f) => days.map((k) => (d[k] && d[k][f]) || 0);
+        const sum = (f) => Object.values(d).reduce((n, x) => n + (x[f] || 0), 0);
+        return { id: a.id, num: a.num || 0, kind: a.kind, name: a.name, plays: a.plays || 0, sales: a.sales || 0, price: a.price || 0,
+          favorites: a.favorites || 0, likes: a.likes || 0, dislikes: a.dislikes || 0, playing: a.kind === 'game' ? this.playingIn(a.id) : 0,
+          plays30: series('plays'), sales30: series('sales'), bolts30: series('bolts'), bolts60: sum('bolts') };
+      }).sort((x, y) => (y.plays + y.sales) - (x.plays + x.sales));
+      return okay({ days, items });
     }
     if (name === 'stats') return okay({ users: this.users.size, assets: this.assets.size, name: this.name });
     return fail('The server doesn\'t know how to do "' + name + '". It might need updating.');
@@ -2265,6 +2422,13 @@ export class GbServerObject extends DurableObject {
         if (!m) return fail('That message isn\'t in your inbox any more.');
         // Staff see a copy: the sender can't delete it from here.
         target = m.id; about = m.from; copy = { subject: m.subject, body: m.body, at: m.at };
+      } else if (kind === 'comment') {
+        // id: "game:comment". Staff see a copy, in case it's deleted.
+        const [gid, cid] = id.split(':');
+        const a = this.assets.get(gid), c = a && (a.comments || []).find((x) => x.id === cid);
+        if (!c) return fail('That comment isn\'t there any more.');
+        if (c.by === me.id) return fail('You can\'t report yourself.');
+        target = id; about = c.by; copy = { subject: 'Comment on ' + a.name, body: c.text, at: c.at };
       } else {
         const g = this.groups.get(id);
         if (!g) return fail('That group isn\'t there any more.');
@@ -2296,6 +2460,7 @@ export class GbServerObject extends DurableObject {
         reports: list.filter((y) => y.kind === x.kind && y.target === x.target).length };
       if (x.kind === 'game' || x.kind === 'item') { const a = this.assets.get(x.target); r.name = a ? a.name : '(deleted)'; r.assetKind = a ? a.kind : ''; }
       if (x.kind === 'group') { const g = this.groups.get(x.target); r.name = g ? g.name : '(deleted)'; }
+      if (x.kind === 'comment') { const a = this.assets.get(x.target.split(':')[0]); r.name = a ? a.name : '(deleted)'; r.game = a ? a.id : ''; }
       if (x.status === 'closed') { r.outcome = x.outcome; r.closedBy = who(x.closedBy); r.closedAt = x.closedAt; }
       return r;
     });

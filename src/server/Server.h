@@ -68,6 +68,7 @@ private:
         std::vector<std::string> favorites, recent;          // game ids, newest first
         nlohmann::json inbox = nlohmann::json::array();     // {id, from, subject, body, at, read}, newest first
         nlohmann::json notes = nlohmann::json::array();     // the bell: {id, kind, text, about, at, read}, newest first
+        nlohmann::json receipts = nlohmann::json::array();  // developer products bought: {id, product, game, price, at, granted}
         nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
         std::string messageDay; int messagesToday = 0;
         std::string privacyMessages = "everyone";            // who can send you messages
@@ -86,6 +87,8 @@ private:
         long long   num = 0;                     // its number, counting up like Roblox's asset IDs
         nlohmann::json meta = nlohmann::json::object();
         nlohmann::json badges = nlohmann::json::array();   // games: badges its creator made
+        nlohmann::json comments = nlohmann::json::array(); // games: comments under it, newest first (ServerSocial.cpp)
+        nlohmann::json days = nlohmann::json::object();    // creator stats: "YYYY-MM-DD" -> {plays, sales, bolts}, last 60 days
     };
 
     struct Post { std::string by, text; long long time = 0; };
@@ -145,6 +148,10 @@ private:
     nlohmann::json closeReport(const User& staff, const std::string& id, const std::string& outcome);
     void saveReports();
     void loadReports();
+    // The staff action log (stafflog.json): what staff did, newest last. about: who it was done to.
+    void staffDid(const User& staff, const std::string& action, const std::string& text, const std::string& about = "");
+    nlohmann::json staffLogJson(const std::string& who) const;
+    void loadStaffLog();
     void rememberPlayed(User& me, const std::string& gameId);                                 // ServerSocial.cpp
     nlohmann::json playerBadgesOf(const User& u) const;                                       // ServerSocial.cpp
     static nlohmann::json allPlayerBadges();                                                  // ServerSocial.cpp
@@ -191,6 +198,7 @@ private:
     void addExampleGames();   // the games folder's example games, as the staff account's
     void saveUsers();
     void saveAssets();
+    void tally(Asset* a, const std::string& field, long long n = 1);   // creator stats (worker/server.js has the same)
     void saveGroups();
     void loadGroups();
     std::filesystem::path blobPath(const std::string& assetId) const;
@@ -210,6 +218,7 @@ private:
     std::map<std::string, Group> m_groups;
     // What players reported (ServerSafety.cpp): {id, from, kind, target, about, reason, note, copy, at, status, ...}, newest last.
     nlohmann::json m_reports = nlohmann::json::array();
+    nlohmann::json m_staffLog = nlohmann::json::array();
     std::map<std::string, Session> m_sessions;
     // A server whose host left: its players get a while to move to a new one, which one of them hosts.
     struct Moved {

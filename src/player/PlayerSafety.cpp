@@ -65,6 +65,7 @@ void PlayerApp::drawReportDialog() {
                            : m_reportKind == "message" ? "this message from " + m_reportName
                            : m_reportKind == "game"    ? "the game \"" + m_reportName + "\""
                            : m_reportKind == "group"   ? "the group \"" + m_reportName + "\""
+                           : m_reportKind == "comment" ? "this comment by " + m_reportName
                                                        : "\"" + m_reportName + "\"";
     ImGui::SetWindowFontScale(1.3f);
     ImGui::TextWrapped("Report %s", what.c_str());
@@ -223,6 +224,7 @@ void PlayerApp::drawReportsBox() {
                          : kind == "message" ? "a message from " + about
                          : kind == "game" ? "the game \"" + x.value("name", std::string()) + "\" by " + about
                          : kind == "group" ? "the group \"" + x.value("name", std::string()) + "\" (owner " + about + ")"
+                         : kind == "comment" ? "a comment by " + about + " on \"" + x.value("name", std::string()) + "\""
                                            : "\"" + x.value("name", std::string()) + "\" by " + about;
         ImGui::PushID((int)i);
         ImGui::Separator();
@@ -269,4 +271,26 @@ void PlayerApp::drawReportsBox() {
     }
     ImGui::Separator();
     ImGui::TextDisabled("\"Done\" means you did something about it. Closing one closes every report about the same thing.");
+}
+
+// The staff action log: who banned, warned, verified, checked or deleted what, newest first.
+void PlayerApp::drawStaffLog() {
+    ImGui::SeparatorText("Staff action log");
+    if (ImGui::GetTime() - m_staffLogAt > 30.0) {
+        m_staffLogAt = ImGui::GetTime();
+        Online::request("admin.log", json::object(), [this](const json& r) {
+            if (r.value("ok", false) && r.contains("log")) m_staffLog = r["log"];
+        });
+    }
+    if (!m_staffLog.is_array() || m_staffLog.empty()) { ImGui::TextDisabled("Nothing yet."); return; }
+    ImGui::BeginChild("##stafflog", ImVec2(0, std::min(260.0f, 24.0f * m_staffLog.size() + 10)), ImGuiChildFlags_Borders);
+    ImGui::PushTextWrapPos(0);
+    for (const auto& x : m_staffLog) {
+        const std::string by = x.value("by", json::object()).value("name", std::string("?"));
+        ImGui::TextDisabled("%s", agoShort(x.value("at", 0LL)).c_str());
+        ImGui::SameLine();
+        ImGui::TextUnformatted((by + ": " + x.value("text", std::string())).c_str());
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
 }

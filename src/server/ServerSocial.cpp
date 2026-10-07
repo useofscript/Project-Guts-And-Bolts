@@ -13,6 +13,9 @@ using namespace ServerUtil;
 
 namespace {
 constexpr size_t kMaxOutfits = 30, kMaxFavorites = 200;
+// Comments under games (worker/server.js has the same): the newest kMaxComments are kept.
+constexpr size_t kMaxComments = 500, kCommentLength = 200, kCommentsPage = 20;
+constexpr long long kCommentCooldown = 15;
 constexpr size_t kMaxInbox = 100, kMaxSent = 50;
 constexpr int    kMessagesPerDay = 40;
 constexpr size_t kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10;
@@ -173,6 +176,57 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         return fail("Unknown request.");
     }
 
+    // --- Comments under a game, newest first. Anyone can read; signed-up players can write. ---
+    if (name == "comments.list" || name == "comments.post" || name == "comments.delete") {
+        auto it = findAsset(str("game"));
+        if (it == m_assets.end() || it->second.kind != "game" || !canSee(it->second, me)) return fail("That game doesn't exist (any more).");
+        Asset& a = it->second;
+        if (!a.comments.is_array()) a.comments = json::array();
+        const bool mod = a.creator == me.id || isStaff(me), off = a.meta.value("commentsOff", false);
+        User* owner = findUser(a.creator);
+        if (name == "comments.post") {
+            if (me.userId == 0) return fail("Sign up to comment.");
+            if (off) return fail("Comments are turned off for this game.");
+            if (owner && blocks(me, *owner)) return fail("You can't comment on this game.");
+            const std::string text = say(str("text"), kCommentLength);
+            if (text.empty()) return fail("Write something first.");
+            long long& last = m_lastPost["c:" + me.id];
+            if (now - last < kCommentCooldown) return fail("Slow down a little - wait a few seconds between comments.");
+            last = now;
+            a.comments.insert(a.comments.begin(), json{{"id", Account::randomHex(6)}, {"by", me.id}, {"text", text}, {"at", now}});
+            if (a.comments.size() > kMaxComments) a.comments.erase(a.comments.begin() + kMaxComments, a.comments.end());
+            saveAssets();
+            if (owner && owner != &me) notify(owner, "comment", me.name + " commented on " + a.name + ": \"" + text.substr(0, 60) + "\"", a.id);
+        }
+        if (name == "comments.delete") {
+            auto c = std::find_if(a.comments.begin(), a.comments.end(), [&](const json& x) { return x.value("id", std::string()) == str("id"); });
+            if (c == a.comments.end()) return fail("That comment is already gone.");
+            if (c->value("by", std::string()) != me.id && !mod) return fail("You can only delete your own comments.");
+            if (c->value("by", std::string()) != me.id && a.creator != me.id)
+                staffDid(me, "comment", "Deleted a comment on \"" + a.name + "\": \"" + c->value("text", std::string()).substr(0, 80) + "\"",
+                         c->value("by", std::string()));
+            a.comments.erase(c);
+            saveAssets();
+        }
+        // A page of comments: "before" is the id of the last one you already have.
+        size_t from = 0;
+        if (const std::string before = str("before"); !before.empty())
+            for (size_t i = 0; i < a.comments.size(); ++i) if (a.comments[i].value("id", std::string()) == before) { from = i + 1; break; }
+        json out = json::array();
+        for (size_t i = from; i < a.comments.size() && i < from + kCommentsPage; ++i) {
+            const json& c = a.comments[i];
+            const std::string by = c.value("by", std::string());
+            const User* u = findUser(by);
+            if (u && blocks(me, *u)) continue;
+            json who = u ? json{{"id", u->id}, {"userId", u->userId}, {"name", u->name}, {"verified", isVerified(*u)}, {"staff", isStaff(*u)}}
+                         : json{{"id", by}, {"userId", 0}, {"name", "?"}};
+            out.push_back({{"id", c.value("id", std::string())}, {"text", c.value("text", std::string())}, {"at", c.value("at", 0LL)},
+                           {"by", who}, {"creator", by == a.creator}, {"canDelete", me.userId != 0 && (by == me.id || mod)}});
+        }
+        json r = okay();
+        r["comments"] = out; r["more"] = from + kCommentsPage < a.comments.size(); r["off"] = off; r["count"] = a.comments.size();
+        return r;
+    }
     // --- Favourite games, and the ones you played last ---
     if (name == "game.favorite") {
         if (me.userId == 0) return fail("Sign up first.");

@@ -16,6 +16,41 @@ export const BUILT_IN_UPDATES = [
       'Saving changes to an item no longer fails with "That wasn\'t a proper request"',
       'Making an item a timed item saves properly, and a half-typed date now says what to fix',
       'Removed the Colour box from editing items, since it didn\'t do anything',
+    id: 'receipts-please', name: 'Receipts, Please', time: 1791345500, tag: 'Server',
+    summary: 'A staff action log: every ban, warning, badge and delete is written down.',
+    items: [
+      'The Staff page shows what staff did lately, and who did it',
+      'Bans, warnings, badges, Bolts, upload checks, closed reports and deletes all go in it',
+      'A Log button next to each person shows just what happened to them',
+    ],
+  },
+  {
+    id: 'peanut-gallery', name: 'The Peanut Gallery', time: 1791345000, tag: 'Website',
+    summary: 'Comments under games: tell a creator what you think of their game.',
+    items: [
+      'Every game page has comments now, on the website and in the app',
+      'Delete your own comments; creators can delete any on their game, or turn comments off',
+      'Report a comment if it breaks the rules, and creators get a notification for new ones',
+    ],
+  },
+  {
+    id: 'number-go-up', name: 'Number Go Up', time: 1791343500, tag: 'Website',
+    summary: 'Creator stats: see how your games and items are doing, day by day.',
+    items: [
+      'New Stats tab on the Create page, on the website and in the app',
+      'Plays, people playing now, favorites, likes, sales and Bolts earned for everything you made',
+      'Little bar charts for the last 30 days (hover a bar to see the day)',
+      'Passes and products bought inside a game count toward that game',
+    ],
+  },
+  {
+    id: 'cha-ching-forever', name: 'Cha-Ching Forever', time: 1791342000, tag: 'Engine',
+    summary: 'Developer products: sell things inside your game that players can buy again and again, like coins or a revive.',
+    items: [
+      'Make them on your game\'s Configure page, then pop up a Buy window with MarketplaceService:PromptProductPurchase',
+      'MarketplaceService.ProcessReceipt hands out what they bought, like on Roblox',
+      'Every purchase is kept until the game says it handed it out, so nobody loses what they paid for',
+      'You get 70% of every sale',
     ],
   },
   {

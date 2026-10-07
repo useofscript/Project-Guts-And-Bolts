@@ -1711,6 +1711,37 @@ There are two kinds of badges:
 
 Profiles show both kinds in separate boxes, and game pages list their badges.
 
+### Developer products (buy again and again)
+
+Like game passes, but players can buy them as many times as they want: coins, a
+revive, a speed boost for a minute. Make them on the game's **Configure** page on
+the website (under "Developer products"); each gets an ID. In a script:
+
+```lua
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- pop up a Buy window for someone
+MarketplaceService:PromptProductPurchase(player, 12)
+
+-- hand out what they bought
+MarketplaceService.ProcessReceipt = function(info)
+    -- info.PlayerId, info.ProductId, info.PurchaseId, info.CurrencySpent
+    local who = nil
+    for _, p in ipairs(game.Players:GetPlayers()) do
+        if p.UserId == info.PlayerId then who = p end
+    end
+    if not who then return Enum.ProductPurchaseDecision.NotProcessedYet end
+    who.leaderstats.Coins.Value = who.leaderstats.Coins.Value + 100
+    return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+```
+
+Every purchase is a receipt kept on the Guts&Bolts server. The game is handed each
+waiting receipt (when the buyer is in one of its online servers) until
+`ProcessReceipt` answers `PurchaseGranted`, so nobody loses what they paid for, even
+if the game crashed. Only the buyer and whoever runs a server of that game can see
+or close its receipts. The creator gets 70% of every sale.
+
 ### Teleporting between games
 
 Games can send players to another published game, like Roblox's
@@ -2003,6 +2034,42 @@ you, buys something you made, sends or answers a trade, asks to join your group 
 lets you in, and when staff check something you uploaded. Each one takes you to the
 right page. The newest 50 are kept. Both servers do the same (`notify` in
 `worker/server.js` and `src/server/Server.cpp`).
+
+### The staff action log
+
+Everything staff do is written down: bans and unbans, warnings, badges (like
+Verified and Staff), Bolts given or taken, upload checks, closed reports, and
+games, items or comments they deleted that weren't theirs. The **Staff** page (on
+the website and in the Player) shows the newest 200; the **Log** button next to a
+person shows just what was done by or to them. The newest 3,000 are kept
+(`staffDid` in `worker/server.js` and `src/server/ServerSafety.cpp`, which saves
+`stafflog.json`).
+
+### Comments under games
+
+Every game's page has comments (the website's game page, and the game window in the
+Player). Anyone can read them; signed-up players can write one, up to 200 letters,
+one every 15 seconds. The text filter applies, like everywhere else.
+
+- You can delete your own comments. A game's creator and staff can delete any comment
+  on it, and the creator can turn comments off on the game's Configure page.
+- Each comment has a **Report** link, and staff see a copy of it with the report.
+- The creator gets a notification when someone comments. Blocked people's comments
+  are hidden from you, and they can't comment on your games.
+- The newest 500 comments are kept (`comments.*` in `worker/server.js` and
+  `src/server/ServerSocial.cpp`).
+
+### Creator stats (how your stuff is doing)
+
+**Create > Stats** (on the website and in the Player) shows how everything you made
+is doing: plays, people playing right now, favorites, likes, sales and Bolts earned,
+with little bar charts for each of the last 30 days. Hover a bar to see its day.
+
+- A **play** counts when someone else opens your game (you opening your own doesn't).
+- Passes and developer products bought inside a game also count on that game, so a
+  game's chart shows everything it earned.
+- Days are counted in UTC and kept for 60 days (`tally` and `creator.stats` in
+  `worker/server.js` and `src/server/Server.cpp`).
 
 ### Bolts (the currency)
 

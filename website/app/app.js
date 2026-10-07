@@ -989,7 +989,7 @@ pages.game = async (id) => {
   const [r, s] = await Promise.all([pageCall('list', { kind: 'game', limit: 100 }), pageCall('servers.list', { game: id })]);
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Game not found</h1><p class="muted">${r.ok ? 'It may have been deleted, or its creator made it private.' : r.error}</p>`); return; }
-  const pr = await pageCall('pass.list', { game: g.id });
+  const [pr, cr] = await Promise.all([pageCall('pass.list', { game: g.id }), pageCall('comments.list', { game: g.id })]);
   const passes = pr.ok ? pr.passes.filter((p) => !p.offsale || p.owned) : [];
   const mine = signedIn() && (g.creator === me.id || me.staff);
   const servers = s.ok ? s.servers : [];
@@ -1042,8 +1042,30 @@ pages.game = async (id) => {
     ${passes.length ? html`<h2>Passes</h2><div class="pass-grid">${passes.map(passCard)}</div>` : ''}
     <h2>Servers</h2>
     ${servers.length ? html`<div class="server-grid">${shown.map(card)}</div>${pager}`
-      : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}`);
+      : html`<p class="muted">Nobody's playing right now. Be the first!</p>`}
+    ${commentsBlock(g, cr)}`);
 };
+
+// Comments under a game, newest first, 20 at a time.
+const commentRow = (g, c) => html`<div class="comment" data-comment="${c.id}">
+    <a class="face" href="#/user/${c.by.userId || c.by.id}">${c.by.name.slice(0, 1).toUpperCase()}</a>
+    <div class="grow"><p class="comment-head"><a href="#/user/${c.by.userId || c.by.id}"><b>${c.by.name}</b></a>${verified(c.by.verified)}
+        ${c.creator ? html` <span class="badge-pill" title="Made this game">Creator</span>` : ''}
+        <span class="small muted">${ago(c.at)}</span></p>
+      <p class="comment-text">${c.text}</p>
+      <p class="small">${c.canDelete ? html`<a href="#" class="small" data-act="deleteComment" data-game="${g.id}" data-id="${c.id}">Delete</a> ` : ''}
+        ${signedIn() && c.by.id !== me.id ? reportLink('comment', g.id + ':' + c.id, c.by.name) : ''}</p></div></div>`;
+function commentsBlock(g, cr) {
+  if (!cr || !cr.ok) return '';
+  const box = cr.off ? html`<p class="muted">Comments are turned off for this game.</p>`
+    : signedIn() ? html`<form class="comment-form" data-form="comment"><input type="hidden" name="game" value="${g.id}">
+        <textarea name="text" maxlength="200" rows="2" placeholder="Say something nice about ${g.name}..." required></textarea>
+        <button class="btn blue">Post</button><span class="small muted">Up to 200 letters. Be kind.</span></form>`
+    : html`<p class="muted"><a href="#/login">Log in</a> or <a href="#/signup">sign up</a> to comment.</p>`;
+  return html`<h2 id="comments">Comments <span class="small muted">(${cr.count})</span></h2>${box}
+    <div class="comments">${cr.comments.length ? cr.comments.map((c) => commentRow(g, c)) : html`<p class="muted">No comments yet.</p>`}</div>
+    ${cr.more ? html`<p><button class="btn small" data-act="moreComments" data-game="${g.id}" data-before="${cr.comments[cr.comments.length - 1].id}">Show more</button></p>` : ''}`;
+}
 
 // The Catalog, laid out like the old one (see browsePage).
 const CATALOG_CATS = [['featured', 'Featured'], ['collectibles', 'Collectibles'], '-', ['all', 'All Categories'],
@@ -1218,9 +1240,10 @@ async function decalPicture(img) {
 
 pages.create = async (tab = 'games') => {
   const tabs = [['games', 'My Games'], ['model', 'Models'], ['decal', 'Decals'], ['audio', 'Audio'], ['hat', 'Hats'], ['accessory', 'Accessories'],
-    ['shirt', 'Shirts'], ['tshirt', 'T-Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library']];
+    ['shirt', 'Shirts'], ['tshirt', 'T-Shirts'], ['pants', 'Pants'], ...(signedIn() && me.official ? [['face', 'Faces']] : []), ['plugin', 'Plugins'], ['library', 'Library'], ['stats', 'Stats']];
   const head = html`<h1>Create</h1><div class="tabs">${tabs.map(([k, l]) => html`<a class="btn ${tab === k ? 'blue' : ''}" href="#/create/${k}">${l}</a>`)}</div>`;
   if (tab === 'library') { await libraryPage(head); return; }
+  if (tab === 'stats') { await statsPage(head); return; }
   if (tab === 'model') { await myModelsPage(head); return; }
   if (tab === 'accessory') { await myAccessoriesPage(head); return; }
   const r = signedIn() ? await pageCall('list', { creator: me.id, limit: 100 }) : { ok: true, assets: [] };
@@ -1288,6 +1311,42 @@ pages.create = async (tab = 'games') => {
   if (file && prev) file.addEventListener('change', () => { if (file.files[0]) { prev.src = URL.createObjectURL(file.files[0]); prev.hidden = false; } });
 };
 
+// Creator stats: how your games and items are doing, with the last 30 days as little bar charts.
+const statBars = (vals, days, unit) => {
+  const top = Math.max(1, ...vals), w = 6, gap = 2, h = 40;
+  return html`<svg class="bars" viewBox="0 0 ${vals.length * (w + gap)} ${h}" preserveAspectRatio="none" role="img"
+    aria-label="${vals.reduce((a, b) => a + b, 0)} ${unit} in the last 30 days">${vals.map((v, i) =>
+      html`<rect x="${i * (w + gap)}" y="${h - Math.max(v ? 2 : 0, (v / top) * h)}" width="${w}" height="${Math.max(v ? 2 : 0, (v / top) * h)}">
+        <title>${days[i]}: ${v} ${unit}</title></rect>`)}</svg>`;
+};
+const statsPage = async (head) => {
+  if (!signedIn()) { show(html`${head}${needSignIn('see how your games are doing')}`); return; }
+  const r = await pageCall('creator.stats', {});
+  if (!r.ok) { show(html`${head}<p class="error">${r.error}</p>`); return; }
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const games = r.items.filter((a) => a.kind === 'game'), sold = r.items.filter((a) => a.kind !== 'game' && (a.price > 0 || a.sales > 0));
+  const all = (f) => sum(r.items.filter((a) => a.kind === 'game' || !a.kind.match(/gamepass|devproduct/)).map((a) => sum(a[f])));
+  const tile = (n, label) => html`<div class="stat"><b>${n.toLocaleString()}</b><span class="small muted">${label}</span></div>`;
+  const card = (a) => html`<div class="statcard">
+      <div class="row"><b class="grow">${a.kind === 'game' ? html`<a href="#/game/${a.id}">${a.name}</a>` : a.name}</b>
+        <span class="small muted">${KINDS[a.kind] || a.kind}</span></div>
+      <div class="small muted">${a.kind === 'game'
+        ? html`${a.plays.toLocaleString()} plays · ${a.playing} playing now · ${a.favorites} favorites · 👍 ${a.likes} 👎 ${a.dislikes}`
+        : html`${a.sales.toLocaleString()} sold · ${a.price > 0 ? bolts(a.price) + ' each' : 'free'}`}
+        · ${bolts(a.bolts60)} earned (60 days)</div>
+      <div class="charts">
+        ${a.kind === 'game' ? html`<div><span class="small muted">Plays, last 30 days: ${sum(a.plays30)}</span>${statBars(a.plays30, r.days, 'plays')}</div>` : ''}
+        <div><span class="small muted">${a.kind === 'game' ? 'Things bought in it' : 'Sales'}, last 30 days: ${sum(a.sales30)}</span>${statBars(a.sales30, r.days, 'sales')}</div>
+        <div><span class="small muted">Bolts earned, last 30 days: ${sum(a.bolts30)}</span>${statBars(a.bolts30, r.days, 'Bolts')}</div>
+      </div></div>`;
+  show(html`${head}
+    <div class="stats-tiles">${tile(all('plays30'), 'plays in 30 days')}${tile(all('sales30'), 'sales in 30 days')}${tile(all('bolts30'), 'Bolts earned in 30 days')}</div>
+    <p class="small muted">Plays count when someone else opens your game. Passes and products bought inside a game count on that game too.
+      Days are in UTC; hover a bar to see its day.</p>
+    <h2>Games</h2>${games.length ? games.map(card) : html`<p class="muted">You haven't published a game yet.</p>`}
+    <h2>Things you sell</h2>${sold.length ? sold.map(card) : html`<p class="muted">Nothing sold yet.</p>`}`);
+};
+
 // Configure a game: name, description, who can play, thumbnail, icon, new version.
 pages.configure = async (id) => {
   if (!signedIn()) { show(html`<h1>Configure game</h1>${needSignIn('change your games')}`); return; }
@@ -1295,8 +1354,8 @@ pages.configure = async (id) => {
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
   const access = g.access || 'public';
-  const pr = await pageCall('pass.list', { game: g.id });
-  const passes = pr.ok ? pr.passes : [];
+  const [pr, dr] = await Promise.all([pageCall('pass.list', { game: g.id }), pageCall('pass.list', { game: g.id, products: true })]);
+  const passes = pr.ok ? pr.passes : [], products = dr.ok ? dr.passes : [];
   const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
     <b>${label}</b> <span class="muted small">${note}</span></label>`;
   show(html`<p><a href="#/create/games">&lt; My Games</a></p>
@@ -1309,7 +1368,8 @@ pages.configure = async (id) => {
         <p class="small muted">Pick up to 3 genres so people can find your game.</p>
         <div class="genre-picks">${GENRES.map((gn) => html`<label class="choice"><input type="checkbox" name="genre" value="${gn}" ${(g.genres || []).includes(gn) ? 'checked' : ''}> ${gn}</label>`)}</div>
         <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px">
-        <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label></div>
+        <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label>
+        <label class="choice"><input type="checkbox" name="comments" ${g.comments !== false ? 'checked' : ''}> Allow comments <span class="muted small">(players can comment on its page; you can delete any comment)</span></label></div>
       <div class="box"><h2 class="boxhead">Who can play</h2>
         ${choice('public', 'Public', 'Everyone can find and play it.')}
         ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
@@ -1364,7 +1424,24 @@ pages.configure = async (id) => {
         <label>Description <span class="muted small">(what it gives)</span></label><input type="text" name="description" maxlength="300">
         <label>Price in Bolts <span class="muted small">(0 = free; selling needs a Verified account)</span></label><input type="number" name="price" min="0" max="1000000" value="0" style="max-width:140px">
         <label>Picture <span class="muted small">(optional, a square)</span></label><input type="file" name="icon" accept="image/png,image/jpeg">
-        <p><button class="btn green">Make pass</button></p></form></div>`);
+        <p><button class="btn green">Make pass</button></p></form></div>
+    <div class="box"><h2 class="boxhead">Developer products</h2>
+      <p class="small muted">Things players can buy again and again inside your game (coins, a revive, a speed boost for a minute).
+        You get 70% of every sale. Pop up a purchase with
+        <code>game:GetService("MarketplaceService"):PromptProductPurchase(player, ID)</code> and hand out what they bought in
+        <code>MarketplaceService.ProcessReceipt</code> (return <code>Enum.ProductPurchaseDecision.PurchaseGranted</code> when done;
+        anything else and it's tried again later, so nobody loses what they paid for).</p>
+      ${products.length ? html`<div class="list">${products.map((p) => html`<div>
+          <span class="grow"><b>${p.name}</b> · ${p.price > 0 ? bolts(p.price) : 'free'}${p.offsale ? html` · <span class="muted">off sale</span>` : ''}<br>
+            <span class="small muted">ID ${p.num} · sold ${p.sales || 0}</span></span>
+          <button class="btn small" data-act="copyText" data-text="${p.num}">Copy ID</button>
+          <button class="btn small" data-act="passOffsale" data-id="${p.id}" data-on="${p.offsale ? '' : '1'}">${p.offsale ? 'Put on sale' : 'Take off sale'}</button></div>`)}</div>`
+        : html`<p class="muted">No developer products yet.</p>`}
+      <form class="form" data-form="newProduct"><input type="hidden" name="game" value="${g.id}">
+        <label>Product name</label><input type="text" name="name" maxlength="50" required>
+        <label>Description <span class="muted small">(what it gives)</span></label><input type="text" name="description" maxlength="300">
+        <label>Price in Bolts <span class="muted small">(selling needs a Verified account)</span></label><input type="number" name="price" min="0" max="1000000" value="10" style="max-width:140px">
+        <p><button class="btn green">Make product</button></p></form></div>`);
   loadThumbs();
   // Show a picked picture straight away.
   view.querySelectorAll('input[data-preview]').forEach((inp) => inp.addEventListener('change', () => {
@@ -1764,6 +1841,7 @@ function reportsBox(rep, closed) {
     if (x.kind === 'message') return html`a message from ${person(x.about)}`;
     if (x.kind === 'game') return html`the game <a href="#/game/${x.target}">${x.name}</a> by ${person(x.about)}`;
     if (x.kind === 'group') return html`the group <a href="#/group/${x.target}">${x.name}</a> (owner ${person(x.about)})`;
+    if (x.kind === 'comment') return html`a comment by ${person(x.about)} on <a href="#/game/${x.game}">${x.name}</a>`;
     const href = isCatalogItem(x.assetKind) ? '#/item/' + x.target : '#/library/' + x.target;
     return html`<a href="${href}">${x.name}</a> (${KINDS[x.assetKind] || 'item'}) by ${person(x.about)}`;
   };
@@ -1813,8 +1891,9 @@ pages.staff = async () => {
   if (!signedIn() || !me.staff) { show(html`<h1>Staff</h1><p class="muted">Only Guts&amp;Bolts staff can see this page.</p>`); return; }
   const query = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
   const closed = new URLSearchParams(location.hash.split('?')[1] || '').get('reports') === 'closed';
-  const [r, rep, up] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' }),
-    pageCall('admin.uploads', {})]);
+  const logFor = new URLSearchParams(location.hash.split('?')[1] || '').get('log') || '';
+  const [r, rep, up, lg] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' }),
+    pageCall('admin.uploads', {}), pageCall('admin.log', logFor ? { user: logFor } : {})]);
   show(html`<h1>Staff</h1>
     ${uploadsBox(up)}
     ${reportsBox(rep, closed)}
@@ -1835,9 +1914,25 @@ pages.staff = async () => {
           <button class="btn small" data-act="staff" data-op="bolts" data-id="${u.id}" data-name="${u.username || u.name}">Give Bolts</button>
           <button class="btn small" data-act="staff" data-op="warn" data-id="${u.id}">Warn</button>
           <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
-      </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
+        <a class="btn small" href="#/staff?log=${u.userId || u.id}" title="What staff did to or by them">Log</a>
+      </div>`) : html`<p class="error">${r.error}</p>`}</div>
+    ${staffLogBox(lg, logFor)}`);
   loadReviewPreviews();
 };
+
+// The staff action log: who banned, warned, verified, checked or deleted what (newest first).
+const STAFF_ACTION = { ban: '🔨', unban: '🕊️', warn: '⚠️', bolts: '💰', badge: '🏅', unbadge: '🏅', review: '🖼️', report: '🚩', delete: '🗑️', comment: '💬' };
+function staffLogBox(lg, logFor) {
+  const person = (u) => (u ? html`<a href="#/user/${u.userId || u.id}">${u.name}</a>` : '');
+  const body = !lg.ok ? html`<p class="error">${lg.error}</p>`
+    : lg.log.length ? html`<div class="list stafflog">${lg.log.map((x) => html`<div>
+        <span aria-hidden="true">${STAFF_ACTION[x.action] || '•'}</span>
+        <span class="grow"><b>${person(x.by)}</b>: ${x.text}</span><span class="small muted">${ago(x.at)}</span></div>`)}</div>`
+    : html`<p class="muted">Nothing yet.</p>`;
+  return html`<div class="box"><h2 class="boxhead">Staff action log</h2>
+    <p class="small muted">${logFor ? html`Just what was done by or to this person. <a href="#/staff">Show everything</a>`
+      : 'Everything staff did lately: bans, warnings, badges, Bolts, upload checks, closed reports and deletes.'}</p>${body}</div>`;
+}
 
 // The bell: friend requests, sales, trades, uploads checked by staff... (newest first).
 // Opening the page marks them all read.
@@ -1846,6 +1941,7 @@ function noteLink(n) {
   if (n.kind === 'friend' || n.kind === 'follow') return '#/user/' + n.about;
   if (n.kind === 'trade') return '#/trades';
   if (n.kind === 'group') return '#/group/' + n.about;
+  if (n.kind === 'comment') return '#/game/' + n.about;
   if (n.kind === 'sale' || n.kind === 'upload') return '#/library/' + n.about;
   return '';
 }
@@ -1853,7 +1949,7 @@ pages.notifications = async () => {
   if (!signedIn()) { show(html`<h1>Notifications</h1>${needSignIn('see your notifications')}`); return; }
   const r = await pageCall('notes.list', {});
   if (!r.ok) { show(html`<h1>Notifications</h1><p class="error">${r.error}</p>`); return; }
-  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥' };
+  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥', comment: '💬' };
   show(html`<h1>Notifications</h1>
     <div class="list notes">${r.notes.length ? r.notes.map((n) => {
       const link = noteLink(n);
@@ -2207,6 +2303,21 @@ const actions = {
     toast(r.ok ? ({ 'trade.accept': 'Trade done!', 'trade.decline': 'Declined.', 'trade.cancel': 'Cancelled.' }[d.op]) : r.error);
     render();
   },
+  async deleteComment(d) {
+    if (!confirm('Delete this comment?')) return;
+    const r = await call('comments.delete', { game: d.game, id: d.id });
+    if (!r.ok) { toast(r.error); return; }
+    const el = view.querySelector('[data-comment="' + d.id + '"]');
+    if (el) el.remove();
+  },
+  async moreComments(d, el) {
+    const r = await call('comments.list', { game: d.game, before: d.before });
+    if (!r.ok) { toast(r.error); return; }
+    const g = { id: d.game };
+    view.querySelector('.comments').insertAdjacentHTML('beforeend', r.comments.map((c) => commentRow(g, c).s).join(''));
+    if (r.more && r.comments.length) el.dataset.before = r.comments[r.comments.length - 1].id;
+    else el.remove();
+  },
   async vote(d) {
     if (!signedIn()) { loginPopup('vote on games'); return; }
     const r = await call('game.vote', { id: d.id, vote: Number(d.vote) });
@@ -2226,7 +2337,7 @@ const actions = {
   // Report something to staff: pick what's wrong, add a note, and (for people and messages) block them too.
   report(d) {
     const what = { user: d.name, game: 'the game "' + d.name + '"', item: '"' + d.name + '"', message: 'this message from ' + d.name,
-      group: 'the group "' + d.name + '"' }[d.kind] || d.name;
+      group: 'the group "' + d.name + '"', comment: 'this comment by ' + d.name }[d.kind] || d.name;
     const blockId = d.kind === 'user' ? d.id : d.kind === 'message' ? d.user : '';
     popup(html`<h1 class="popup-title">Report ${what}</h1>
       <p>Guts&amp;Bolts staff will look at it. The person you report isn't told who sent it.</p>
@@ -2438,6 +2549,11 @@ const actions = {
 };
 
 const forms = {
+  async comment(f) {
+    const r = await call('comments.post', { game: f.game.value, text: f.text.value });
+    if (!r.ok) { toast(r.error); return; }
+    render();
+  },
   async postUpdate(f) {
     const r = await call('updates.post', { name: f.name.value, version: f.version.value, tag: f.tag.value,
       summary: f.summary.value, items: f.items.value.split('\n').map((x) => x.trim()).filter(Boolean) });
@@ -2565,6 +2681,12 @@ const forms = {
     toast(r.ok ? 'Pass made! Its ID is ' + r.asset.num + '.' : r.error);
     if (r.ok) render();
   },
+  async newProduct(f) {
+    const r = await call('pass.create', { game: f.game.value, product: true, name: f.name.value, description: f.description.value,
+      price: Number(f.price.value) || 0 });
+    toast(r.ok ? 'Product made! Its ID is ' + r.asset.num + '.' : r.error);
+    if (r.ok) render();
+  },
   async newBadge(f) {
     const hex = f.color.value.replace('#', '');
     const color = [0, 2, 4].map((i) => parseInt(hex.substr(i, 2), 16));
@@ -2580,7 +2702,7 @@ const forms = {
       const genres = [...f.querySelectorAll('input[name=genre]:checked')].map((x) => x.value);
       if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
       let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
-        genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked });
+        genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked, comments: f.comments.checked });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
         r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });

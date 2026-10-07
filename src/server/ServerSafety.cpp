@@ -19,7 +19,7 @@ constexpr size_t kMaxBlocked    = 200;
 constexpr int    kReportsPerDay = 20;
 constexpr size_t kMaxReports    = 3000;
 bool isReportKind(const std::string& k) {
-    return k == "user" || k == "game" || k == "item" || k == "message" || k == "group";
+    return k == "user" || k == "game" || k == "item" || k == "message" || k == "group" || k == "comment";
 }
 bool has(const std::vector<std::string>& list, const std::string& id) {
     return std::find(list.begin(), list.end(), id) != list.end();
@@ -97,6 +97,18 @@ json GbServer::safetyOp(const std::string& name, User& me, const json& args) {
             about = found->value("from", std::string());
             copy = {{"subject", found->value("subject", std::string())}, {"body", found->value("body", std::string())},
                     {"at", found->value("at", 0LL)}};
+        } else if (kind == "comment") {
+            // id: "game:comment". Staff see a copy, in case it's deleted.
+            const size_t colon = id.find(':');
+            auto a = findAsset(id.substr(0, colon));
+            const json* found = nullptr;
+            if (colon != std::string::npos && a != m_assets.end())
+                for (const json& c : a->second.comments) if (c.value("id", std::string()) == id.substr(colon + 1)) { found = &c; break; }
+            if (!found) return fail("That comment isn't there any more.");
+            if (found->value("by", std::string()) == me.id) return fail("You can't report yourself.");
+            target = id;
+            about = found->value("by", std::string());
+            copy = {{"subject", "Comment on " + a->second.name}, {"body", found->value("text", std::string())}, {"at", found->value("at", 0LL)}};
         } else {
             auto g = m_groups.find(id);
             if (g == m_groups.end()) return fail("That group isn't there any more.");
@@ -153,6 +165,11 @@ json GbServer::reportsJson(const std::string& status) const {
             r["name"] = a != m_assets.end() ? a->second.name : "(deleted)";
             r["assetKind"] = a != m_assets.end() ? a->second.kind : "";
         }
+        if (kind == "comment") {
+            auto a = findAsset(target.substr(0, target.find(':')));
+            r["name"] = a != m_assets.end() ? a->second.name : "(deleted)";
+            r["game"] = a != m_assets.end() ? a->second.id : "";
+        }
         if (kind == "group") {
             auto g = m_groups.find(target);
             r["name"] = g != m_groups.end() ? g->second.name : "(deleted)";
@@ -182,7 +199,9 @@ json GbServer::closeReport(const User& staff, const std::string& id, const std::
             x["closedBy"] = staff.id;
             x["closedAt"] = Online::unixNow();
         }
-    log(staff.name + " closed the reports about a " + kind + " (" + outcome + ")");
+    const char* why = Online::banReasonTitle(found->value("reason", std::string()));
+    staffDid(staff, "report", std::string(outcome == "dismissed" ? "Dismissed" : "Closed") + " the reports about a " + kind + " (" +
+             (why ? why : found->value("reason", std::string())) + ")", found->value("about", std::string()));
     saveReports();
     json r = okay(); r["reports"] = reportsJson("open"); return r;
 }
@@ -199,6 +218,39 @@ void GbServer::saveReports() {
         m_reports = kept;
     }
     writeFile(m_opts.data / "reports.json", m_reports.dump(1));
+}
+
+// The staff action log (worker/server.js has the same): bans, warnings, badges, Bolts, upload
+// checks, closed reports and things staff deleted. The newest kMaxStaffLog are kept.
+void GbServer::staffDid(const User& staff, const std::string& action, const std::string& text, const std::string& about) {
+    constexpr size_t kMaxStaffLog = 3000;
+    m_staffLog.push_back({{"at", Online::unixNow()}, {"by", staff.id}, {"action", action}, {"text", text}, {"about", about}});
+    if (m_staffLog.size() > kMaxStaffLog) m_staffLog.erase(m_staffLog.begin(), m_staffLog.begin() + (m_staffLog.size() - kMaxStaffLog));
+    log(staff.name + ": " + text);
+    writeFile(m_opts.data / "stafflog.json", m_staffLog.dump(1));
+}
+
+json GbServer::staffLogJson(const std::string& who) const {
+    auto name = [&](const std::string& id) {
+        auto it = m_users.find(id);
+        return it != m_users.end() ? json{{"id", id}, {"userId", it->second.userId}, {"name", it->second.name}} : json{{"id", id}, {"userId", 0}, {"name", "?"}};
+    };
+    json out = json::array();
+    for (size_t i = m_staffLog.size(); i > 0 && out.size() < 200; --i) {
+        const json& x = m_staffLog[i - 1];
+        const std::string by = x.value("by", std::string()), about = x.value("about", std::string());
+        if (!who.empty() && by != who && about != who) continue;
+        out.push_back({{"at", x.value("at", 0LL)}, {"by", name(by)}, {"action", x.value("action", std::string())},
+                       {"text", x.value("text", std::string())}, {"about", about.empty() ? json() : name(about)}});
+    }
+    return out;
+}
+
+void GbServer::loadStaffLog() {
+    std::string text;
+    if (!readFile(m_opts.data / "stafflog.json", text)) return;
+    json all = json::parse(text, nullptr, false);
+    if (all.is_array()) m_staffLog = all;
 }
 
 void GbServer::loadReports() {

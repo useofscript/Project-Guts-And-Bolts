@@ -922,11 +922,18 @@ _G = _G or {}
 --   if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 123) then ... end
 --   MarketplaceService:PromptGamePassPurchase(player, 123)   (a Buy window pops up for them)
 --   MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, bought) end)
+-- Developer products (bought again and again, like coins or a revive):
+--   MarketplaceService:PromptProductPurchase(player, 456)
+--   MarketplaceService.ProcessReceipt = function(info)   -- info.PlayerId, .ProductId, .PurchaseId, .CurrencySpent
+--       (give them the thing)
+--       return Enum.ProductPurchaseDecision.PurchaseGranted   -- or NotProcessedYet: asked again later
+--   end
 do
     local lookup, ready, owns, prompt, results = __gb_passLookup, __gb_passReady, __gb_passOwns, __gb_passPrompt, __gb_passResults
-    local finished = Instance.new("BindableEvent")
+    local receiptCheck, receiptsNow, receiptDone = __gb_receiptCheck, __gb_receipts, __gb_receiptDone
+    local finished, productFinished = Instance.new("BindableEvent"), Instance.new("BindableEvent")
     MarketplaceService = { Name = "MarketplaceService", ClassName = "MarketplaceService",
-                           PromptGamePassPurchaseFinished = finished.Event }
+                           PromptGamePassPurchaseFinished = finished.Event, PromptProductPurchaseFinished = productFinished.Event }
     local function userIdOf(p) if type(p) == "table" then return p.UserId or 0 end return tonumber(p) or 0 end
     function MarketplaceService:UserOwnsGamePassAsync(user, passId)
         local id = userIdOf(user)
@@ -937,18 +944,51 @@ do
         return owns(id, tostring(passId))
     end
     local listening = false
-    function MarketplaceService:PromptGamePassPurchase(player, passId)
-        prompt(userIdOf(player), tostring(passId))
+    local function listen()
         if listening then return end
         listening = true
         RunService.Heartbeat:Connect(function()
             for _, r in ipairs(results()) do
-                local who
-                for _, pl in ipairs(Players:GetPlayers()) do if pl.UserId == r[1] then who = pl end end
-                if who then finished:Fire(who, tonumber(r[2]) or r[2], r[3]) end
+                local product = r[2]:match("^product:(.*)$")
+                if product then
+                    productFinished:Fire(r[1], tonumber(product) or product, r[3])   -- (Roblox passes the UserId here)
+                else
+                    local who
+                    for _, pl in ipairs(Players:GetPlayers()) do if pl.UserId == r[1] then who = pl end end
+                    if who then finished:Fire(who, tonumber(r[2]) or r[2], r[3]) end
+                end
             end
         end)
     end
+    function MarketplaceService:PromptGamePassPurchase(player, passId)
+        prompt(userIdOf(player), tostring(passId))
+        listen()
+    end
+    function MarketplaceService:PromptProductPurchase(player, productId)
+        prompt(userIdOf(player), "product:" .. tostring(productId))
+        listen()
+    end
+    -- Receipts: each player's waiting ones are fetched when ProcessReceipt is set (and they're
+    -- in the game), handed to it one at a time, and the server is told which were given out.
+    local checked = {}
+    RunService.Heartbeat:Connect(function()
+        local process = rawget(MarketplaceService, "ProcessReceipt")
+        if type(process) ~= "function" then return end
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl.UserId > 0 and not checked[pl.UserId] then checked[pl.UserId] = true; receiptCheck(pl.UserId) end
+        end
+        for _, r in ipairs(receiptsNow()) do
+            local userId, receipt = r[1], r[2]
+            task.spawn(function()
+                local ok, decision = pcall(process, { PlayerId = userId, ProductId = tonumber(r[3]) or r[3], PurchaseId = receipt,
+                                                      CurrencySpent = r[4], CurrencyType = "Bolts" })
+                if not ok then warn("ProcessReceipt: " .. tostring(decision)) end
+                local granted = ok and decision == Enum.ProductPurchaseDecision.PurchaseGranted
+                receiptDone(userId, receipt, granted)
+                if not granted then task.delay(30, function() checked[userId] = nil end) end   -- try again in a bit
+            end)
+        end
+    end)
     function MarketplaceService:GetProductInfo(id) return { AssetId = tonumber(id) or id, Name = tostring(id) } end
     GamePassService = { Name = "GamePassService", ClassName = "GamePassService" }
     function GamePassService:PlayerHasPass(player, passId) return MarketplaceService:UserOwnsGamePassAsync(player, passId) end
@@ -1160,6 +1200,8 @@ __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil
 __gb_playerNode, __gb_setRespawn, __gb_dsStart, __gb_dsDone, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil, nil
 __gb_awardBadge, __gb_hasBadge, __gb_teleport, __gb_joinData = nil, nil, nil, nil
 __gb_raycast, __gb_storage, __gb_addMethod = nil, nil, nil
+__gb_passLookup, __gb_passReady, __gb_passOwns, __gb_passPrompt, __gb_passResults = nil, nil, nil, nil, nil
+__gb_receiptCheck, __gb_receipts, __gb_receiptDone = nil, nil, nil
 )LUA";
 
 constexpr double kTimeoutSeconds = 5.0;
@@ -1509,6 +1551,26 @@ int l_passOwns(lua_State* L) {
     return 1;
 }
 int l_passPrompt(lua_State* L) { LuaApi::engine(L)->queuePassPrompt((int)luaL_checkinteger(L, 1), luaL_checkstring(L, 2)); return 0; }
+// Developer products: receiptCheck(userId), receipts() -> { {userId, receiptId, productId, price}, ... },
+// receiptDone(userId, receiptId, granted).
+int l_receiptCheck(lua_State* L) { LuaApi::engine(L)->checkReceipts((int)luaL_checkinteger(L, 1)); return 0; }
+int l_receipts(lua_State* L) {
+    auto list = LuaApi::engine(L)->takeReceipts();
+    lua_createtable(L, (int)list.size(), 0);
+    for (size_t i = 0; i < list.size(); ++i) {
+        lua_createtable(L, 4, 0);
+        lua_pushinteger(L, list[i].userId); lua_rawseti(L, -2, 1);
+        lua_pushstring(L, list[i].id.c_str()); lua_rawseti(L, -2, 2);
+        lua_pushstring(L, list[i].product.c_str()); lua_rawseti(L, -2, 3);
+        lua_pushinteger(L, (lua_Integer)list[i].price); lua_rawseti(L, -2, 4);
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+int l_receiptDone(lua_State* L) {
+    LuaApi::engine(L)->receiptDone((int)luaL_checkinteger(L, 1), luaL_checkstring(L, 2), lua_toboolean(L, 3));
+    return 0;
+}
 // Purchase prompts that have finished: { {userId, passId, bought}, ... }
 int l_passResults(lua_State* L) {
     auto results = LuaApi::engine(L)->takePassResults();
@@ -1916,6 +1978,9 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "__gb_passOwns", l_passOwns);
     lua_register(L, "__gb_passPrompt", l_passPrompt);
     lua_register(L, "__gb_passResults", l_passResults);
+    lua_register(L, "__gb_receiptCheck", l_receiptCheck);
+    lua_register(L, "__gb_receipts", l_receipts);
+    lua_register(L, "__gb_receiptDone", l_receiptDone);
 
     LuaApi::pushInstance(L, m_scene->root()->id);
     lua_setglobal(L, "workspace");
@@ -2753,9 +2818,15 @@ bool ScriptEngine::checkSyntax(const std::string& source, std::string& error, in
 
 // --- Game passes -------------------------------------------------------------------
 
+// The game's ID on the server: the one it was started as (an online game), else the one
+// saved in its file when it was published.
+std::string ScriptEngine::onlineGameId() const {
+    return !m_dataGame.empty() ? m_dataGame : m_scene->info().publishedId;
+}
+
 void ScriptEngine::lookUpPasses(int userId) {
     if (userId <= 0 || !m_passAsked.insert(userId).second) return;
-    const std::string game = m_scene->info().publishedId;
+    const std::string game = onlineGameId();
     // In scripts players are numbered 1 (us), 2, 3...: their accounts are what the server knows.
     std::string account = userId == 1 ? Account::id() : "";
     if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
@@ -2778,6 +2849,37 @@ bool ScriptEngine::ownsPass(int userId, const std::string& pass) const {
 }
 
 void ScriptEngine::passPromptDone(int userId, const std::string& pass, bool bought) {
-    if (bought) m_passOwned[userId].insert(pass);
+    const bool product = pass.rfind("product:", 0) == 0;
+    if (bought && !product) m_passOwned[userId].insert(pass);
     m_passResults.push_back({userId, pass, bought});
+    if (bought && product) checkReceipts(userId);   // the receipt is waiting on the server
+}
+
+// --- Developer products ------------------------------------------------------------
+
+void ScriptEngine::checkReceipts(int userId) {
+    const std::string game = onlineGameId();
+    std::string account = userId == 1 ? Account::id() : "";
+    if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
+    if (game.empty() || account.empty() || !Online::online()) return;
+    std::weak_ptr<bool> alive = m_alive;
+    Online::request("product.pending", {{"game", game}, {"user", account}}, [this, alive, userId](const nlohmann::json& r) {
+        if (alive.expired()) return;
+        for (const auto& x : r.value("receipts", nlohmann::json::array())) {
+            const std::string id = x.value("id", std::string());
+            if (id.empty() || !m_receiptsBusy.insert(id).second) continue;   // (already being handed out)
+            const long long num = x.value("num", 0LL);
+            m_receipts.push_back({userId, id, num > 0 ? std::to_string(num) : x.value("product", std::string()), x.value("price", 0LL)});
+        }
+    });
+}
+
+void ScriptEngine::receiptDone(int userId, const std::string& receipt, bool granted) {
+    m_receiptsBusy.erase(receipt);
+    if (!granted) return;   // (it stays waiting: the game is asked again later)
+    const std::string game = onlineGameId();
+    std::string account = userId == 1 ? Account::id() : "";
+    if (auto it = m_playerAccounts.find(userId); it != m_playerAccounts.end()) account = it->second;
+    if (game.empty() || account.empty()) return;
+    Online::request("product.grant", {{"game", game}, {"user", account}, {"receipt", receipt}});
 }
