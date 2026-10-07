@@ -39,6 +39,8 @@ public:
 private:
     void renderShadowPass(Scene& scene, const glm::mat4& lightSpace, ShadowMap& target);
     void drawGeometry(Scene& scene, const Camera& camera, bool editing);
+    // The terrain's mesh, rebuilt when the terrain changes (null = no terrain).
+    Mesh* terrainMesh(Scene& scene);
     struct WaterItem { SceneNode* node; glm::mat4 model; };
     void drawWater(Scene& scene, const Camera& camera, const std::vector<WaterItem>& waters);
     static glm::mat4 decalMatrix(const SceneNode& decal);
@@ -110,5 +112,7 @@ private:
     int          m_gridVertexCount = 0;
     double       m_startTime = 0.0;
     std::unordered_map<uint64_t, std::unique_ptr<Mesh>> m_waterMeshes;   // wavy surfaces while playing
+    std::unique_ptr<Mesh> m_terrainMesh;
+    uint64_t              m_terrainVersion = 0;
     std::unique_ptr<Mesh> m_floodMesh;                                    // flowing water
 };

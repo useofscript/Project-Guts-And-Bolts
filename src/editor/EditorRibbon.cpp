@@ -152,11 +152,11 @@ void Editor::renderToolbar() {
     bg->AddRectFilled(ImVec2(origin.x, origin.y + tabsH), ImVec2(origin.x + width, origin.y + tabsH + ribbonH), kRibbonBg);
     bg->AddLine(ImVec2(origin.x, origin.y + tabsH + ribbonH - 1), ImVec2(origin.x + width, origin.y + tabsH + ribbonH - 1),
                 IM_COL32(26, 26, 26, 255));
-    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "PLUGINS", "MESH", "AVATAR"};
+    const char* tabs[] = {"HOME", "MODEL", "TEST", "VIEW", "PLUGINS", "MESH", "AVATAR", "TERRAIN"};
     const bool modeling = m_state.mode == StudioMode::Modeling;
     // Shown in Roblox Studio's order; MESH only shows up in Modeling mode.
-    const int order[] = {0, 1, 6, 2, 3, 4, 5};
-    int tabCount = modeling ? 7 : 6;
+    const int order[] = {0, 1, 7, 6, 2, 3, 4, 5};
+    int tabCount = modeling ? 8 : 7;
     float x = origin.x + 10;
     for (int oi = 0; oi < tabCount; ++oi) {
         const int i = order[oi];
@@ -174,7 +174,7 @@ void Editor::renderToolbar() {
             bg->AddRectFilled(a, b, IM_COL32(55, 55, 55, 255));
         }
         bg->AddText(ImVec2(a.x + 12, a.y + (tabsH - ts.y) * 0.5f),
-                    i == 5 ? IM_COL32(255, 170, 70, 255) : on ? IM_COL32(255, 255, 255, 255) : IM_COL32(180, 180, 180, 255), tabs[i]);
+                    i == 5 ? IM_COL32(255, 170, 70, 255) : i == 7 && m_state.terrainBrush >= 0 ? IM_COL32(140, 230, 120, 255) : on ? IM_COL32(255, 255, 255, 255) : IM_COL32(180, 180, 180, 255), tabs[i]);
         x = b.x + 2;
     }
 
@@ -485,6 +485,61 @@ void Editor::renderToolbar() {
     case 4:     // PLUGINS
         renderPluginsTab();
         break;
+    case 7: {   // TERRAIN
+        Terrain& terrain = m_scene->terrain();
+        const bool can = !m_playing;
+        {
+            Group g("Create");
+            static const int kSizes[] = {256, 512, 1024};
+            const int size = kSizes[std::clamp(m_state.terrainGenSize, 0, 2)];
+            if (bigButton("Generate", Icons::Id::Terrain, false, can,
+                          "Make new hills (replaces the terrain you have). Each click makes different ones.")) {
+                static uint32_t seed = 1;
+                seed = seed * 1664525u + 1013904223u + (uint32_t)(ImGui::GetTime() * 1000.0);
+                terrain.generate(size / (int)Terrain::kDefaultCell, Terrain::kDefaultCell, seed, m_state.terrainHills);
+            }
+            if (bigButton("Clear", Icons::Id::TerrainClear, false, can && !terrain.empty(), "Remove all the terrain")) {
+                terrain.clear();
+                m_state.terrainBrush = -1;
+            }
+            Stack st;
+            ImGui::SetNextItemWidth(110);
+            ImGui::SliderFloat("##hills", &m_state.terrainHills, 0.0f, 1.0f, "Hills %.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How bumpy Generate makes it (0 = gentle, 1 = mountains)");
+            ImGui::SetNextItemWidth(110);
+            static const char* kSizeNames[] = {"256 studs", "512 studs", "1024 studs"};
+            ImGui::Combo("##tsize", &m_state.terrainGenSize, kSizeNames, 3);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How big Generate makes it (across)");
+        }
+        {
+            Group g("Sculpt");
+            struct B { const char* label; Icons::Id icon; const char* tip; };
+            const B brushes[] = {{"Raise", Icons::Id::TerrainRaise, "Drag to pull the ground up"},
+                                 {"Lower", Icons::Id::TerrainLower, "Drag to push the ground down"},
+                                 {"Smooth", Icons::Id::TerrainSmooth, "Drag to round off bumps and sharp edges"},
+                                 {"Flatten", Icons::Id::TerrainFlatten, "Drag to level the ground to where you started"},
+                                 {"Paint", Icons::Id::TerrainPaint, "Drag to change the ground (grass, sand, rock...)"}};
+            for (int i = 0; i < 5; ++i)
+                if (bigButton(brushes[i].label, brushes[i].icon, m_state.terrainBrush == i, can, brushes[i].tip)) {
+                    m_state.terrainBrush = m_state.terrainBrush == i ? -1 : i;
+                    m_state.connectTool = -1;
+                }
+        }
+        {
+            Group g("Brush");
+            Stack st;
+            ImGui::SetNextItemWidth(130);
+            ImGui::SliderFloat("##bsize", &m_state.terrainSize, 2.0f, 64.0f, "Size %.0f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How big the brush is (studs from the middle to the edge)");
+            ImGui::SetNextItemWidth(130);
+            ImGui::SliderFloat("##bstr", &m_state.terrainStrength, 0.05f, 1.0f, "Strength %.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How fast it changes the ground");
+            ImGui::SetNextItemWidth(130);
+            ImGui::Combo("##bmat", &m_state.terrainMaterial, kTerrainMaterialNames, kTerrainMaterialCount);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("What Paint paints");
+        }
+        break;
+    }
     case 5: {   // MESH (Modeling mode)
         ModelingState& ms = m_state.modeling;
         {

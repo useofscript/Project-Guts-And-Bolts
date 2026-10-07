@@ -21,6 +21,7 @@ enum class Id {
     Vertex, Edge, Face, Extrude, Inset, Subdivide, Merge, Fill, Flip, Smooth, XRay, Done,
     NavMesh, Bake,
     Union, Negate, Intersect, Separate,   // solid modeling
+    Terrain, TerrainRaise, TerrainLower, TerrainSmooth, TerrainFlatten, TerrainPaint, TerrainClear,   // the TERRAIN tab
 };
 
 // Draw an icon centred on `c`, `size` pixels across.
