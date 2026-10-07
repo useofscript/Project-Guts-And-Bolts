@@ -218,7 +218,7 @@ function gameCard(g) {
   return html`<a class="card" href="#/game/${g.id}">
     ${gamePic(g)}
     <div class="name">${g.featured ? html`<span title="Featured by staff">&#11088;</span> ` : ''}${g.name}</div>
-    <div class="by">by ${g.creatorName}${verified(g.creatorVerified)}</div>
+    <div class="by">by ${g.group ? g.group.name : html`${g.creatorName}${verified(g.creatorVerified)}`}</div>
     <div class="by">${liked ? html`<span class="liked" title="${g.likes} likes, ${g.dislikes} dislikes">&#128077; ${liked}</span> · ` : ''}${n ? html`<b class="playing">${n} playing</b>` : html`${g.plays || 0} visits`}</div>
     ${(g.genres || []).length ? html`<div class="by small">${g.genres.join(' · ')}</div>` : ''}</a>`;
 }
@@ -1106,7 +1106,8 @@ pages.game = async (id) => {
       <div><h1 class="game-title">${gameIcon(g, 40)} ${g.name}</h1>
         ${g.access && g.access !== 'public' ? html`<p><span class="badge-pill">${ACCESS_NAMES[g.access]}</span></p>` : ''}
         ${g.featured ? html`<p><span class="badge-pill featured-pill">&#11088; Featured</span></p>` : ''}
-        <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
+        <p>by ${g.group ? html`<a href="#/group/${g.group.id}">${g.group.name}</a> <span class="muted small">(made by <a href="#/user/${g.creator}">${g.creatorName}</a>)</span>`
+          : html`<a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}`}</p>
         ${(g.genres || []).length ? html`<p>${g.genres.map((gn) => html`<a class="chip" href="#/games?genre=${encodeURIComponent(gn)}">${gn}</a> `)}</p>` : ''}
         <div class="votes">
           <button class="btn small ${g.myVote === 1 ? 'green' : ''}" data-act="vote" data-id="${g.id}" data-vote="${g.myVote === 1 ? 0 : 1}" title="I like it">&#128077; ${g.likes || 0}</button>
@@ -1444,7 +1445,11 @@ pages.configure = async (id) => {
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
   const access = g.access || 'public';
-  const [pr, dr] = await Promise.all([pageCall('pass.list', { game: g.id }), pageCall('pass.list', { game: g.id, products: true })]);
+  const [pr, dr, gr] = await Promise.all([pageCall('pass.list', { game: g.id }), pageCall('pass.list', { game: g.id, products: true }),
+    pageCall('groups.mine', {})]);
+  // Groups this game can go in: ones where your rank can add games (and the one it's in now).
+  const myGroups = (gr.ok ? gr.groups : []).filter((x) => (x.perms || []).includes('games') || (g.group && x.id === g.group.id));
+  if (g.group && !myGroups.some((x) => x.id === g.group.id)) myGroups.push(g.group);
   const passes = pr.ok ? pr.passes : [], products = dr.ok ? dr.passes : [];
   const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
     <b>${label}</b> <span class="muted small">${note}</span></label>`;
@@ -1460,8 +1465,13 @@ pages.configure = async (id) => {
         <label>Players per server</label><input type="number" name="maxPlayers" min="2" max="30" value="${g.maxPlayers || 12}" style="max-width:100px">
         <label class="choice"><input type="checkbox" name="allowGear" ${g.allowGear ? 'checked' : ''}> Allow gear <span class="muted small">(players bring the gear they equipped from the catalog)</span></label>
         <label class="choice"><input type="checkbox" name="comments" ${g.comments !== false ? 'checked' : ''}> Allow comments <span class="muted small">(players can comment on its page; you can delete any comment)</span></label>
-        <label>Private server price <span class="muted small">(Bolts for 30 days; 0 = free. You get 70% of each sale, and private servers are always free for you.)</span></label>
+        <label>Private server price <span class="muted small">(Bolts for 30 days; 0 = free. You get 70% of each sale, or your group does if the game is in one. Private servers are always free for you.)</span></label>
         <input type="number" name="privatePrice" min="0" max="10000" value="${g.privatePrice || 0}" style="max-width:100px"></div>
+      <div class="box"><h2 class="boxhead">Group</h2>
+        <p class="small muted">Put the game in one of your groups: it shows as the group's game, and its game pass and product sales go to the group's Bolts instead of to you.</p>
+        <select name="group" data-was="${g.group ? g.group.id : ''}"><option value="">No group (it's just yours)</option>
+          ${myGroups.map((x) => html`<option value="${x.id}" ${g.group && g.group.id === x.id ? 'selected' : ''}>${x.name}</option>`)}</select>
+        ${myGroups.length ? '' : html`<p class="small muted">You're not in a group where your rank can add games.</p>`}</div>
       <div class="box"><h2 class="boxhead">Who can play</h2>
         ${choice('public', 'Public', 'Everyone can find and play it.')}
         ${choice('friends', 'Friends only', 'Only your friends can see and play it.')}
@@ -1755,49 +1765,91 @@ pages.groups = async () => {
       <p><button class="btn green">Make a group</button></p></form>`}`);
 };
 
+// What each group permission lets a rank do (the server checks the same).
+const GROUP_PERMS = [['shout', 'Shout'], ['manage', 'Let people in, remove people, delete wall posts, change settings'],
+  ['ranks', 'Change people\'s ranks'], ['games', 'Add their games to the group'], ['funds', 'See the group\'s Bolts and pay people']];
+
 pages.group = async (id) => {
   const r = await pageCall('groups.get', { id });
   if (!r.ok) { show(html`<h1>Group not found</h1><p class="muted">${r.error}</p>`); return; }
-  const g = r.group, role = r.myRole, manage = role === 'Owner' || role === 'Admin';
+  const g = r.group, role = r.myRole, mine = r.myRank, owner = !!mine && mine.id === 'Owner';
+  const can = (perm) => !!mine && (owner || mine.perms.includes(perm));
+  const myLevel = mine ? mine.level : 0;
   const color = '#' + Number(g.color).toString(16).padStart(6, '0');
-  const join = !signedIn() ? html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>` : role ? (role === 'Owner' ? '' : html`<button class="btn small" data-act="group" data-op="groups.leave" data-id="${g.id}">Leave</button>`)
+  const join = !signedIn() ? html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>` : role ? (owner ? '' : html`<button class="btn small" data-act="group" data-op="groups.leave" data-id="${g.id}">Leave</button>`)
     : r.requested ? html`<span class="muted">You asked to join.</span>`
       : html`<button class="btn green" data-act="group" data-op="groups.join" data-id="${g.id}">${g.open ? 'Join' : 'Ask to join'}</button>`;
+  // Ranks someone can be given by me: below my level (the owner can give any but Owner).
+  const giveable = r.ranks.filter((x) => x.id !== 'Owner' && (owner || x.level < myLevel));
+  const memberRow = (u) => {
+    const below = u.level < myLevel && u.id !== me.id && u.rank !== 'Owner';
+    return html`<div><a class="grow" href="#/user/${u.id}">${u.name}</a>${verified(u.verified)}
+      ${can('ranks') && below ? html`<form class="row inline" data-form="groupRank"><input type="hidden" name="id" value="${g.id}">
+        <input type="hidden" name="user" value="${u.id}"><select name="rank">${giveable.map((x) => html`<option value="${x.id}" ${x.id === u.rank ? 'selected' : ''}>${x.name}</option>`)}</select>
+        <button class="btn small">Set</button></form>` : html`<span class="muted small">${u.role}</span>`}
+      ${owner && u.rank !== 'Owner' ? html`<button class="btn small" data-act="group" data-op="groups.member" data-id="${g.id}" data-user="${u.id}" data-action="owner"
+        data-confirm="Make ${u.name} the owner of ${g.name}? You can't undo this yourself.">Make owner</button>` : ''}
+      ${can('manage') && below ? html`
+        <button class="btn small red" data-act="group" data-op="groups.member" data-id="${g.id}" data-user="${u.id}" data-action="kick">Remove</button>` : ''}</div>`;
+  };
+  const rankForm = (x) => html`<form class="form rank-edit" data-form="groupRankSave"><input type="hidden" name="id" value="${g.id}">
+    <input type="hidden" name="rank" value="${x ? x.id : ''}">
+    <div class="row"><input type="text" name="name" maxlength="24" placeholder="Rank name" value="${x ? x.name : ''}" required style="max-width:200px">
+      ${x && (x.id === 'Owner' || x.id === 'Member') ? html`<span class="muted small">level ${x.level}</span><input type="hidden" name="level" value="${x.level}">`
+        : html`<label class="small">Level <input type="number" name="level" min="2" max="254" value="${x ? x.level : ''}" required style="width:70px"></label>`}</div>
+    ${x && x.id === 'Owner' ? html`<p class="small muted">The owner can do everything.</p>`
+      : html`<div class="perm-picks">${GROUP_PERMS.map(([k, label]) => html`<label class="choice small"><input type="checkbox" name="perm" value="${k}" ${x && x.perms.includes(k) ? 'checked' : ''}> ${label}</label>`)}</div>`}
+    <p><button class="btn small blue">${x ? 'Save' : 'Add rank'}</button>
+      ${x && x.id !== 'Owner' && x.id !== 'Member' ? html` <button type="button" class="btn small red" data-act="group" data-op="groups.rankDelete" data-id="${g.id}" data-rank="${x.id}"
+        data-confirm="Delete the ${x.name} rank? Everyone in it becomes a ${r.ranks.find((y) => y.id === 'Member').name}.">Delete</button>` : ''}</p></form>`;
   show(html`<p><a href="#/groups">&lt; Groups</a></p>
     <div class="banner-color" style="background:${color}"></div>
     <div class="box" style="border-top:0;border-radius:0 0 6px 6px"><h1>${g.name}</h1>
       <p class="muted">Owned by <a href="#/user/${g.owner}">${g.ownerName}</a>${verified(g.ownerVerified)} · ${g.members} members
-        ${role ? html` · you're ${role === 'Owner' ? 'the owner' : 'a' + (role === 'Admin' ? 'n admin' : ' member')}` : ''}</p>
-      <p style="white-space:pre-wrap">${g.description}</p>${join}${role === 'Owner' ? '' : html` ${reportLink('group', g.id, g.name)}`}</div>
+        ${role ? html` · your rank: <b>${role}</b>` : ''}</p>
+      <p style="white-space:pre-wrap">${g.description}</p>${join}${owner ? '' : html` ${reportLink('group', g.id, g.name)}`}</div>
     ${r.shoutInfo && r.shoutInfo.text ? html`<div class="box info"><b>${r.shoutInfo.name}:</b> ${r.shoutInfo.text}
       <span class="small muted">· ${ago(r.shoutInfo.time)}</span></div>` : ''}
-    ${manage ? html`<form class="row" data-form="groupShout"><input type="hidden" name="id" value="${g.id}">
+    ${can('shout') ? html`<form class="row" data-form="groupShout"><input type="hidden" name="id" value="${g.id}">
       <input type="text" name="text" maxlength="200" placeholder="Shout something to the whole group" style="max-width:420px">
       <button class="btn blue">Shout</button></form>` : ''}
+    ${r.games.length || can('games') ? html`<h2>Games</h2>
+      ${r.games.length ? html`<div class="grid">${r.games.map((x) => html`<div class="group-game">${gameCard(x)}
+        ${owner || (can('games') && x.creator === me.id) ? html`<button class="btn small" data-act="group" data-op="groups.removeGame" data-id="${g.id}" data-game="${x.id}"
+          data-confirm="Take ${x.name} out of ${g.name}? Its sales go back to its creator.">Take out</button>` : ''}</div>`)}</div>`
+        : html`<p class="muted">No games yet.</p>`}
+      ${can('games') ? html`<p class="small muted">To add one of your games, open its Configure page and pick this group under "Group". Its game pass and product sales then go to the group's Bolts.</p>` : ''}` : ''}
+    ${r.funds !== undefined ? html`<h2>Group Bolts</h2><div class="box">
+      <p class="big-bolts">${bolts(r.funds)}</p>
+      <p class="small muted">Sales from the group's games go here. You pay members from it.</p>
+      ${can('funds') ? html`<form class="row" data-form="groupPayout"><input type="hidden" name="id" value="${g.id}">
+        <select name="user">${r.memberList.map((u) => html`<option value="${u.id}">${u.name}</option>`)}</select>
+        <input type="number" name="amount" min="1" max="${Math.max(1, r.funds)}" placeholder="Bolts" required style="width:100px">
+        <button class="btn green" ${r.funds > 0 ? '' : 'disabled'}>Pay</button></form>` : ''}
+      ${r.ledger.length ? html`<table class="ledger">${r.ledger.map((e) => html`<tr><td class="${e.amount < 0 ? 'neg' : 'pos'}">${e.amount > 0 ? '+' : ''}${e.amount}</td>
+        <td>${e.reason}</td><td class="muted small">${ago(e.at)}</td></tr>`)}</table>` : html`<p class="muted small">Nothing yet.</p>`}</div>` : ''}
     <h2>Wall</h2>
     ${role ? html`<form class="row" data-form="groupPost"><input type="hidden" name="id" value="${g.id}">
       <input type="text" name="text" maxlength="300" placeholder="Say something" style="max-width:420px" required>
       <button class="btn blue">Post</button></form>` : ''}
     <div class="wall">${r.wall.length ? r.wall.slice().reverse().map((p) => html`<div><a href="#/user/${p.id}"><b>${p.name}</b></a>${verified(p.verified)}
       <span class="small muted">${ago(p.time)}</span>
-      ${signedIn() && (p.id === me.id || manage) ? html`<button class="btn small" data-act="group" data-op="groups.deletePost" data-id="${g.id}"
+      ${signedIn() && (p.id === me.id || can('manage')) ? html`<button class="btn small" data-act="group" data-op="groups.deletePost" data-id="${g.id}"
         data-by="${p.id}" data-time="${p.time}">Delete</button>` : ''}<br>${p.text}</div>`) : html`<p class="muted">Nothing on the wall yet.</p>`}</div>
-    ${manage && r.requests && r.requests.length ? html`<h2>Waiting to join</h2><div class="list">${r.requests.map((u) => html`<div>
+    ${can('manage') && r.requests && r.requests.length ? html`<h2>Waiting to join</h2><div class="list">${r.requests.map((u) => html`<div>
       <a class="grow" href="#/user/${u.id}">${u.name}</a>
       <button class="btn green small" data-act="group" data-op="groups.request" data-id="${g.id}" data-user="${u.id}" data-accept="1">Let in</button>
       <button class="btn small" data-act="group" data-op="groups.request" data-id="${g.id}" data-user="${u.id}">Decline</button></div>`)}</div>` : ''}
-    <h2>Members</h2><div class="list">${r.memberList.map((u) => html`<div><a class="grow" href="#/user/${u.id}">${u.name}</a>${verified(u.verified)}
-      <span class="muted small">${u.role}</span>
-      ${role === 'Owner' && u.role !== 'Owner' ? html`
-        <button class="btn small" data-act="group" data-op="groups.member" data-id="${g.id}" data-user="${u.id}" data-action="${u.role === 'Admin' ? 'member' : 'admin'}">${u.role === 'Admin' ? 'Make member' : 'Make admin'}</button>` : ''}
-      ${manage && u.role !== 'Owner' && u.id !== me.id && (role === 'Owner' || u.role === 'Member') ? html`
-        <button class="btn small red" data-act="group" data-op="groups.member" data-id="${g.id}" data-user="${u.id}" data-action="kick">Remove</button>` : ''}</div>`)}</div>
-    ${manage ? html`<h2>Settings</h2><form class="form" data-form="groupEdit"><input type="hidden" name="id" value="${g.id}">
+    <h2>Members</h2><div class="list">${r.memberList.map(memberRow)}</div>
+    ${owner ? html`<h2>Ranks</h2><p class="small muted">Higher levels are more in charge. People can only change the rank of people below them.
+      A group can have up to 10 ranks.</p>
+      <div class="ranks">${r.ranks.map(rankForm)}${r.ranks.length < 10 ? html`<h3>New rank</h3>${rankForm(null)}` : ''}</div>` : ''}
+    ${can('manage') ? html`<h2>Settings</h2><form class="form" data-form="groupEdit"><input type="hidden" name="id" value="${g.id}">
       <label>Description</label><textarea name="description" maxlength="1000">${g.description}</textarea>
       <label>Colour</label><input type="color" name="color" value="${color}">
       <label><input type="checkbox" name="open" ${g.open ? 'checked' : ''}> Anyone can join</label>
       <p><button class="btn blue">Save</button>
-      ${role === 'Owner' ? html` <button type="button" class="btn red" data-act="group" data-op="groups.delete" data-id="${g.id}">Delete group</button>` : ''}</p></form>` : ''}`);
+      ${owner ? html` <button type="button" class="btn red" data-act="group" data-op="groups.delete" data-id="${g.id}">Delete group</button>` : ''}</p></form>` : ''}`);
 };
 
 let avatarDraft = null;   // the avatar being edited (saved with the Save button)
@@ -2651,11 +2703,14 @@ const actions = {
     render();
   },
   async group(d) {
-    if (d.op === 'groups.delete' && !confirm('Delete this group for good?')) return;
+    if (d.op === 'groups.delete' && !confirm('Delete this group for good? Its games stay, but its Bolts are gone.')) return;
+    if (d.confirm && !confirm(d.confirm)) return;
     if (d.op === 'groups.leave' && !confirm('Leave this group?')) return;
     const args = { id: d.id };
     if (d.user) args.user = d.user;
     if (d.action) args.action = d.action;
+    if (d.rank) args.rank = d.rank;
+    if (d.game) args.game = d.game;
     if (d.op === 'groups.request') args.accept = d.accept === '1';
     if (d.op === 'groups.deletePost') { args.by = d.by; args.time = Number(d.time); }
     const r = await call(d.op, args);
@@ -2832,7 +2887,8 @@ const forms = {
       if (genres.length > 3) { say('Pick up to 3 genres.', 'error'); return; }
       let r = await call('game.settings', { id, name: f.name.value, description: f.description.value, access: f.access.value,
         genres, maxPlayers: Number(f.maxPlayers.value) || 12, allowGear: f.allowGear.checked, comments: f.comments.checked,
-        privatePrice: Math.max(0, Math.trunc(Number(f.privatePrice.value) || 0)) });
+        privatePrice: Math.max(0, Math.trunc(Number(f.privatePrice.value) || 0)),
+        ...(f.group.value !== f.group.dataset.was ? { group: f.group.value } : {}) });
       if (!r.ok) { say(r.error, 'error'); return; }
       if (f.thumb.files[0]) {
         r = await call('thumb.set', { id, data: await pictureBase64(f.thumb.files[0], 768, 432) });
@@ -2978,6 +3034,24 @@ const forms = {
   async groupShout(f) {
     const r = await call('groups.shout', { id: f.id.value, text: f.text.value });
     if (!r.ok) toast(r.error); else render();
+  },
+  async groupRank(f) {
+    const r = await call('groups.member', { id: f.id.value, user: f.user.value, action: 'rank', rank: f.rank.value });
+    toast(r.ok ? 'Rank changed.' : r.error);
+    if (r.ok) render();
+  },
+  async groupRankSave(f) {
+    const perms = [...f.querySelectorAll('input[name=perm]:checked')].map((x) => x.value);
+    const r = await call('groups.rank', { id: f.id.value, rank: { id: f.rank.value, name: f.name.value, level: Number(f.level.value), perms } });
+    toast(r.ok ? 'Saved.' : r.error);
+    if (r.ok) render();
+  },
+  async groupPayout(f) {
+    const amount = Number(f.amount.value), who = f.user.selectedOptions[0].textContent;
+    if (!confirm('Pay ' + who + ' ' + amount + ' Bolts from the group?')) return;
+    const r = await call('groups.payout', { id: f.id.value, user: f.user.value, amount });
+    toast(r.ok ? 'Paid ' + who + '.' : r.error);
+    if (r.ok) render();
   },
   async groupEdit(f) {
     const r = await call('groups.edit', { id: f.id.value, description: f.description.value,

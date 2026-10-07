@@ -16,7 +16,17 @@ export const BUILT_IN_UPDATES = [
       'Set a private server price on your game\'s Configure page (0 keeps them free)',
       'Buy one from the game\'s page or its Servers window. It lasts 30 days, and buying again adds 30 more',
       'Friends still join your private server for free with its code',
-      'Creators get 70% of each sale, and their own private servers are always free',
+      'Creators get 70% of each sale (or their group does, for a group game), and their own private servers are always free',
+    ],
+  },
+  {
+    id: 'corporate-ladder', name: 'The Corporate Ladder', time: 1791350000, tag: 'Website',
+    summary: 'Groups can own games, earn Bolts from them, pay their members, and make their own ranks.',
+    items: [
+      'Put a game in your group: its game pass and product sales go to the group\'s Bolts',
+      'Group owners and treasurers can pay members from the group\'s Bolts, and everyone\'s payouts are written down',
+      'Make your own ranks (up to 10), each with a level and what it\'s allowed to do',
+      'Works on the website and in the app',
     ],
   },
   {

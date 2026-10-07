@@ -144,12 +144,7 @@ json GbServer::serverOp(const std::string& name, User& me, const json& args) {
         if (balance(me) < price) return fail("You need " + std::to_string(price - balance(me)) + " more Bolts for that.");
         const std::string ref = "private:" + game + ":" + Account::randomHex(4);
         add(me, -price, "Private server: " + a.name, ref);
-        if (User* seller = findUser(a.creator)) {
-            const long long share = price * Online::kCreatorSharePercent / 100;
-            if (share > 0) add(*seller, share, "Private server sold: " + a.name, ref);
-            tally(&a, "bolts", share);
-            notify(seller, "sale", me.name + " bought a private server of " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
-        }
+        paySeller(a, me, price * Online::kCreatorSharePercent / 100, ref);   // to the group, or the creator
         if (!me.privateServers.is_object()) me.privateServers = json::object();
         const long long now = Online::unixNow();
         me.privateServers[game] = std::max(now, privateUntil(me, game)) + kPrivateDays * 86400;

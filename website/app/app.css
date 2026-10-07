@@ -613,6 +613,18 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 
 /* A game's paid private servers */
 .private-box p { margin: 4px 0 8px; }
+/* Group pages: ranks, games and Bolts */
+form.row.inline { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin: 0; width: auto; }
+form.row.inline select { padding: 2px 4px; width: auto; }
+form[data-form="groupPayout"] select { width: auto; max-width: 200px; }
+.ranks .rank-edit { border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; max-width: 640px; }
+.perm-picks { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0; }
+.group-game { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.big-bolts { font-size: 22px; font-weight: bold; margin: 0; }
+table.ledger { border-collapse: collapse; width: 100%; max-width: 640px; margin-top: 8px; }
+table.ledger td { padding: 3px 8px; border-top: 1px solid #eee; }
+table.ledger td.pos { color: #16803c; font-weight: bold; }
+table.ledger td.neg { color: #b42318; font-weight: bold; }
 /* The forum: boards and threads in tables, posts with the author on the left (like the old forum). */
 .table-wrap { overflow-x: auto; }
 table.forum { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }

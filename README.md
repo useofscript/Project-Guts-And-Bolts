@@ -2057,10 +2057,39 @@ When you're connected to a server, the site gets two more pages:
   **shout** (a message pinned at the top), and a **wall** where members can
   post. Groups can be open (anyone joins) or "ask to join" (an admin lets
   people in).
-  - The **Owner** can make people Admins, remove them, hand the group to
-    someone else, change the settings, or delete the group.
-  - **Admins** can shout, let people in, remove Members, and delete posts.
+  - The **Owner** can do everything: change ranks, hand the group to someone
+    else, change the settings, or delete the group.
   - Staff can clean up any group.
+
+#### Ranks
+
+Every group starts with three ranks: **Owner**, **Admin** and **Member**. The owner
+can rename them and add more (up to 10 in all). Each rank has a **level** from 1 to
+255 (higher is more in charge) and a set of permissions:
+
+| Permission | What it lets them do |
+|---|---|
+| Shout | Post the group's shout |
+| Manage | Let people in, remove people, delete wall posts, change the about text |
+| Ranks | Change other people's ranks |
+| Add games | Put their own games in the group |
+| Group Bolts | See the group's Bolts and pay members from them |
+
+You can only remove people, or change their rank, when they're **below** you, and
+only to a rank below yours. Deleting a rank makes everyone in it a Member.
+
+#### Group games and group Bolts
+
+A game can belong to a group. On the game's Configure page (website), or the
+group's Games tab (app), pick the group. You need a rank with **Add games**.
+
+- The game shows as the group's on its page and in lists ("by Builders Inc").
+- When someone buys one of its **game passes** or **developer products**, the
+  seller's share goes into the **group's Bolts** instead of to the person who made it.
+- People with the **Group Bolts** permission see the balance and its history, and
+  can **pay** any member from it. Everyone's payouts are written down in the history.
+- The owner can take any game out of the group; whoever added a game can take theirs
+  out too. Deleting a group gives its games back to their makers, but its Bolts are gone.
 
 Every request the apps send is signed with the player's account key, so the
 server always knows who is asking. Nobody can spend someone else's Bolts or
