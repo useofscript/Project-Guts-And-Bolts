@@ -34,6 +34,9 @@ constexpr long long kHeirWait       = 12;    // seconds each would-be new host g
 constexpr long long kPipeSilence    = 120;
 constexpr int       kPoolMost       = 50;    // games one game server machine runs at once
 constexpr long long kPoolStartWait  = 25;    // seconds for it to start a game it was asked to
+// Paid private servers: a game's creator can charge Bolts for one. Buying lasts 30 days (buy
+// again to add 30 more); friends join free with its code.
+constexpr long long kPrivateDays    = 30;
 
 std::string makeCode() {
     static const char* letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no 0/O or 1/I mix-ups
@@ -73,6 +76,20 @@ const GbServer::Session* GbServer::sessionOf(const std::string& userId) const {
     return nullptr;
 }
 
+long long GbServer::privateUntil(const User& u, const std::string& gameId) const {
+    const long long t = u.privateServers.is_object() ? u.privateServers.value(gameId, 0LL) : 0LL;
+    return t > Online::unixNow() ? t : 0;
+}
+
+std::string GbServer::privateBlocked(const User& u, const std::string& gameId) const {
+    auto a = m_assets.find(gameId);
+    if (a == m_assets.end() || a->second.kind != "game") return "";
+    const long long price = a->second.meta.value("privatePrice", 0LL);
+    if (price <= 0 || a->second.creator == u.id || isStaff(u) || privateUntil(u, gameId)) return "";
+    return "Private servers of " + a->second.name + " cost " + std::to_string(price) + " Bolts for " + std::to_string(kPrivateDays) +
+           " days. Buy one on the game's page first.";
+}
+
 json GbServer::serverOp(const std::string& name, User& me, const json& args) {
     std::string game = Online::cleanText(args.value("game", std::string()), 80);
     if (auto f = findAsset(game); f != m_assets.end()) game = f->first;   // (its number works too)
@@ -108,7 +125,32 @@ json GbServer::serverOp(const std::string& name, User& me, const json& args) {
         }
         json r = okay();
         r["servers"] = list;
+        if (auto a = m_assets.find(game); a != m_assets.end() && a->second.kind == "game") {
+            r["privatePrice"] = a->second.meta.value("privatePrice", 0LL);
+            r["privateUntil"] = privateUntil(me, game);
+            r["privateNeedsBuy"] = !privateBlocked(me, game).empty();
+        }
         return r;
+    }
+    // Buy (or add 30 days to) your own private server of a game.
+    if (name == "servers.buyPrivate") {
+        if (me.userId == 0) return fail("Sign up to buy things.");
+        auto it = m_assets.find(game);
+        if (it == m_assets.end() || it->second.kind != "game") return fail("That game doesn't exist (any more).");
+        Asset& a = it->second;
+        const long long price = a.meta.value("privatePrice", 0LL);
+        if (price <= 0) return fail("Private servers of this game are free.");
+        if (a.creator == me.id) return fail("Your own game's private servers are free for you.");
+        if (balance(me) < price) return fail("You need " + std::to_string(price - balance(me)) + " more Bolts for that.");
+        const std::string ref = "private:" + game + ":" + Account::randomHex(4);
+        add(me, -price, "Private server: " + a.name, ref);
+        paySeller(a, me, price * Online::kCreatorSharePercent / 100, ref);   // to the group, or the creator
+        if (!me.privateServers.is_object()) me.privateServers = json::object();
+        const long long now = Online::unixNow();
+        me.privateServers[game] = std::max(now, privateUntil(me, game)) + kPrivateDays * 86400;
+        saveUsers();
+        saveAssets();
+        json r = okay(); r["until"] = me.privateServers[game]; r["me"] = meJson(me); return r;
     }
     return fail("Unknown request.");
 }
@@ -190,6 +232,9 @@ void GbServer::relayRequest(Client& c, const json& req) {
         if (s.dedicated) {
             s.priv = false;
             for (auto& [ctl, pool] : m_pools) if (pool.account == me->id) pool.starting.erase(s.game);
+        }
+        if (s.priv && !dedicated && args.value("continues", std::string()).empty()) {
+            if (const std::string blocked = privateBlocked(*me, s.game); !blocked.empty()) { reply(fail(blocked)); c.closing = true; return; }
         }
         if (s.priv && s.code.empty()) {
             do s.code = makeCode();

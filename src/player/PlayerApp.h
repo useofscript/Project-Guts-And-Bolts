@@ -487,6 +487,7 @@ private:
     std::string    m_serversKey, m_serversTitle, m_serversMsg, m_codeInput;
     Starter        m_serversStart;
     nlohmann::json m_serverList = nlohmann::json::array();
+    nlohmann::json m_serverPrivate = nlohmann::json::object();   // servers.list: {privatePrice, privateUntil, privateNeedsBuy}
     // The game page's server cards (Roblox-style): whose game, when fetched, which page.
     nlohmann::json m_gameServers = nlohmann::json::array();
     std::string    m_gameServersKey;

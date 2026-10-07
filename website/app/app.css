@@ -611,6 +611,8 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 .stafflog > div { display: flex; align-items: baseline; gap: 8px; }
 .stafflog .grow { min-width: 0; overflow-wrap: anywhere; }
 
+/* A game's paid private servers */
+.private-box p { margin: 4px 0 8px; }
 /* Group pages: ranks, games and Bolts */
 form.row.inline { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin: 0; width: auto; }
 form.row.inline select { padding: 2px 4px; width: auto; }

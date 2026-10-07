@@ -1971,6 +1971,19 @@ friends can join straight from their Friends list; anyone else needs the
 code. Private servers never show up for strangers, and Play never puts
 strangers in them.
 
+**Paid private servers.** A game's creator can charge Bolts for private
+servers (the **Private server price** on the game's Configure page; 0 keeps them
+free). Then:
+
+- Players buy one on the game's page (website) or in its **Servers** window (app).
+  It lasts **30 days**; buying again adds 30 more.
+- Only the person who bought it pays. Friends, and anyone with the code, join free.
+- The creator gets 70% of each sale, like other sales. Private servers of your own
+  game are always free for you (and for staff).
+- The server checks this when a private server starts, so nobody can skip paying
+  (`servers.buyPrivate` and `privateBlocked` in `worker/server.js` and
+  `src/server/ServerRelay.cpp`).
+
 The **Friends** page has three tabs:
 
 - **Friends:** who's online, who's playing what (with a **Join** button);

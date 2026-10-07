@@ -171,6 +171,9 @@ const defaultRanks = () => [
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
+// Paid private servers (ServerRelay.cpp has the same): a game's creator can charge Bolts for a
+// private server. Buying one lasts 30 days (buy again to add 30 more); friends join free with its code.
+const kPrivateDays = 30, kMaxPrivatePrice = 10000;
 // When a host leaves, the players left behind get kMoveWait seconds to move to a new server
 // (one of them hosts it), and each would-be new host gets kHeirWait seconds to start it.
 const kMoveWait = 90, kHeirWait = 12;
@@ -903,6 +906,7 @@ export class GbServerObject extends DurableObject {
       comments: a.kind === 'game' ? !a.commentsOff : undefined, commentCount: a.kind === 'game' ? (a.comments || []).length : undefined,
       myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
       offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined,
+      privatePrice: a.kind === 'game' ? (a.privatePrice || 0) : undefined,
       group: a.kind === 'game' ? this.groupJson(a.group) : undefined };
   }
   groupJson(id) { const g = id ? this.groups.get(id) : null; return g ? { id: g.id, name: g.name, color: g.color } : undefined; }
@@ -921,6 +925,14 @@ export class GbServerObject extends DurableObject {
     if (u.publicWeek !== w) { u.publicWeek = w; u.publicThisWeek = 0; }
     u.publicThisWeek++;
     this.saveUser(u);
+  }
+  // When your private server of a game runs out (0 = you don't have one).
+  privateUntil(u, gameId) { const t = (u.privateServers || {})[gameId] || 0; return t > now() ? t : 0; }
+  // Can `u` start a private server of this game? Free unless its creator set a price.
+  privateBlocked(u, gameId) {
+    const a = this.assets.get(gameId);
+    if (!a || a.kind !== 'game' || !(a.privatePrice > 0) || a.creator === u.id || this.isStaff(u) || this.privateUntil(u, gameId)) return '';
+    return 'Private servers of ' + a.name + ' cost ' + a.privatePrice + ' Bolts for ' + kPrivateDays + ' days. Buy one on the game\'s page first.';
   }
   playingIn(gameId) {   // people in the game's servers right now
     let n = 0;
@@ -1248,6 +1260,7 @@ export class GbServerObject extends DurableObject {
       if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
       if ('allowGear' in args) a.allowGear = args.allowGear === true;
       if ('comments' in args) a.commentsOff = args.comments === false;
+      if ('privatePrice' in args) a.privatePrice = clamp(num(args, 'privatePrice'), 0, kMaxPrivatePrice);
       if ('group' in args) {   // put the game in one of your groups (its sales go to the group), or '' to take it out
         const gid = str(args, 'group');
         if (gid) {
@@ -3017,6 +3030,7 @@ export class GbServerObject extends DurableObject {
   serverOp(name, me, args) {
     const game = this.assets.resolve(cleanText(typeof args.game === 'string' ? args.game : '', 80));   // (its number works too)
     const asset = this.assets.get(game);
+    const t = now();
     if (asset && !this.canPlay(asset, me)) return fail(this.noPlay(asset));
     if (name === 'servers.play') {
       let best = null;
@@ -3041,7 +3055,29 @@ export class GbServerObject extends DurableObject {
         list.push(Object.assign(this.sessionJson(s), { friends }));
         if (list.length >= 100) break;
       }
-      return okay({ servers: list });
+      const r = okay({ servers: list });
+      if (asset && asset.kind === 'game') {
+        r.privatePrice = asset.privatePrice || 0;
+        r.privateUntil = this.privateUntil(me, game);
+        r.privateNeedsBuy = !!this.privateBlocked(me, game);
+      }
+      return r;
+    }
+    // Buy (or add 30 days to) your own private server of a game.
+    if (name === 'servers.buyPrivate') {
+      if (me.userId === 0) return fail('Sign up to buy things.');
+      if (!asset || asset.kind !== 'game') return fail('That game doesn\'t exist (any more).');
+      const price = asset.privatePrice || 0;
+      if (price <= 0) return fail('Private servers of this game are free.');
+      if (asset.creator === me.id) return fail('Your own game\'s private servers are free for you.');
+      if (this.balance(me) < price) return fail('You need ' + (price - this.balance(me)) + ' more Bolts for that.');
+      const ref = 'private:' + game + ':' + randomHex(4);
+      this.add(me, -price, 'Private server: ' + asset.name, ref);
+      this.paySeller(asset, me, Math.floor(price * kCreatorSharePercent / 100), ref);   // to the group, or the creator
+      me.privateServers = me.privateServers || {};
+      me.privateServers[game] = Math.max(t, this.privateUntil(me, game)) + kPrivateDays * 86400;
+      this.saveUser(me);
+      return okay({ until: me.privateServers[game], me: this.meJson(me) });
     }
     return fail('Unknown request.');
   }
@@ -3156,6 +3192,10 @@ export class GbServerObject extends DurableObject {
         if (old.newId || !old.members.includes(me.id)) { reply(fail('Someone else is already hosting the new server.')); close(); return; }
         Object.assign(s, { game: old.game, title: old.title, priv: old.priv, code: old.code, max: old.max });
         old.newId = s.id;
+      }
+      if (s.priv && !old && !dedicated) {
+        const blocked = this.privateBlocked(me, s.game);
+        if (blocked) { reply(fail(blocked)); close(); return; }
       }
       if (s.priv && !s.code) {
         do s.code = makeCode(); while ([...this.sessions.values()].some((x) => x.code === s.code));
