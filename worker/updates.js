@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'bouncer-at-the-door', name: 'Bouncer at the Door', time: 1791340000, tag: 'Server',
+    summary: 'New decals, sounds and T-shirts from creators who aren\'t Verified wait for a staff check before anyone else sees them.',
+    items: [
+      'Until staff OK it, only you can see or hear your new upload, and its page says it\'s waiting',
+      'Staff get an "Uploads to check" list on the Staff page, on the website and in the Player',
+      'Uploads that get turned down say why, so you know what to fix',
+      'Verified creators skip the line',
+    ],
+  },
+  {
     id: 'soap-in-the-mouth', name: 'Soap in the Mouth', time: 1791330000, tag: 'Server',
     summary: 'A text filter: anything with slurs, links or personal info in it becomes [ Content Deleted ], like classic Roblox.',
     items: [

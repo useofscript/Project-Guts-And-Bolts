@@ -1949,6 +1949,19 @@ If something has any of these in it, the whole thing is replaced with
 - Searches, staff notes and report reasons aren't filtered, so staff see exactly
   what was written.
 
+### Upload review
+
+New decals, sounds and T-shirts from creators who aren't Verified wait for a staff
+check before anyone else can see or hear them, like Roblox's moderation queue.
+
+- Until then, only the creator and staff can see it. Its page says "Waiting for a
+  staff check", and in games it doesn't show up (or play) for other players yet.
+- Staff find the list under **Uploads to check** on the Staff page (website and
+  Player). They can look or listen, then press **OK** or **Turn down** (with a
+  reason the creator sees).
+- Replacing the picture or sound of a checked upload sends it back for a new check.
+- Verified creators and staff skip the check.
+
 ### Bolts (the currency)
 
 (With a server, your Bolts live on the server instead, and everything below

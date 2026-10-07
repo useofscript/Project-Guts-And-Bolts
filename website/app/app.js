@@ -861,6 +861,16 @@ function assetUrl(id) {
   return assetUrls.get(id);
 }
 
+// Upload review: a new decal, sound or T-shirt from a creator who isn't Verified waits for staff
+// to look at it. Only its creator (and staff) can see it until then, so tell them.
+function reviewBanner(a) {
+  if (a.review === 'pending') return html`<p class="box gold small"><b>Waiting for a staff check.</b> Only you can see this until
+    Guts&amp;Bolts staff look at it (Verified creators skip this).</p>`;
+  if (a.review === 'rejected') return html`<p class="box small error"><b>This didn't pass the staff check</b>, so nobody else can see it.
+    ${a.reviewNote ? html`Staff said: "${a.reviewNote}"` : ''}</p>`;
+  return '';
+}
+
 // #/library/<id>: one thing from the Library on its own page, found by its ID (the same
 // "gb:..." ID you paste into a game). Look at a decal, listen to audio, copy the ID.
 pages.library = async (id = '') => {
@@ -885,6 +895,7 @@ pages.library = async (id = '') => {
       <h1 class="item-title">${a.name}</h1>
       <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind] || a.kind}${a.access === 'private' ? ' / Private' : ''}
         ${canDelete ? '' : html` · ${reportLink('item', a.id, a.name)}`}</div>
+      ${reviewBanner(a)}
       <div class="item-cols asset-cols">
         <div class="item-pic">
           <div class="pic" id="assetPic">${a.kind === 'decal' ? html`<span class="muted">Loading...</span>`
@@ -1088,6 +1099,7 @@ pages.item = async (id) => {
       <h1 class="item-title">${a.name}</h1>
       <div class="item-sub">Guts&amp;Bolts ${KINDS[a.kind]}${L ? ' / Collectible Item / Limited Edition' : timed ? ' / Timed Item' : ''}
         ${canEdit ? '' : html` · ${reportLink('item', a.id, a.name)}`}</div>
+      ${reviewBanner(a)}
       <div class="item-cols">
         <div class="item-pic">
           <div class="pic" id="item3d">${itemIcon(a)}</div>
@@ -1770,12 +1782,39 @@ function reportsBox(rep, closed) {
     <p class="small muted">"Done" means you did something about it (a warning, a ban, deleting it). Closing one closes every report about the same thing.</p></div>`;
 }
 
+// New decals, sounds and T-shirts from creators who aren't Verified: look, listen, then OK or turn down.
+function uploadsBox(up) {
+  if (!up.ok) return html`<div class="box"><h2 class="boxhead">Uploads to check</h2><p class="error">${up.error}</p></div>`;
+  const row = (a) => html`<div class="report">
+      <div class="row"><div class="review-preview" data-preview="${a.id}" data-kind="${a.kind}"><span class="muted small">Loading...</span></div>
+        <div class="grow"><p><b>${a.name}</b> <span class="small muted">(${KINDS[a.kind] || a.kind}) by
+          <a href="#/user/${a.creator}">${a.creatorName}</a> · ${ago(a.updated || a.created)}</span></p>
+          ${a.description ? html`<p class="small">${a.description}</p>` : ''}
+          <p><button class="btn small green" data-act="reviewUpload" data-id="${a.id}" data-ok="1">OK</button>
+            <button class="btn small red" data-act="reviewUpload" data-id="${a.id}" data-ok="">Turn down</button></p></div></div></div>`;
+  return html`<div class="box"><h2 class="boxhead">Uploads to check (${up.uploads.length})</h2>
+    ${up.uploads.length ? html`<div class="reports">${up.uploads.map(row)}</div>`
+      : html`<p class="muted small">Nothing waiting. New decals, sounds and T-shirts from people who aren't Verified show up here.</p>`}
+    <p class="small muted">Nobody but the creator can see or hear these until you press OK. Turn down anything that breaks the rules.</p></div>`;
+}
+function loadReviewPreviews() {
+  for (const el of document.querySelectorAll('[data-preview]')) {
+    assetUrl(el.dataset.preview).then((f) => {
+      if (!f.url) { el.innerHTML = html`<span class="small error">${f.error}</span>`.s; return; }
+      el.innerHTML = (el.dataset.kind === 'audio' ? html`<audio controls preload="none" src="${f.url}"></audio>`
+        : html`<a href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt=""></a>`).s;
+    });
+  }
+}
+
 pages.staff = async () => {
   if (!signedIn() || !me.staff) { show(html`<h1>Staff</h1><p class="muted">Only Guts&amp;Bolts staff can see this page.</p>`); return; }
   const query = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
   const closed = new URLSearchParams(location.hash.split('?')[1] || '').get('reports') === 'closed';
-  const [r, rep] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' })]);
+  const [r, rep, up] = await Promise.all([pageCall('admin.find', { query }), pageCall('admin.reports', { status: closed ? 'closed' : 'open' }),
+    pageCall('admin.uploads', {})]);
   show(html`<h1>Staff</h1>
+    ${uploadsBox(up)}
     ${reportsBox(rep, closed)}
     <h2>People</h2>
     <p class="muted">${me.official ? 'You\'re the official Guts account: you can verify people, make staff, give Bolts and ban.'
@@ -1795,6 +1834,7 @@ pages.staff = async () => {
           <button class="btn small" data-act="staff" data-op="warn" data-id="${u.id}">Warn</button>
           <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
       </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
+  loadReviewPreviews();
 };
 
 pages.bolts = async () => {
@@ -2182,6 +2222,17 @@ const actions = {
     const r = await call(d.on ? 'block.add' : 'block.remove', { user: d.user });
     if (!r.ok) { toast(r.error); return; }
     toast(d.on ? 'You blocked ' + d.name + '.' : 'You unblocked ' + d.name + '.');
+    render();
+  },
+  async reviewUpload(d) {
+    let note = '';
+    if (!d.ok) {
+      note = prompt('Why is it turned down? (The creator sees this. You can leave it empty.)', '');
+      if (note === null) return;
+    }
+    const r = await call('admin.review', { id: d.id, ok: !!d.ok, note });
+    if (!r.ok) { toast(r.error); return; }
+    toast(d.ok ? 'OK: everyone can see it now.' : 'Turned down.');
     render();
   },
   async closeReport(d) {
@@ -2576,7 +2627,8 @@ const forms = {
     const r = await call('upload', args);
     f.querySelector('button').disabled = false;
     if (!r.ok) { msg.className = 'error'; msg.textContent = ' ' + r.error; return; }
-    toast('Uploaded "' + r.asset.name + '"!' + (r.fee ? ' (' + r.fee + ' Bolts)' : ''));
+    toast('Uploaded "' + r.asset.name + '"!' + (r.fee ? ' (' + r.fee + ' Bolts)' : '')
+      + (r.asset.review === 'pending' ? ' Staff check it before anyone else can see or hear it.' : ''));
     render();
   },
   async itemEdit(f) {

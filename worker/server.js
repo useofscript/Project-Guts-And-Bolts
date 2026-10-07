@@ -30,6 +30,9 @@ const EXAMPLE_GAMES = [
 // --- rules (src/online/Protocol.h) ---------------------------------------------
 const kMaxClockSkew = 600;
 const kDailyUploadsUnverified = 5;
+// Pictures and sounds from creators who aren't Verified wait for a staff check before anyone
+// else can see or hear them (the creator and staff can). a.review: 'pending' or 'rejected'.
+const REVIEWED_KINDS = ['decal', 'audio', 'tshirt'];
 const kCreatorSharePercent = 70;
 const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt', 'gear', 'animation'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
@@ -797,7 +800,7 @@ export class GbServerObject extends DurableObject {
       myVote: me && a.votes ? (a.votes[me.id] || 0) : undefined, limited: this.limitedJson(a),
       favorites: a.kind === 'game' ? (a.favorites || 0) : undefined,
       myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
-      offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a) };
+      offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined };
   }
   publicModelsLeft(u) {   // -1 = no limit
     if (this.isVerified(u)) return -1;
@@ -820,8 +823,15 @@ export class GbServerObject extends DurableObject {
     for (const s of this.sessions.values()) if (s.game === gameId) n += this.headcount(s);
     return n;
   }
-  // Can `me` see and play this game? (Other kinds of things are always visible.)
+  // New decals, sounds and T-shirts waiting for a staff check (oldest first).
+  uploadsToReview() {
+    return [...this.assets.values()].filter((a) => a.review === 'pending').sort((x, y) => (x.updated || x.created) - (y.updated || y.created))
+      .slice(0, 50).map((a) => this.publicAsset(a));
+  }
+  // Can `me` see and play this game? (Other kinds of things are always visible, unless they're
+  // waiting for a staff check.)
   canPlay(a, me) {
+    if (a.review && a.creator !== me.id && !this.isStaff(me)) return false;   // waiting for (or failed) a staff check
     if (!hasAccess(a.kind) || !a.access || a.access === 'public') return true;
     if (a.creator === me.id || this.isStaff(me)) return true;
     if (a.access === 'friends') return me.friends.includes(a.creator);
@@ -829,6 +839,8 @@ export class GbServerObject extends DurableObject {
   }
   noPlay(a) {
     const c = this.users.get(a.creator);
+    if (a.review === 'pending') return 'This is waiting for a staff check.';
+    if (a.review === 'rejected') return 'This didn\'t pass the staff check.';
     if (a.kind === 'model') return 'This model is private.';
     if (a.kind === 'animation') return 'This animation is private.';
     return a.access === 'friends' ? 'Only ' + (c ? c.name : 'the creator') + '\'s friends can play this game.' : 'This game is private.';
@@ -1286,6 +1298,17 @@ export class GbServerObject extends DurableObject {
         }
         return okay({ users: list });
       }
+      // Upload review: new decals, sounds and T-shirts from creators who aren't Verified, oldest first.
+      if (name === 'admin.uploads') return okay({ uploads: this.uploadsToReview() });
+      if (name === 'admin.review') {
+        const a = this.assets.get(str(args, 'id'));
+        if (!a || !a.review) return fail('That isn\'t waiting for a check any more.');
+        if (args.ok === true) { delete a.review; delete a.reviewNote; }
+        else { a.review = 'rejected'; a.reviewNote = cleanText(str(args, 'note'), 200); }
+        a.reviewedBy = me.id;
+        this.saveAsset(a);
+        return okay({ uploads: this.uploadsToReview() });
+      }
       if (name === 'admin.reports') return okay({ reports: this.reportsJson(str(args, 'status') === 'closed' ? 'closed' : 'open') });
       if (name === 'admin.closeReport') {
         // Staff looked at it: "done" (they did something, like a ban or a warning) or "dismissed" (nothing wrong).
@@ -1440,6 +1463,7 @@ export class GbServerObject extends DurableObject {
       const a = { id: String(assetNo), num: assetNo, kind, name: title, description: desc, creator: me.id, price, created: t,
         sales: 0, plays: 0, size: data.length, meta };
       if (access) { a.access = access; if (access === 'public' && kind === 'model') this.countPublicModel(me); }
+      if (REVIEWED_KINDS.includes(kind) && !verified && !this.isStaff(me)) a.review = 'pending';
       this.writeFile(a.id, data);
       if ((kind === 'face' || kind === 'tshirt') && data.length <= 400 * 1024) { this.writeFile('thumb:' + a.id, data); a.thumb = t; }   // its own picture
       this.assets.set(a.id, a);
@@ -1578,6 +1602,8 @@ export class GbServerObject extends DurableObject {
         if (!acc || acc.format !== 'gbaccessory' || !acc.node) return fail('That isn\'t a Guts&Bolts accessory.');
       }
       if (!isClothing(a.kind) || model) this.writeFile(a.id, data);
+      // A new picture or sound gets checked again.
+      if (REVIEWED_KINDS.includes(a.kind) && !isClothing(a.kind) && !this.isVerified(me) && !this.isStaff(me)) { a.review = 'pending'; delete a.reviewNote; }
       const title = say(str(args, 'name'), 50);
       if (title) a.name = title;
       if ('description' in args) a.description = say(str(args, 'description'), 1000, true);
@@ -1644,6 +1670,7 @@ export class GbServerObject extends DurableObject {
       const a = this.assets.get(str(args, 'id'));
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
+      if (a.review && a.creator !== me.id) return fail(this.noPlay(a));
       if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
       if (this.isOffsale(a)) return fail('This item is off sale: it was only for sale for a limited time.' + (a.limited ? ' Buy one from a reseller on the item\'s page.' : ''));
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
@@ -2781,7 +2808,7 @@ export class GbServerObject extends DurableObject {
     // GET /decal/<asset id or number>: a decal's picture (decals are always free and public), e.g. a hat's texture.
     if (url.pathname.startsWith('/decal/')) {
       const a = this.assets.get(decodeURIComponent(url.pathname.slice(7)).replace(/^gb:/, ''));
-      const data = a && a.kind === 'decal' ? this.readFile(a.id) : null;
+      const data = a && a.kind === 'decal' && !a.review ? this.readFile(a.id) : null;   // (not before the staff check)
       if (!data) return new Response('No picture.', { status: 404 });
       const jpg = data.length > 2 && data[0] === 0xff && data[1] === 0xd8;
       return new Response(data, { headers: { 'content-type': jpg ? 'image/jpeg' : 'image/png', 'cache-control': 'public, max-age=86400' } });
@@ -2791,9 +2818,9 @@ export class GbServerObject extends DurableObject {
       const icon = url.pathname.startsWith('/icon/');
       const id = decodeURIComponent(url.pathname.slice(icon ? 6 : 7));
       const a = this.assets.get(id);
-      let data = a && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + a.id) : null;
+      let data = a && !a.review && (icon ? a.icon : a.thumb) ? this.readFile((icon ? 'icon:' : 'thumb:') + a.id) : null;
       // Shirts and pants: their picture is the item itself (the template), for the 3D mannequins.
-      if (!data && !icon && a && (a.kind === 'shirt' || a.kind === 'pants') && a.meta && a.meta.image) data = this.readFile(a.id);
+      if (!data && !icon && a && !a.review && (a.kind === 'shirt' || a.kind === 'pants') && a.meta && a.meta.image) data = this.readFile(a.id);
       if (!data) return new Response('No picture.', { status: 404 });
       const jpg = data[0] === 0xff && data[1] === 0xd8;
       return new Response(data, { headers: { 'content-type': jpg ? 'image/jpeg' : 'image/png', 'cache-control': 'public, max-age=86400' } });

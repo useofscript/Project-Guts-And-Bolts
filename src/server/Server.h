@@ -172,6 +172,7 @@ private:
     nlohmann::json publicAsset(const Asset& a) const;
     // Private models and animations: only their creator (and staff) see them.
     bool canSee(const Asset& a, const User& me) const;
+    nlohmann::json uploadsToReview() const;   // new decals, sounds and T-shirts waiting for staff
 
     // Accounts
     User&     user(const std::string& id);          // makes a new account (with the welcome gift) if needed
