@@ -141,6 +141,11 @@ private:
     void  loadIds();
     nlohmann::json friendOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerFriends.cpp
     nlohmann::json socialOp(const std::string& name, User& me, const nlohmann::json& args);   // ServerSocial.cpp
+    // ServerForum.cpp: boards of threads ({id, board, title, by, at, last, lastBy, views, pinned, locked, posts}).
+    nlohmann::json forumOp(const std::string& name, User& me, const nlohmann::json& args);
+    const nlohmann::json* forumPost(const std::string& threadId, const std::string& postId, std::string* title) const;
+    void saveForum();
+    void loadForum();
     // ServerSafety.cpp: blocking people and reporting things to staff.
     nlohmann::json safetyOp(const std::string& name, User& me, const nlohmann::json& args);
     bool blocks(const User& a, const User& b) const;   // has either of them blocked the other?
@@ -216,6 +221,8 @@ private:
     std::map<std::string, Asset>::const_iterator findAsset(const std::string& id) const;
     void numberAssets();
     std::map<std::string, Group> m_groups;
+    nlohmann::json m_forum = nlohmann::json::object();   // thread id -> thread (forum.json)
+    long long      m_forumSaved = 0;
     // What players reported (ServerSafety.cpp): {id, from, kind, target, about, reason, note, copy, at, status, ...}, newest last.
     nlohmann::json m_reports = nlohmann::json::array();
     nlohmann::json m_staffLog = nlohmann::json::array();

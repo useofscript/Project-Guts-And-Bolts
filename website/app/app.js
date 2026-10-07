@@ -373,7 +373,7 @@ const NEEDS_ACCOUNT = {
   friend: 'add friends', follow: 'follow people', group: 'join groups', redeem: 'redeem codes', upload: 'upload things and publish games',
   groupCreate: 'make a group', groupPost: 'post on group walls', groupShout: 'shout to a group',
   favorite: 'favourite games', outfitSave: 'save outfits', sendMessage: 'send messages', statusSet: 'post a status', blurbSet: 'edit your profile',
-  report: 'report things to staff', block: 'block people',
+  report: 'report things to staff', block: 'block people', forumPost: 'post on the forum', forumReply: 'post on the forum',
 };
 
 // A small "Report" link for anything people can report (the server takes user, game, item, message and group).
@@ -652,6 +652,75 @@ async function checkUpdates() {
   const r = await gb.call('updates.list', { limit: 1 });
   if (r.ok) setUpdatesLink(r.latest);
   return r;
+}
+
+// --- The forum, like the old Roblox forum: boards, then threads, then posts. ---
+// #/forum (the boards), #/forum/help[/page] (a board's threads), #/forum/t/<thread>[/page] (one thread).
+const forumPager = (base, page, pages) => pages <= 1 ? '' : html`<p class="pager">
+  ${page > 0 ? html`<a class="btn small" href="${base}/${page}">&lt; Back</a>` : ''}
+  <span class="muted small">Page ${page + 1} of ${pages}</span>
+  ${page + 1 < pages ? html`<a class="btn small" href="${base}/${page + 2}">Next &gt;</a>` : ''}</p>`;
+const forumWho = (u) => html`<a href="#/user/${u.userId || u.id}"><b>${u.name}</b></a>${verified(u.verified)}${u.staff ? html` <span class="badge-pill staff">Staff</span>` : ''}`;
+pages.forum = async (board, a, b) => {
+  if (board === 't') { await forumThread(a, Math.max(0, (Number(b) || 1) - 1)); return; }
+  if (!board) {
+    const r = await pageCall('forum.boards', {});
+    if (!r.ok) { show(html`<h1>Forum</h1><p class="error">${r.error}</p>`); return; }
+    show(html`<h1>Forum</h1>
+      <p class="muted">Ask for help, show off your games and talk to other players. Be kind: the forum follows the same <a href="#/terms">rules</a> as chat.</p>
+      <div class="table-wrap"><table class="forum">
+        <thead><tr><th>Board</th><th class="num">Threads</th><th class="num">Posts</th><th>Last post</th></tr></thead>
+        <tbody>${r.boards.map((x) => html`<tr>
+          <td><a href="#/forum/${x.id}"><b>${x.name}</b></a><br><span class="small muted">${x.about}</span></td>
+          <td class="num">${x.threads}</td><td class="num">${x.posts}</td>
+          <td class="small">${x.last ? html`<a href="#/forum/t/${x.last.thread}/9999">${x.last.title}</a><br><span class="muted">${ago(x.last.at)} by ${x.last.by.name}</span>`
+            : html`<span class="muted">Nothing yet</span>`}</td></tr>`)}</tbody></table></div>`);
+    return;
+  }
+  const page = Math.max(0, (Number(a) || 1) - 1);
+  const r = await pageCall('forum.list', { board, page });
+  if (!r.ok) { show(html`<h1>Forum</h1><p class="error">${r.error}</p><p><a href="#/forum">&lt; All boards</a></p>`); return; }
+  const base = '#/forum/' + r.board.id;
+  show(html`<p><a href="#/forum">&lt; Forum</a></p><h1>${r.board.name}</h1><p class="muted">${r.board.about}</p>
+    ${r.threads.length ? html`<div class="table-wrap"><table class="forum">
+      <thead><tr><th>Thread</th><th class="num">Replies</th><th class="num">Views</th><th>Last post</th></tr></thead>
+      <tbody>${r.threads.map((t) => html`<tr class="${t.pinned ? 'pinned' : ''}">
+        <td>${t.pinned ? html`<span class="badge-pill" title="Pinned by staff">Pinned</span> ` : ''}${t.locked ? html`<span class="badge-pill" title="Nobody can reply">Locked</span> ` : ''}
+          <a href="#/forum/t/${t.id}"><b>${t.title}</b></a><br><span class="small muted">by ${t.by.name}, ${ago(t.at)}</span></td>
+        <td class="num">${t.replies}</td><td class="num">${t.views}</td>
+        <td class="small"><a href="#/forum/t/${t.id}/9999">${ago(t.last)}</a><br><span class="muted">by ${t.lastBy.name}</span></td></tr>`)}</tbody></table></div>`
+      : html`<p class="muted">No threads here yet. Be the first!</p>`}
+    ${forumPager(base, r.page, r.pages)}
+    <h2>New thread</h2>
+    ${r.board.staffOnly && !r.canPost ? html`<p class="muted">Only Guts&amp;Bolts staff post here.</p>`
+      : signedIn() ? html`<form class="form" data-form="forumPost"><input type="hidden" name="board" value="${r.board.id}">
+        <label>Title</label><input type="text" name="title" maxlength="80" required>
+        <label>Message</label><textarea name="text" maxlength="3000" rows="7" required></textarea>
+        <p><button class="btn green">Post thread</button> <span class="small muted">Be kind, and don't share personal info.</span></p></form>`
+      : html`<p class="muted"><a href="#/login">Log in</a> or <a href="#/signup">sign up</a> to post.</p>`}`);
+};
+async function forumThread(id, page) {
+  const r = await pageCall('forum.thread', { thread: id, page: page >= 9998 ? -1 : page });
+  if (!r.ok) { show(html`<h1>Forum</h1><p class="error">${r.error}</p><p><a href="#/forum">&lt; All boards</a></p>`); return; }
+  const t = r.thread, base = '#/forum/t/' + t.id;
+  const post = (p) => html`<div class="forum-post" data-post="${p.id}">
+    <div class="forum-author"><a class="face" href="#/user/${p.by.userId || p.by.id}">${p.by.name.slice(0, 1).toUpperCase()}</a>${forumWho(p.by)}</div>
+    <div class="grow"><p class="small muted">${ago(p.at)}</p>
+      <div class="forum-text">${p.text}</div>
+      <p class="small">${p.canDelete ? html`<a href="#" data-act="forumDelete" data-thread="${t.id}" data-post="${p.id}" data-first="${p.first ? 1 : ''}" data-page="${r.page}">${p.first ? 'Delete thread' : 'Delete'}</a> ` : ''}
+        ${signedIn() && p.by.id !== me.id ? reportLink('forum', t.id + ':' + p.id, p.by.name) : ''}</p></div></div>`;
+  show(html`<p><a href="#/forum">Forum</a> &gt; <a href="#/forum/${t.board}">${t.boardName}</a></p>
+    <h1>${t.pinned ? html`<span class="badge-pill">Pinned</span> ` : ''}${t.locked ? html`<span class="badge-pill">Locked</span> ` : ''}${t.title}</h1>
+    ${r.canModerate ? html`<p class="row"><button class="btn small" data-act="forumMod" data-thread="${t.id}" data-pinned="${t.pinned ? '' : 1}" data-locked="${t.locked ? 1 : ''}" data-page="${r.page}">${t.pinned ? 'Unpin' : 'Pin'}</button>
+      <button class="btn small" data-act="forumMod" data-thread="${t.id}" data-pinned="${t.pinned ? 1 : ''}" data-locked="${t.locked ? '' : 1}" data-page="${r.page}">${t.locked ? 'Unlock' : 'Lock'}</button></p>` : ''}
+    ${forumPager(base, r.page, r.pages)}
+    <div class="forum-posts">${r.posts.map(post)}</div>
+    ${forumPager(base, r.page, r.pages)}
+    ${r.canReply ? html`<h2>Reply</h2><form class="form" data-form="forumReply"><input type="hidden" name="thread" value="${t.id}">
+        <textarea name="text" maxlength="3000" rows="5" required></textarea>
+        <p><button class="btn blue">Post reply</button></p></form>`
+      : t.locked ? html`<p class="muted">This thread is locked, so nobody can reply.</p>`
+      : html`<p class="muted"><a href="#/login">Log in</a> or <a href="#/signup">sign up</a> to reply.</p>`}`);
 }
 
 pages.updates = async () => {
@@ -1849,6 +1918,7 @@ function reportsBox(rep, closed) {
     if (x.kind === 'game') return html`the game <a href="#/game/${x.target}">${x.name}</a> by ${person(x.about)}`;
     if (x.kind === 'group') return html`the group <a href="#/group/${x.target}">${x.name}</a> (owner ${person(x.about)})`;
     if (x.kind === 'comment') return html`a comment by ${person(x.about)} on <a href="#/game/${x.game}">${x.name}</a>`;
+    if (x.kind === 'forum') return html`a forum post by ${person(x.about)} in <a href="#/forum/t/${x.thread}">${x.name}</a>`;
     const href = isCatalogItem(x.assetKind) ? '#/item/' + x.target : '#/library/' + x.target;
     return html`<a href="${href}">${x.name}</a> (${KINDS[x.assetKind] || 'item'}) by ${person(x.about)}`;
   };
@@ -1949,6 +2019,7 @@ function noteLink(n) {
   if (n.kind === 'trade') return '#/trades';
   if (n.kind === 'group') return '#/group/' + n.about;
   if (n.kind === 'comment' || n.kind === 'featured') return '#/game/' + n.about;
+  if (n.kind === 'forum') return '#/forum/t/' + n.about;
   if (n.kind === 'sale' || n.kind === 'upload') return '#/library/' + n.about;
   return '';
 }
@@ -2310,6 +2381,18 @@ const actions = {
     toast(r.ok ? ({ 'trade.accept': 'Trade done!', 'trade.decline': 'Declined.', 'trade.cancel': 'Cancelled.' }[d.op]) : r.error);
     render();
   },
+  async forumDelete(d) {
+    if (!confirm(d.first ? 'Delete this whole thread?' : 'Delete this post?')) return;
+    const r = await call('forum.delete', { thread: d.thread, post: d.post, page: Number(d.page) || 0 });
+    if (!r.ok) { toast(r.error); return; }
+    if (r.gone) { location.hash = '#/forum/' + r.board; return; }
+    render();
+  },
+  async forumMod(d) {
+    const r = await call('forum.mod', { thread: d.thread, pinned: !!d.pinned, locked: !!d.locked, page: Number(d.page) || 0 });
+    if (!r.ok) toast(r.error);
+    render();
+  },
   async featureGame(d) {
     const r = await call('admin.feature', { id: d.id, on: !!d.on });
     toast(r.ok ? (d.on ? 'Featured! It shows on the home page now.' : 'Not featured any more.') : r.error);
@@ -2561,6 +2644,17 @@ const actions = {
 };
 
 const forms = {
+  async forumPost(f) {
+    const r = await call('forum.post', { board: f.board.value, title: f.title.value, text: f.text.value });
+    if (!r.ok) { toast(r.error); return; }
+    location.hash = '#/forum/t/' + r.thread.id;
+  },
+  async forumReply(f) {
+    const r = await call('forum.reply', { thread: f.thread.value, text: f.text.value });
+    if (!r.ok) { toast(r.error); return; }
+    const want = '#/forum/t/' + r.thread.id + '/' + (r.page + 1);
+    if (location.hash === want) render(); else location.hash = want;
+  },
   async comment(f) {
     const r = await call('comments.post', { game: f.game.value, text: f.text.value });
     if (!r.ok) { toast(r.error); return; }
@@ -2902,7 +2996,7 @@ async function render() {
   document.querySelectorAll('#nav a[data-page]').forEach((a) => {
     const p = a.dataset.page;
     a.classList.toggle('on', p === name || (p === 'games' && name === 'game') || (p === 'catalog' && name === 'item') || (p === 'create' && name === 'library') ||
-      (p === 'people' && name === 'user') || (p === 'groups' && name === 'group'));
+      (p === 'people' && name === 'user') || (p === 'groups' && name === 'group') || (p === 'forum' && name === 'forum'));
   });
   if (name !== 'avatar') avatarDraft = null;   // leaving the avatar page drops unsaved changes
   if (!me) {

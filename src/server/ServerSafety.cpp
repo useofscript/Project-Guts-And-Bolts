@@ -19,7 +19,7 @@ constexpr size_t kMaxBlocked    = 200;
 constexpr int    kReportsPerDay = 20;
 constexpr size_t kMaxReports    = 3000;
 bool isReportKind(const std::string& k) {
-    return k == "user" || k == "game" || k == "item" || k == "message" || k == "group" || k == "comment";
+    return k == "user" || k == "game" || k == "item" || k == "message" || k == "group" || k == "comment" || k == "forum";
 }
 bool has(const std::vector<std::string>& list, const std::string& id) {
     return std::find(list.begin(), list.end(), id) != list.end();
@@ -109,6 +109,16 @@ json GbServer::safetyOp(const std::string& name, User& me, const json& args) {
             target = id;
             about = found->value("by", std::string());
             copy = {{"subject", "Comment on " + a->second.name}, {"body", found->value("text", std::string())}, {"at", found->value("at", 0LL)}};
+        } else if (kind == "forum") {
+            // id: "thread:post". Staff see a copy, in case it's deleted.
+            const size_t colon = id.find(':');
+            std::string title;
+            const json* found = colon == std::string::npos ? nullptr : forumPost(id.substr(0, colon), id.substr(colon + 1), &title);
+            if (!found) return fail("That post isn't there any more.");
+            if (found->value("by", std::string()) == me.id) return fail("You can't report yourself.");
+            target = id;
+            about = found->value("by", std::string());
+            copy = {{"subject", "Forum: " + title}, {"body", found->value("text", std::string())}, {"at", found->value("at", 0LL)}};
         } else {
             auto g = m_groups.find(id);
             if (g == m_groups.end()) return fail("That group isn't there any more.");
@@ -169,6 +179,12 @@ json GbServer::reportsJson(const std::string& status) const {
             auto a = findAsset(target.substr(0, target.find(':')));
             r["name"] = a != m_assets.end() ? a->second.name : "(deleted)";
             r["game"] = a != m_assets.end() ? a->second.id : "";
+        }
+        if (kind == "forum") {
+            const std::string tid = target.substr(0, target.find(':'));
+            const bool there = m_forum.contains(tid);
+            r["name"] = there ? m_forum[tid].value("title", std::string()) : "(deleted)";
+            r["thread"] = there ? tid : "";
         }
         if (kind == "group") {
             auto g = m_groups.find(target);

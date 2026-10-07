@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'reply-guy-simulator', name: 'Reply Guy Simulator', time: 1791349000, tag: 'Website',
+    summary: 'The Forum is here: ask for help, show off your games, and argue about nothing in Off Topic.',
+    items: [
+      'A new Forum tab on the website and in the app, with boards for Help, Scripting, Building, Game Ads, Trading and Off Topic',
+      'Start threads, reply, and get a notification when someone answers you',
+      'Report posts that break the rules; staff can delete posts and pin or lock threads',
+      'News & Announcements is where the Guts&Bolts team posts what\'s new',
+    ],
+  },
+  {
     id: 'can-you-hear-me-now', name: 'Can You Hear Me Now?', time: 1791348000, tag: 'Player',
     summary: 'Voice chat: hold V to talk to the players around you, and hear them from their characters.',
     items: [
