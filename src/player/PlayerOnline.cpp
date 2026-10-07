@@ -113,6 +113,9 @@ void PlayerApp::refreshOnline(const std::string& what) {
         Online::request("list", {{"kind", "game"}, {"sort", "popular"}, {"limit", 30}}, [this](const json& r) {
             if (r.value("ok", false)) m_onlineGames = r["assets"];
         });
+        Online::request("list", {{"kind", "game"}, {"sort", "featured"}, {"limit", 8}}, [this](const json& r) {
+            if (r.value("ok", false)) m_featuredGames = r["assets"];
+        });
     } else if (what == "mine") {
         Online::request("list", {{"creator", Account::id()}, {"limit", 100}}, [this](const json& r) {
             if (r.value("ok", false)) m_myCreations = r["assets"];
@@ -1030,6 +1033,7 @@ void PlayerApp::drawOnlineGames() {
         ImGui::PopID();
         ImGui::Separator();
     };
+    row("Featured Games", m_featuredGames, 1, nullptr);   // picked by the staff
     row("Continue Playing", m_recentGames, 1, nullptr);
     row("Favorites", m_favGames, 1, nullptr);
     row("Online Games", m_onlineGames, 2, Online::pending() ? "Loading..." : "No games published yet. Publish one from Studio!");
@@ -1058,6 +1062,19 @@ void PlayerApp::drawOnlineGameDialog() {
         std::string star = std::string(fav ? "Favorited" : "Favorite") + " (" + std::to_string(g.value("favorites", 0LL)) + ")";
         if (fav ? Classic::button(star.c_str(), ImVec4(0.85f, 0.62f, 0.05f, 1), ImVec2(0, 26)) : ImGui::Button(star.c_str(), ImVec2(0, 26)))
             setFavorite(g.value("id", std::string()), !fav);
+    }
+    if (g.value("featured", false)) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1.0f, 0.77f, 0.16f, 1), "Featured"); }
+    if (Account::iAmStaff()) {   // staff can put a game on (or take it off) the Featured row
+        ImGui::SameLine();
+        const bool on = !g.value("featured", false);
+        if (ImGui::SmallButton(on ? "Feature##game" : "Unfeature##game")) {
+            const std::string gid = g.value("id", std::string());
+            Online::request("admin.feature", {{"id", gid}, {"on", on}}, [this, gid](const json& r) {
+                if (!r.value("ok", false)) { m_onlineMsg = r.value("error", std::string()); return; }
+                if (m_openGame.value("id", std::string()) == gid) m_openGame["featured"] = r["asset"].value("featured", false);
+                m_loaded.clear();   // reload the rows so the Featured row updates
+            });
+        }
     }
     if (canReport() && g.value("creator", std::string()) != Online::me().value("id", std::string())) {
         ImGui::SameLine();

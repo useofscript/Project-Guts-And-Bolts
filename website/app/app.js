@@ -217,7 +217,7 @@ function gameCard(g) {
   const n = playingNow[g.id] || g.playing || 0, liked = likedPercent(g);
   return html`<a class="card" href="#/game/${g.id}">
     ${gamePic(g)}
-    <div class="name">${g.name}</div>
+    <div class="name">${g.featured ? html`<span title="Featured by staff">&#11088;</span> ` : ''}${g.name}</div>
     <div class="by">by ${g.creatorName}${verified(g.creatorVerified)}</div>
     <div class="by">${liked ? html`<span class="liked" title="${g.likes} likes, ${g.dislikes} dislikes">&#128077; ${liked}</span> · ` : ''}${n ? html`<b class="playing">${n} playing</b>` : html`${g.plays || 0} visits`}</div>
     ${(g.genres || []).length ? html`<div class="by small">${g.genres.join(' · ')}</div>` : ''}</a>`;
@@ -508,12 +508,13 @@ async function hello() {
 const pages = {};
 
 pages.home = async () => {
-  const [games, items, fr, recent, favs] = await Promise.all([
+  const [games, items, fr, recent, favs, featured] = await Promise.all([
     pageCall('list', { kind: 'game', sort: 'popular', limit: 8 }),
     pageCall('list', { kind: 'clothing', limit: 6 }),
     signedIn() ? pageCall('friends.list', {}) : Promise.resolve({ ok: false }),
     signedIn() ? pageCall('games.mine', { which: 'recent', limit: 8 }) : Promise.resolve({ ok: false }),
     signedIn() ? pageCall('games.mine', { which: 'favorites', limit: 8 }) : Promise.resolve({ ok: false }),
+    pageCall('list', { kind: 'game', sort: 'featured', limit: 8 }),
     loadPlaying(),
   ]);
   // "Continue playing" and your favourites (only when there's something in them).
@@ -534,6 +535,9 @@ pages.home = async () => {
       <a href="${more}" style="float:right">See more &raquo;</a></h2>
     ${r.ok && r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
       : html`<p class="muted small">${r.ok ? 'No games published yet. Publish one from Studio!' : r.error}</p>`}</div>`;
+  // Featured: games staff picked (only shown when there are some).
+  const featuredBox = featured.ok && featured.assets.length ? html`<div class="box featured-box"><h2 class="boxhead">&#11088; Featured Games
+      <a href="#/games?sort=featured" style="float:right">See all &raquo;</a></h2><div class="grid">${featured.assets.map(gameCard)}</div></div>` : '';
   const shopBox = html`<div class="box"><h2 class="boxhead">New in the Catalog
       <a href="#/catalog" style="float:right">See more &raquo;</a></h2>
     ${items.ok && items.assets.length ? html`<div class="grid">${items.assets.map(itemCard)}</div>`
@@ -553,7 +557,7 @@ pages.home = async () => {
           <p><a class="btn green big" href="#/signup">Sign Up and Play</a>
             <a class="btn" href="#/login">Login</a></p></div>
         <div class="welcome-guy" id="homeAvatar">${avatarSvg(defaultAvatar(), 150)}</div></div>
-      ${updateBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}`);
+      ${updateBox}${featuredBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}`);
     mountAvatar($('#homeAvatar'), defaultAvatar(), [], { width: 170 }).catch(() => {});
     return;
   }
@@ -574,7 +578,7 @@ pages.home = async () => {
               <span class="dot on"></span><a class="grow" href="#/user/${p.userId}">${p.username || p.name}</a></div>`)}</div>`
             : html`<p class="small muted">${friends.length ? 'None of your friends are on right now.' : html`No friends yet. <a href="#/people">Find some!</a>`}</p>`}</div>
       </div>
-      <div class="home-right">${updateBox}${feedBox}${continueBox}${favBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
+      <div class="home-right">${updateBox}${featuredBox}${feedBox}${continueBox}${favBox}${gameBox('Best of Guts&Bolts', games, '#/games')}${shopBox}</div>
     </div>`);
   // Dressed in what you're wearing (the server says which items those are).
   const mine = await pageCall('profile', { id: me.id });
@@ -716,7 +720,7 @@ pages.games = async (mine, which) => {
   const sort = q.get('sort') || 'popular', query = q.get('q') || '', genre = q.get('genre') || '';
   show(html`<h1>Games</h1><p class="muted">Loading...</p>`);
   const [r] = await Promise.all([pageCall('list', { kind: 'game', sort, query, genre, limit: 100 }), loadPlaying()]);
-  const sorts = [['popular', 'Most played'], ['playing', 'Playing now'], ['rated', 'Top rated'], ['new', 'Newest'], ['updated', 'Recently updated']];
+  const sorts = [['popular', 'Most played'], ['featured', 'Featured'], ['playing', 'Playing now'], ['rated', 'Top rated'], ['new', 'Newest'], ['updated', 'Recently updated']];
   const link = (over) => '#/games?' + new URLSearchParams(Object.assign({ q: query, sort, genre }, over));
   show(html`<h1>Games${genre ? html` <span class="muted">· ${genre}</span>` : ''}</h1>
     <form class="row" data-form="gameSearch"><input type="hidden" name="genre" value="${genre}">
@@ -726,7 +730,7 @@ pages.games = async (mine, which) => {
     <div class="genre-chips"><a class="chip ${genre ? '' : 'on'}" href="${link({ genre: '' })}">All</a>
       ${GENRES.map((gn) => html`<a class="chip ${genre === gn ? 'on' : ''}" href="${link({ genre: gn })}">${gn}</a>`)}</div>
     ${r.ok ? (r.assets.length ? html`<div class="grid">${r.assets.map(gameCard)}</div>`
-        : html`<p class="muted">No games found${genre ? ' in ' + genre : ''}. ${genre || query ? html`<a href="#/games">See all games</a>` : ''}</p>`)
+        : html`<p class="muted">${sort === 'featured' && !query && !genre ? 'No featured games right now.' : 'No games found' + (genre ? ' in ' + genre : '') + '.'} ${genre || query ? html`<a href="#/games">See all games</a>` : ''}</p>`)
       : html`<p class="error">${r.error}</p>`}`);
 };
 
@@ -1019,6 +1023,7 @@ pages.game = async (id) => {
     <div class="hero">${gamePic(g)}
       <div><h1 class="game-title">${gameIcon(g, 40)} ${g.name}</h1>
         ${g.access && g.access !== 'public' ? html`<p><span class="badge-pill">${ACCESS_NAMES[g.access]}</span></p>` : ''}
+        ${g.featured ? html`<p><span class="badge-pill featured-pill">&#11088; Featured</span></p>` : ''}
         <p>by <a href="#/user/${g.creator}">${g.creatorName}</a>${verified(g.creatorVerified)}</p>
         ${(g.genres || []).length ? html`<p>${g.genres.map((gn) => html`<a class="chip" href="#/games?genre=${encodeURIComponent(gn)}">${gn}</a> `)}</p>` : ''}
         <div class="votes">
@@ -1034,6 +1039,8 @@ pages.game = async (id) => {
         <button class="btn green big" data-act="play" data-id="${g.id}" data-name="${g.name}">Play</button>
         ${mine ? html` <a class="btn" href="#/configure/${g.id}">Configure this game</a>
           <button class="btn" data-act="editInStudio" data-id="${g.id}" data-name="${g.name}">Edit in Studio</button>` : ''}
+        ${signedIn() && me.staff ? html`<p><button class="btn small ${g.featured ? '' : 'gold'}" data-act="featureGame" data-id="${g.id}" data-on="${g.featured ? '' : '1'}">
+          ${g.featured ? 'Stop featuring' : 'Feature this game'}</button> <span class="small muted">(staff)</span></p>` : ''}
         <p class="small muted">Games run in the Guts&amp;Bolts app (Windows, Mac, Linux and Android).${mine ? '' : html` ${reportLink('game', g.id, g.name)}`}</p></div></div>
     <h2>Description</h2><p style="white-space:pre-wrap">${g.description || 'No description yet.'}</p>
     ${(g.badges || []).length ? html`<h2>Badges</h2><div class="list">${g.badges.map((b) => html`<div>
@@ -1921,7 +1928,7 @@ pages.staff = async () => {
 };
 
 // The staff action log: who banned, warned, verified, checked or deleted what (newest first).
-const STAFF_ACTION = { ban: '🔨', unban: '🕊️', warn: '⚠️', bolts: '💰', badge: '🏅', unbadge: '🏅', review: '🖼️', report: '🚩', delete: '🗑️', comment: '💬' };
+const STAFF_ACTION = { ban: '🔨', unban: '🕊️', warn: '⚠️', bolts: '💰', badge: '🏅', unbadge: '🏅', review: '🖼️', report: '🚩', delete: '🗑️', comment: '💬', feature: '⭐' };
 function staffLogBox(lg, logFor) {
   const person = (u) => (u ? html`<a href="#/user/${u.userId || u.id}">${u.name}</a>` : '');
   const body = !lg.ok ? html`<p class="error">${lg.error}</p>`
@@ -1941,7 +1948,7 @@ function noteLink(n) {
   if (n.kind === 'friend' || n.kind === 'follow') return '#/user/' + n.about;
   if (n.kind === 'trade') return '#/trades';
   if (n.kind === 'group') return '#/group/' + n.about;
-  if (n.kind === 'comment') return '#/game/' + n.about;
+  if (n.kind === 'comment' || n.kind === 'featured') return '#/game/' + n.about;
   if (n.kind === 'sale' || n.kind === 'upload') return '#/library/' + n.about;
   return '';
 }
@@ -1949,7 +1956,7 @@ pages.notifications = async () => {
   if (!signedIn()) { show(html`<h1>Notifications</h1>${needSignIn('see your notifications')}`); return; }
   const r = await pageCall('notes.list', {});
   if (!r.ok) { show(html`<h1>Notifications</h1><p class="error">${r.error}</p>`); return; }
-  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥', comment: '💬' };
+  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥', comment: '💬', featured: '⭐' };
   show(html`<h1>Notifications</h1>
     <div class="list notes">${r.notes.length ? r.notes.map((n) => {
       const link = noteLink(n);
@@ -2302,6 +2309,11 @@ const actions = {
     if (r.ok && r.me) setMe(r.me);
     toast(r.ok ? ({ 'trade.accept': 'Trade done!', 'trade.decline': 'Declined.', 'trade.cancel': 'Cancelled.' }[d.op]) : r.error);
     render();
+  },
+  async featureGame(d) {
+    const r = await call('admin.feature', { id: d.id, on: !!d.on });
+    toast(r.ok ? (d.on ? 'Featured! It shows on the home page now.' : 'Not featured any more.') : r.error);
+    if (r.ok) render();
   },
   async deleteComment(d) {
     if (!confirm('Delete this comment?')) return;
