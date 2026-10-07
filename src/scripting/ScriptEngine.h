@@ -103,6 +103,7 @@ public:
     // itself; a purchase prompt needs the app: it takes them, shows the player a Buy
     // window (or sends it to that player's computer) and says how it went.
     void lookUpPasses(int userId);                       // ask the server (once per player)
+    std::string onlineGameId() const;
     void setPlayerAccount(int userId, const std::string& accountId) { m_playerAccounts[userId] = accountId; }
     bool passesReady(int userId) const { return m_passReady.count(userId) > 0; }
     bool ownsPass(int userId, const std::string& pass) const;
@@ -111,6 +112,12 @@ public:
     void passPromptDone(int userId, const std::string& pass, bool bought);   // fires PromptGamePassPurchaseFinished
     struct PassResult { int userId; std::string pass; bool bought; };
     std::vector<PassResult> takePassResults() { return std::move(m_passResults); }
+    // Developer products: the prompt is a pass prompt for "product:<id>". Purchases are
+    // receipts on the server; ProcessReceipt hands each out, then the server is told.
+    void checkReceipts(int userId);                                   // fetch a player's waiting receipts
+    void receiptDone(int userId, const std::string& receipt, bool granted);
+    struct Receipt { int userId; std::string id, product; long long price; };
+    std::vector<Receipt> takeReceipts() { return std::move(m_receipts); }
     // Players' objects (outside the world) and what's in their leaderstats folder.
     uint64_t playerNode(const std::string& name);
     std::vector<std::pair<std::string, std::string>> leaderstats(const std::string& playerName);
@@ -202,6 +209,8 @@ private:
     std::map<int, std::string> m_playerAccounts;   // script UserId -> account (the local player is 1: us)
     std::vector<std::pair<int, std::string>> m_passPrompts;
     std::vector<PassResult> m_passResults;
+    std::vector<Receipt> m_receipts;
+    std::set<std::string> m_receiptsBusy;   // handed to ProcessReceipt and not answered yet
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);   // replies after the engine is gone are ignored
     bool     m_saveLoaded = false;
     // Online DataStores (see setOnlineData).

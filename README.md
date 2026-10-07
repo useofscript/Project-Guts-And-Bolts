@@ -1711,6 +1711,37 @@ There are two kinds of badges:
 
 Profiles show both kinds in separate boxes, and game pages list their badges.
 
+### Developer products (buy again and again)
+
+Like game passes, but players can buy them as many times as they want: coins, a
+revive, a speed boost for a minute. Make them on the game's **Configure** page on
+the website (under "Developer products"); each gets an ID. In a script:
+
+```lua
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- pop up a Buy window for someone
+MarketplaceService:PromptProductPurchase(player, 12)
+
+-- hand out what they bought
+MarketplaceService.ProcessReceipt = function(info)
+    -- info.PlayerId, info.ProductId, info.PurchaseId, info.CurrencySpent
+    local who = nil
+    for _, p in ipairs(game.Players:GetPlayers()) do
+        if p.UserId == info.PlayerId then who = p end
+    end
+    if not who then return Enum.ProductPurchaseDecision.NotProcessedYet end
+    who.leaderstats.Coins.Value = who.leaderstats.Coins.Value + 100
+    return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+```
+
+Every purchase is a receipt kept on the Guts&Bolts server. The game is handed each
+waiting receipt (when the buyer is in one of its online servers) until
+`ProcessReceipt` answers `PurchaseGranted`, so nobody loses what they paid for, even
+if the game crashed. Only the buyer and whoever runs a server of that game can see
+or close its receipts. The creator gets 70% of every sale.
+
 ### Teleporting between games
 
 Games can send players to another published game, like Roblox's

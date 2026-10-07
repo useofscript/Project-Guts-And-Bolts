@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'cha-ching-forever', name: 'Cha-Ching Forever', time: 1791342000, tag: 'Engine',
+    summary: 'Developer products: sell things inside your game that players can buy again and again, like coins or a revive.',
+    items: [
+      'Make them on your game\'s Configure page, then pop up a Buy window with MarketplaceService:PromptProductPurchase',
+      'MarketplaceService.ProcessReceipt hands out what they bought, like on Roblox',
+      'Every purchase is kept until the game says it handed it out, so nobody loses what they paid for',
+      'You get 70% of every sale',
+    ],
+  },
+  {
     id: 'we-outsourced-the-update', name: 'We Outsourced the Update', version: '0.7.0', time: 1791341100, tag: 'Engine',
     summary: 'An AI wrote most of this one: smarter AI helpers, teleporting between games, a chat filter, upload checks and a notification bell.',
     items: [

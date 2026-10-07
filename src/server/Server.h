@@ -68,6 +68,7 @@ private:
         std::vector<std::string> favorites, recent;          // game ids, newest first
         nlohmann::json inbox = nlohmann::json::array();     // {id, from, subject, body, at, read}, newest first
         nlohmann::json notes = nlohmann::json::array();     // the bell: {id, kind, text, about, at, read}, newest first
+        nlohmann::json receipts = nlohmann::json::array();  // developer products bought: {id, product, game, price, at, granted}
         nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
         std::string messageDay; int messagesToday = 0;
         std::string privacyMessages = "everyone";            // who can send you messages

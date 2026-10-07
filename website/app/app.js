@@ -1297,8 +1297,8 @@ pages.configure = async (id) => {
   const g = r.ok && r.assets.find((a) => a.id === id || String(a.num) === id);
   if (!g) { show(html`<h1>Configure game</h1><p class="error">${r.ok ? 'That isn\'t one of your games.' : r.error}</p>`); return; }
   const access = g.access || 'public';
-  const pr = await pageCall('pass.list', { game: g.id });
-  const passes = pr.ok ? pr.passes : [];
+  const [pr, dr] = await Promise.all([pageCall('pass.list', { game: g.id }), pageCall('pass.list', { game: g.id, products: true })]);
+  const passes = pr.ok ? pr.passes : [], products = dr.ok ? dr.passes : [];
   const choice = (v, label, note) => html`<label class="choice"><input type="radio" name="access" value="${v}" ${access === v ? 'checked' : ''}>
     <b>${label}</b> <span class="muted small">${note}</span></label>`;
   show(html`<p><a href="#/create/games">&lt; My Games</a></p>
@@ -1366,7 +1366,24 @@ pages.configure = async (id) => {
         <label>Description <span class="muted small">(what it gives)</span></label><input type="text" name="description" maxlength="300">
         <label>Price in Bolts <span class="muted small">(0 = free; selling needs a Verified account)</span></label><input type="number" name="price" min="0" max="1000000" value="0" style="max-width:140px">
         <label>Picture <span class="muted small">(optional, a square)</span></label><input type="file" name="icon" accept="image/png,image/jpeg">
-        <p><button class="btn green">Make pass</button></p></form></div>`);
+        <p><button class="btn green">Make pass</button></p></form></div>
+    <div class="box"><h2 class="boxhead">Developer products</h2>
+      <p class="small muted">Things players can buy again and again inside your game (coins, a revive, a speed boost for a minute).
+        You get 70% of every sale. Pop up a purchase with
+        <code>game:GetService("MarketplaceService"):PromptProductPurchase(player, ID)</code> and hand out what they bought in
+        <code>MarketplaceService.ProcessReceipt</code> (return <code>Enum.ProductPurchaseDecision.PurchaseGranted</code> when done;
+        anything else and it's tried again later, so nobody loses what they paid for).</p>
+      ${products.length ? html`<div class="list">${products.map((p) => html`<div>
+          <span class="grow"><b>${p.name}</b> · ${p.price > 0 ? bolts(p.price) : 'free'}${p.offsale ? html` · <span class="muted">off sale</span>` : ''}<br>
+            <span class="small muted">ID ${p.num} · sold ${p.sales || 0}</span></span>
+          <button class="btn small" data-act="copyText" data-text="${p.num}">Copy ID</button>
+          <button class="btn small" data-act="passOffsale" data-id="${p.id}" data-on="${p.offsale ? '' : '1'}">${p.offsale ? 'Put on sale' : 'Take off sale'}</button></div>`)}</div>`
+        : html`<p class="muted">No developer products yet.</p>`}
+      <form class="form" data-form="newProduct"><input type="hidden" name="game" value="${g.id}">
+        <label>Product name</label><input type="text" name="name" maxlength="50" required>
+        <label>Description <span class="muted small">(what it gives)</span></label><input type="text" name="description" maxlength="300">
+        <label>Price in Bolts <span class="muted small">(selling needs a Verified account)</span></label><input type="number" name="price" min="0" max="1000000" value="10" style="max-width:140px">
+        <p><button class="btn green">Make product</button></p></form></div>`);
   loadThumbs();
   // Show a picked picture straight away.
   view.querySelectorAll('input[data-preview]').forEach((inp) => inp.addEventListener('change', () => {
@@ -2565,6 +2582,12 @@ const forms = {
     if (f.icon.files[0]) args.icon = await pictureBase64(f.icon.files[0], 256, 256);
     const r = await call('pass.create', args);
     toast(r.ok ? 'Pass made! Its ID is ' + r.asset.num + '.' : r.error);
+    if (r.ok) render();
+  },
+  async newProduct(f) {
+    const r = await call('pass.create', { game: f.game.value, product: true, name: f.name.value, description: f.description.value,
+      price: Number(f.price.value) || 0 });
+    toast(r.ok ? 'Product made! Its ID is ' + r.asset.num + '.' : r.error);
     if (r.ok) render();
   },
   async newBadge(f) {
