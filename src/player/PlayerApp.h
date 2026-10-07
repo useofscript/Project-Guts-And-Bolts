@@ -315,6 +315,11 @@ private:
     std::string m_devFilter, m_devCommand;
     std::string m_gameOwner;   // the account that made the game we're hosting
     bool        m_iMadeThis = false;   // the game we're in is ours (or a file on this computer)
+    // TeleportService: a script sent us to another game.
+    std::string    m_playingKey;                    // the published game we're in ("" = a file or joined)
+    nlohmann::json m_teleportData;                  // what we bring there: {"data", "from"} (null = not teleporting)
+    bool           m_teleporting = false;           // looking the game up
+    void teleportMe(const std::string& place, const nlohmann::json& data, const std::string& from);
     void drawDevConsole();
     // Game passes: the Buy window a game's script asked for (PlayerPasses.cpp).
     std::string    m_passPrompt, m_passMsg;   // the pass being offered ("" = none)

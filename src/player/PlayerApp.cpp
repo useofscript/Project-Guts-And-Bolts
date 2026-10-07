@@ -69,6 +69,7 @@ PlayerApp::PlayerApp(PlayerOptions opts) : m_opts(std::move(opts)) {
     m_renderer = std::make_unique<SceneRenderer>();
     m_scene    = std::make_unique<Scene>();
     m_session  = std::make_unique<GameSession>(m_scene.get());
+    m_session->scripts().setTeleportsWork(true);   // (Studio leaves it off: there it only prints a note)
     m_soloChat = std::make_unique<ChatLog>();
     if (!m_opts.touchTest.empty() && m_opts.touchTest.rfind("sdl-", 0) != 0)
         GraphicsSettings::get().touchControls = GraphicsSettings::TouchOn;
@@ -417,6 +418,7 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
     }
     Online::fetchSounds(*m_scene);   // server audio ("gb:" sounds) this game uses
     m_iMadeThis = gameKey.empty() || (!m_gameOwner.empty() && m_gameOwner == Account::id());
+    m_playingKey = gameKey;
     Profile& me = Profile::get();
     if (Player* p = m_scene->player()) {
         me.applyTo(*p);
@@ -482,6 +484,11 @@ void PlayerApp::joinGame(const std::filesystem::path& path, HostMode mode, const
             }
         }
     }
+    // Teleported here? Then the game's scripts can read what we brought (player:GetJoinData()).
+    ScriptEngine& se = m_session->scripts();
+    se.clearJoinData();
+    if (m_teleportData.is_object()) se.setJoinData(Online::playerName(), m_teleportData);
+    m_teleportData = nullptr;
     m_session->start();
     m_page = Page::Game;
 }
@@ -580,8 +587,29 @@ void PlayerApp::sendChat(const std::string& text) {
     else               m_soloChat->add(Online::playerName(), text, false, Account::iAmStaff(), Badges::iHave(Badges::Id::Verified));
 }
 
+// Off to another game: look it up first (if it's not a game we can play, we stay here),
+// then leave and press Play on it, bringing the teleport data along.
+void PlayerApp::teleportMe(const std::string& place, const nlohmann::json& data, const std::string& from) {
+    if (m_teleporting || place.empty()) return;
+    if (!Online::online()) { Log::warn("TeleportService: you need to be connected to Guts&Bolts to go to another game"); return; }
+    m_teleporting = true;
+    Log::info("Teleporting to game " + place + "...");
+    Online::request("asset.info", {{"id", place}}, [this, place, data, from](const nlohmann::json& r) {
+        m_teleporting = false;
+        if (m_page != Page::Game) return;   // they left by themselves meanwhile
+        const nlohmann::json a = r.value("asset", nlohmann::json::object());
+        if (!r.value("ok", false)) { Log::warn("TeleportService: " + r.value("error", std::string("couldn't find that game"))); return; }
+        if (a.value("kind", std::string()) != "game") { Log::warn("TeleportService: " + place + " isn't a game"); return; }
+        const std::string title = a.value("name", std::string("a game"));
+        leaveGame();
+        m_teleportData = nlohmann::json{{"data", data}, {"from", from}};
+        playGame(place, title, onlineStarter(place));
+    });
+}
+
 void PlayerApp::leaveGame() {
     m_waitKey.clear();   // (stop waiting for a game server machine)
+    m_playingKey.clear();
     m_server.reset();
     m_client.reset();
     m_session->stop();
@@ -1578,6 +1606,17 @@ void PlayerApp::drawGame(float dt) {
                 m_server->announce(r.value("player", std::string()) + " earned the badge \"" + r.value("name", std::string()) + "\"!");
         });
     }
+
+    // TeleportService: players the game's scripts sent to another game. We go ourselves;
+    // people who joined us get told to go (their app does the rest).
+    for (auto& tp : m_session->scripts().takeTeleports()) {
+        if (tp.player == m_session->scripts().playerName()) teleportMe(tp.place, tp.data, m_playingKey);
+        else if (m_server && !m_server->teleport(tp.player, tp.place, tp.data, m_playingKey))
+            Log::warn("TeleportService: " + tp.player + " isn't in this server");
+    }
+    if (m_client)
+        if (nlohmann::json tp = m_client->takeTeleport(); tp.is_object())
+            teleportMe(tp.value("place", std::string()), tp.value("data", nlohmann::json()), tp.value("from", std::string()));
 
     // Bolts for playing (not while the menu is open). Online, the server keeps count.
     if (!m_paused && Online::online()) onlinePlayTick(dt);

@@ -1677,6 +1677,30 @@ There are two kinds of badges:
 
 Profiles show both kinds in separate boxes, and game pages list their badges.
 
+### Teleporting between games
+
+Games can send players to another published game, like Roblox's
+TeleportService. The game's ID is the number in its link (the same one its
+page shows):
+
+```lua
+local TeleportService = game:GetService("TeleportService")
+TeleportService:Teleport(1234, player, { coins = 50 })        -- one player
+
+local options = Instance.new("TeleportOptions")              -- or a group
+options:SetTeleportData({ team = "Red" })
+TeleportService:TeleportAsync(1234, { player1, player2 }, options)
+```
+
+The player's app leaves and joins that game the way **Play** does (an open
+server if there is one, otherwise a new one). Over there, `player:GetJoinData()`
+gives `TeleportData` (what you sent) and `SourcePlaceId` (the game they came
+from), and a LocalScript can use `TeleportService:GetLocalPlayerTeleportData()`.
+The data travels through the player's own app, so like on Roblox, don't trust
+it for anything valuable (keep coins in a DataStore). A LocalScript can teleport
+its own player too. In Studio's play test nobody moves; Output just says where
+they would have gone.
+
 ### Signing up and logging in
 
 When you connect to a Guts&Bolts server, the site asks you to **Sign Up** or

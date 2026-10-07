@@ -769,6 +769,10 @@ void NetServer::handle(Client& c, const std::string& text) {
         if (Player* host = m_scene->player()) c.knownChars.insert(host->rootId());
         for (auto& r : m_scene->remotes()) c.knownChars.insert(r.rootId);
 
+        // Teleported here from another game (TeleportService): what they brought (player:GetJoinData()).
+        // It comes from their app, so like Roblox's TeleportData it's only as trustworthy as they are.
+        if (const json tp = m.value("tp", json()); tp.is_object() && tp.dump().size() <= 70 * 1024)
+            m_session->scripts().setJoinData(name, tp);
         m_session->scripts().addPlayer(name, rig->id, c.id + 1, Player::backpackOf(*m_scene, rig)->id);
         m_session->joinerArrived(rig->id);   // their StarterPack tools
         if (!c.guest && !c.accountId.empty()) m_session->scripts().setPlayerAccount(c.id + 1, c.accountId);   // (game passes)
@@ -976,6 +980,13 @@ std::string NetServer::worldMessage(bool) {
         m_scene->fxQueue.clear();
     }
     return msg.dump();
+}
+
+bool NetServer::teleport(const std::string& name, const std::string& place, const json& data, const std::string& from) {
+    Client* c = findClient(name);
+    if (!c) return false;
+    c->conn->send(json{{"t", "teleport"}, {"place", place}, {"data", data}, {"from", from}}.dump());
+    return true;
 }
 
 bool NetServer::iAmOwner() const { return !m_owner.empty() && m_owner == Account::id(); }
@@ -1210,10 +1221,12 @@ void NetClient::handle(const std::string& text) {
     if (t == "challenge") {
         Profile& me = Profile::get();
         const bool guest = Online::isGuest() && Online::online();
-        m_conn->send(json{{"t", "hello"}, {"version", kVersion}, {"name", Online::playerName()},
-                          {"guest", guest}, {"avatar", avatarJson(me)},
-                          {"id", Account::id()}, {"sig", Account::sign("gb-join:" + m.value("nonce", std::string()))},
-                          {"cnonce", m_nonce}, {"grants", myGrants()}}.dump());
+        json hello = {{"t", "hello"}, {"version", kVersion}, {"name", Online::playerName()},
+                      {"guest", guest}, {"avatar", avatarJson(me)},
+                      {"id", Account::id()}, {"sig", Account::sign("gb-join:" + m.value("nonce", std::string()))},
+                      {"cnonce", m_nonce}, {"grants", myGrants()}};
+        if (m_joinData.is_object()) hello["tp"] = m_joinData;   // teleported here (TeleportService)
+        m_conn->send(hello.dump());
         return;
     }
     if (t == "welcome") {
@@ -1285,6 +1298,8 @@ void NetClient::handle(const std::string& text) {
         ScriptEngine& se = m_session->scripts();
         se.setLocalUserId(m.value("uid", 0));
         se.setPlayerName(m.value("name", Online::playerName()));
+        se.clearJoinData();
+        if (m_joinData.is_object()) se.setJoinData(m.value("name", Online::playerName()), m_joinData);
         se.idToServer = [this](uint64_t id) {
             Player* p = m_scene->player();
             return p && id == p->rootId() ? m_myServerRoot : id;
@@ -1300,6 +1315,11 @@ void NetClient::handle(const std::string& text) {
         return;
     }
     if (t == "devowner") { m_devOwner = true; return; }
+    if (t == "teleport") {   // the server's scripts sent us to another game (TeleportService)
+        m_teleport = json{{"place", m.value("place", std::string())}, {"data", m.value("data", json())},
+                          {"from", m.value("from", std::string())}};
+        return;
+    }
     if (t == "devlog") {
         for (const auto& l : m.value("lines", json::array())) {
             if (!l.is_array() || l.size() != 3 || !l[0].is_number_integer() || !l[1].is_string() || !l[2].is_string()) continue;
