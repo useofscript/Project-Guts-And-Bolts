@@ -34,15 +34,17 @@ void PlayerApp::openPassPrompt(const std::string& pass, bool forHost) {
     m_passInfo = json();
     m_passMsg = "Loading...";
     m_passBusy = false;
-    if (!Online::online()) { m_passMsg = "You need to be online to buy passes."; return; }
-    Online::request("asset.info", {{"id", pass}}, [this, pass](const json& r) {
+    if (!Online::online()) { m_passMsg = "You need to be online to buy things."; return; }
+    // Developer products come as "product:<id>" (bought again and again; the game hands them out).
+    const bool product = pass.rfind("product:", 0) == 0;
+    Online::request("asset.info", {{"id", product ? pass.substr(8) : pass}}, [this, pass, product](const json& r) {
         if (m_passPrompt != pass) return;
-        if (!r.value("ok", false) || !r.contains("asset") || r["asset"].value("kind", std::string()) != "gamepass") {
-            m_passMsg = "That game pass doesn't exist.";
+        if (!r.value("ok", false) || !r.contains("asset") || r["asset"].value("kind", std::string()) != (product ? "devproduct" : "gamepass")) {
+            m_passMsg = product ? "That product doesn't exist." : "That game pass doesn't exist.";
             return;
         }
         m_passInfo = r["asset"];
-        m_passOwned = r.value("owned", false);
+        m_passOwned = !product && r.value("owned", false);
         m_passMsg.clear();
     });
 }
@@ -56,16 +58,17 @@ void PlayerApp::finishPassPrompt(bool bought) {
 
 void PlayerApp::drawPassPrompt() {
     if (m_passPrompt.empty()) return;
-    if (!ImGui::IsPopupOpen("Buy Game Pass")) ImGui::OpenPopup("Buy Game Pass");
+    if (!ImGui::IsPopupOpen("Buy###gbBuy")) ImGui::OpenPopup("Buy###gbBuy");
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(fitWidth(380), 0));
-    if (!ImGui::BeginPopupModal("Buy Game Pass", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) return;
+    if (!ImGui::BeginPopupModal("Buy###gbBuy", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) return;
     if (m_passInfo.is_object()) {
         const long long price = m_passInfo.value("price", 0LL);
         ImGui::SetWindowFontScale(1.3f);
         ImGui::TextWrapped("%s", m_passInfo.value("name", std::string("Game Pass")).c_str());
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextDisabled("Game Pass");
+        const bool product = m_passPrompt.rfind("product:", 0) == 0;
+        ImGui::TextDisabled("%s", product ? "Item" : "Game Pass");
         const std::string desc = m_passInfo.value("description", std::string());
         if (!desc.empty()) { ImGui::PushTextWrapPos(0); ImGui::TextUnformatted(desc.c_str()); ImGui::PopTextWrapPos(); }
         ImGui::Spacing();
@@ -83,7 +86,7 @@ void PlayerApp::drawPassPrompt() {
                 m_passBusy = true;
                 m_passMsg = "Buying...";
                 const std::string pass = m_passPrompt, id = m_passInfo.value("id", pass);
-                Online::request("buy", {{"id", id}}, [this, pass](const json& r) {
+                Online::request(product ? "product.buy" : "buy", {{"id", id}}, [this, pass](const json& r) {
                     if (m_passPrompt != pass) return;
                     m_passBusy = false;
                     if (r.value("ok", false)) { finishPassPrompt(true); m_passMsg.clear(); }
@@ -93,7 +96,7 @@ void PlayerApp::drawPassPrompt() {
             ImGui::EndDisabled();
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(100, 34))) { finishPassPrompt(false); ImGui::CloseCurrentPopup(); }
-            if (Online::isGuest()) ImGui::TextDisabled("Sign up to buy passes.");
+            if (Online::isGuest()) ImGui::TextDisabled("Sign up to buy things.");
             else if (!canAfford) ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.15f, 1), "You need %lld more Bolts.", price - Online::bolts());
         }
     } else if (ImGui::Button("Close", ImVec2(100, 30))) {

@@ -164,7 +164,9 @@ void Editor::render(float dt) {
         m_state.simStep = false;
         // Game pass Buy windows only show in the Player: a test here answers "not bought".
         for (auto& [userId, pass] : m_session->scripts().takePassPrompts()) {
-            Log::info("PromptGamePassPurchase(" + pass + "): the Buy window shows in the Guts&Bolts Player, not in Studio tests.");
+            const bool product = pass.rfind("product:", 0) == 0;
+            Log::info(std::string(product ? "PromptProductPurchase(" + pass.substr(8) : "PromptGamePassPurchase(" + pass) +
+                      "): the Buy window shows in the Guts&Bolts Player, not in Studio tests.");
             m_session->scripts().passPromptDone(userId, pass, false);
         }
         Player* p = m_scene->player();

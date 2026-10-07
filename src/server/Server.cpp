@@ -134,7 +134,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Guests can also play: download games, find and join servers (they can't chat in games).
     static const std::set<std::string> kLookOnly = {"pass.list", "pass.owned", "list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list",
-                                                    "get", "servers.play", "relay.host", "relay.join"};
+                                                    "get", "servers.play", "relay.host", "relay.join", "product.pending", "product.grant"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
         !kLookOnly.count(opName))
         return fail("Sign up or log in first.");
@@ -807,23 +807,28 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         Asset* pass = nullptr;
         if (!creating) {
             auto it = findAsset(str("id"));
-            if (it == m_assets.end() || it->second.kind != "gamepass") return fail("That pass doesn't exist (any more).");
+            if (it == m_assets.end() || (it->second.kind != "gamepass" && it->second.kind != "devproduct"))
+                return fail("That pass doesn't exist (any more).");
             pass = &it->second;
         }
+        // Developer products ("devproduct"): like passes, but bought again and again inside the game.
+        const bool product = creating ? args.value("product", false) == true : pass->kind == "devproduct";
+        const std::string kindName = product ? "devproduct" : "gamepass", what = product ? "product" : "pass",
+                          whats = product ? "products" : "passes";
         auto git = findAsset(creating ? str("game") : pass->meta.value("game", std::string()));
         if (git == m_assets.end() || git->second.kind != "game") return fail("That game doesn't exist (any more).");
         const Asset& g = git->second;
         if (g.creator != me.id && !isStaff(me)) return fail("Only the game's creator can make or change its passes.");
         if (creating) {
             int count = 0;
-            for (const auto& [id, x] : m_assets) count += x.kind == "gamepass" && x.meta.value("game", std::string()) == g.id;
-            if (count >= Online::kMostPasses) return fail("A game can have at most " + std::to_string(Online::kMostPasses) + " passes.");
+            for (const auto& [id, x] : m_assets) count += x.kind == kindName && x.meta.value("game", std::string()) == g.id;
+            if (count >= Online::kMostPasses) return fail("A game can have at most " + std::to_string(Online::kMostPasses) + " " + whats + ".");
         }
         const std::string title = creating || args.contains("name") ? say(str("name"), 50) : pass->name;
-        if (title.empty()) return fail("Give the pass a name.");
+        if (title.empty()) return fail("Give the " + what + " a name.");
         const long long price = creating || args.contains("price") ? std::clamp(num("price"), 0LL, 1000000LL) : pass->price;
         if (price > 0 && !isVerified(me) && !isStaff(me))
-            return fail("Only Verified creators can sell passes. Make it free for now, or get Verified!");
+            return fail("Only Verified creators can sell " + whats + ". Make it free for now, or get Verified!");
         std::string icon;
         if (!str("icon").empty()) {
             if (!Online::base64Decode(str("icon"), icon)) return fail("The picture got scrambled. Try again.");
@@ -839,12 +844,12 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             a.id = std::to_string(a.num);
             m_assetNums[a.id] = a.id;
             saveIds();
-            a.kind = "gamepass"; a.creator = g.creator; a.created = t;
+            a.kind = kindName; a.creator = g.creator; a.created = t;
             a.meta = {{"game", g.id}};
             writeFile(blobPath(a.id), "");
             m_assets[a.id] = a;
             pass = &m_assets[a.id];
-            if (User* owner = findUser(g.creator)) { owner->owned.insert(a.id); saveUsers(); }   // creators have their own passes
+            if (User* owner = findUser(g.creator); owner && !product) { owner->owned.insert(a.id); saveUsers(); }   // creators have their own passes
         }
         pass->name = title;
         pass->price = price;
@@ -854,11 +859,11 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         saveAssets();
         json r = okay(); r["asset"] = publicAsset(*pass); return r;
     }
-    if (name == "pass.list") {
-        const std::string game = str("game");
+    if (name == "pass.list") {   // (products: true lists the game's developer products instead)
+        const std::string game = str("game"), kindName = args.value("products", false) == true ? "devproduct" : "gamepass";
         std::vector<const Asset*> found;
         for (const auto& [id, x] : m_assets)
-            if (x.kind == "gamepass" && x.meta.value("game", std::string()) == game) found.push_back(&x);
+            if (x.kind == kindName && x.meta.value("game", std::string()) == game) found.push_back(&x);
         std::sort(found.begin(), found.end(), [](const Asset* x, const Asset* y) { return x->created < y->created; });
         json list = json::array();
         for (const Asset* x : found) { json j = publicAsset(*x); j["owned"] = me.owned.count(x->id) > 0; list.push_back(j); }
@@ -873,6 +878,62 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 if (x.kind == "gamepass" && x.meta.value("game", std::string()) == game && who->owned.count(x.id))
                     list.push_back({{"id", x.id}, {"num", x.num}});
         json r = okay(); r["passes"] = list; return r;
+    }
+    // Developer products (worker/server.js has the same): buying one makes a receipt; the game's
+    // scripts (ProcessReceipt, on whoever runs the server) ask for the buyer's waiting receipts
+    // and say when each one was handed out.
+    if (name == "product.buy") {
+        if (me.userId == 0) return fail("Sign up to buy things.");
+        auto it = findAsset(str("id"));
+        if (it == m_assets.end() || it->second.kind != "devproduct") return fail("That product doesn't exist (any more).");
+        Asset& a = it->second;
+        if (const long long off = a.meta.value("offsaleAt", 0LL); off > 0 && now >= off) return fail("That isn't for sale right now.");
+        if (balance(me) < a.price) return fail("You need " + std::to_string(a.price - balance(me)) + " more Bolts for that.");
+        const std::string rid = "r-" + Account::randomHex(6);
+        if (a.price > 0) {
+            add(me, -a.price, "Bought " + a.name, "product:" + rid);
+            if (User* seller = findUser(a.creator); seller && seller != &me) {
+                const long long share = a.price * Online::kCreatorSharePercent / 100;
+                if (share > 0) add(*seller, share, "Sold " + a.name, "productsale:" + rid);
+                notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
+            }
+        }
+        if (!me.receipts.is_array()) me.receipts = json::array();
+        me.receipts.insert(me.receipts.begin(), json{{"id", rid}, {"product", a.id}, {"game", a.meta.value("game", std::string())},
+                                                     {"price", a.price}, {"at", now}, {"granted", false}});
+        if (me.receipts.size() > 200) me.receipts.erase(me.receipts.begin() + 200, me.receipts.end());
+        a.sales++;
+        saveAssets();
+        saveUsers();
+        json r = okay(); r["receipt"] = rid; r["me"] = meJson(me); return r;
+    }
+    if (name == "product.pending" || name == "product.grant") {
+        // Only the buyer, or whoever runs an online server of that game, may look and say "handed out".
+        const std::string game = str("game");
+        User* who = args.contains("user") && args["user"].is_number() ? findUserId(args["user"].get<long long>()) : findUser(str("user"));
+        if (!who) { json r = okay(); r["receipts"] = json::array(); return r; }
+        bool hosts = false;
+        for (const auto& [sid, s] : m_sessions) if (s.host == me.id && s.game == game) hosts = true;
+        if (who->id != me.id && !hosts) return fail("Only a server of that game can see its receipts.");
+        if (!who->receipts.is_array()) who->receipts = json::array();
+        if (name == "product.grant") {
+            for (json& r : who->receipts)
+                if (r.value("game", std::string()) == game && r.value("id", std::string()) == str("receipt")) {
+                    r["granted"] = true;
+                    saveUsers();
+                    return okay();
+                }
+            return fail("There's no receipt like that.");
+        }
+        json list = json::array();
+        for (auto r = who->receipts.rbegin(); r != who->receipts.rend(); ++r) {   // oldest first
+            if (r->value("game", std::string()) != game || r->value("granted", false)) continue;
+            const std::string pid = r->value("product", std::string());
+            auto p = m_assets.find(pid);
+            list.push_back({{"id", r->value("id", std::string())}, {"product", pid}, {"num", p != m_assets.end() ? p->second.num : 0},
+                            {"price", r->value("price", 0LL)}, {"at", r->value("at", 0LL)}});
+        }
+        json r = okay(); r["receipts"] = list; return r;
     }
     // --- Game badges: creators make them on their game's page, game scripts award them.
     if (name == "gamebadge.create" || name == "gamebadge.delete") {
@@ -1055,6 +1116,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         Asset& a = it->second;
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
         if (!reviewOf(a.meta).empty() && a.creator != me.id) return fail("This is waiting for a staff check.");
+        if (a.kind == "devproduct") return fail("Developer products are bought inside their game.");
         if (a.meta.is_object() && a.meta.value("award", std::string()) == "email")
             return fail("This hat can't be bought: confirm an email in Settings and it's yours.");
         if (const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL; off > 0 && now >= off)
@@ -1132,6 +1194,7 @@ void GbServer::saveUsers() {
         all[id]["recent"] = u.recent;
         all[id]["inbox"] = u.inbox;
         all[id]["notes"] = u.notes;
+        all[id]["receipts"] = u.receipts;
         all[id]["sent"] = u.sent;
         all[id]["messageDay"] = u.messageDay;
         all[id]["messagesToday"] = u.messagesToday;
@@ -1253,6 +1316,7 @@ void GbServer::load() {
                 if (j.contains("outfits") && j["outfits"].is_array()) u.outfits = j["outfits"];
                 if (j.contains("inbox") && j["inbox"].is_array()) u.inbox = j["inbox"];
                 if (j.contains("notes") && j["notes"].is_array()) u.notes = j["notes"];
+                if (j.contains("receipts") && j["receipts"].is_array()) u.receipts = j["receipts"];
                 if (j.contains("sent") && j["sent"].is_array()) u.sent = j["sent"];
                 for (const char* k : {"favorites", "recent"})
                     if (j.contains(k) && j[k].is_array())

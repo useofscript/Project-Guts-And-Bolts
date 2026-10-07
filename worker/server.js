@@ -161,7 +161,7 @@ const GENRES = ['Adventure', 'Obby', 'Fighting', 'Horror', 'Roleplay', 'Simulato
 // How well liked a game is, for sorting: likes out of votes, pulled towards 50% while there are few votes.
 const ratingOf = (a) => ((a.likes || 0) + 1) / ((a.likes || 0) + (a.dislikes || 0) + 2);
 // Guests (no account) can also play: download games, find and join servers (not chat, that's in the game).
-const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join']);
+const GUEST_OK = new Set([...LOOK_ONLY, 'get', 'servers.play', 'relay.host', 'relay.join', 'product.pending', 'product.grant']);   // (product.*: guests can host games too)
 
 // Assets have plain numbers counting up, like Roblox's asset IDs (1, 2, 3...). New ones
 // use the number as their ID; older ones ("decal-1a2b3c4d5e") got a number too and
@@ -1498,16 +1498,20 @@ export class GbServerObject extends DurableObject {
     if (name === 'pass.create' || name === 'pass.edit') {
       const creating = name === 'pass.create';
       const a = creating ? null : this.assets.get(str(args, 'id'));
-      if (!creating && (!a || a.kind !== 'gamepass')) return fail('That pass doesn\'t exist (any more).');
+      // Developer products (kind 'devproduct'): like passes, but bought again and again inside the game
+      // (MarketplaceService:PromptProductPurchase), each purchase a receipt the game's scripts hand out.
+      const product = creating ? args.product === true : !!a && a.kind === 'devproduct';
+      const kindName = product ? 'devproduct' : 'gamepass', what = product ? 'product' : 'pass';
+      if (!creating && (!a || (a.kind !== 'gamepass' && a.kind !== 'devproduct'))) return fail('That pass doesn\'t exist (any more).');
       const g = this.assets.get(creating ? str(args, 'game') : (a.meta || {}).game);
       if (!g || g.kind !== 'game') return fail('That game doesn\'t exist (any more).');
       if (g.creator !== me.id && !this.isStaff(me)) return fail('Only the game\'s creator can make or change its passes.');
-      if (creating && [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === g.id).length >= kMostPasses)
-        return fail('A game can have at most ' + kMostPasses + ' passes.');
+      if (creating && [...this.assets.values()].filter((x) => x.kind === kindName && (x.meta || {}).game === g.id).length >= kMostPasses)
+        return fail('A game can have at most ' + kMostPasses + ' ' + what + (product ? 's.' : 'es.'));
       const title = 'name' in args || creating ? say(str(args, 'name'), 50) : a.name;
-      if (!title) return fail('Give the pass a name.');
+      if (!title) return fail('Give the ' + what + ' a name.');
       const price = 'price' in args || creating ? clamp(num(args, 'price'), 0, 1000000) : a.price;
-      if (price > 0 && !this.isVerified(me) && !this.isStaff(me)) return fail('Only Verified creators can sell passes. Make it free for now, or get Verified!');
+      if (price > 0 && !this.isVerified(me) && !this.isStaff(me)) return fail('Only Verified creators can sell ' + what + (product ? 's' : 'es') + '. Make it free for now, or get Verified!');
       let icon = null;
       if (str(args, 'icon')) {
         try { icon = b64ToBytes(str(args, 'icon')); } catch { return fail('The picture got scrambled. Try again.'); }
@@ -1519,12 +1523,12 @@ export class GbServerObject extends DurableObject {
       if (creating) {
         const assetNo = this.nextAssetNum++;
         this.dirty.ids = true;
-        pass = { id: String(assetNo), num: assetNo, kind: 'gamepass', name: title, description: '', creator: g.creator, price, created: t,
+        pass = { id: String(assetNo), num: assetNo, kind: kindName, name: title, description: '', creator: g.creator, price, created: t,
           sales: 0, plays: 0, size: 0, meta: { game: g.id } };
         this.writeFile(pass.id, new Uint8Array(0));
         this.assets.set(pass.id, pass);
         const owner = this.findUser(g.creator);
-        if (owner && !owner.owned.includes(pass.id)) { owner.owned.push(pass.id); this.saveUser(owner); }   // creators have their own passes
+        if (!product && owner && !owner.owned.includes(pass.id)) { owner.owned.push(pass.id); this.saveUser(owner); }   // creators have their own passes
       }
       pass.name = title;
       pass.price = price;
@@ -1535,9 +1539,9 @@ export class GbServerObject extends DurableObject {
       this.saveAsset(pass);
       return okay({ asset: this.publicAsset(pass, me) });
     }
-    if (name === 'pass.list') {
-      const gameId = str(args, 'game');
-      const list = [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === gameId)
+    if (name === 'pass.list') {   // (products: true lists the game's developer products instead)
+      const gameId = str(args, 'game'), kindName = args.products === true ? 'devproduct' : 'gamepass';
+      const list = [...this.assets.values()].filter((x) => x.kind === kindName && (x.meta || {}).game === gameId)
         .sort((x, y) => x.created - y.created)
         .map((x) => ({ ...this.publicAsset(x, me), owned: me.owned.includes(x.id) }));
       return okay({ passes: list });
@@ -1551,6 +1555,50 @@ export class GbServerObject extends DurableObject {
       const passes = [...this.assets.values()].filter((x) => x.kind === 'gamepass' && (x.meta || {}).game === gameId && who.owned.includes(x.id))
         .map((x) => ({ id: x.id, num: x.num || 0 }));
       return okay({ passes });
+    }
+    // Developer products: buying one makes a receipt; the game's scripts (ProcessReceipt, on whoever
+    // runs the server) ask for the buyer's waiting receipts and say when each one was handed out.
+    if (name === 'product.buy') {
+      if (me.userId === 0) return fail('Sign up to buy things.');
+      const a = this.assets.get(str(args, 'id'));
+      if (!a || a.kind !== 'devproduct') return fail('That product doesn\'t exist (any more).');
+      if (this.isOffsale(a)) return fail('That isn\'t for sale right now.');
+      if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
+      const receipt = { id: 'r-' + randomHex(6), product: a.id, game: (a.meta || {}).game, price: a.price, at: t, granted: false };
+      if (a.price > 0) {
+        this.add(me, -a.price, 'Bought ' + a.name, 'product:' + receipt.id);
+        const seller = this.findUser(a.creator);
+        if (seller && seller !== me) {
+          const share = Math.floor(a.price * kCreatorSharePercent / 100);
+          if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'productsale:' + receipt.id);
+          this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
+        }
+      }
+      me.receipts = [receipt, ...(me.receipts || [])].slice(0, 200);
+      a.sales++;
+      this.saveAsset(a); this.saveUser(me);
+      return okay({ receipt: receipt.id, me: this.meJson(me) });
+    }
+    if (name === 'product.pending' || name === 'product.grant') {
+      // Only the buyer, or whoever runs an online server of that game, may look and say "handed out".
+      const gameId = str(args, 'game');
+      const who = typeof args.user === 'number' ? this.findUserId(args.user) : this.findUser(str(args, 'user'));
+      if (!who) return okay({ receipts: [] });
+      const hosts = [...this.sessions.values()].some((x) => x.host === me.id && x.game === gameId);
+      if (who.id !== me.id && !hosts) return fail('Only a server of that game can see its receipts.');
+      const mine = (who.receipts || []).filter((r) => r.game === gameId);
+      if (name === 'product.grant') {
+        const r = mine.find((x) => x.id === str(args, 'receipt'));
+        if (!r) return fail('There\'s no receipt like that.');
+        r.granted = true;
+        this.saveUser(who);
+        return okay();
+      }
+      const receipts = mine.filter((r) => !r.granted).reverse().map((r) => {   // oldest first
+        const a = this.assets.get(r.product);
+        return { id: r.id, product: r.product, num: a ? a.num || 0 : 0, price: r.price, at: r.at };
+      });
+      return okay({ receipts });
     }
     // --- Game badges: creators make them on their game's page, game scripts award them.
     if (name === 'gamebadge.create' || name === 'gamebadge.delete') {
@@ -1689,6 +1737,7 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       if (me.owned.includes(a.id)) return okay({ me: this.meJson(me), already: true });
       if (a.review && a.creator !== me.id) return fail(this.noPlay(a));
+      if (a.kind === 'devproduct') return fail('Developer products are bought inside their game.');
       if (a.meta && a.meta.award === 'email') return fail('This hat can\'t be bought: confirm an email in Settings and it\'s yours.');
       if (this.isOffsale(a)) return fail('This item is off sale: it was only for sale for a limited time.' + (a.limited ? ' Buy one from a reseller on the item\'s page.' : ''));
       if (a.limited && a.sales >= a.stock) return fail('Sold out! Buy one from a reseller on the item\'s page.');
