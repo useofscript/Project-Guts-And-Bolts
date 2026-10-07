@@ -69,9 +69,9 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
     // --- Classic profile: "About me" and "Right now I'm..." ---
     if (name == "profile.set") {
         if (me.userId == 0) return fail("Sign up first.");
-        if (args.contains("blurb")) me.blurb = Online::cleanText(str("blurb"), kMaxBlurb, true);
+        if (args.contains("blurb")) me.blurb = say(str("blurb"), kMaxBlurb, true);
         if (args.contains("status")) {
-            const std::string text = Online::cleanText(str("status"), kMaxStatus);
+            const std::string text = say(str("status"), kMaxStatus);
             if (!text.empty()) {
                 if (me.statusDay != today) { me.statusDay = today; me.statusesToday = 0; }
                 if (me.statusesToday >= kStatusesPerDay) return fail("That's enough status updates for today.");
@@ -132,7 +132,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         if (name == "outfit.list") return list();
         if (name == "outfit.save") {
             if (!me.avatar.is_object()) return fail("Change your look first, then save it as an outfit.");
-            std::string title = Online::cleanText(str("name"), 40);
+            std::string title = say(str("name"), 40);
             if (title.empty()) title = "Outfit " + std::to_string(me.outfits.size() + 1);
             if (json* old = find()) { (*old)["avatar"] = me.avatar; (*old)["name"] = title; }
             else {
@@ -156,7 +156,7 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
             return list();
         }
         if (name == "outfit.rename") {
-            const std::string title = Online::cleanText(str("name"), 40);
+            const std::string title = say(str("name"), 40);
             if (title.empty()) return fail("Give it a name.");
             (*o)["name"] = title;
             saveUsers();
@@ -226,9 +226,9 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         const std::string& setting = them->privacyMessages;
         if (setting == "nobody" || (setting == "friends" && !them->friends.count(me.id)))
             return fail(setting == "friends" ? them->name + " only gets messages from friends." : them->name + " doesn't get messages.");
-        std::string subject = Online::cleanText(str("subject"), 80);
+        std::string subject = say(str("subject"), 80);
         if (subject.empty()) subject = "(no subject)";
-        const std::string body = Online::cleanText(str("body"), 2000, true);
+        const std::string body = say(str("body"), 2000, true);
         if (body.empty()) return fail("Write something first.");
         if (me.messageDay != today) { me.messageDay = today; me.messagesToday = 0; }
         if (me.messagesToday >= kMessagesPerDay) return fail("That's " + std::to_string(kMessagesPerDay) + " messages today. Try again tomorrow.");
@@ -240,6 +240,13 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         if (!me.sent.is_array()) me.sent = json::array();
         me.sent.insert(me.sent.begin(), json{{"id", id}, {"to", them->id}, {"subject", subject}, {"body", body}, {"at", now}});
         while (me.sent.size() > kMaxSent) me.sent.erase(me.sent.end() - 1);
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
+    // The bell (worker/server.js has the same): newest first, and mark them all read.
+    if (name == "notes.list") { json r = okay(); r["notes"] = me.notes; r["me"] = meJson(me); return r; }
+    if (name == "notes.read") {
+        for (json& n : me.notes) n["read"] = true;
         saveUsers();
         json r = okay(); r["me"] = meJson(me); return r;
     }

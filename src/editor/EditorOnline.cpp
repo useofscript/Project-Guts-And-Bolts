@@ -516,6 +516,9 @@ void Editor::uploadLocalTextures(json node, const std::string& name, std::functi
         Online::request("upload", args, [this, st, step, path, done](const json& r) {
             if (!r.value("ok", false)) { done(json(), "Couldn't upload a picture it uses: " + r.value("error", std::string())); return; }
             st->refs[path] = "gb:" + r["asset"].value("id", std::string());
+            if (r["asset"].value("review", std::string()) == "pending")
+                Log::info("\"" + r["asset"].value("name", std::string()) + "\" shows up for other players once staff check it "
+                          "(Verified creators skip this).");
             ++st->at;
             (*step)();
         }, 120);

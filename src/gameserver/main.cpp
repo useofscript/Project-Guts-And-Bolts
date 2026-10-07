@@ -105,6 +105,7 @@ int runGame(const std::string& gameId, int max) {
     session.scripts().setNoLocalPlayer(true);
     session.scripts().setPlayerName("Server");
     session.scripts().setOnlineData(true, gameId);   // DataStores: the game's data on the Guts&Bolts server
+    session.scripts().setTeleportsWork(true);   // TeleportService: we tell the player's app where to go
 
     NetServer server(&scene, &session);
     server.setDedicated(true);
@@ -130,6 +131,8 @@ int runGame(const std::string& gameId, int max) {
         Online::update();
         server.update((float)kStep);
         session.update((float)kStep, 0.0f, false);
+        for (auto& tp : session.scripts().takeTeleports())
+            if (!server.teleport(tp.player, tp.place, tp.data, gameId)) say("Teleport: " + tp.player + " isn't here");
         ImGui::EndFrame();
 
         if (!server.relayed() && !server.relayError().empty()) { say("Server closed: " + server.relayError()); break; }

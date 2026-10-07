@@ -462,6 +462,15 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 }
 .item-creator td { white-space: nowrap; }
 
+/* The bell (notifications) */
+.me .bell { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-right: 8px; color: inherit; }
+.me .bell .unread { position: absolute; top: -6px; right: -9px; min-width: 15px; padding: 0 3px; border-radius: 8px; background: #d6261c;
+  color: #fff; font-size: 10px; line-height: 15px; text-align: center; }
+.notes > div { display: flex; align-items: center; gap: 10px; }
+.notes > div > a { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; min-width: 0; }
+.notes .note-icon { font-size: 18px; width: 24px; text-align: center; }
+.notes > div.unread { background: rgba(29,111,216,.07); font-weight: bold; }
+
 /* Messages (the inbox) */
 .subnav a .unread, .tabs .unread { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 8px; background: #d6261c; color: #fff;
   font-size: 10px; line-height: 16px; text-align: center; margin-left: 3px; }
@@ -571,4 +580,7 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 .report:first-child { border-top: 0; }
 .report p { margin: 4px 0; }
 .report-note { font-style: italic; white-space: pre-wrap; }
+.review-preview { width: 120px; min-height: 60px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.review-preview img { max-width: 120px; max-height: 120px; border-radius: 4px; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+.review-preview audio { width: 120px; }
 .report-copy { background: var(--stripe); border: 1px solid var(--line); padding: 6px 8px; white-space: pre-wrap; margin: 4px 0; }

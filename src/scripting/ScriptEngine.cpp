@@ -78,9 +78,12 @@ local function uiFolder()
     return f
 end
 __gb_uiFolder = uiFolder
+local joinData = __gb_joinData
+local function getJoinData(self) return joinData(rawget(self, "Name")) end
 local playerMeta = {
     __index = function(t, k)
         if k == "PlayerGui" then return uiFolder() end
+        if k == "GetJoinData" then return getJoinData end
         return rawget(t, "__node")[k]
     end,
     __newindex = function(t, k, v)
@@ -426,6 +429,42 @@ function BadgeService:UserHasBadgeAsync(player, badgeId)
     return hasBadge(nameOf(player), tostring(badgeId))
 end
 BadgeService.UserHasBadge = BadgeService.UserHasBadgeAsync
+
+-- TeleportService: send players to another game (its ID is the number in the game's
+-- link), with some data they bring along, like Roblox:
+--   TeleportService:Teleport(1234, player, { coins = 5 })
+--   TeleportService:TeleportAsync(1234, { player1, player2 }, options)   (options: TeleportOptions)
+--   over there: player:GetJoinData().TeleportData, or GetLocalPlayerTeleportData() in a LocalScript
+do
+    local teleport = __gb_teleport
+    local function stub() return { Connect = function() return { Disconnect = function() end } end, Wait = function() end } end
+    TeleportService = { ClassName = "TeleportService", Name = "TeleportService",
+                        TeleportInitFailed = stub(), LocalPlayerArrivedFromTeleport = stub() }
+    local function send(placeId, players, data)
+        if players == nil then players = Players.LocalPlayer end
+        if players == nil then error("Teleport needs a player to send", 3) end
+        if type(players) ~= "table" or rawget(players, "Name") then players = { players } end
+        for _, p in ipairs(players) do teleport(tostring(placeId), nameOf(p), data) end
+    end
+    function TeleportService:Teleport(placeId, player, data) send(placeId, player, data) end
+    function TeleportService:TeleportAsync(placeId, players, options)
+        send(placeId, players, options and options.__data)
+        return { ClassName = "TeleportAsyncResult", PrivateServerId = "", ReservedServerAccessCode = "" }
+    end
+    function TeleportService:TeleportPartyAsync(placeId, players, data) send(placeId, players, data) return "" end
+    function TeleportService:TeleportToPlaceInstance(placeId, _, player, _, data) send(placeId, player, data) end
+    function TeleportService:TeleportToPrivateServer(placeId, _, players, _, data) send(placeId, players, data) end
+    function TeleportService:TeleportToSpawnByName(placeId, _, player, data) send(placeId, player, data) end
+    function TeleportService:GetLocalPlayerTeleportData()
+        local me = Players.LocalPlayer
+        return me and joinData(rawget(me, "Name")).TeleportData
+    end
+    function TeleportService:SetTeleportGui() end
+    function TeleportService:GetArrivingTeleportGui() return nil end
+    local settings = {}
+    function TeleportService:SetTeleportSetting(k, v) settings[k] = v end
+    function TeleportService:GetTeleportSetting(k) return settings[k] end
+end
 
 -- ProximityPromptService: every ProximityPrompt's events in one place.
 --   ProximityPromptService.PromptTriggered:Connect(function(prompt, player) ... end)
@@ -867,6 +906,13 @@ do
     Instance.new = function(cls, parent)
         if cls == "BindableEvent" or cls == "BindableFunction" then return bindable(cls, parent) end
         if cls == "Explosion" then return __gb_newExplosion(parent) end
+        if cls == "TeleportOptions" then   -- TeleportService:TeleportAsync's options
+            local o = { ClassName = "TeleportOptions", Name = "TeleportOptions", ShouldReserveServer = false,
+                        ServerInstanceId = "", ReservedServerAccessCode = "" }
+            function o:SetTeleportData(d) self.__data = d end
+            function o:GetTeleportData() return self.__data end
+            return o
+        end
         return rawNew(cls, parent)
     end
 end
@@ -908,7 +954,7 @@ do
     function GamePassService:PlayerHasPass(player, passId) return MarketplaceService:UserOwnsGamePassAsync(player, passId) end
 end
 
-local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, Debris = Debris, Teams = Teams, Players = Players, Lighting = Lighting,
+local services = { Workspace = workspace, PathfindingService = PathfindingService, BadgeService = BadgeService, TeleportService = TeleportService, Debris = Debris, Teams = Teams, Players = Players, Lighting = Lighting,
                    MarketplaceService = MarketplaceService, GamePassService = GamePassService,
                    RunService = RunService, UserInputService = UserInputService, Gui = Gui,
                    CollectionService = CollectionService, DataStoreService = DataStoreService,
@@ -925,7 +971,7 @@ local quiet = { ContentProvider = { PreloadAsync = true }, LogService = {}, Scri
     AnalyticsService = { LogCustomEvent = true, LogEconomyEvent = true, LogProgressionEvent = true },
     PolicyService = {}, SocialService = {}, GroupService = {}, AssetService = {}, TextService = {},
     MaterialService = {}, VoiceChatService = {}, ContextActionService = { UnbindAction = true },
-    MemoryStoreService = {}, MessagingService = { PublishAsync = true }, TeleportService = {}, InsertService = {},
+    MemoryStoreService = {}, MessagingService = { PublishAsync = true }, InsertService = {},
     PhysicsService = { RegisterCollisionGroup = true, CollisionGroupSetCollidable = true },
     ChangeHistoryService = { SetWaypoint = true }, Selection = {},
     StarterPlayer = {}, VRService = {}, GamepadService = {}, KeyframeSequenceProvider = {}, NotificationService = {} }
@@ -1112,7 +1158,7 @@ __gb_noLocalPlayer = nil
 __gb_heartbeat, __gb_inputBegan, __gb_inputEnded, __gb_isKeyDown, __gb_padState = nil, nil, nil, nil, nil
 __gb_playerAdded, __gb_playerRemoving, __gb_tagAdded, __gb_tagRemoved = nil, nil, nil, nil
 __gb_playerNode, __gb_setRespawn, __gb_dsStart, __gb_dsDone, __gb_dsSet, __gb_navPath, __gb_navQuery = nil, nil, nil, nil, nil, nil, nil
-__gb_awardBadge, __gb_hasBadge = nil, nil
+__gb_awardBadge, __gb_hasBadge, __gb_teleport, __gb_joinData = nil, nil, nil, nil
 __gb_raycast, __gb_storage, __gb_addMethod = nil, nil, nil
 )LUA";
 
@@ -1416,6 +1462,42 @@ int l_awardBadge(lua_State* L) {
 
 int l_hasBadge(lua_State* L) {
     lua_pushboolean(L, LuaApi::engine(L)->knowsBadge(luaL_checkstring(L, 1), luaL_checkstring(L, 2)));
+    return 1;
+}
+
+// __gb_teleport(placeId, playerName, data): TeleportService (see the prelude).
+int l_teleport(lua_State* L) {
+    ScriptEngine* e = LuaApi::engine(L);
+    std::string place = luaL_checkstring(L, 1);
+    const std::string who = luaL_checkstring(L, 2);
+    if (place.rfind("gb:", 0) == 0) place = place.substr(3);
+    const bool digits = !place.empty() && place.size() <= 20 &&
+                        std::all_of(place.begin(), place.end(), [](char c) { return std::isdigit((unsigned char)c); });
+    if (!digits) return luaL_error(L, "Teleport: \"%s\" isn't a game ID (it's the number in the game's link, like 1234)", place.c_str());
+    nlohmann::json data = lua_isnoneornil(L, 3) ? nlohmann::json() : toJson(L, 3);
+    if (data.dump().size() > 64 * 1024) return luaL_error(L, "Teleport data is too big (64 KB at most)");
+    if (!e->teleportsWork()) {
+        Log::warn("TeleportService: " + who + " would go to game " + place + " now (teleports work in the Guts&Bolts Player, not here)");
+        return 0;
+    }
+    e->queueTeleport({who, place, std::move(data)});
+    return 0;
+}
+
+// __gb_joinData(playerName) -> { TeleportData = ..., SourcePlaceId = 123 } (or an empty table)
+int l_joinData(lua_State* L) {
+    const nlohmann::json* j = LuaApi::engine(L)->joinData(luaL_checkstring(L, 1));
+    lua_newtable(L);
+    if (!j) return 1;
+    if (j->contains("data") && !(*j)["data"].is_null()) { pushJson(L, (*j)["data"]); lua_setfield(L, -2, "TeleportData"); }
+    const std::string from = j->value("from", std::string());
+    if (!from.empty()) {
+        char* end = nullptr;
+        const double n = std::strtod(from.c_str(), &end);
+        if (end && *end == 0 && n == std::floor(n) && n < 9e15) lua_pushinteger(L, (lua_Integer)n);
+        else lua_pushstring(L, from.c_str());
+        lua_setfield(L, -2, "SourcePlaceId");
+    }
     return 1;
 }
 
@@ -1806,6 +1888,8 @@ void ScriptEngine::start(bool runScripts) {
     lua_register(L, "print", l_print);
     lua_register(L, "warn",  l_warn);
     lua_register(L, "time",  l_time);
+    lua_register(L, "__gb_teleport", l_teleport);
+    lua_register(L, "__gb_joinData", l_joinData);
     lua_register(L, "__gb_moduleLoad", l_moduleLoad);
     lua_register(L, "__gb_moduleSave", l_moduleSave);
     lua_register(L, "__gb_libraryModel", l_libraryModel);
