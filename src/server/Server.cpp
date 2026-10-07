@@ -132,7 +132,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // Everything else needs a signed-up account (hello just says who we are),
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
-    static const std::set<std::string> kLookOnly = {"pass.list", "pass.owned", "list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
+    static const std::set<std::string> kLookOnly = {"forum.boards", "forum.list", "forum.thread", "pass.list", "pass.owned", "list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
                                                     "servers.list", "stats", "thumb.get", "updates.list", "comments.list",
                                                     "get", "servers.play", "relay.host", "relay.join", "product.pending", "product.grant"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
@@ -476,6 +476,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     }
     if (name.rfind("account.", 0) == 0) return accountOp(name, me, args);
     if (name.rfind("groups.", 0) == 0) return groupOp(name, me, args);
+    if (name.rfind("forum.", 0) == 0) return forumOp(name, me, args);
     if (name.rfind("friends.", 0) == 0 || name.rfind("follow.", 0) == 0) return friendOp(name, me, args);
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name.rfind("data.", 0) == 0) return dataOp(name, me, args);
@@ -1485,6 +1486,7 @@ void GbServer::load() {
     loadGroups();
     loadReports();
     loadStaffLog();
+    loadForum();
     loadIds();
     log("loaded " + std::to_string(m_users.size()) + " accounts, " + std::to_string(m_assets.size()) + " uploads and " +
         std::to_string(m_groups.size()) + " groups from " + m_opts.data.string());
