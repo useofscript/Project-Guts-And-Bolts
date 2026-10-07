@@ -102,6 +102,8 @@ public:
     bool promptPass(int scriptUserId, const std::string& pass);
     // TeleportService sent this joined player to another game (`from` = this game's ID).
     bool teleport(const std::string& name, const std::string& place, const nlohmann::json& data, const std::string& from);
+    // Voice chat: does this game allow it (Game Settings / workspace.VoiceChatEnabled)?
+    bool voiceAllowed() const;
 
 private:
     struct Client;
@@ -117,6 +119,9 @@ private:
     std::string worldMessage(bool full);
 
     void sendDevLog();
+    void updateVoice(double now);
+    void passVoice(const std::string& name, uint64_t rootId, const std::string& data, const Client* from);
+    int         m_voiceSent = -1;   // voiceAllowed() as last told to everyone
     std::string m_owner;
     bool        m_dedicated = false;
     std::set<std::string> m_guestAccounts;   // joiners the server told us have no account (can't chat)
@@ -182,6 +187,8 @@ public:
     // server's scripts sent us ({"place", "data", "from"}; null = nowhere).
     void setJoinData(const nlohmann::json& joinData) { m_joinData = joinData; }
     nlohmann::json takeTeleport() { nlohmann::json t = std::move(m_teleport); m_teleport = nullptr; return t; }
+    // Voice chat: the host's game allows it.
+    bool voiceAllowed() const { return m_voiceAllowed; }
 
 private:
     void handle(const std::string& msg);
@@ -213,4 +220,6 @@ private:
     bool         m_hostGone = false;
     int          m_movingTurn = 0;
     nlohmann::json m_joinData, m_teleport;
+    bool         m_voiceAllowed = false;
+    int          m_voiceTold = -1;    // whether we told the host we're listening (-1 = not yet)
 };

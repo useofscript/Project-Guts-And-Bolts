@@ -34,6 +34,10 @@ std::string drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::ve
 // The tool hotbar along the bottom (slots 1-9, the held one lit up). Returns the
 // slot that was clicked or tapped (`tap`: a finger's tap, if any), or -1.
 int  drawHotbar(ImDrawList* dl, ImVec2 min, ImVec2 max, Scene& scene, const ImVec2* tap = nullptr);
+// Voice chat's speaker icon: sound waves when `talking`, a red line through it when `muted`.
+void drawSpeaker(ImDrawList* dl, ImVec2 center, float size, bool talking, bool muted = false);
+// A speaker over the head of everyone talking right now (voice chat).
+void drawVoiceTags(ImDrawList* dl, ImVec2 min, ImVec2 max, const glm::mat4& viewProj);
 // Is `p` on the hotbar? (so clicking a slot doesn't also swing the tool)
 bool overHotbar(ImVec2 min, ImVec2 max, Scene& scene, ImVec2 p);
 }

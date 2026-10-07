@@ -104,6 +104,10 @@ void drawGameRules(WorldSettings& w) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("On: players bump into each other (and can stand on each other's heads).\n"
                           "Off: players walk right through each other.");
+    ImGui::Checkbox("Voice Chat", &w.voiceChat);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On: players who turned voice chat on can talk to each other (their voices come from their characters).\n"
+                          "Off: nobody can talk in this game. Scripts: workspace.VoiceChatEnabled = false");
 
     ImGui::SeparatorText("Camera");
     ImGui::Checkbox("Orthographic", &w.orthographic);
