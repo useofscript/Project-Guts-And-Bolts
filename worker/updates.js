@@ -20,7 +20,20 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'ding-dong-ditch', name: 'Ding Dong Ditch', time: 1791341000, tag: 'Website',
+    id: 'we-outsourced-the-update', name: 'We Outsourced the Update', version: '0.7.0', time: 1791341100, tag: 'Engine',
+    summary: 'An AI wrote most of this one: smarter AI helpers, teleporting between games, a chat filter, upload checks and a notification bell.',
+    items: [
+      'AI helpers (the Assistant tab, and MCP apps like Claude) now really know how Guts&Bolts works and check their own work',
+      'New AI tools for physics, explosions, the navmesh, walking characters, watching the game, and save points',
+      'TeleportService: send players to another game, with data, like Roblox',
+      'The website\'s Play button opens the Player on a Mac too',
+      'A text filter: slurs, links and personal info become [ Content Deleted ]',
+      'New decals, sounds and T-shirts wait for a staff check (Verified creators skip the line)',
+      'A notification bell for friend requests, sales, trades, groups and upload checks',
+    ],
+  },
+  {
+    id: 'ding-dong-ditch', name: 'Ding Dong Ditch', version: '0.7.0', time: 1791341000, tag: 'Website',
     summary: 'A notification bell: see friend requests, sales, trades, group news and upload checks in one place.',
     items: [
       'A bell next to your name on the website and in the Player, with a red number for new things',
@@ -30,7 +43,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'bouncer-at-the-door', name: 'Bouncer at the Door', time: 1791340000, tag: 'Server',
+    id: 'bouncer-at-the-door', name: 'Bouncer at the Door', version: '0.7.0', time: 1791340000, tag: 'Server',
     summary: 'New decals, sounds and T-shirts from creators who aren\'t Verified wait for a staff check before anyone else sees them.',
     items: [
       'Until staff OK it, only you can see or hear your new upload, and its page says it\'s waiting',
@@ -40,7 +53,24 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'soap-in-the-mouth', name: 'Soap in the Mouth', time: 1791330000, tag: 'Server',
+    id: 'robot-brain-transplant', name: 'Robot Brain Transplant', version: '0.7.0', time: 1791339011, tag: 'Studio',
+    summary: 'AI helpers (the Assistant tab and MCP apps like Claude) now really understand Studio: they look before they touch, check their work, and stop making things up.',
+    items: [
+      'A brand new guide that teaches any AI how Guts&Bolts works and how to use its tools safely',
+      'Every AI tool explains when to use it, when not to, what it needs and what it gives back',
+      'Tools answer with exact data (ids, positions, what really changed) and clear error codes with what to try next',
+      'New tools: find_objects, get_errors, diagnose_object ("why won\'t my barrel fall?") and validate_scene',
+      'Script changes are checked for Lua mistakes straight away',
+      'Delete is marked as risky, so AIs only delete what you clearly asked for',
+      'AIs can read how the engine works: what it can and can\'t do, its words for things, which way is up, and step-by-step recipes',
+      'Every object is picked by its id (#42); if a name is used twice, the AI is asked which one instead of guessing',
+      'Power tools for AIs: make a physics object in one go, set off explosions, bake the navmesh, find walking routes and send characters walking',
+      'AIs can watch the running game (frame rate, what\'s moving, where characters are) and pause or step it',
+      'Save points: an AI can save the game, try something wild, and roll back if it goes wrong (plus redo)',
+    ],
+  },
+  {
+    id: 'soap-in-the-mouth', name: 'Soap in the Mouth', version: '0.7.0', time: 1791330000, tag: 'Server',
     summary: 'A text filter: anything with slurs, links or personal info in it becomes [ Content Deleted ], like classic Roblox.',
     items: [
       'Chat, messages, profiles, group posts and the names and descriptions of things are all filtered',
@@ -50,7 +80,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'apple-of-my-eye', name: 'Apple of My Eye', time: 1791328060, tag: 'Player',
+    id: 'apple-of-my-eye', name: 'Apple of My Eye', version: '0.7.0', time: 1791328060, tag: 'Player',
     summary: 'The website\'s Play button opens the Player on a Mac too, not just on Windows, Linux and Android.',
     items: [
       'Open the Player once on your Mac, and Play and Join on the website open it straight into the game',
@@ -60,7 +90,7 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
-    id: 'portal-hopper', name: 'Portal Hopper', time: 1791327890, tag: 'Engine',
+    id: 'portal-hopper', name: 'Portal Hopper', version: '0.7.0', time: 1791327890, tag: 'Engine',
     summary: 'TeleportService: games can send players to another game, and bring some data along, like Roblox.',
     items: [
       'TeleportService:Teleport and TeleportAsync send one player or a whole group to another game by its ID',
