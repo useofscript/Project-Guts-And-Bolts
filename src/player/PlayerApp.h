@@ -395,6 +395,7 @@ private:
     int         m_avatarTab = 0;                               // 0 Wardrobe, 1 Body
     int         m_wardrobeKind = 0;                            // which kind of item it shows
     nlohmann::json m_onlineGames = nlohmann::json::array();
+    nlohmann::json m_featuredGames = nlohmann::json::array();   // the staff's picks
     nlohmann::json m_myCreations = nlohmann::json::array();
     nlohmann::json m_onlineHistory = nlohmann::json::array();
     nlohmann::json m_foundUsers = nlohmann::json::array();
