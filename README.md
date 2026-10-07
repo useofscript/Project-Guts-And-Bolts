@@ -232,6 +232,8 @@ what it needs, what it gives back and how risky it is):
 - Objects: `get_object`, `set_property`, `select`
 - Scripting: `create_script`, `read_script`, `edit_script`, `run_lua`
 - Runtime: `playtest`
+- Docs: `get_engine_info` (overview, capabilities, concepts, coordinates,
+  workflows, classes)
 - Debug: `get_output`, `get_errors`, `diagnose_object`, `validate_scene`
 - View and history: `screenshot`, `undo`
 
@@ -243,6 +245,15 @@ is marked read-only or not (`readOnlyHint`, `destructiveHint`) with a
 `gutsbolts/risk_level` in its `_meta`. The guide the AI reads first (MCP's
 server instructions, the Assistant's system prompt) teaches it to look first,
 use the engine's own systems, check its work and never invent things.
+
+MCP apps can also read the engine reference as resources: `gutsbolts://guide`,
+`gutsbolts://overview`, `gutsbolts://capabilities` (a JSON manifest of what the
+tools can and can't do), `gutsbolts://concepts`, `gutsbolts://coordinates`
+(Y up, -Z forward, units, rotations), `gutsbolts://workflows`,
+`gutsbolts://classes`, and live ones: `gutsbolts://scene/tree` and
+`gutsbolts://errors`. Objects are best named by id (`#42`); a path like
+`Workspace.Twin` is refused with `AMBIGUOUS_NAME` and a list of candidates when
+two objects share that name.
 
 ### Plugins
 

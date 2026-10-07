@@ -44,6 +44,7 @@ public:
     void runCommand(const std::string& code);   // Command Bar
     // AI helpers (Assistant tab and MCP): run one of Studio's tools (see AiTools.h).
     AiToolResult runAiTool(const std::string& name, const nlohmann::json& args);
+    static std::vector<std::string> insertKinds();   // what insert_object / Insert Object can make
     // Test / command-line helpers.
     void startTeamCreate(bool host, const std::string& address);
     void testAddPart(const std::string& name);

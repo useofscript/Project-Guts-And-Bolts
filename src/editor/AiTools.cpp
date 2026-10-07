@@ -3,6 +3,9 @@
 // themselves run in AiToolsRun.cpp.
 #include "AiTools.h"
 
+#include "Version.h"
+
+#include <map>
 #include <string>
 #include <vector>
 
@@ -76,6 +79,25 @@ std::string describe(const Tool& t) {
 
 const std::vector<Tool>& tools() {
     static const std::vector<Tool> all = {
+        // ----------------------------------------------------------------- DOCS
+        {"get_engine_info", "Learn how Guts and Bolts works", "DOCS", true, false, true, Risk::None,
+         {"Reference about the engine itself: what Guts and Bolts is and what these tools can do (capabilities, a "
+          "machine-readable manifest of what is and isn't supported), the concept dictionary (objects, classes, "
+          "parts, scripts, physics, navigation, editor vs runtime), the coordinate system (axes, units, rotations), "
+          "common multi-step workflows, and every class insert_object can make. The same text is in the MCP "
+          "resources gutsbolts://capabilities, gutsbolts://concepts, gutsbolts://coordinates, gutsbolts://workflows "
+          "and gutsbolts://classes.",
+          "At the start of a session if you don't know the engine; before positioning or rotating things "
+          "(coordinates); before promising a feature (capabilities); when unsure which class to insert (classes) "
+          "or which tools to chain (workflows).",
+          "To see the person's actual game use get_game_tree / get_object: this tool describes the engine, not the game.",
+          "topic (required: overview, capabilities, concepts, coordinates, workflows, classes or all).",
+          "{topic, text} (capabilities also has `manifest`, classes also has `classes`).",
+          "None.", "Nothing changes.",
+          "get_engine_info -> get_game_tree -> plan -> act.",
+          "\"Can Guts and Bolts do ragdolls?\" \"Which way is up?\" \"What can I insert?\""},
+         schema({{"topic", {{"type", "string"}, {"enum", {"overview", "capabilities", "concepts", "coordinates", "workflows", "classes", "all"}}}}}, {"topic"})},
+
         // ---------------------------------------------------------------- SCENE
         {"get_game_tree", "Show the game's object tree", "SCENE", true, false, true, Risk::None,
          {"Lists the objects in the game (the scene) as an indented tree: name, class and object_id (#number) for each. "
@@ -308,6 +330,34 @@ const std::vector<Tool>& tools() {
     return all;
 }
 
+// Which tools usually come right before and after each one (MCP _meta "gutsbolts/workflow").
+json workflowOf(const std::string& name) {
+    static const std::map<std::string, std::pair<std::vector<std::string>, std::vector<std::string>>> flows = {
+        {"get_engine_info", {{}, {"get_game_tree"}}},
+        {"get_game_tree", {{"get_engine_info"}, {"find_objects", "get_object"}}},
+        {"find_objects", {{"get_game_tree"}, {"get_object", "diagnose_object", "set_property"}}},
+        {"insert_object", {{"get_game_tree"}, {"set_property", "get_object"}}},
+        {"delete_object", {{"find_objects", "get_object"}, {"get_game_tree"}}},
+        {"get_object", {{"find_objects", "get_game_tree"}, {"set_property", "diagnose_object"}}},
+        {"set_property", {{"get_object"}, {"get_object", "screenshot", "playtest"}}},
+        {"select", {{"find_objects"}, {}}},
+        {"create_script", {{"get_game_tree"}, {"diagnose_object", "playtest"}}},
+        {"read_script", {{"find_objects"}, {"edit_script"}}},
+        {"edit_script", {{"read_script"}, {"diagnose_object", "playtest"}}},
+        {"run_lua", {{"get_game_tree"}, {"get_game_tree", "screenshot"}}},
+        {"playtest", {{"validate_scene"}, {"get_errors", "get_output", "get_object", "screenshot"}}},
+        {"get_output", {{"playtest", "run_lua"}, {}}},
+        {"get_errors", {{"playtest"}, {"read_script", "edit_script"}}},
+        {"diagnose_object", {{"find_objects"}, {"set_property", "edit_script"}}},
+        {"validate_scene", {{}, {"diagnose_object", "playtest"}}},
+        {"screenshot", {{"set_property", "insert_object", "playtest"}, {}}},
+        {"undo", {{}, {"get_object"}}},
+    };
+    auto it = flows.find(name);
+    if (it == flows.end()) return {{"before", json::array()}, {"after", json::array()}};
+    return {{"before", it->second.first}, {"after", it->second.second}};
+}
+
 } // namespace
 
 namespace AiTools {
@@ -357,8 +407,11 @@ When a tool fails, read error.code / message / suggested_action, fix the cause (
 ## Don't invent capabilities
 A request mentioning something doesn't mean Guts and Bolts has it. Only use the tools you were given and the engine API that exists. Don't make up tools, classes, properties, paths or features. If no tool can do something, say the current tools can't do it.
 
+## Learn the engine
+get_engine_info (or the gutsbolts:// resources) explains what the engine can do (capabilities), its concepts, the coordinate system, common workflows and every class you can insert. Check capabilities before promising a feature.
+
 ## Quick facts
-Scripts are Lua 5.4 with a Roblox-style API (Instance.new, part.Touched, game:GetService, RunService.Heartbeat, wait(), Players.LocalPlayer, humanoid:MoveTo, PathfindingService, Effects.Explosion/Blood, Sounds.Play). Luau-only syntax (`+=`, type annotations, `continue`) does not work: write plain Lua. Y is up. 1 unit = 2 Roblox studs; a character is about 2.6 units tall and walks 6 units a second.
+Y is up, X is right, -Z is an object's forward (LookVector). Position is a part's centre. Orientation is in degrees; CFrame.Angles takes radians. Colours are [r, g, b] from 0 to 1. Scripts are Lua 5.4 with a Roblox-style API (Instance.new, part.Touched, game:GetService, RunService.Heartbeat, wait(), Players.LocalPlayer, humanoid:MoveTo, PathfindingService, Effects.Explosion/Blood, Sounds.Play). Luau-only syntax (`+=`, type annotations, `continue`) does not work: write plain Lua. 1 unit = 2 Roblox studs; a character is about 2.6 units tall and walks 6 units a second.
 
 ## Talking to the person
 Keep it short and friendly: they may be new to making games. Say what changed, not every tool call. If something couldn't be done, say what and why.)GUIDE";
@@ -382,10 +435,213 @@ const json& mcpTools() {
                                           {"idempotentHint", t.idempotent}, {"openWorldHint", false}}},
                          {"_meta", {{"gutsbolts/domain", t.domain}, {"gutsbolts/read_only", t.readOnly},
                                     {"gutsbolts/mutates_state", !t.readOnly}, {"gutsbolts/destructive", t.destructive},
-                                    {"gutsbolts/risk_level", riskName(t.risk)}}}});
+                                    {"gutsbolts/risk_level", riskName(t.risk)},
+                                    {"gutsbolts/workflow", workflowOf(t.name)}}}});
         return a;
     }();
     return out;
+}
+
+} // namespace AiTools
+
+// ---------------------------------------------------------------------------
+// Engine reference (get_engine_info and the gutsbolts:// MCP resources). Keep
+// these true to the engine: an AI believes every word.
+
+namespace {
+
+const char* kOverview = R"DOC(# Guts and Bolts
+
+Guts and Bolts is a game engine and platform in the style of Roblox: games are trees of objects (parts, models, scripts, lights, sounds, UI) under Workspace, scripted in Lua 5.4 with a Roblox-style API, with real physics, characters, explosions, water and multiplayer. Studio is its editor; the Player app plays published games.
+
+Guts and Bolts is a game engine, not a file editor. These tools act on the real game open in Studio right now: its object tree, properties, scripts, physics and playtests.
+
+What the tools give you:
+- Look: get_game_tree, find_objects, get_object, read_script, screenshot, get_output, get_errors.
+- Change: insert_object, set_property, delete_object, create_script, edit_script, run_lua (any Lua, like the Command Bar).
+- Run and check: playtest (scripts + physics run), diagnose_object, validate_scene.
+- Stay safe: undo (everything you change outside a playtest can be undone).
+- Learn: get_engine_info (this text, capabilities, concepts, coordinates, workflows, classes).
+
+Work in this loop: UNDERSTAND -> INSPECT -> PLAN -> ACT -> VALIDATE -> REPORT.)DOC";
+
+const char* kConcepts = R"DOC(# Concepts
+
+OBJECT (Instance)
+Everything in a game is an object in one tree under Workspace. Each has a name, a class, properties and children. Every object has an object_id like "#42": unique, and it stays the same through undo, saving and loading. Use ids, not names (names can repeat).
+
+CLASS (instead of components)
+Guts and Bolts is Roblox-style: there is no separate component system. What an object does comes from its class and its properties, and extra behaviour comes from objects put INSIDE it. What other engines call components map like this:
+- Transform -> a part's Position (its centre), Orientation (degrees) and Size properties. Models move their contents with scripts (model:PivotTo / :MoveTo) or run_lua.
+- Mesh renderer -> the Part itself: its shape (Part = box, Sphere, Cylinder, MeshPart = a mesh made in Studio's Modeling mode), Color, Material, Transparency.
+- Collider -> the same Part: CanCollide on/off. Collision uses the part's own shape (boxes, also rotated; spheres; cylinders). There's no separate collider object.
+- Rigidbody -> Anchored = false makes a part simulated (gravity, collisions, forces). Mass comes from Size x Density (Material sets the default; the Density, Friction and Elasticity properties override it).
+- Joints -> Constraint objects (Rope, Rod, Spring, Weld, Hinge with optional motor) between two Attachments (a Weld joins two Parts).
+- Forces -> Mover objects inside a part (BodyVelocity, BodyPosition, BodyGyro, BodyForce, BodyThrust, BodyAngularVelocity, LinearVelocity, AngularVelocity, AlignPosition, AlignOrientation, VectorForce, Torque) or script calls (part:ApplyImpulse, part:ApplyAngularImpulse, part.AssemblyLinearVelocity).
+- Character controller -> a character Model (HumanoidRootPart, Torso, Head...) with a Humanoid: the player's character, a Rig, or the ready-made "Zombie". Scripts drive it through humanoid (MoveTo, PathfindTo, Health, WalkSpeed, Jump).
+- Navigation agent -> any Humanoid character + PathfindingService (CreatePath, ComputeAsync, GetWaypoints) or humanoid:PathfindTo(target), which walks the whole way by itself.
+- Light -> a PointLight or SpotLight placed inside a part.
+- Audio source -> a Sound object (inside a part = it plays from there), or Sounds.Play in scripts.
+- Script -> Script (game server), LocalScript (each player's computer), ModuleScript (require()).
+- Particles -> no ParticleEmitter class. Scripts make effects with Effects.Sparks / Blood / Oil / Gibs, explosions with smoke and fire, Trails and Beams.
+- Camera -> no camera object to edit. Players' cameras follow their character (World settings can make it orthographic).
+
+SCENE (place, game)
+One game = one tree under Workspace, saved as one file. Folders and Models group things. StarterGui holds screen UI; Teams holds Team objects.
+
+ASSET
+Pictures, sounds and meshes a game uses: files in the game's folder, built-in sounds, or uploaded items ("gb:<id>"). The Library (everyone's shared models, decals and audio) is not reachable through these tools.
+
+PREFAB
+There are no linked prefabs. insert_object can make ready-made things ("Kill Brick", "Exploding Barrel", "Zombie"...) but each is an independent copy: changing one doesn't change others. To change many copies, find_objects them and change each (run_lua with a loop is quickest).
+
+PHYSICS
+Only runs during a playtest (or a published game). Parts are ANCHORED by default: they stay put. Anchored = false makes a part fall, collide and react to forces and explosions. A visible part with CanCollide off is walked through and lets unanchored parts fall through it. Gravity is workspace.Gravity (22 units/s^2 by default). Parts below FallenPartsHeight (-50) are destroyed.
+
+COLLISION
+CanCollide decides whether things bump into a part. A character touching a part fires Touched even when its CanCollide is off (coins, checkpoints). Water parts and FluidVolumes are swum through.
+
+NAVIGATION
+The navigation mesh (every floor a character can stand on) is baked from the anchored, solid parts and rebakes itself when they change. PathfindingService:Bake() rebakes now; Studio's Navmesh view shows it. PathfindingLabel / PathfindingPassThrough attributes and path Costs work like Roblox's PathfindingModifier.
+
+EXPLOSIONS
+Instance.new("Explosion") with Position, BlastRadius, BlastPressure (500000 = normal) parented to workspace, or Explode(position, radius, power) / Effects.Explosion(...). They push unanchored parts, hurt characters, can break joints and (Destroy = true) rip anchored parts loose. Use them; don't push parts by hand.
+
+RUNTIME vs EDITOR
+Editor state is the saved game. Runtime state is the game while it runs (playtest): scripts run, physics moves things, characters spawn. Changes during a playtest are thrown away when it stops. get_object says which one you're looking at ("state_source") and adds velocity while playing.
+
+SCRIPT
+Lua 5.4 with Roblox's API names (Instance.new, game:GetService, workspace, task.wait, RunService.Heartbeat, Players, TweenService, DataStoreService, RemoteEvents). Luau-only syntax doesn't work (no +=, continue, type annotations). Prefer the engine's systems (properties, constraints, movers, pathfinding, explosions); write scripts for game rules and when asked.)DOC";
+
+const char* kCoordinates = R"DOC(# Coordinates and units
+
+AXES (right-handed, like OpenGL)
+- +Y is UP. Gravity pulls toward -Y.
+- +X is RIGHT (in the default camera view).
+- An object's FORWARD is its -Z axis: CFrame.LookVector = -Z column. RightVector = +X, UpVector = +Y.
+- In a new game the Baseplate's top surface is the ground at Y = 0 (check with get_object on the Baseplate: Position Y + Size Y / 2).
+
+UNITS
+- 1 unit = 2 Roblox studs. Distances, Size and Position are in units.
+- A character is about 2.6 units tall and walks 6 units per second (WalkSpeed); jumps clear about 3.2 units.
+- Gravity: 22 units/s^2 (workspace.Gravity).
+- Time: seconds.
+
+POSITION AND SIZE
+- Position is the CENTRE of a part, in world units. To rest a part of height h on the ground (Y = 0), set Position Y = h / 2.
+- Size is the full width (X), height (Y) and depth (Z). Parts inside Models are still given world positions by the tools.
+
+ROTATION
+- Orientation (and Rotation) = [x, y, z] Euler angles in DEGREES. The part's matrix is built as Rz * Ry * Rx (X is applied first, then Y, then Z, about the world axes).
+- Turning something to face left/right = change Orientation Y. Tipping it over = X or Z.
+- In scripts, CFrame.Angles(x, y, z) / CFrame.fromEulerAnglesXYZ take RADIANS (math.rad(90)) and build Rx * Ry * Rz, like Roblox's. CFrame.lookAt(from, to) points -Z at the target.
+- There's no quaternion API; use Orientation or CFrames.
+
+COLOURS
+- Color = [r, g, b], each 0 to 1 (Color3.new). Color3.fromRGB takes 0-255 in scripts.
+
+UI
+- UI sizes and positions are UDim2: {scale, offset} for X and Y; scale is a fraction of the parent (0-1), offset is pixels. (0, 0) is the top-left of the screen.)DOC";
+
+const char* kWorkflows = R"DOC(# Workflows
+
+Tools work in chains. Don't call a later step if an earlier one failed: read the error and fix that first.
+
+CREATE AN OBJECT
+get_game_tree (where should it go?) -> insert_object -> set_property Position / Size / Color / Material ... -> get_object or diagnose_object (verify) -> screenshot (optional).
+
+MAKE SOMETHING PHYSICAL ("make the barrel fall / react to explosions")
+find_objects (find it) -> get_object (inspect) -> set_property Anchored false -> make sure CanCollide is true (diagnose_object warns otherwise) -> optional Density / Friction / Elasticity -> playtest start -> get_object (runtime velocity / position) -> playtest stop -> report.
+
+MAKE CHARACTERS NAVIGATE ("enemies chase the player")
+get_game_tree (is there a floor? are the enemies Humanoid characters? insert_object "Zombie" or "Rig" if needed) -> create_script using humanoid:PathfindTo(target) or PathfindingService -> playtest start -> get_errors / screenshot -> playtest stop. Floors must be anchored and solid; the navmesh rebakes itself when anchored parts change (PathfindingService:Bake() forces it).
+
+EXPLOSIONS ("make this explosion push nearby objects")
+Make sure the things to push are unanchored (set_property Anchored false) -> an Explosion in a script (Instance.new("Explosion"), Position, BlastRadius, BlastPressure, Parent = workspace) or, to try it now, playtest start -> run_lua "Explode(Vector3.new(x, y, z), radius, power)" -> get_object on the targets (runtime velocity) -> playtest stop.
+
+WRITE AND DEBUG A SCRIPT
+get_game_tree -> create_script (check the returned syntax) -> playtest start -> get_errors / get_output -> read_script -> edit_script -> playtest stop and start again -> get_errors -> playtest stop.
+
+FIX "X DOESN'T WORK"
+find_objects -> diagnose_object (lists likely causes and fixes) -> get_object -> fix ONE thing (set_property / edit_script) -> diagnose_object again -> playtest to confirm -> report what was wrong.
+
+BUILD MANY THINGS
+get_game_tree -> run_lua with a loop (print what you made) -> get_game_tree / validate_scene -> screenshot.
+
+TRY A CHANGE SAFELY
+get_object (note the old value) -> set_property -> playtest to test -> playtest stop -> keep it, or undo and try a smaller change.
+
+CHECK BEFORE FINISHING
+validate_scene -> fix errors -> playtest start -> get_errors -> playtest stop -> report what changed and anything that couldn't be done.)DOC";
+
+} // namespace
+
+namespace AiTools {
+
+json capabilities() {
+    return {
+        {"engine", "Guts and Bolts"},
+        {"engine_version", GB_VERSION},
+        {"mcp_server", "guts-and-bolts-studio"},
+        {"mcp_version", "2.0"},
+        {"style", "Roblox-like: objects in a tree, classes instead of components, Lua 5.4 scripts"},
+        {"capabilities", {
+            {"scene", true}, {"objects", true}, {"stable_object_ids", true}, {"search", true},
+            {"components", false},                    // classes and child objects instead
+            {"scripting", true}, {"lua_execution", true},
+            {"runtime", true},                        // playtest start / stop
+            {"runtime_inspection", "partial: get_object adds velocity while playtesting; Output and errors"},
+            {"physics", "via properties (Anchored, CanCollide, Density...), movers, constraints and scripts; simulates during playtests"},
+            {"navigation", "via PathfindingService and humanoid:PathfindTo in scripts / run_lua during playtests"},
+            {"explosions", "via Explosion / Explode() in scripts or run_lua during playtests"},
+            {"rendering", "partial: part colour, material, transparency, lights, decals; no shader or post-processing tools"},
+            {"audio", "Sound objects and Sounds.Play"},
+            {"ui", true},
+            {"assets", false},                        // the Library isn't reachable from these tools
+            {"prefabs", false},                       // ready-made things are copies, not linked
+            {"undo", true}, {"transactions", false},
+            {"screenshots", true},
+            {"diagnostics", true},
+            {"multiplayer_testing", false},
+            {"publishing", false},
+        }},
+        {"not_supported", json::array({"editing Library assets", "linked prefabs", "ParticleEmitter", "camera objects",
+                                       "shaders", "publishing games", "multiplayer test sessions"})},
+        {"notes", "If a capability is false or missing, the tools can't do it: say so instead of pretending."},
+    };
+}
+
+std::string engineDoc(const std::string& topic) {
+    if (topic == "overview") return kOverview;
+    if (topic == "concepts") return kConcepts;
+    if (topic == "coordinates") return kCoordinates;
+    if (topic == "workflows") return kWorkflows;
+    if (topic == "capabilities") return "# Capabilities\n\n" + capabilities().dump(2);
+    return "";
+}
+
+const json& resources() {
+    static const json list = json::array({
+        {{"uri", "gutsbolts://guide"}, {"name", "guide"}, {"title", "How to work in Guts and Bolts Studio"}, {"mimeType", "text/markdown"},
+         {"description", "The assistant's operating rules (same as the server instructions)."}},
+        {{"uri", "gutsbolts://overview"}, {"name", "overview"}, {"title", "What Guts and Bolts is"}, {"mimeType", "text/markdown"},
+         {"description", "The engine and what these tools give access to."}},
+        {{"uri", "gutsbolts://capabilities"}, {"name", "capabilities"}, {"title", "Capability manifest"}, {"mimeType", "application/json"},
+         {"description", "What the tools can and can't do. Check it before promising a feature."}},
+        {{"uri", "gutsbolts://concepts"}, {"name", "concepts"}, {"title", "Engine concepts"}, {"mimeType", "text/markdown"},
+         {"description", "Objects, classes (instead of components), physics, navigation, runtime vs editor..."}},
+        {{"uri", "gutsbolts://coordinates"}, {"name", "coordinates"}, {"title", "Coordinate system and units"}, {"mimeType", "text/markdown"},
+         {"description", "Axes (Y up, -Z forward), units, rotations (degrees, order), colours."}},
+        {{"uri", "gutsbolts://workflows"}, {"name", "workflows"}, {"title", "Common workflows"}, {"mimeType", "text/markdown"},
+         {"description", "Which tools to chain for common jobs."}},
+        {{"uri", "gutsbolts://classes"}, {"name", "classes"}, {"title", "Insertable classes"}, {"mimeType", "application/json"},
+         {"description", "Every kind insert_object can make."}},
+        {{"uri", "gutsbolts://scene/tree"}, {"name", "scene-tree"}, {"title", "The game's object tree (live)"}, {"mimeType", "application/json"},
+         {"description", "The current game, like get_game_tree."}},
+        {{"uri", "gutsbolts://errors"}, {"name", "errors"}, {"title", "Recent errors (live)"}, {"mimeType", "application/json"},
+         {"description", "Recent errors and warnings from the Output, like get_errors."}},
+    });
+    return list;
 }
 
 } // namespace AiTools
