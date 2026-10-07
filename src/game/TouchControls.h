@@ -33,11 +33,14 @@ public:
     bool      tapped(ImVec2& where) const { where = m_tapPos; return m_tap; }
     bool      chatPressed() const { return m_chat; }
     bool      menuPressed() const { return m_menu; }
+    // Voice chat's Talk button (next to Chat): tap to start talking, tap again to stop.
+    void      setMic(bool shown, bool on) { m_micShown = shown; m_micOn = on; }
+    bool      micPressed() const { return m_mic; }
     // True while a finger is on the controls (so the game ignores that mouse press).
     bool      busy() const { return !m_touches.empty(); }
 
 private:
-    enum class Role { Stick, Jump, Look, Chat, Menu };
+    enum class Role { Stick, Jump, Look, Chat, Menu, Mic };
     struct Touch {
         int    id;
         Role   role;
@@ -50,6 +53,7 @@ private:
     float  jumpRadius() const;
     bool   inStickZone(ImVec2 p) const;
     void   buttonRects(ImVec2& chatA, ImVec2& chatB, ImVec2& menuA, ImVec2& menuB) const;
+    void   micRect(ImVec2& a, ImVec2& b) const;
 
     ImVec2 m_min{0, 0}, m_max{0, 0};
     std::vector<std::pair<ImVec2, ImVec2>> m_blocked;
@@ -67,5 +71,6 @@ private:
     float     m_zoom = 0.0f;
     bool      m_tap = false;
     ImVec2    m_tapPos{0, 0};
-    bool      m_chat = false, m_menu = false;
+    bool      m_chat = false, m_menu = false, m_mic = false;
+    bool      m_micShown = false, m_micOn = false;
 };
