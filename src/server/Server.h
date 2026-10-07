@@ -87,6 +87,7 @@ private:
         long long   num = 0;                     // its number, counting up like Roblox's asset IDs
         nlohmann::json meta = nlohmann::json::object();
         nlohmann::json badges = nlohmann::json::array();   // games: badges its creator made
+        nlohmann::json comments = nlohmann::json::array(); // games: comments under it, newest first (ServerSocial.cpp)
         nlohmann::json days = nlohmann::json::object();    // creator stats: "YYYY-MM-DD" -> {plays, sales, bolts}, last 60 days
     };
 

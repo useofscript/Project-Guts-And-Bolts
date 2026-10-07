@@ -203,6 +203,12 @@ private:
     std::string    m_outfitName, m_outfitMsg, m_renameOutfitId, m_renameOutfitName;
     nlohmann::json m_recentGames = nlohmann::json::array(), m_favGames = nlohmann::json::array();
     nlohmann::json m_openGame = nlohmann::json::object();   // the game in the online game popup
+    // Comments under the open game (PlayerOnline.cpp drawComments; the website's game page has the same).
+    void           drawComments(const std::string& gameId);
+    nlohmann::json m_comments = nlohmann::json::array();
+    std::string    m_commentsGame, m_commentText, m_commentMsg;
+    bool           m_commentsMore = false, m_commentsOff = false;
+    long long      m_commentCount = 0;
     double         m_myGamesAt = -100.0;
     // Someone's friends / following / followers (a popup over their profile).
     void openPeople(const std::string& user, const std::string& which, int page = 0);

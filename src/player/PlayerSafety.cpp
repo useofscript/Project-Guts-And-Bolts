@@ -65,6 +65,7 @@ void PlayerApp::drawReportDialog() {
                            : m_reportKind == "message" ? "this message from " + m_reportName
                            : m_reportKind == "game"    ? "the game \"" + m_reportName + "\""
                            : m_reportKind == "group"   ? "the group \"" + m_reportName + "\""
+                           : m_reportKind == "comment" ? "this comment by " + m_reportName
                                                        : "\"" + m_reportName + "\"";
     ImGui::SetWindowFontScale(1.3f);
     ImGui::TextWrapped("Report %s", what.c_str());
@@ -223,6 +224,7 @@ void PlayerApp::drawReportsBox() {
                          : kind == "message" ? "a message from " + about
                          : kind == "game" ? "the game \"" + x.value("name", std::string()) + "\" by " + about
                          : kind == "group" ? "the group \"" + x.value("name", std::string()) + "\" (owner " + about + ")"
+                         : kind == "comment" ? "a comment by " + about + " on \"" + x.value("name", std::string()) + "\""
                                            : "\"" + x.value("name", std::string()) + "\" by " + about;
         ImGui::PushID((int)i);
         ImGui::Separator();

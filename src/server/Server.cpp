@@ -133,7 +133,7 @@ json GbServer::checkRequest(const json& req, User*& out) {
     // except looking around: visitors to the website can browse before signing up.
     // Guests can also play: download games, find and join servers (they can't chat in games).
     static const std::set<std::string> kLookOnly = {"pass.list", "pass.owned", "list", "asset.info", "profile", "people.list", "users.search", "groups.list", "groups.get",
-                                                    "servers.list", "stats", "thumb.get", "updates.list",
+                                                    "servers.list", "stats", "thumb.get", "updates.list", "comments.list",
                                                     "get", "servers.play", "relay.host", "relay.join", "product.pending", "product.grant"};
     if (me.userId == 0 && opName != "hello" && opName != "ping" && opName.rfind("account.", 0) != 0 &&
         !kLookOnly.count(opName))
@@ -291,7 +291,10 @@ json GbServer::publicAsset(const Asset& a) const {
               {"creator", a.creator}, {"price", a.price}, {"created", a.created}, {"sales", a.sales},
               {"plays", a.plays}, {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}};
     if (Online::hasAccess(a.kind)) j["access"] = a.meta.value("access", std::string("public"));
-    if (a.kind == "game") { j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL); }
+    if (a.kind == "game") {
+        j["badges"] = a.badges; j["allowGear"] = a.meta.value("allowGear", false); j["favorites"] = a.meta.value("favorites", 0LL);
+        j["comments"] = !a.meta.value("commentsOff", false); j["commentCount"] = a.comments.size();
+    }
     auto it = m_users.find(a.creator);
     j["creatorName"] = it != m_users.end() ? it->second.name : "?";
     j["creatorVerified"] = it != m_users.end() && isVerified(it->second);
@@ -475,7 +478,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name.rfind("data.", 0) == 0) return dataOp(name, me, args);
     if (name.rfind("block.", 0) == 0 || name.rfind("report.", 0) == 0) return safetyOp(name, me, args);
-    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name.rfind("notes.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
+    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name.rfind("notes.", 0) == 0 || name == "game.favorite" || name == "games.mine" || name.rfind("comments.", 0) == 0 ||
         name == "profile.set" || name == "feed.list")
         return socialOp(name, me, args);
     if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
@@ -1082,6 +1085,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         Asset& a = it->second;
         if (a.creator != me.id && !isStaff(me)) return fail("You can only change your own games.");
         if (args.contains("allowGear")) a.meta["allowGear"] = args["allowGear"] == true;
+        if (args.contains("comments")) a.meta["commentsOff"] = args["comments"] == false;
         saveAssets();
         json r = okay(); r["asset"] = publicAsset(a); return r;
     }
@@ -1262,7 +1266,7 @@ void GbServer::saveAssets() {
     for (const auto& [id, a] : m_assets)
         all[id] = {{"kind", a.kind}, {"name", a.name}, {"description", a.description}, {"creator", a.creator},
                    {"price", a.price}, {"created", a.created}, {"sales", a.sales}, {"plays", a.plays},
-                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}, {"num", a.num}, {"days", a.days}};
+                   {"size", a.size}, {"meta", a.meta}, {"thumb", a.thumb}, {"badges", a.badges}, {"num", a.num}, {"days", a.days}, {"comments", a.comments}};
     writeFile(m_opts.data / "assets.json", all.dump(1));
 }
 
@@ -1430,6 +1434,7 @@ void GbServer::load() {
                 if (j.contains("meta")) a.meta = j["meta"];
                 if (j.contains("badges") && j["badges"].is_array()) a.badges = j["badges"];
                 if (j.contains("days") && j["days"].is_object()) a.days = j["days"];
+                if (j.contains("comments") && j["comments"].is_array()) a.comments = j["comments"];
                 a.thumb = j.value("thumb", 0LL);
                 a.num = j.value("num", 0LL);
                 if (Online::validKind(a.kind)) m_assets[id] = a;
