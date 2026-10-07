@@ -34,4 +34,8 @@ std::string engineDoc(const std::string& topic);
 nlohmann::json capabilities();
 // MCP resources/list: the gutsbolts:// pages.
 const nlohmann::json& resources();
+// MCP prompts/list and prompts/get: ready-made requests for common jobs, each with
+// the tool workflow to follow (null if there's no such prompt).
+const nlohmann::json& prompts();
+nlohmann::json prompt(const std::string& name, const nlohmann::json& args);
 }

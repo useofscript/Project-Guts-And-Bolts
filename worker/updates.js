@@ -21,6 +21,9 @@ export const BUILT_IN_UPDATES = [
       'Delete is marked as risky, so AIs only delete what you clearly asked for',
       'AIs can read how the engine works: what it can and can\'t do, its words for things, which way is up, and step-by-step recipes',
       'Every object is picked by its id (#42); if a name is used twice, the AI is asked which one instead of guessing',
+      'Power tools for AIs: make a physics object in one go, set off explosions, bake the navmesh, find walking routes and send characters walking',
+      'AIs can watch the running game (frame rate, what\'s moving, where characters are) and pause or step it',
+      'Save points: an AI can save the game, try something wild, and roll back if it goes wrong (plus redo)',
     ],
   },
   {

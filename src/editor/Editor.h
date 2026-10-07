@@ -29,6 +29,8 @@ class AnimationEditor;
 class TeamCreate;
 class Plugins;
 
+class Physics;
+
 class Editor {
 public:
     Editor(GLFWwindow* window, Scene* scene);
@@ -214,6 +216,10 @@ private:
     int  m_frame       = 0;
 
     std::string              m_playSnapshot;   // world before Play
+    // AI tools: named save points (checkpoint tool) and a navmesh baked from the
+    // game as it is (bake_navmesh / find_path work outside playtests too).
+    std::map<std::string, std::string> m_aiCheckpoints;
+    std::unique_ptr<Physics>           m_aiNav;
     std::vector<std::string> m_undo, m_redo;
     std::string              m_committed;      // last known scene state
     std::vector<std::string> m_clipboard;
