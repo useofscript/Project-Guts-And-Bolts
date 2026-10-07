@@ -251,8 +251,25 @@ json GbServer::meJson(const User& u) const {
     return j;
 }
 
+ // Upload review (worker/server.js has the same): new decals, sounds and T-shirts from creators
+// who aren't Verified wait for staff (meta "review": "pending" or "rejected"). Until then only
+// the creator and staff can see them.
+static bool reviewedKind(const std::string& kind) { return kind == "decal" || kind == "audio" || kind == "tshirt"; }
+static std::string reviewOf(const nlohmann::json& meta) { return meta.is_object() ? meta.value("review", std::string()) : std::string(); }
+
 bool GbServer::canSee(const Asset& a, const User& me) const {
+    if (!reviewOf(a.meta).empty() && a.creator != me.id && !isStaff(me)) return false;
     return !Online::hasAccess(a.kind) || a.meta.value("access", std::string("public")) != "private" || a.creator == me.id || isStaff(me);
+}
+
+json GbServer::uploadsToReview() const {
+    std::vector<const Asset*> list;
+    for (const auto& [id, a] : m_assets) if (reviewOf(a.meta) == "pending") list.push_back(&a);
+    auto when = [](const Asset* a) { return std::max(a->created, a->meta.value("updated", 0LL)); };
+    std::sort(list.begin(), list.end(), [&](const Asset* x, const Asset* y) { return when(x) < when(y); });   // oldest first
+    json out = json::array();
+    for (size_t i = 0; i < list.size() && i < 50; ++i) out.push_back(publicAsset(*list[i]));
+    return out;
 }
 
 json GbServer::publicAsset(const Asset& a) const {
@@ -269,6 +286,10 @@ json GbServer::publicAsset(const Asset& a) const {
     const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL;
     j["offsaleAt"] = off;
     j["offsale"] = off > 0 && Online::unixNow() >= off;
+    if (const std::string review = reviewOf(a.meta); !review.empty()) {
+        j["review"] = review;
+        j["reviewNote"] = a.meta.value("reviewNote", std::string());
+    }
     return j;
 }
 
@@ -571,6 +592,17 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             }
             json r = okay(); r["users"] = list; return r;
         }
+        if (name == "admin.uploads") { json r = okay(); r["uploads"] = uploadsToReview(); return r; }
+        if (name == "admin.review") {
+            auto it = findAsset(str("id"));
+            if (it == m_assets.end() || reviewOf(it->second.meta).empty()) return fail("That isn't waiting for a check any more.");
+            Asset& a = it->second;
+            if (args.value("ok", false) == true) { a.meta.erase("review"); a.meta.erase("reviewNote"); }
+            else { a.meta["review"] = "rejected"; a.meta["reviewNote"] = Online::cleanText(str("note"), 200); }
+            a.meta["reviewedBy"] = me.id;
+            saveAssets();
+            json r = okay(); r["uploads"] = uploadsToReview(); return r;
+        }
         if (name == "admin.reports") {
             json r = okay(); r["reports"] = reportsJson(str("status") == "closed" ? "closed" : "open"); return r;
         }
@@ -668,6 +700,9 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         meta.erase("image");
         meta.erase("model");
         meta.erase("allowGear");
+        meta.erase("review");
+        meta.erase("reviewNote");
+        if (reviewedKind(kind) && !verified && !isStaff(me)) meta["review"] = "pending";
         if (kind == "gear")
             if (std::string problem = Online::gearProblem(data); !problem.empty()) return fail(problem);
         if (kind == "animation") {   // from Studio's Animation Editor (worker/server.js has the same)
@@ -900,6 +935,11 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 return fail("That isn't a Guts&Bolts accessory.");
         }
         if ((!Online::isClothing(a.kind) || model) && !writeFile(blobPath(a.id), data)) return fail("The server couldn't save that file.");
+        // A new picture or sound gets checked again.
+        if (reviewedKind(a.kind) && !Online::isClothing(a.kind) && !isVerified(me) && !isStaff(me)) {
+            a.meta["review"] = "pending";
+            a.meta.erase("reviewNote");
+        }
         std::string title = say(str("name"), 50);
         if (!title.empty()) a.name = title;
         if (args.contains("description")) a.description = say(str("description"), 1000, true);
@@ -980,7 +1020,11 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         const bool mine = me.owned.count(a.id) || a.creator == me.id;
         if (a.price > 0 && !mine && !isStaff(me) && (a.kind == "plugin" || a.kind == "audio" || a.kind == "gear"))
             return fail("Buy it first.");
-        if (!canSee(a, me)) return fail(a.kind == "animation" ? "This animation is private." : "This model is private.");
+        if (!canSee(a, me)) {
+            const std::string review = reviewOf(a.meta);
+            return fail(review == "pending" ? "This is waiting for a staff check." : review == "rejected" ? "This didn't pass the staff check."
+                        : a.kind == "animation" ? "This animation is private." : "This model is private.");
+        }
         std::string data;
         if (!readFile(blobPath(a.id), data)) return fail("The server lost that file.");
         if (a.kind == "game") { rememberPlayed(me, a.id); saveUsers(); }   // "Continue playing"
@@ -992,6 +1036,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         Asset& a = it->second;
         if (me.owned.count(a.id)) { json r = okay(); r["me"] = meJson(me); r["already"] = true; return r; }
+        if (!reviewOf(a.meta).empty() && a.creator != me.id) return fail("This is waiting for a staff check.");
         if (a.meta.is_object() && a.meta.value("award", std::string()) == "email")
             return fail("This hat can't be bought: confirm an email in Settings and it's yours.");
         if (const long long off = a.meta.is_object() ? a.meta.value("offsaleAt", 0LL) : 0LL; off > 0 && now >= off)

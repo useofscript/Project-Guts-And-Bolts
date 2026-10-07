@@ -219,6 +219,9 @@ private:
     void setBlocked(const std::string& user, bool on);
     void drawBlockedList();   // Avatar > Your account
     void drawReportsBox();    // the Staff page
+    void drawUploadsBox();    // the Staff page: new uploads waiting for a check
+    nlohmann::json m_uploads = nlohmann::json::array();
+    double         m_uploadsAt = -100.0;
     std::string    m_reportKind, m_reportId, m_reportName, m_reportBlockUser, m_reportNote, m_reportMsg;
     int            m_reportReason = 0;
     bool           m_reportWanted = false, m_reportAlsoBlock = false, m_reportsClosed = false;
