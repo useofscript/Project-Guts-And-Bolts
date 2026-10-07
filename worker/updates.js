@@ -10,6 +10,16 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'ding-dong-ditch', name: 'Ding Dong Ditch', time: 1791341000, tag: 'Website',
+    summary: 'A notification bell: see friend requests, sales, trades, group news and upload checks in one place.',
+    items: [
+      'A bell next to your name on the website and in the Player, with a red number for new things',
+      'Friend requests, new friends and followers, sales, trades and group requests all ring it',
+      'You also hear back when staff check something you uploaded (and why, if it was turned down)',
+      'Click one to go straight to that page',
+    ],
+  },
+  {
     id: 'bouncer-at-the-door', name: 'Bouncer at the Door', time: 1791340000, tag: 'Server',
     summary: 'New decals, sounds and T-shirts from creators who aren\'t Verified wait for a staff check before anyone else sees them.',
     items: [

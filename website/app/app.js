@@ -401,6 +401,8 @@ async function pageCall(op, args) {
   return r;
 }
 
+const BELL_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"/></svg>';
+
 function setMe(m) {
   me = m;
   const msgLink = $('#nav a[data-page=messages]');
@@ -412,7 +414,9 @@ function setMe(m) {
   if (staffLink) staffLink.hidden = !(signedIn() && me.staff);
   const box = $('#me');
   if (signedIn()) {
-    box.innerHTML = html`Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}
+    const notes = me.unreadNotes || 0;
+    box.innerHTML = html`<a class="bell" href="#/notifications" title="Notifications" aria-label="Notifications">${raw(BELL_SVG)}${notes ? html`<span class="unread">${notes > 99 ? '99+' : notes}</span>` : ''}</a>
+      Hi, <a href="#/user/${me.userId}">${me.username}</a>${verified(me.verified)}
       | <a href="#/bolts">${bolts(me.bolts)}</a> | <a href="#/settings">Settings</a> | <a href="#" data-act="logout">Logout</a>`.s;
   } else {
     box.innerHTML = html`<a href="#/signup">Sign Up</a> | <a href="#/login">Login</a>`.s;
@@ -1835,6 +1839,34 @@ pages.staff = async () => {
           <button class="btn small red" data-act="staff" data-op="ban" data-on="${u.banned ? '' : '1'}" data-id="${u.id}">${u.banned ? 'Unban' : 'Ban'}</button>` : ''}`}
       </div>`) : html`<p class="error">${r.error}</p>`}</div>`);
   loadReviewPreviews();
+};
+
+// The bell: friend requests, sales, trades, uploads checked by staff... (newest first).
+// Opening the page marks them all read.
+function noteLink(n) {
+  if (n.kind === 'friendRequest') return '#/friends';
+  if (n.kind === 'friend' || n.kind === 'follow') return '#/user/' + n.about;
+  if (n.kind === 'trade') return '#/trades';
+  if (n.kind === 'group') return '#/group/' + n.about;
+  if (n.kind === 'sale' || n.kind === 'upload') return '#/library/' + n.about;
+  return '';
+}
+pages.notifications = async () => {
+  if (!signedIn()) { show(html`<h1>Notifications</h1>${needSignIn('see your notifications')}`); return; }
+  const r = await pageCall('notes.list', {});
+  if (!r.ok) { show(html`<h1>Notifications</h1><p class="error">${r.error}</p>`); return; }
+  const icon = { friendRequest: '👋', friend: '🤝', follow: '⭐', trade: '🔁', sale: '💰', upload: '🖼️', group: '👥' };
+  show(html`<h1>Notifications</h1>
+    <div class="list notes">${r.notes.length ? r.notes.map((n) => {
+      const link = noteLink(n);
+      const body = html`<span class="note-icon" aria-hidden="true">${icon[n.kind] || '🔔'}</span><span class="grow">${n.text}</span>
+        <span class="small muted">${ago(n.at)}</span>`;
+      return html`<div class="${n.read ? '' : 'unread'}">${link ? html`<a class="row grow" href="${link}">${body}</a>` : body}</div>`;
+    }) : html`<p class="muted">Nothing yet. Friend requests, sales, trades and more show up here.</p>`}</div>`);
+  if (r.notes.some((n) => !n.read)) {
+    const d = await call('notes.read', {});
+    if (d.ok && d.me) setMe(d.me);
+  }
 };
 
 pages.bolts = async () => {

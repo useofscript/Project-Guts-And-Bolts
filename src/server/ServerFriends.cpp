@@ -83,7 +83,7 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
             if (!me.following.count(them->id) && me.following.size() >= kMaxFollowing)
                 return fail("You already follow " + std::to_string(kMaxFollowing) + " people.");
             me.following.insert(them->id);
-            them->followers.insert(me.id);
+            if (them->followers.insert(me.id).second) notify(them, "follow", me.name + " follows you now.", me.id);
         } else {
             me.following.erase(them->id);
             them->followers.erase(me.id);
@@ -103,6 +103,7 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
         them->friendIn.erase(me.id);   them->friendOut.erase(me.id);
         me.friends.insert(them->id);
         them->friends.insert(me.id);
+        notify(them, "friend", me.name + " is your friend now.", me.id);
         saveUsers();
         json r = okay();
         r["status"] = "friends";
@@ -117,6 +118,7 @@ json GbServer::friendOp(const std::string& name, User& me, const json& args) {
         if (them->friendIn.size() >= kMaxRequests) return fail(them->name + " has too many friend requests waiting.");
         me.friendOut.insert(them->id);
         them->friendIn.insert(me.id);
+        notify(them, "friendRequest", me.name + " sent you a friend request.", me.id);
         saveUsers();
         json r = okay();
         r["status"] = "sent";

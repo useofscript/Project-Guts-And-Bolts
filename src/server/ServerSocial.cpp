@@ -243,6 +243,13 @@ json GbServer::socialOp(const std::string& name, User& me, const json& args) {
         saveUsers();
         json r = okay(); r["me"] = meJson(me); return r;
     }
+    // The bell (worker/server.js has the same): newest first, and mark them all read.
+    if (name == "notes.list") { json r = okay(); r["notes"] = me.notes; r["me"] = meJson(me); return r; }
+    if (name == "notes.read") {
+        for (json& n : me.notes) n["read"] = true;
+        saveUsers();
+        json r = okay(); r["me"] = meJson(me); return r;
+    }
     if (name == "message.list") {   // box: "inbox" or "sent"
         const bool sent = str("box") == "sent";
         auto who = [&](const std::string& id) {
