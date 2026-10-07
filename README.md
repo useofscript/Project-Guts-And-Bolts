@@ -2199,6 +2199,26 @@ The renderer uses HDR with physically based shading, soft contact-hardening
 sun shadows, point and spot lights, sky reflections, SSAO, bloom, ACES tone
 mapping and FXAA. It needs OpenGL 4.1, so it runs on Windows, macOS and Linux.
 
+## Tests (checking nothing broke)
+
+The `worker/test` folder has automatic checks for the website's server. They
+start a real copy of the server in memory (no internet needed) and try things the
+way a player would: signing up, getting the daily Bolts, buying an item,
+commenting, the filter, and staff tools like warnings and bans. They also check
+that the update log is filled in properly, that it says "Library" and not
+"Marketplace", and that the C++ filter has the same word list as the website.
+
+Run them with Node 22.5 or newer:
+
+```
+node --no-warnings --import ./worker/test/register.mjs --test 'worker/test/*.test.mjs'
+```
+
+GitHub runs them (plus a check of every website script for typing mistakes) on
+every change, as the **Tests** job. To add a test, copy one of the
+`*.test.mjs` files; `makeServer()` in `helpers.mjs` gives you a fresh server and
+`s.call(player, 'op', {...})` asks it to do something.
+
 ## Building by hand
 
 You need CMake, a C++20 compiler, and GLFW, GLEW and GLM where `find_package`

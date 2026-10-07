@@ -16,6 +16,19 @@ permissions:
 
 
 jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check every website and server script for mistakes
+        run: for f in worker/*.js website/app/*.js; do node --check "$f" || exit 1; done
+      - name: Run the tests
+        run: node --no-warnings --import ./worker/test/register.mjs --test 'worker/test/*.test.mjs'
+
   android:
     if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release v')
     name: Android (APK)
