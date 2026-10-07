@@ -1,4 +1,5 @@
 #include "NavMesh.h"
+#include "Terrain.h"
 #include "Physics.h"
 #include "SceneNode.h"
 
@@ -101,7 +102,14 @@ void NavMesh::bake(const Physics& physics, const Settings& settings) {
         world.min = glm::min(world.min, c.box.min);
         world.max = glm::max(world.max, c.box.max);
     }
-    if (src.empty()) { m_w = m_h = 0; m_colStart.assign(1, 0); m_solidStart.assign(1, 0); return; }
+    // The terrain is ground too.
+    const Terrain* terrain = physics.m_terrain;
+    if (terrain) {
+        const float hw = terrain->halfWidth();
+        world.min = glm::min(world.min, glm::vec3(-hw, Terrain::kMinHeight, -hw));
+        world.max = glm::max(world.max, glm::vec3(hw, Terrain::kMaxHeight, hw));
+    }
+    if (src.empty() && !terrain) { m_w = m_h = 0; m_colStart.assign(1, 0); m_solidStart.assign(1, 0); return; }
 
     // 2. The columns. Huge worlds get wider columns so it stays quick.
     float cell = std::max(0.1f, m_set.cell);
@@ -145,6 +153,23 @@ void NavMesh::bake(const Physics& physics, const Settings& settings) {
                     (void)top;
                 }
                 pieces[(size_t)z * m_w + x].push_back({lo, hi, s.walkTop, s.area});
+            }
+    }
+
+    // 3b. The terrain: solid from far below up to the highest ground in each column;
+    //     too steep to stand on is a wall. Its material is the area (for Costs).
+    if (terrain) {
+        const float minUp = std::cos(glm::radians(m_set.maxSlope));
+        uint16_t areas[kTerrainMaterialCount];
+        for (int m = 0; m < kTerrainMaterialCount; ++m) areas[m] = areaOf(kTerrainMaterialNames[m]);
+        for (int z = 0; z < m_h; ++z)
+            for (int x = 0; x < m_w; ++x) {
+                const float x0 = m_origin.x + x * cell, z0 = m_origin.z + z * cell;
+                float top;
+                if (!terrain->highestUnder(x0, z0, x0 + cell, z0 + cell, top)) continue;
+                const float cx = x0 + cell * 0.5f, cz = z0 + cell * 0.5f;
+                const bool walk = terrain->normalAt(cx, cz).y >= minUp;
+                pieces[(size_t)z * m_w + x].push_back({Terrain::kMinHeight, top, walk, areas[(int)terrain->materialAt(cx, cz)]});
             }
     }
 

@@ -4,6 +4,7 @@
 #include "Player.h"
 #include "Npc.h"
 #include "Water.h"
+#include "Terrain.h"
 #include "Particles.h"
 #include "Blast.h"
 #include "Animation.h"
@@ -136,6 +137,14 @@ public:
     NpcSystem&       npcs() { return m_npcs; }
     // Moving water (waves, floating, splashes) while the game runs.
     WaterSystem&     water() { return m_water; }
+    // Hills and valleys sculpted in Studio (empty in most places). See Terrain.h.
+    Terrain&         terrain() { return m_terrain; }
+    const Terrain&   terrain() const { return m_terrain; }
+    // What rays and scripts see when they hit the terrain: an object called
+    // "Terrain" (workspace.Terrain in Lua). It's not in the Explorer tree and
+    // can't be moved or deleted; findById(kTerrainId) returns it.
+    static constexpr uint64_t kTerrainId = 4503599627370000ull;
+    SceneNode*       terrainNode() { return m_terrainNode.get(); }
     bool             isCharacterRoot(uint64_t id) const;
     // Kill any character; `force` 0..1 = how violently.
     void             killCharacter(uint64_t rootId, float force, const glm::vec3& impulse);
@@ -168,6 +177,8 @@ private:
     std::vector<RemoteCharacter> m_remotes;
     NpcSystem                  m_npcs;
     WaterSystem                m_water;
+    Terrain                    m_terrain;
+    std::unique_ptr<SceneNode> m_terrainNode;
     ParticleSystem             m_particles;
     BlastSystem                m_blasts;
     Anim::Animator             m_animator;

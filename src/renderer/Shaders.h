@@ -38,6 +38,7 @@ inline const char* litVert = R"(#version 410 core
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in vec2 aUV;
+layout(location=3) in vec4 aBlend;   // terrain: how much grass, dirt, sand, rock (snow and mud in aUV)
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -47,11 +48,13 @@ uniform mat3 uNormalMat;
 out vec3 vNormal;
 out vec3 vWorldPos;
 out vec2 vUV;
+out vec4 vBlend;
 out vec3 vLocalPos;      // in the part's own space (-0.5..0.5): for faces painted on heads
 out vec3 vLocalNormal;
 
 void main() {
     vUV = aUV;
+    vBlend = aBlend;
     vLocalPos = aPos;
     vLocalNormal = aNormal;
     vec4 world = uModel * vec4(aPos, 1.0);
@@ -65,6 +68,7 @@ inline const char* litFrag = R"(#version 410 core
 in vec3 vNormal;
 in vec3 vWorldPos;
 in vec2 vUV;
+in vec4 vBlend;
 in vec3 vLocalPos;
 in vec3 vLocalNormal;
 
@@ -76,7 +80,7 @@ uniform sampler2D uTShirt;
 uniform sampler2D uDecal;
 
 uniform vec3  uColor;
-uniform int   uMaterial;      // 0 plastic 1 metal 2 neon 3 wood 4 glass 5 concrete 6 ice
+uniform int   uMaterial;      // 0 plastic 1 metal 2 neon 3 wood 4 glass 5 concrete 6 ice (7 water, 8 liquid, 9 terrain)
 uniform float uAlpha;
 uniform bool  uSelected;
 uniform vec3  uViewPos;
@@ -256,6 +260,31 @@ void main() {
         float rings = sin((vWorldPos.x * 0.7 + vWorldPos.z * 0.3 + fbm(vWorldPos.xy * 1.5) * 1.2) * 14.0);
         albedo *= 0.78 + 0.22 * (0.5 + 0.5 * rings);
         rough = 0.75;
+    }
+    else if (uMaterial == 9) {                                    // terrain: a mix of grounds (Terrain.h)
+        float n1 = fbm(vWorldPos.xz * 0.35), n2 = vnoise(vWorldPos.xz * 4.0);
+        float strata = 0.5 + 0.5 * sin(vWorldPos.y * 1.7 + n1 * 4.0);
+        // How much of each: grass, dirt, sand, rock, snow, mud. A little noise on
+        // the weights so the edges between grounds are ragged, not straight.
+        float w[6] = float[6](vBlend.x, vBlend.y, vBlend.z, vBlend.w, vUV.x, vUV.y);
+        vec3 col[6] = vec3[6](mix(vec3(0.27, 0.45, 0.16), vec3(0.40, 0.58, 0.22), n1),
+                              mix(vec3(0.40, 0.29, 0.19), vec3(0.52, 0.39, 0.26), n1),
+                              mix(vec3(0.80, 0.72, 0.50), vec3(0.90, 0.83, 0.62), n1),
+                              mix(vec3(0.36, 0.35, 0.34), vec3(0.52, 0.50, 0.47), strata * 0.6 + n2 * 0.4),
+                              mix(vec3(0.86, 0.89, 0.94), vec3(0.98, 0.98, 1.0), n1),
+                              mix(vec3(0.22, 0.16, 0.10), vec3(0.32, 0.24, 0.15), n1));
+        float rr[6] = float[6](0.9, 0.95, 0.9, 0.85, 0.6, 0.35);
+        vec3 c = vec3(0.0);
+        float r = 0.0, total = 0.0;
+        for (int i = 0; i < 6; ++i) {
+            float k = pow(clamp(w[i] + (n2 - 0.5) * 0.35 * w[i] * (1.0 - w[i]) * 4.0, 0.0, 1.0), 2.0);
+            c += lin(col[i]) * k;
+            r += rr[i] * k;
+            total += k;
+        }
+        albedo = total > 1e-4 ? c / total : lin(col[0]);
+        rough = total > 1e-4 ? r / total : 0.9;
+        albedo *= mix(1.0, 0.85 + 0.3 * n2, detail);
     }
     else if (uMaterial == 4) { rough = 0.04; }                    // glass
     else if (uMaterial == 5) {                                    // concrete speckle

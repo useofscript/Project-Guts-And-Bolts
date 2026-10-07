@@ -31,6 +31,9 @@ end
 } // namespace
 
 Scene::Scene() {
+    m_terrainNode = std::make_unique<SceneNode>("Terrain", NodeKind::Model);
+    m_terrainNode->id = kTerrainId;
+    m_terrainNode->anchored = true;
     m_player = std::make_unique<Player>(this);
     buildDefault();
 }
@@ -38,6 +41,7 @@ Scene::Scene() {
 void Scene::buildDefault() {
     m_selected = nullptr;
     m_selection.clear();
+    m_terrain.clear();
     m_root = std::make_unique<SceneNode>("Workspace", NodeKind::Model);
     markDirty();
 
@@ -188,6 +192,7 @@ void Scene::rebuildIndex() {
 }
 
 SceneNode* Scene::findById(uint64_t id) {
+    if (id == kTerrainId) return m_terrainNode.get();
     if (m_indexDirty) rebuildIndex();
     auto it = m_index.find(id);
     if (it != m_index.end()) return it->second;
@@ -224,7 +229,7 @@ SceneNode* Scene::serviceFolder(const std::string& name, bool create) {
 }
 
 bool Scene::isProtected(const SceneNode* node) const {
-    return node == m_root.get() || (m_player && node && node->id == m_player->rootId());
+    return node == m_root.get() || (node && node == m_terrainNode.get()) || (m_player && node && node->id == m_player->rootId());
 }
 
 bool Scene::isCharacterPart(const SceneNode* node) const {

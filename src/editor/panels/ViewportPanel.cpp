@@ -132,7 +132,7 @@ void ViewportPanel::followPlayer(Player& p, float dt) {
     PlayCamera::fade(*m_scene, p, m_camera);
 }
 
-bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing(); }
+bool ViewportPanel::gizmoInUse() const { return ImGuizmo::IsUsing() || m_sculpting; }
 
 bool ViewportPanel::focusSelected() {
     // The box around every part in the selection (and inside selected models / tools).
@@ -674,6 +674,7 @@ void ViewportPanel::render(float dt) {
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd);
+                if (hit == m_scene->terrainNode()) hit = nullptr;
                 if (hit && !ImGui::GetIO().KeyAlt && !m_scene->isCharacterPart(hit)) {
                     SceneNode* top = hit;
                     for (SceneNode* p = hit->parent; p && p != m_scene->root(); p = p->parent)
@@ -797,6 +798,15 @@ void ViewportPanel::render(float dt) {
                 if (dx * dx + dy * dy < 12.0f * 12.0f) iconHit = n;
             });
 
+            // Terrain brushes: drag on the ground.
+            if (m_state->terrainBrush >= 0) {
+                terrainView(view, proj, imgMin, imgSize, dt);
+                ImGui::End();
+                ImGui::PopStyleVar();
+                return;
+            }
+            m_sculpting = false;
+
             // Connect tool: click part A, then part B.
             if (m_state->connectTool >= 0) {
                 static const char* names[] = {"rope", "rod", "spring", "weld", "hinge", "motor"};
@@ -816,7 +826,7 @@ void ViewportPanel::render(float dt) {
                     glm::vec3 ro, rd;
                     mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
                     float dist = 0.0f;
-                    if (SceneNode* hit = Physics::raycast(*m_scene, ro, rd, &dist)) {
+                    if (SceneNode* hit = Physics::raycast(*m_scene, ro, rd, &dist); hit && hit != m_scene->terrainNode()) {
                         glm::vec3 point = ro + rd * dist;
                         if (!m_state->connectFirst) {
                             m_state->connectFirst = hit->id;
@@ -901,6 +911,7 @@ void ViewportPanel::render(float dt) {
                 glm::vec3 ro, rd;
                 mouseRay({m.x, m.y}, imgMin, imgSize, view, proj, ro, rd);
                 SceneNode* hit = Physics::raycast(*m_scene, ro, rd);
+                if (hit == m_scene->terrainNode()) hit = nullptr;   // (the ground isn't something you pick)
                 if (hit && hit->locked) hit = nullptr;            // Locked parts can't be clicked (Alt+L)
                 // Like Roblox: clicking a part inside a Model picks the whole Model
                 // (the top one under the Workspace). Alt+click picks just the part,

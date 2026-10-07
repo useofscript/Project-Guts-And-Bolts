@@ -499,6 +499,109 @@ int m_GetMass(lua_State* L) {
     return 1;
 }
 
+// --- workspace.Terrain ---------------------------------------------------------
+// Hills you sculpt in Studio, or build from a script. Materials are names
+// ("Grass", Enum.Material.Rock...); "Air" digs instead of filling.
+Terrain& terrainOf(lua_State* L) {
+    LuaApi::checkNode(L, 1);   // (called as workspace.Terrain:Something)
+    return E(L)->scene()->terrain();
+}
+// The material argument at `idx`: false means "Air" (dig out).
+bool terrainMaterialArg(lua_State* L, int idx, TerrainMaterial& m) {
+    m = TerrainMaterial::Grass;
+    if (lua_isnoneornil(L, idx)) return true;
+    const std::string name = luaL_checkstring(L, idx);
+    if (name == "Air") return false;
+    if (name == "Water") luaL_error(L, "Terrain can't be water here: use a part called Water (it gets waves and swimming)");
+    if (!Terrain::parseMaterial(name, m))
+        luaL_error(L, "Unknown terrain material '%s' (try Grass, Dirt, Sand, Rock, Snow, Mud or Air)", name.c_str());
+    return true;
+}
+// No terrain yet? Start a flat one under the first thing a script fills.
+void terrainReady(Terrain& t, float bottom, TerrainMaterial m) {
+    if (t.empty()) t.create(128, Terrain::kDefaultCell, bottom, m);
+}
+int t_FillBlock(lua_State* L) {
+    Terrain& t = terrainOf(L);
+    const glm::mat4 cf = LuaApi::checkCFrame(L, 2);
+    const glm::vec3 size = glm::abs(LuaApi::checkVector3(L, 3));
+    TerrainMaterial m;
+    const bool fill = terrainMaterialArg(L, 4, m);
+    // (a turned block fills the box around it)
+    glm::vec3 mn(1e30f), mx(-1e30f);
+    for (int i = 0; i < 8; ++i) {
+        glm::vec3 c((i & 1) ? 0.5f : -0.5f, (i & 2) ? 0.5f : -0.5f, (i & 4) ? 0.5f : -0.5f);
+        glm::vec3 w = glm::vec3(cf * glm::vec4(c * size, 1.0f));
+        mn = glm::min(mn, w);
+        mx = glm::max(mx, w);
+    }
+    if (fill) { terrainReady(t, mn.y, m); t.fillBox(mn, mx, m); }
+    else t.digBox(mn, mx);
+    return 0;
+}
+int t_FillBall(lua_State* L) {
+    Terrain& t = terrainOf(L);
+    const glm::vec3 c = LuaApi::checkVector3(L, 2);
+    const float r = (float)luaL_checknumber(L, 3);
+    TerrainMaterial m;
+    if (terrainMaterialArg(L, 4, m)) { terrainReady(t, c.y - r, m); t.fillBall(c, r, m); }
+    else t.digBall(c, r);
+    return 0;
+}
+int t_Clear(lua_State* L) { terrainOf(L).clear(); return 0; }
+// Terrain:Generate(seed, hills, size): rolling hills. hills 0..1, size in studs across.
+int t_Generate(lua_State* L) {
+    Terrain& t = terrainOf(L);
+    const uint32_t seed = (uint32_t)luaL_optinteger(L, 2, 1);
+    const float hills = (float)luaL_optnumber(L, 3, 0.5);
+    const float size = (float)luaL_optnumber(L, 4, 512.0);
+    t.generate((int)(size / Terrain::kDefaultCell), Terrain::kDefaultCell, seed, hills);
+    return 0;
+}
+// Terrain:GetHeight(x, z) or (position): the ground height there, or nil off the edge.
+int t_GetHeight(lua_State* L) {
+    Terrain& t = terrainOf(L);
+    float x, z;
+    if (lua_isnumber(L, 2)) { x = (float)lua_tonumber(L, 2); z = (float)luaL_checknumber(L, 3); }
+    else { glm::vec3 p = LuaApi::checkVector3(L, 2); x = p.x; z = p.z; }
+    float h;
+    if (!t.heightAt(x, z, h)) return 0;
+    lua_pushnumber(L, h);
+    return 1;
+}
+int t_GetMaterial(lua_State* L) {
+    Terrain& t = terrainOf(L);
+    const glm::vec3 p = LuaApi::checkVector3(L, 2);
+    float h;
+    if (!t.heightAt(p.x, p.z, h)) { lua_pushstring(L, "Air"); return 1; }
+    lua_pushstring(L, kTerrainMaterialNames[(int)t.materialAt(p.x, p.z)]);
+    return 1;
+}
+// Terrain:Sculpt(brush, position, radius, strength, material): one dab of a Studio
+// brush. brush = "Raise", "Lower", "Smooth", "Flatten" or "Paint".
+int t_Sculpt(lua_State* L) {
+    Terrain& t = terrainOf(L);
+    const std::string b = luaL_checkstring(L, 2);
+    const glm::vec3 p = LuaApi::checkVector3(L, 3);
+    const float r = (float)luaL_checknumber(L, 4);
+    const float strength = (float)luaL_optnumber(L, 5, 1.0);
+    TerrainMaterial m;
+    terrainMaterialArg(L, 6, m);
+    Terrain::Brush brush;
+    if (b == "Raise") brush = Terrain::Brush::Raise;
+    else if (b == "Lower") brush = Terrain::Brush::Lower;
+    else if (b == "Smooth") brush = Terrain::Brush::Smooth;
+    else if (b == "Flatten") brush = Terrain::Brush::Flatten;
+    else if (b == "Paint") brush = Terrain::Brush::Paint;
+    else return luaL_error(L, "Unknown brush '%s' (try Raise, Lower, Smooth, Flatten or Paint)", b.c_str());
+    t.brush(brush, p, r, strength, m);
+    return 0;
+}
+const luaL_Reg kTerrainMethods[] = {
+    {"FillBlock", t_FillBlock}, {"FillBall", t_FillBall}, {"Clear", t_Clear}, {"Generate", t_Generate},
+    {"GetHeight", t_GetHeight}, {"GetMaterial", t_GetMaterial}, {"Sculpt", t_Sculpt},
+    {nullptr, nullptr}};
+
 const luaL_Reg kMethods[] = {
     {"FindFirstChild", m_FindFirstChild}, {"FindFirstChildOfClass", m_FindFirstChildOfClass},
     {"WaitForChild", m_WaitForChild}, {"GetChildren", m_GetChildren},
@@ -1148,6 +1251,13 @@ int inst_index(lua_State* L) {
     lua_getfield(L, LUA_REGISTRYINDEX, "GB.InstanceMethods");
     if (lua_getfield(L, -1, k) != LUA_TNIL) return 1;
     lua_pop(L, 2);
+    if (ref->id == Scene::kTerrainId) {   // workspace.Terrain: its own methods, and it lives in the Workspace
+        lua_getfield(L, LUA_REGISTRYINDEX, "GB.TerrainMethods");
+        if (lua_getfield(L, -1, k) != LUA_TNIL) return 1;
+        lua_pop(L, 2);
+        if (is(k, "Parent")) { LuaApi::pushInstance(L, E(L)->scene()->root()->id); return 1; }
+        if (is(k, "ClassName")) { lua_pushstring(L, "Terrain"); return 1; }
+    }
 
     SceneNode* n = E(L)->resolve(ref->id);
     if (!n) {
@@ -1400,6 +1510,7 @@ int inst_index(lua_State* L) {
 
     // Like Roblox, `workspace.Door` finds a child called "Door".
     if (SceneNode* c = n->findChild(k)) { LuaApi::pushInstance(L, c->id); return 1; }
+    if (n == E(L)->scene()->root() && is(k, "Terrain")) { LuaApi::pushInstance(L, Scene::kTerrainId); return 1; }
     return luaL_error(L, "'%s' is not a valid member of %s \"%s\"", k, className(L, n), n->name.c_str());
 }
 
@@ -1408,6 +1519,7 @@ int inst_newindex(lua_State* L) {
     const char* k = luaL_checkstring(L, 2);
     SceneNode* n = E(L)->resolve(ref->id);
     if (!n) return luaL_error(L, "Tried to set '%s' of an object that has been destroyed", k);
+    if (ref->id == Scene::kTerrainId) return luaL_error(L, "Terrain's %s can't be changed (use its methods, like FillBlock)", k);
     bool part = n->kind == NodeKind::Part;
     Scene* scene = E(L)->scene();
 
@@ -2439,6 +2551,8 @@ void registerInstance(lua_State* L) {
 
     luaL_newlib(L, kMethods);
     lua_setfield(L, LUA_REGISTRYINDEX, "GB.InstanceMethods");
+    luaL_newlib(L, kTerrainMethods);
+    lua_setfield(L, LUA_REGISTRYINDEX, "GB.TerrainMethods");
 
     // Weak-valued cache: id -> Instance userdata.
     lua_newtable(L);
