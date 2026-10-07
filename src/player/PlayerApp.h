@@ -453,6 +453,9 @@ private:
     std::string    m_newGroupName, m_newGroupDesc, m_wallInput, m_shoutInput, m_editDesc;
     glm::vec3      m_newGroupColor{0.23f, 0.48f, 0.84f};
     bool           m_newGroupOpen = true, m_editingGroup = false;
+    std::map<std::string, nlohmann::json> m_rankEdits;   // the owner's rank forms, by rank id ("" = a new one)
+    nlohmann::json m_groupMyGames = nlohmann::json::array();   // your games, for "Add one of your games"
+    int            m_groupAddGame = 0, m_payTo = 0, m_payAmount = 0;
 
     // The Forum (PlayerForum.cpp)
     void drawForum();

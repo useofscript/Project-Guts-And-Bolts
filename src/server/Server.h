@@ -98,7 +98,9 @@ private:
         long long   created = 0;
         int         color = 0x3A7BD5;                   // emblem colour (0xRRGGBB)
         bool        open = true;                         // anyone can join (false: ask first)
-        std::map<std::string, std::string> members;      // account id -> "Owner" / "Admin" / "Member"
+        std::map<std::string, std::string> members;      // account id -> rank id ("Owner", "Admin", "Member" or a custom "r-...")
+        nlohmann::json ranks = nlohmann::json::array();  // [{id, name, level, perms}] (empty = the default three)
+        std::vector<Entry> ledger;                       // the group's Bolts (game sales in, payouts out)
         std::set<std::string> requests;                  // waiting to join
         Post        shout;
         std::vector<Post> wall;                          // newest last, at most 200
@@ -185,6 +187,14 @@ private:
     nlohmann::json publicGroup(const Group& g) const;
     nlohmann::json badgesOf(const User& u) const;         // badge keys that check out
     std::vector<const Group*> groupsOf(const std::string& userId) const;
+    // Group ranks, funds and games (ServerGroups.cpp; worker/server.js has the same).
+    nlohmann::json ranksOf(const Group& g) const;
+    nlohmann::json rankIn(const Group& g, const std::string& userId) const;   // null = not in it
+    bool      groupCan(const Group& g, const User& u, const std::string& perm) const;
+    long long groupFunds(const Group& g) const;
+    void      groupAdd(Group& g, long long amount, const std::string& reason, const std::string& ref);
+    Group*    groupFor(const Asset& a);   // the group a game (or its pass or product) belongs to
+    void      paySeller(Asset& a, User& buyer, long long share, const std::string& ref);   // to the group, or the creator
     nlohmann::json meJson(const User& u) const;
     nlohmann::json publicUser(const User& u) const;
     nlohmann::json publicAsset(const Asset& a) const;

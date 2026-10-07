@@ -157,6 +157,17 @@ const PLAYER_BADGES = [
 ];
 const PRIVACY = ['everyone', 'friends', 'nobody'];                   // ServerFriends.cpp
 const kGroupFee = 50, kMaxOwned = 5, kMaxJoined = 50, kWallSize = 200, kPostCooldown = 10;
+// Group ranks (ServerGroups.cpp has the same). Each rank has a level (higher = more in
+// charge) and permissions: shout, manage (let people in, remove people, delete wall posts,
+// change the group's about), ranks (change people's ranks), games (put your games in the
+// group) and funds (see the group's Bolts and pay people). The Owner can do everything.
+const GROUP_PERMS = ['shout', 'manage', 'ranks', 'games', 'funds'];
+const kMaxRanks = 10, kGroupLedger = 500;
+const defaultRanks = () => [
+  { id: 'Owner', name: 'Owner', level: 255, perms: GROUP_PERMS.slice() },
+  { id: 'Admin', name: 'Admin', level: 200, perms: ['shout', 'manage', 'games'] },
+  { id: 'Member', name: 'Member', level: 1, perms: [] },
+];
 const kMaxWrongPasswords = 5, kLockoutSeconds = 600;
 const kRenameCost = 1000;   // Bolts to change your username
 const kDefaultMax = 12, kMostPlayers = 30, kHostedEach = 3, kJoinWait = 15, kHostSilence = 90, kPipeSilence = 120;
@@ -891,8 +902,10 @@ export class GbServerObject extends DurableObject {
       featured: a.kind === 'game' && a.featured > 0 ? true : undefined,
       comments: a.kind === 'game' ? !a.commentsOff : undefined, commentCount: a.kind === 'game' ? (a.comments || []).length : undefined,
       myFavorite: a.kind === 'game' && me ? (me.favorites || []).includes(a.id) : undefined,
-      offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined };
+      offsaleAt: a.offsaleAt || 0, offsale: this.isOffsale(a), review: a.review || undefined, reviewNote: a.reviewNote || undefined,
+      group: a.kind === 'game' ? this.groupJson(a.group) : undefined };
   }
+  groupJson(id) { const g = id ? this.groups.get(id) : null; return g ? { id: g.id, name: g.name, color: g.color } : undefined; }
   publicModelsLeft(u) {   // -1 = no limit
     if (this.isVerified(u)) return -1;
     const used = u.publicWeek === weekOf(now()) ? (u.publicThisWeek || 0) : 0;
@@ -943,6 +956,47 @@ export class GbServerObject extends DurableObject {
       created: g.created, shout: (g.shout && g.shout.text) || '' };
   }
   groupsOf(id) { return [...this.groups.values()].filter((g) => g.members[id]); }
+  ranksOf(g) { return Array.isArray(g.ranks) && g.ranks.length ? g.ranks : defaultRanks(); }
+  // Someone's rank in a group (null = not in it). A rank that was deleted counts as Member.
+  rankIn(g, userId) {
+    const id = g.members[userId];
+    if (!id) return null;
+    const ranks = this.ranksOf(g);
+    return ranks.find((r) => r.id === id) || ranks.find((r) => r.id === 'Member') || defaultRanks()[2];
+  }
+  groupCan(g, u, perm) { const r = this.rankIn(g, u.id); return !!r && (r.id === 'Owner' || r.perms.includes(perm)); }
+  groupFunds(g) { return (g.ledger || []).reduce((n, e) => n + e[0], 0); }
+  groupAdd(g, amount, reason, ref) {
+    g.ledger = g.ledger || [];
+    g.ledger.push([amount, reason, now(), ref]);
+    if (g.ledger.length > kGroupLedger + 100) {
+      const cut = g.ledger.length - kGroupLedger;
+      const old = g.ledger.slice(0, cut).reduce((n, e) => n + e[0], 0);
+      g.ledger = [[old, 'Earlier history', 0, 'carry'], ...g.ledger.slice(cut)];
+    }
+    this.saveGroup(g);
+  }
+  // The group a game (or one of its passes or products) belongs to, if any.
+  groupFor(a) {
+    const gameId = a.kind === 'game' ? a.id : (a.meta || {}).game;
+    const game = gameId ? this.assets.get(gameId) : null;
+    return game && game.group ? this.groups.get(game.group) || null : null;
+  }
+  // Pay the seller's share of a sale: to the group when it's a group's game, else to the creator.
+  paySeller(a, buyer, share, ref) {
+    const seller = this.findUser(a.creator);
+    if (!seller || seller === buyer) return;
+    const g = this.groupFor(a);
+    if (g) {
+      if (share > 0) this.groupAdd(g, share, buyer.name + ' bought ' + a.name, ref);
+      this.tally(a, 'bolts', share);
+      this.notify(seller, 'sale', buyer.name + ' bought ' + a.name + '. ' + share + ' Bolts went to ' + g.name + '.', a.id);
+      return;
+    }
+    if (share > 0) this.add(seller, share, 'Sold ' + a.name, ref);
+    this.tally(a, 'bolts', share);
+    this.notify(seller, 'sale', buyer.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
+  }
 
   // --- checking a request (GbServer::checkRequest) ---
   checkRequest(req) {
@@ -1020,7 +1074,7 @@ export class GbServerObject extends DurableObject {
       if (!u || u.userId === 0) return fail('There\'s no account with that ID on this server.');
       const user = Object.assign(this.publicUser(u), { badges: this.badgesOf(u), avatar: u.avatar || null });
       const creations = [...this.assets.values()].filter((a) => a.creator === u.id && this.canPlay(a, me)).map((a) => this.publicAsset(a));
-      const groups = this.groupsOf(u.id).map((g) => Object.assign(this.publicGroup(g), { role: g.members[u.id] }));
+      const groups = this.groupsOf(u.id).map((g) => Object.assign(this.publicGroup(g), { role: this.rankIn(g, u.id).name }));
       const friendship = u.id === me.id ? 'self' : me.friends.includes(u.id) ? 'friends'
         : me.friendOut.includes(u.id) ? 'sent' : me.friendIn.includes(u.id) ? 'received' : 'none';
       // Like a Roblox profile: what they're wearing, some friends, visits to their games.
@@ -1194,6 +1248,15 @@ export class GbServerObject extends DurableObject {
       if ('maxPlayers' in args) a.maxPlayers = clamp(num(args, 'maxPlayers'), 2, kMostPlayers);
       if ('allowGear' in args) a.allowGear = args.allowGear === true;
       if ('comments' in args) a.commentsOff = args.comments === false;
+      if ('group' in args) {   // put the game in one of your groups (its sales go to the group), or '' to take it out
+        const gid = str(args, 'group');
+        if (gid) {
+          const g = this.groups.get(gid);
+          if (!g) return fail('That group doesn\'t exist (any more).');
+          if (!this.groupCan(g, me, 'games') && !this.isStaff(me)) return fail('You need the "Add games" permission in ' + g.name + '.');
+        }
+        a.group = gid;
+      }
       a.updated = t;
       this.saveAsset(a);
       return okay({ asset: this.publicAsset(a, me) });
@@ -1731,13 +1794,7 @@ export class GbServerObject extends DurableObject {
       const receipt = { id: 'r-' + randomHex(6), product: a.id, game: (a.meta || {}).game, price: a.price, at: t, granted: false };
       if (a.price > 0) {
         this.add(me, -a.price, 'Bought ' + a.name, 'product:' + receipt.id);
-        const seller = this.findUser(a.creator);
-        if (seller && seller !== me) {
-          const share = Math.floor(a.price * kCreatorSharePercent / 100);
-          if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'productsale:' + receipt.id);
-          this.tally(a, 'bolts', share);
-          this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
-        }
+        this.paySeller(a, me, Math.floor(a.price * kCreatorSharePercent / 100), 'productsale:' + receipt.id);
       }
       me.receipts = [receipt, ...(me.receipts || [])].slice(0, 200);
       a.sales++;
@@ -1912,13 +1969,7 @@ export class GbServerObject extends DurableObject {
       if (a.price > 0) {
         if (this.balance(me) < a.price) return fail('You need ' + (a.price - this.balance(me)) + ' more Bolts for that.');
         this.add(me, -a.price, 'Bought ' + a.name, 'buy:' + a.id);
-        const seller = this.findUser(a.creator);
-        if (seller && seller !== me) {
-          const share = Math.floor(a.price * kCreatorSharePercent / 100);
-          if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'sale:' + a.id + ':' + randomHex(4));
-          this.tally(a, 'bolts', share);
-          this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
-        }
+        this.paySeller(a, me, Math.floor(a.price * kCreatorSharePercent / 100), 'sale:' + a.id + ':' + randomHex(4));
       }
       a.sales++;
       if (a.creator !== me.id) this.tally(a, 'sales');
@@ -2685,7 +2736,10 @@ export class GbServerObject extends DurableObject {
       return okay({ groups: found.slice(0, 60).map((g) => this.publicGroup(g)) });
     }
     if (name === 'groups.mine') {
-      return okay({ groups: this.groupsOf(me.id).map((g) => Object.assign(this.publicGroup(g), { role: g.members[me.id] })) });
+      return okay({ groups: this.groupsOf(me.id).map((g) => {
+        const r = this.rankIn(g, me.id);
+        return Object.assign(this.publicGroup(g), { role: r.name, perms: r.id === 'Owner' ? GROUP_PERMS.slice() : r.perms });
+      }) });
     }
     if (name === 'groups.create') {
       const title = say(str(args, 'name'), 40);
@@ -2708,23 +2762,33 @@ export class GbServerObject extends DurableObject {
     }
     const g = this.groups.get(str(args, 'id'));
     if (!g) return fail('That group doesn\'t exist (any more).');
-    const roleOf = (id) => g.members[id] || '';
-    const myRole = roleOf(me.id);
-    const canManage = myRole === 'Owner' || myRole === 'Admin';
+    const staff = this.isStaff(me);
+    const myRank = this.rankIn(g, me.id);
+    const myLevel = myRank ? myRank.level : 0;
+    const can = (perm) => this.groupCan(g, me, perm);
+    const isOwner = !!myRank && myRank.id === 'Owner';
     const dropReq = (id) => { const i = g.requests.indexOf(id); if (i >= 0) { g.requests.splice(i, 1); return true; } return false; };
+    const rankJson = (r) => ({ id: r.id, name: r.name, level: r.level, perms: r.perms });
 
     if (name === 'groups.get') {
-      const rank = (r) => (r === 'Owner' ? 0 : r === 'Admin' ? 1 : 2);
-      const members = Object.entries(g.members).sort((a, b) => rank(a[1]) - rank(b[1])).slice(0, 500)
-        .map(([id, role]) => Object.assign(userJson(id), { role }));
+      const members = Object.keys(g.members).map((id) => [id, this.rankIn(g, id)]).sort((x, y) => y[1].level - x[1].level).slice(0, 500)
+        .map(([id, r]) => Object.assign(userJson(id), { role: r.name, rank: r.id, level: r.level }));
       const shoutInfo = g.shout && g.shout.text ? Object.assign(userJson(g.shout.by), { text: g.shout.text, time: g.shout.time }) : {};
       const wall = g.wall.slice(-60).map((p) => Object.assign(userJson(p.by), { text: p.text, time: p.time }));
-      const r = okay({ group: this.publicGroup(g), myRole, requested: g.requests.includes(me.id), memberList: members, shoutInfo, wall });
-      if (canManage) r.requests = g.requests.map(userJson);
+      const games = [...this.assets.values()].filter((x) => x.kind === 'game' && x.group === g.id && this.canPlay(x, me))
+        .sort((x, y) => (y.plays || 0) - (x.plays || 0)).slice(0, 50).map((x) => this.publicAsset(x, me));
+      const r = okay({ group: this.publicGroup(g), myRole: myRank ? myRank.name : '', myRank: myRank ? rankJson(myRank) : null,
+        ranks: this.ranksOf(g).slice().sort((x, y) => y.level - x.level).map(rankJson), requested: g.requests.includes(me.id),
+        memberList: members, shoutInfo, wall, games });
+      if (can('manage')) r.requests = g.requests.map(userJson);
+      if (can('funds') || staff) {
+        r.funds = this.groupFunds(g);
+        r.ledger = (g.ledger || []).slice(-50).reverse().map((e) => ({ amount: e[0], reason: e[1], at: e[2] }));
+      }
       return r;
     }
     if (name === 'groups.join') {
-      if (myRole) return okay();
+      if (myRank) return okay();
       if (this.groupsOf(me.id).length >= kMaxJoined) return fail('You\'re in too many groups. Leave one first.');
       if (!g.open) {
         if (!g.requests.includes(me.id)) {
@@ -2739,14 +2803,14 @@ export class GbServerObject extends DurableObject {
       return okay();
     }
     if (name === 'groups.leave') {
-      if (myRole === 'Owner') return fail('Owners can\'t leave. Give the group to someone else first, or delete it.');
+      if (isOwner) return fail('Owners can\'t leave. Give the group to someone else first, or delete it.');
       delete g.members[me.id];
       dropReq(me.id);
       this.saveGroup(g);
       return okay();
     }
     if (name === 'groups.post') {
-      if (!myRole) return fail('Join the group to post on its wall.');
+      if (!myRank) return fail('Join the group to post on its wall.');
       const text = say(str(args, 'text'), 300, true);
       if (!text) return fail('Write something first.');
       if (t - (this.lastPost.get(me.id) || 0) < kPostCooldown) return fail('Slow down a little - wait a few seconds between posts.');
@@ -2760,19 +2824,19 @@ export class GbServerObject extends DurableObject {
       const time = num(args, 'time'), by = str(args, 'by');
       const i = g.wall.findIndex((p) => p.time === time && p.by === by);
       if (i < 0) return fail('That post is already gone.');
-      if (g.wall[i].by !== me.id && !canManage && !this.isStaff(me)) return fail('You can only delete your own posts.');
+      if (g.wall[i].by !== me.id && !can('manage') && !staff) return fail('You can only delete your own posts.');
       g.wall.splice(i, 1);
       this.saveGroup(g);
       return okay();
     }
     if (name === 'groups.shout') {
-      if (!canManage) return fail('Only the group\'s owner and admins can shout.');
+      if (!can('shout')) return fail('Your rank can\'t shout in this group.');
       g.shout = { by: me.id, text: say(str(args, 'text'), 200), time: t };
       this.saveGroup(g);
       return okay();
     }
     if (name === 'groups.edit') {
-      if (!canManage) return fail('Only the group\'s owner and admins can change it.');
+      if (!can('manage')) return fail('Your rank can\'t change this group.');
       if ('description' in args) g.description = say(str(args, 'description'), 1000, true);
       if ('color' in args) g.color = clamp(num(args, 'color'), 0, 0xffffff);
       if ('open' in args) {
@@ -2783,7 +2847,7 @@ export class GbServerObject extends DurableObject {
       return okay({ group: this.publicGroup(g) });
     }
     if (name === 'groups.request') {
-      if (!canManage) return fail('Only the group\'s owner and admins can let people in.');
+      if (!can('manage')) return fail('Your rank can\'t let people in.');
       const who = lower(str(args, 'user'));
       if (!dropReq(who)) return fail('They\'re not waiting any more.');
       if (args.accept) {
@@ -2794,28 +2858,95 @@ export class GbServerObject extends DurableObject {
       return okay();
     }
     if (name === 'groups.member') {
-      const who = lower(str(args, 'user')), action = str(args, 'action');
-      const theirRole = roleOf(who);
-      if (!theirRole) return fail('They\'re not in this group.');
+      const who = lower(str(args, 'user'));
+      let action = str(args, 'action');
+      const theirRank = this.rankIn(g, who);
+      if (!theirRank) return fail('They\'re not in this group.');
       if (who === me.id) return fail('You can\'t do that to yourself.');
+      if (theirRank.id === 'Owner' && action !== 'owner') return fail('Nobody can change the owner.');
+      let rankId = str(args, 'rank');
+      if (action === 'admin' || action === 'member') { rankId = action === 'admin' ? 'Admin' : 'Member'; action = 'rank'; }   // (older apps)
       if (action === 'kick') {
-        if (!(myRole === 'Owner' || (myRole === 'Admin' && theirRole === 'Member')) && !this.isStaff(me)) return fail('You can\'t remove them.');
-        if (theirRole === 'Owner') return fail('The owner can\'t be removed.');
+        if (!((can('manage') && theirRank.level < myLevel) || staff)) return fail('You can\'t remove them.');
         delete g.members[who];
-      } else if (action === 'admin' || action === 'member') {
-        if (myRole !== 'Owner') return fail('Only the owner can change roles.');
-        g.members[who] = action === 'admin' ? 'Admin' : 'Member';
+      } else if (action === 'rank') {
+        const r = this.ranksOf(g).find((x) => x.id === rankId);
+        if (!r || r.id === 'Owner') return fail('Pick a rank.');
+        if (!can('ranks') || theirRank.level >= myLevel || (r.level >= myLevel && !isOwner)) return fail('You can only change the rank of people below you, to a rank below yours.');
+        g.members[who] = r.id;
       } else if (action === 'owner') {
-        if (myRole !== 'Owner') return fail('Only the owner can give the group away.');
-        g.members[who] = 'Owner'; g.members[me.id] = 'Admin'; g.owner = who;
+        if (!isOwner) return fail('Only the owner can give the group away.');
+        const next = this.ranksOf(g).filter((x) => x.id !== 'Owner').sort((x, y) => y.level - x.level)[0];
+        g.members[who] = 'Owner'; g.members[me.id] = next ? next.id : 'Member'; g.owner = who;
       } else {
         return fail('Unknown member action.');
       }
       this.saveGroup(g);
       return okay();
     }
+    // The owner makes and changes ranks: { rank: {id (empty = new), name, level, perms} }.
+    if (name === 'groups.rank') {
+      if (!isOwner) return fail('Only the owner can change the ranks.');
+      const want = args.rank && typeof args.rank === 'object' ? args.rank : {};
+      const ranks = this.ranksOf(g).map((r) => ({ ...r, perms: r.perms.slice() }));
+      const title = say(typeof want.name === 'string' ? want.name : '', 24);
+      if (!title) return fail('Give the rank a name.');
+      const perms = (Array.isArray(want.perms) ? want.perms : []).filter((x) => GROUP_PERMS.includes(x));
+      let r = ranks.find((x) => x.id === want.id);
+      if (!r) {
+        if (ranks.length >= kMaxRanks) return fail('A group can have up to ' + kMaxRanks + ' ranks.');
+        r = { id: 'r-' + randomHex(4) };
+        ranks.push(r);
+      }
+      if (ranks.some((x) => x !== r && lower(x.name) === lower(title))) return fail('There\'s already a rank called that.');
+      r.name = title;
+      if (r.id === 'Owner') { r.level = 255; r.perms = GROUP_PERMS.slice(); }
+      else {
+        r.perms = [...new Set(perms)];
+        r.level = r.id === 'Member' ? 1 : Number.isInteger(want.level) ? want.level : 0;
+        if (r.id !== 'Member' && (r.level < 2 || r.level > 254)) return fail('Rank levels go from 2 to 254 (higher is more in charge).');
+        if (ranks.some((x) => x !== r && x.level === r.level)) return fail('Another rank already has level ' + r.level + '.');
+      }
+      g.ranks = ranks;
+      this.saveGroup(g);
+      return okay();
+    }
+    if (name === 'groups.rankDelete') {
+      if (!isOwner) return fail('Only the owner can change the ranks.');
+      const id = str(args, 'rank');
+      if (id === 'Owner' || id === 'Member') return fail('The Owner and Member ranks can\'t be deleted.');
+      const ranks = this.ranksOf(g);
+      if (!ranks.some((x) => x.id === id)) return fail('That rank is already gone.');
+      g.ranks = ranks.filter((x) => x.id !== id);
+      for (const [uid, rid] of Object.entries(g.members)) if (rid === id) g.members[uid] = 'Member';
+      this.saveGroup(g);
+      return okay();
+    }
+    // Pay a member from the group's Bolts.
+    if (name === 'groups.payout') {
+      if (!can('funds')) return fail('Your rank can\'t spend the group\'s Bolts.');
+      const who = this.users.get(lower(str(args, 'user')));
+      if (!who || !g.members[who.id]) return fail('You can only pay people in the group.');
+      const amount = num(args, 'amount');
+      if (!Number.isInteger(amount) || amount < 1) return fail('Pay at least 1 Bolt.');
+      if (amount > this.groupFunds(g)) return fail('The group only has ' + this.groupFunds(g) + ' Bolts.');
+      const ref = 'payout:' + g.id + ':' + randomHex(4);
+      this.groupAdd(g, -amount, 'Paid ' + who.name + ' (by ' + me.name + ')', ref);
+      this.add(who, amount, 'Payout from ' + g.name, ref);
+      this.notify(who, 'group', g.name + ' paid you ' + amount + ' Bolts!', g.id);
+      return okay({ funds: this.groupFunds(g) });
+    }
+    if (name === 'groups.removeGame') {   // the owner (or whoever adds games) takes a game out of the group
+      const a = this.assets.get(str(args, 'game'));
+      if (!a || a.group !== g.id) return fail('That game isn\'t in this group.');
+      if (!isOwner && !(can('games') && a.creator === me.id) && !staff) return fail('Only the owner can take other people\'s games out.');
+      a.group = '';
+      this.saveAsset(a);
+      return okay();
+    }
     if (name === 'groups.delete') {
-      if (myRole !== 'Owner' && !this.isStaff(me)) return fail('Only the owner can delete the group.');
+      if (!isOwner && !staff) return fail('Only the owner can delete the group.');
+      for (const a of this.assets.values()) if (a.group === g.id) { a.group = ''; this.saveAsset(a); }
       this.groups.delete(g.id);
       this.dirty.groups.add(g.id);
       return okay();
