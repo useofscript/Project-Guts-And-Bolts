@@ -10,6 +10,18 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'robot-brain-transplant', name: 'Robot Brain Transplant', time: 1791339011, tag: 'Studio',
+    summary: 'AI helpers (the Assistant tab and MCP apps like Claude) now really understand Studio: they look before they touch, check their work, and stop making things up.',
+    items: [
+      'A brand new guide that teaches any AI how Guts&Bolts works and how to use its tools safely',
+      'Every AI tool explains when to use it, when not to, what it needs and what it gives back',
+      'Tools answer with exact data (ids, positions, what really changed) and clear error codes with what to try next',
+      'New tools: find_objects, get_errors, diagnose_object ("why won\'t my barrel fall?") and validate_scene',
+      'Script changes are checked for Lua mistakes straight away',
+      'Delete is marked as risky, so AIs only delete what you clearly asked for',
+    ],
+  },
+  {
     id: 'total-goblin-mode', name: 'Total Goblin Mode', version: '0.6.9', time: 1791326339, tag: 'Engine',
     summary: 'The biggest drop yet: servers that run with nobody hosting, LocalScripts, controllers, glowing trails, and a hammer for creators.',
     items: [
