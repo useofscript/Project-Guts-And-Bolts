@@ -10,7 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
-    id: 'robot-brain-transplant', name: 'Robot Brain Transplant', time: 1791339011, tag: 'Studio',
+    id: 'we-outsourced-the-update', name: 'We Outsourced the Update', version: '0.7.0', time: 1791341100, tag: 'Studio',
+    summary: 'An AI wrote most of this one, so naturally it\'s about making AIs better at building your games.',
+    items: [
+      'AI helpers (the Assistant tab, and MCP apps like Claude) now really know how Guts&Bolts works',
+      'They look before they touch, check their work, and tell you exactly what went wrong',
+      'New AI tools for physics, explosions, the navmesh, walking characters and watching the running game',
+      'Save points, so an AI can try something wild and roll it back',
+    ],
+  },
+  {
+    id: 'robot-brain-transplant', name: 'Robot Brain Transplant', version: '0.7.0', time: 1791339011, tag: 'Studio',
     summary: 'AI helpers (the Assistant tab and MCP apps like Claude) now really understand Studio: they look before they touch, check their work, and stop making things up.',
     items: [
       'A brand new guide that teaches any AI how Guts&Bolts works and how to use its tools safely',

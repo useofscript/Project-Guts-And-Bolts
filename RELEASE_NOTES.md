@@ -1,3 +1,34 @@
+# Guts&Bolts 0.7.0: We Outsourced the Update (October 7, 2026)
+
+An AI wrote most of this update, so of course it's about making AI helpers
+better at building your games.
+
+## New
+- **AI helpers really understand Studio**: the Assistant tab and outside AI
+  apps connected through MCP (like Claude Desktop or Claude Code) get a full
+  guide to how Guts&Bolts works, and every tool says when to use it, what it
+  needs and what it gives back.
+- **Exact answers**: tools reply with clear data (object ids like `#42`,
+  positions, what really changed) and error codes that say what to try next.
+  If two objects share a name, the AI asks which one instead of guessing.
+- **Finding and fixing problems**: new `find_objects`, `get_errors`,
+  `diagnose_object` ("why won't my barrel fall?") and `validate_scene` tools.
+  Script edits are checked for Lua mistakes straight away.
+- **The engine reference**: AIs can read what the engine can and can't do, its
+  words for things, which way is up, and step-by-step recipes
+  (`get_engine_info` and the `gutsbolts://` MCP pages).
+- **Power tools**: make a physics object in one go, set off explosions, bake the
+  navmesh, find walking routes and send characters walking.
+- **Watching the game**: AIs can see the running playtest (frame rate, what's
+  moving, where characters are) and pause it or step it one frame at a time.
+- **Save points**: an AI can save the game, try something, and roll it back
+  (plus redo).
+- **Ready-made MCP prompts** for common jobs, like "make this physical" or
+  "why isn't this working?".
+
+## Changed
+- Deleting is marked as risky, so AIs only delete what you clearly asked for.
+
 # Guts&Bolts 0.6.9: Total Goblin Mode (October 6, 2026)
 
 ## New
