@@ -151,6 +151,17 @@ GbServer::User* GbServer::findUser(const std::string& id) {
     return it == m_users.end() ? nullptr : &it->second;
 }
 
+// The bell (worker/server.js has the same): tell someone something happened. kind says what
+// (the apps pick an icon and a page from it), about is what it's about. Saved with the account.
+void GbServer::notify(User* u, const std::string& kind, const std::string& text, const std::string& about) {
+    if (!u || u->userId == 0) return;
+    if (!u->notes.is_array()) u->notes = json::array();
+    u->notes.insert(u->notes.begin(), json{{"id", Account::randomHex(5)}, {"kind", kind}, {"text", text}, {"about", about},
+                                           {"at", Online::unixNow()}, {"read", false}});
+    if (u->notes.size() > 50) u->notes.erase(u->notes.begin() + 50, u->notes.end());
+    saveUsers();
+}
+
 GbServer::User& GbServer::user(const std::string& id) {
     auto it = m_users.find(id);
     if (it != m_users.end()) return it->second;
@@ -215,6 +226,9 @@ json GbServer::meJson(const User& u) const {
     long long unread = 0;
     if (u.inbox.is_array()) for (const json& m : u.inbox) if (!m.value("read", false)) ++unread;
     j["unreadMessages"] = unread;
+    long long unreadNotes = 0;
+    if (u.notes.is_array()) for (const json& n : u.notes) if (!n.value("read", false)) ++unreadNotes;
+    j["unreadNotes"] = unreadNotes;
     json gear = json::array();
     for (const auto& g : u.gear) if (u.owned.count(g)) gear.push_back(g);
     j["gear"] = gear;
@@ -461,7 +475,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
     if (name.rfind("servers.", 0) == 0) return serverOp(name, me, args);
     if (name.rfind("data.", 0) == 0) return dataOp(name, me, args);
     if (name.rfind("block.", 0) == 0 || name.rfind("report.", 0) == 0) return safetyOp(name, me, args);
-    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
+    if (name.rfind("outfit.", 0) == 0 || name.rfind("message.", 0) == 0 || name.rfind("notes.", 0) == 0 || name == "game.favorite" || name == "games.mine" ||
         name == "profile.set" || name == "feed.list")
         return socialOp(name, me, args);
     if (name == "ping") {   // "I'm still here" (for friends' online dots); the answer keeps your account fresh
@@ -597,8 +611,12 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             auto it = findAsset(str("id"));
             if (it == m_assets.end() || reviewOf(it->second.meta).empty()) return fail("That isn't waiting for a check any more.");
             Asset& a = it->second;
-            if (args.value("ok", false) == true) { a.meta.erase("review"); a.meta.erase("reviewNote"); }
+            const bool ok = args.value("ok", false) == true;
+            if (ok) { a.meta.erase("review"); a.meta.erase("reviewNote"); }
             else { a.meta["review"] = "rejected"; a.meta["reviewNote"] = Online::cleanText(str("note"), 200); }
+            const std::string note = a.meta.value("reviewNote", std::string());
+            notify(findUser(a.creator), "upload", ok ? a.name + " passed the staff check. Everyone can see it now."
+                   : a.name + " didn't pass the staff check." + (note.empty() ? "" : " Staff said: \"" + note + "\""), a.id);
             a.meta["reviewedBy"] = me.id;
             saveAssets();
             json r = okay(); r["uploads"] = uploadsToReview(); return r;
@@ -1048,6 +1066,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (User* seller = findUser(a.creator); seller && seller != &me) {
                 long long share = a.price * Online::kCreatorSharePercent / 100;
                 if (share > 0) add(*seller, share, "Sold " + a.name, "sale:" + a.id + ":" + Account::randomHex(4));
+                notify(seller, "sale", me.name + " bought " + a.name + ". You got " + std::to_string(share) + " Bolts.", a.id);
             }
         }
         a.sales++;
@@ -1112,6 +1131,7 @@ void GbServer::saveUsers() {
         all[id]["favorites"] = u.favorites;
         all[id]["recent"] = u.recent;
         all[id]["inbox"] = u.inbox;
+        all[id]["notes"] = u.notes;
         all[id]["sent"] = u.sent;
         all[id]["messageDay"] = u.messageDay;
         all[id]["messagesToday"] = u.messagesToday;
@@ -1232,6 +1252,7 @@ void GbServer::load() {
                 }
                 if (j.contains("outfits") && j["outfits"].is_array()) u.outfits = j["outfits"];
                 if (j.contains("inbox") && j["inbox"].is_array()) u.inbox = j["inbox"];
+                if (j.contains("notes") && j["notes"].is_array()) u.notes = j["notes"];
                 if (j.contains("sent") && j["sent"].is_array()) u.sent = j["sent"];
                 for (const char* k : {"favorites", "recent"})
                     if (j.contains(k) && j[k].is_array())

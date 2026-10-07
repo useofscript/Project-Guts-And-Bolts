@@ -146,7 +146,7 @@ json GbServer::groupOp(const std::string& name, User& me, const json& args) {
         if (!myRole.empty()) return okay();
         if (groupsOf(me.id).size() >= kMaxJoined) return fail("You're in too many groups. Leave one first.");
         if (!g.open) {
-            g.requests.insert(me.id);
+            if (g.requests.insert(me.id).second) notify(findUser(g.owner), "group", me.name + " wants to join " + g.name + ".", g.id);
             saveGroups();
             json r = okay(); r["requested"] = true; return r;
         }
@@ -206,7 +206,10 @@ json GbServer::groupOp(const std::string& name, User& me, const json& args) {
         if (!canManage) return fail("Only the group's owner and admins can let people in.");
         std::string who = lower(str("user"));
         if (!g.requests.erase(who)) return fail("They're not waiting any more.");
-        if (args.value("accept", false)) g.members[who] = "Member";
+        if (args.value("accept", false)) {
+            g.members[who] = "Member";
+            notify(findUser(who), "group", "You're in " + g.name + " now!", g.id);
+        }
         saveGroups();
         return okay();
     }

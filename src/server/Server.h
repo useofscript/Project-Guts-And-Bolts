@@ -67,6 +67,7 @@ private:
         nlohmann::json outfits = nlohmann::json::array();   // {id, name, avatar, created}, newest first
         std::vector<std::string> favorites, recent;          // game ids, newest first
         nlohmann::json inbox = nlohmann::json::array();     // {id, from, subject, body, at, read}, newest first
+        nlohmann::json notes = nlohmann::json::array();     // the bell: {id, kind, text, about, at, read}, newest first
         nlohmann::json sent = nlohmann::json::array();      // {id, to, subject, body, at}
         std::string messageDay; int messagesToday = 0;
         std::string privacyMessages = "everyone";            // who can send you messages
@@ -177,6 +178,7 @@ private:
     // Accounts
     User&     user(const std::string& id);          // makes a new account (with the welcome gift) if needed
     User*     findUser(const std::string& id);
+    void      notify(User* u, const std::string& kind, const std::string& text, const std::string& about);   // the bell
     long long balance(const User& u) const;
     bool      hasRef(const User& u, const std::string& ref) const;
     void      add(User& u, long long amount, const std::string& reason, const std::string& ref);

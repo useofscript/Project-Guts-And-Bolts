@@ -174,6 +174,10 @@ private:
     // PlayerMail.cpp: messages, saved outfits, favourite and recently played games.
     void drawMessages();
     void openNewMessage(const std::string& to, const std::string& subject = "");
+    // The bell (notifications), left of the account box. PlayerMail.cpp.
+    void drawBell(ImVec2 center);
+    nlohmann::json m_notes = nlohmann::json::array();
+    bool           m_notesLoaded = false;
     int  unreadMessages() const;
     void drawOutfits();
     void outfitPicture(ImDrawList* dl, ImVec2 c, float s, const nlohmann::json& outfit);

@@ -34,6 +34,7 @@ const kDailyUploadsUnverified = 5;
 // else can see or hear them (the creator and staff can). a.review: 'pending' or 'rejected'.
 const REVIEWED_KINDS = ['decal', 'audio', 'tshirt'];
 const kCreatorSharePercent = 70;
+const kMaxNotes = 50;   // notifications kept per account (the bell)
 const KINDS = ['hat', 'shirt', 'pants', 'audio', 'plugin', 'game', 'decal', 'model', 'hair', 'faceacc', 'neck', 'shoulder', 'waist', 'face', 'tshirt', 'gear', 'animation'];
 const FEE = { hat: 10, shirt: 10, pants: 10, audio: 20, plugin: 20, game: 0, decal: 5, model: 0,
   hair: 10, faceacc: 10, neck: 10, shoulder: 10, waist: 10, face: 0, tshirt: 10, gear: 0, animation: 0 };
@@ -508,6 +509,13 @@ export class GbServerObject extends DurableObject {
       resellers: listed.length, lowest: listed.length ? Math.min(...listed.map((c) => c.price)) : 0 };
   }
   saveUser(...us) { for (const u of us) if (u) this.dirty.users.add(u.id); }
+  // The bell: tell someone something happened (a friend request, a sale, an upload checked...).
+  // kind says what (the apps pick an icon and a page from it), id is what it's about.
+  notify(u, kind, text, id = '') {
+    if (!u || u.userId === 0) return;
+    u.notes = [{ id: randomHex(5), kind, text, about: id, at: now(), read: false }, ...(u.notes || [])].slice(0, kMaxNotes);
+    this.saveUser(u);
+  }
   saveAsset(a) { this.dirty.assets.add(a.id); }
   // Give every asset without one its number (oldest first), and never hand a number out twice.
   numberAssets() {
@@ -665,6 +673,7 @@ export class GbServerObject extends DurableObject {
         .map((w) => ({ id: w.id, reason: w.reason, title: BAN_REASONS[w.reason] || 'Breaking the rules', note: w.note, at: w.at })),
       warningCount: (u.warnings || []).length,
       unreadMessages: (u.inbox || []).filter((m) => !m.read).length,
+      unreadNotes: (u.notes || []).filter((n) => !n.read).length,
     });
   }
 
@@ -1205,6 +1214,13 @@ export class GbServerObject extends DurableObject {
       this.saveUser(me, them);
       return okay({ me: this.meJson(me) });
     }
+    // The bell: newest first, and mark them all read.
+    if (name === 'notes.list') return okay({ notes: me.notes || [], me: this.meJson(me) });
+    if (name === 'notes.read') {
+      for (const n of me.notes || []) n.read = true;
+      this.saveUser(me);
+      return okay({ me: this.meJson(me) });
+    }
     if (name === 'message.list') {   // box: "inbox" or "sent"
       if (me.userId === 0) return okay({ messages: [], me: this.meJson(me) });
       const sent = str(args, 'box') === 'sent';
@@ -1305,6 +1321,8 @@ export class GbServerObject extends DurableObject {
         if (!a || !a.review) return fail('That isn\'t waiting for a check any more.');
         if (args.ok === true) { delete a.review; delete a.reviewNote; }
         else { a.review = 'rejected'; a.reviewNote = cleanText(str(args, 'note'), 200); }
+        this.notify(this.users.get(a.creator), 'upload', args.ok === true ? a.name + ' passed the staff check. Everyone can see it now.'
+          : a.name + ' didn\'t pass the staff check.' + (a.reviewNote ? ' Staff said: "' + a.reviewNote + '"' : ''), a.id);
         a.reviewedBy = me.id;
         this.saveAsset(a);
         return okay({ uploads: this.uploadsToReview() });
@@ -1681,6 +1699,7 @@ export class GbServerObject extends DurableObject {
         if (seller && seller !== me) {
           const share = Math.floor(a.price * kCreatorSharePercent / 100);
           if (share > 0) this.add(seller, share, 'Sold ' + a.name, 'sale:' + a.id + ':' + randomHex(4));
+          this.notify(seller, 'sale', me.name + ' bought ' + a.name + '. You got ' + share + ' Bolts.', a.id);
         }
       }
       a.sales++;
@@ -1792,7 +1811,11 @@ export class GbServerObject extends DurableObject {
       if (this.balance(me) < c.price) return fail('You need ' + (c.price - this.balance(me)) + ' more Bolts for that.');
       const seller = this.users.get(c.owner);
       this.add(me, -c.price, 'Bought ' + a.name + ' #' + c.serial, 'resale:' + a.id + ':' + c.serial + ':' + randomHex(4));
-      if (seller) this.add(seller, Math.floor(c.price * kCreatorSharePercent / 100), 'Sold ' + a.name + ' #' + c.serial, 'resold:' + a.id + ':' + c.serial + ':' + randomHex(4));
+      if (seller) {
+        const share = Math.floor(c.price * kCreatorSharePercent / 100);
+        this.add(seller, share, 'Sold ' + a.name + ' #' + c.serial, 'resold:' + a.id + ':' + c.serial + ':' + randomHex(4));
+        this.notify(seller, 'sale', me.name + ' bought your ' + a.name + ' #' + c.serial + '. You got ' + share + ' Bolts.', a.id);
+      }
       c.owner = me.id;
       c.price = 0;
       this.saveAsset(a);
@@ -1821,6 +1844,7 @@ export class GbServerObject extends DurableObject {
       const trade = { id: 'tr-' + randomHex(6), from: me.id, to: to.id, give, get, status: 'open', created: t, updated: t };
       this.trades.push(trade);
       this.dirty.trades = true;
+      this.notify(to, 'trade', me.name + ' sent you a trade.', trade.id);
       return okay({ trade });
     }
     if (name === 'trade.list') {
@@ -1838,7 +1862,11 @@ export class GbServerObject extends DurableObject {
       if (name === 'trade.cancel' ? tr.from !== me.id : tr.to !== me.id) return fail('That isn\'t your trade to answer.');
       tr.updated = t;
       this.dirty.trades = true;
-      if (name !== 'trade.accept') { tr.status = name === 'trade.cancel' ? 'cancelled' : 'declined'; return okay({ trade: tr }); }
+      if (name !== 'trade.accept') {
+        tr.status = name === 'trade.cancel' ? 'cancelled' : 'declined';
+        if (name === 'trade.decline') this.notify(this.users.get(tr.from), 'trade', me.name + ' turned down your trade.', tr.id);
+        return okay({ trade: tr });
+      }
       const from = this.users.get(tr.from);
       const copy = (x) => { const a = this.assets.get(x.id); return a && a.limited ? (a.copies || []).find((c) => c.serial === x.serial) : null; };
       const ok = from && tr.give.every((x) => { const c = copy(x); return c && c.owner === from.id; }) &&
@@ -1849,6 +1877,7 @@ export class GbServerObject extends DurableObject {
       for (const x of tr.get) { const c = copy(x); c.owner = from.id; c.price = 0; touched.add(x.id); }
       for (const id of touched) { const a = this.assets.get(id); this.saveAsset(a); this.syncOwned(me, a); this.syncOwned(from, a); }
       tr.status = 'accepted';
+      this.notify(from, 'trade', me.name + ' accepted your trade!', tr.id);
       return okay({ trade: tr, me: this.meJson(me) });
     }
     if (name === 'delete') {
@@ -2134,7 +2163,7 @@ export class GbServerObject extends DurableObject {
         if (them.banned || this.blocks(me, them)) return fail('You can\'t follow that account.');
         if (i < 0 && following.length >= kMaxFollowing) return fail('You already follow ' + kMaxFollowing + ' people.');
         if (i < 0) following.push(them.id);
-        if (j < 0) followers.push(me.id);
+        if (j < 0) { followers.push(me.id); this.notify(them, 'follow', me.name + ' follows you now.', me.id); }
       } else {
         if (i >= 0) following.splice(i, 1);
         if (j >= 0) followers.splice(j, 1);
@@ -2152,6 +2181,7 @@ export class GbServerObject extends DurableObject {
       clearRequests();
       addTo(me.friends, them.id); addTo(them.friends, me.id);
       this.saveUser(me, them);
+      this.notify(them, 'friend', me.name + ' is your friend now.', me.id);
       return okay({ status: 'friends' });
     };
     if (name === 'friends.add') {
@@ -2162,6 +2192,7 @@ export class GbServerObject extends DurableObject {
       if (them.friendIn.length >= kMaxRequests) return fail(them.name + ' has too many friend requests waiting.');
       addTo(me.friendOut, them.id); addTo(them.friendIn, me.id);
       this.saveUser(me, them);
+      this.notify(them, 'friendRequest', me.name + ' sent you a friend request.', me.id);
       return okay({ status: 'sent' });
     }
     if (name === 'friends.accept') {
@@ -2325,7 +2356,10 @@ export class GbServerObject extends DurableObject {
       if (myRole) return okay();
       if (this.groupsOf(me.id).length >= kMaxJoined) return fail('You\'re in too many groups. Leave one first.');
       if (!g.open) {
-        if (!g.requests.includes(me.id)) g.requests.push(me.id);
+        if (!g.requests.includes(me.id)) {
+          g.requests.push(me.id);
+          this.notify(this.users.get(g.owner), 'group', me.name + ' wants to join ' + g.name + '.', g.id);
+        }
         this.saveGroup(g);
         return okay({ requested: true });
       }
@@ -2381,7 +2415,10 @@ export class GbServerObject extends DurableObject {
       if (!canManage) return fail('Only the group\'s owner and admins can let people in.');
       const who = lower(str(args, 'user'));
       if (!dropReq(who)) return fail('They\'re not waiting any more.');
-      if (args.accept) g.members[who] = 'Member';
+      if (args.accept) {
+        g.members[who] = 'Member';
+        this.notify(this.users.get(who), 'group', 'You\'re in ' + g.name + ' now!', g.id);
+      }
       this.saveGroup(g);
       return okay();
     }

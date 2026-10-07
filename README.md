@@ -1962,6 +1962,17 @@ check before anyone else can see or hear them, like Roblox's moderation queue.
 - Replacing the picture or sound of a checked upload sends it back for a new check.
 - Verified creators and staff skip the check.
 
+### Notifications (the bell)
+
+A bell next to your name (top of the website, and top right in the Player) shows
+how many new things happened. Click it to see them; that marks them read.
+
+You get one when someone sends you a friend request, becomes your friend, follows
+you, buys something you made, sends or answers a trade, asks to join your group or
+lets you in, and when staff check something you uploaded. Each one takes you to the
+right page. The newest 50 are kept. Both servers do the same (`notify` in
+`worker/server.js` and `src/server/Server.cpp`).
+
 ### Bolts (the currency)
 
 (With a server, your Bolts live on the server instead, and everything below
