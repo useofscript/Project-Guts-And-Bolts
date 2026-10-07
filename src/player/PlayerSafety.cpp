@@ -272,3 +272,25 @@ void PlayerApp::drawReportsBox() {
     ImGui::Separator();
     ImGui::TextDisabled("\"Done\" means you did something about it. Closing one closes every report about the same thing.");
 }
+
+// The staff action log: who banned, warned, verified, checked or deleted what, newest first.
+void PlayerApp::drawStaffLog() {
+    ImGui::SeparatorText("Staff action log");
+    if (ImGui::GetTime() - m_staffLogAt > 30.0) {
+        m_staffLogAt = ImGui::GetTime();
+        Online::request("admin.log", json::object(), [this](const json& r) {
+            if (r.value("ok", false) && r.contains("log")) m_staffLog = r["log"];
+        });
+    }
+    if (!m_staffLog.is_array() || m_staffLog.empty()) { ImGui::TextDisabled("Nothing yet."); return; }
+    ImGui::BeginChild("##stafflog", ImVec2(0, std::min(260.0f, 24.0f * m_staffLog.size() + 10)), ImGuiChildFlags_Borders);
+    ImGui::PushTextWrapPos(0);
+    for (const auto& x : m_staffLog) {
+        const std::string by = x.value("by", json::object()).value("name", std::string("?"));
+        ImGui::TextDisabled("%s", agoShort(x.value("at", 0LL)).c_str());
+        ImGui::SameLine();
+        ImGui::TextUnformatted((by + ": " + x.value("text", std::string())).c_str());
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+}

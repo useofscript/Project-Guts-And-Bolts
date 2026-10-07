@@ -116,6 +116,9 @@ const kMaxInbox = 100, kMaxSent = 50, kMessagesPerDay = 40;
 const kMaxBlurb = 1000, kMaxStatus = 140, kMaxPosts = 10, kStatusesPerDay = 30;
 // Blocking and reports (ServerSafety.cpp has the same).
 const kMaxBlocked = 200, kReportsPerDay = 20, kMaxReports = 3000;
+// The staff action log: what staff did (bans, checks, badges...), newest kept (ServerSafety.cpp has the same).
+const kMaxStaffLog = 3000;
+const KIND_TITLE = (a) => ({ tshirt: 'T-shirt', devproduct: 'product', gamepass: 'pass' })[a.kind] || a.kind;
 const REPORT_KINDS = ['user', 'game', 'item', 'message', 'group', 'comment'];
 // Comments under games (ServerSocial.cpp has the same): the newest kMaxComments are kept.
 const kMaxComments = 500, kCommentLength = 200, kCommentCooldown = 15, kCommentsPage = 20;
@@ -400,7 +403,7 @@ export class GbServerObject extends DurableObject {
     this.name = env.SERVER_NAME || 'Guts&Bolts';
     this.users = new Map(); this.assets = new AssetMap(); this.groups = new Map();
     // What changed and needs writing (set up first: loading can already change things).
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false };
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
     for (const r of this.sql.exec('SELECT id, data FROM users')) this.users.set(r.id, JSON.parse(r.data));
     for (const r of this.sql.exec('SELECT id, data FROM assets')) {
       const a = JSON.parse(r.data);
@@ -411,6 +414,7 @@ export class GbServerObject extends DurableObject {
     this.trades = this.getMeta('trades', []);   // trade offers between players (limited items)
     this.posted = this.getMeta('updates', []);  // updates staff posted on the website (the rest are in updates.js)
     this.reports = this.getMeta('reports', []);  // what players reported, for staff to look at (newest last)
+    this.staffLog = this.getMeta('stafflog', []);   // what staff did, newest last
     const ids = this.getMeta('ids', { next: 2, taken: [] });
     this.nextUserId = Math.max(2, ids.next || 2);
     this.nextAssetNum = Math.max(1, ids.asset || 1);
@@ -485,7 +489,11 @@ export class GbServerObject extends DurableObject {
       }
       this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'reports', JSON.stringify(this.reports));
     }
-    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false };
+    if (this.dirty.staffLog) {
+      if (this.staffLog.length > kMaxStaffLog) this.staffLog.splice(0, this.staffLog.length - kMaxStaffLog);
+      this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', 'stafflog', JSON.stringify(this.staffLog));
+    }
+    this.dirty = { users: new Set(), assets: new Set(), groups: new Set(), ids: false, trades: false, updates: false, reports: false, staffLog: false };
   }
   // --- Limited items: numbered copies (a.copies = [{ serial, owner, price }]) ---
   copiesOf(u) {   // every limited copy this account holds
@@ -632,6 +640,17 @@ export class GbServerObject extends DurableObject {
     return setting === 'friends' && !!viewer && u.friends.includes(viewer.id);
   }
   // Has either of them blocked the other? (Then they can't message, friend, follow, trade or join each other.)
+  // The staff action log. action: ban, unban, warn, bolts, badge, unbadge, review, report, delete, comment.
+  // about: who it was done to (an account id), so the log can link to them.
+  staffDid(me, action, text, about = '') {
+    this.staffLog.push({ at: now(), by: me.id, action, text, about });
+    this.dirty.staffLog = true;
+  }
+  staffLogJson(who) {
+    const name = (id) => { const u = this.users.get(id); return u ? { id: u.id, userId: u.userId, name: u.name } : { id, userId: 0, name: '?' }; };
+    const list = who ? this.staffLog.filter((x) => x.by === who || x.about === who) : this.staffLog;
+    return list.slice(-200).reverse().map((x) => ({ at: x.at, by: name(x.by), action: x.action, text: x.text, about: x.about ? name(x.about) : null }));
+  }
   blocks(a, b) {
     return !!a && !!b && a.id !== b.id && ((a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id));
   }
@@ -1297,6 +1316,8 @@ export class GbServerObject extends DurableObject {
         const i = list.findIndex((c) => c.id === str(args, 'id'));
         if (i < 0) return fail('That comment is already gone.');
         if (list[i].by !== me.id && !mod) return fail('You can only delete your own comments.');
+        if (list[i].by !== me.id && a.creator !== me.id)
+          this.staffDid(me, 'comment', 'Deleted a comment on "' + a.name + '": "' + list[i].text.slice(0, 80) + '"', list[i].by);
         list.splice(i, 1);
         this.saveAsset(a);
       }
@@ -1377,10 +1398,16 @@ export class GbServerObject extends DurableObject {
         this.notify(this.users.get(a.creator), 'upload', args.ok === true ? a.name + ' passed the staff check. Everyone can see it now.'
           : a.name + ' didn\'t pass the staff check.' + (a.reviewNote ? ' Staff said: "' + a.reviewNote + '"' : ''), a.id);
         a.reviewedBy = me.id;
+        this.staffDid(me, 'review', (args.ok === true ? 'Passed ' : 'Rejected ') + KIND_TITLE(a) + ' "' + a.name + '"' + (a.reviewNote ? ' ("' + a.reviewNote + '")' : ''), a.creator);
         this.saveAsset(a);
         return okay({ uploads: this.uploadsToReview() });
       }
       if (name === 'admin.reports') return okay({ reports: this.reportsJson(str(args, 'status') === 'closed' ? 'closed' : 'open') });
+      if (name === 'admin.log') {   // the newest 200, or just what one person did or had done to them
+        const who = str(args, 'user') ? this.findPerson(str(args, 'user')) : null;
+        if (str(args, 'user') && !who) return fail('There\'s no account with that ID on this server.');
+        return okay({ log: this.staffLogJson(who ? who.id : '') });
+      }
       if (name === 'admin.closeReport') {
         // Staff looked at it: "done" (they did something, like a ban or a warning) or "dismissed" (nothing wrong).
         const outcome = str(args, 'outcome') === 'dismissed' ? 'dismissed' : 'done';
@@ -1391,6 +1418,7 @@ export class GbServerObject extends DurableObject {
           if (x.status === 'open' && x.kind === r.kind && x.target === r.target) {
             x.status = 'closed'; x.outcome = outcome; x.closedBy = me.id; x.closedAt = now();
           }
+        this.staffDid(me, 'report', (outcome === 'dismissed' ? 'Dismissed' : 'Closed') + ' the reports about a ' + r.kind + ' (' + (BAN_REASONS[r.reason] || r.reason) + ')', r.about);
         this.dirty.reports = true;
         return okay({ reports: this.reportsJson('open') });
       }
@@ -1399,6 +1427,7 @@ export class GbServerObject extends DurableObject {
         const key = str(args, 'key'), sig = str(args, 'sig');
         if (!grantValid(this.official, key, to.id, sig)) return fail('That badge signature isn\'t valid.');
         to.grants[key] = sig;
+        this.staffDid(me, 'badge', 'Gave ' + to.name + ' the ' + key + ' badge', to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1406,6 +1435,7 @@ export class GbServerObject extends DurableObject {
         const key = str(args, 'key');
         if (key !== 'verified' && !this.isOfficial(me)) return fail('Only the official account can take that badge away.');
         delete to.grants[key];
+        this.staffDid(me, 'unbadge', 'Took the ' + key + ' badge from ' + to.name, to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1415,6 +1445,7 @@ export class GbServerObject extends DurableObject {
         if (amount === 0 || Math.abs(amount) > 10000000) return fail('Pick an amount between 1 and 10,000,000.');
         const why = cleanText(str(args, 'reason'), 80);
         this.add(to, amount, why || (amount > 0 ? 'Bolts from Guts&Bolts staff' : 'Taken by staff'), 'gift:' + randomHex(6));
+        this.staffDid(me, 'bolts', (amount > 0 ? 'Gave ' + to.name + ' ' + amount : 'Took ' + -amount + ' from ' + to.name) + ' Bolts' + (why ? ' ("' + why + '")' : ''), to.id);
         return okay({ user: this.publicUser(to), bolts: this.balance(to) });
       }
       if (name === 'admin.ban') {
@@ -1432,6 +1463,8 @@ export class GbServerObject extends DurableObject {
           delete to.banReason; delete to.banNote; delete to.bannedAt; delete to.bannedUntil;
         }
         to.banned = on;
+        this.staffDid(me, on ? 'ban' : 'unban', on ? 'Banned ' + to.name + ' (' + (BAN_REASONS[to.banReason] || to.banReason) + ', '
+          + (to.bannedUntil ? clamp(num(args, 'days'), 0, 3650) + ' days' : 'for good') + ')' + (to.banNote ? ': "' + to.banNote + '"' : '') : 'Unbanned ' + to.name, to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1442,6 +1475,7 @@ export class GbServerObject extends DurableObject {
         to.warnings = to.warnings || [];
         to.warnings.push({ id: randomHex(4), reason, note: cleanText(str(args, 'note'), 200), at: now(), seen: false });
         if (to.warnings.length > kMaxWarnings) to.warnings.splice(0, to.warnings.length - kMaxWarnings);
+        this.staffDid(me, 'warn', 'Warned ' + to.name + ' (' + (BAN_REASONS[reason] || reason) + ')', to.id);
         this.saveUser(to);
         return okay({ user: this.publicUser(to) });
       }
@@ -1991,6 +2025,7 @@ export class GbServerObject extends DurableObject {
       if (!a) return fail('That doesn\'t exist (any more).');
       if (a.creator !== me.id && !this.isStaff(me)) return fail('You can only delete your own things.');
       if (a.limited && (a.copies || []).length && !this.isOfficial(me)) return fail('People own copies of this Limited, so it can\'t be deleted.');
+      if (a.creator !== me.id) this.staffDid(me, 'delete', 'Deleted ' + KIND_TITLE(a) + ' "' + a.name + '"', a.creator);
       this.sql.exec('DELETE FROM files WHERE id = ? OR id = ? OR id = ?', a.id, 'thumb:' + a.id, 'icon:' + a.id);
       this.assets.delete(a.id);
       this.dirty.assets.add(a.id);

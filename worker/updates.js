@@ -10,6 +10,15 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'receipts-please', name: 'Receipts, Please', time: 1791345500, tag: 'Server',
+    summary: 'A staff action log: every ban, warning, badge and delete is written down.',
+    items: [
+      'The Staff page shows what staff did lately, and who did it',
+      'Bans, warnings, badges, Bolts, upload checks, closed reports and deletes all go in it',
+      'A Log button next to each person shows just what happened to them',
+    ],
+  },
+  {
     id: 'peanut-gallery', name: 'The Peanut Gallery', time: 1791345000, tag: 'Website',
     summary: 'Comments under games: tell a creator what you think of their game.',
     items: [

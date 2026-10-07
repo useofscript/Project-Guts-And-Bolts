@@ -621,6 +621,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             notify(findUser(a.creator), "upload", ok ? a.name + " passed the staff check. Everyone can see it now."
                    : a.name + " didn't pass the staff check." + (note.empty() ? "" : " Staff said: \"" + note + "\""), a.id);
             a.meta["reviewedBy"] = me.id;
+            staffDid(me, "review", std::string(ok ? "Passed " : "Rejected ") + Online::kindTitle(a.kind) + " \"" + a.name + "\"" +
+                     (note.empty() ? "" : " (\"" + note + "\")"), a.creator);
             saveAssets();
             json r = okay(); r["uploads"] = uploadsToReview(); return r;
         }
@@ -628,6 +630,15 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             json r = okay(); r["reports"] = reportsJson(str("status") == "closed" ? "closed" : "open"); return r;
         }
         if (name == "admin.closeReport") return closeReport(me, str("id"), str("outcome"));
+        if (name == "admin.log") {   // the newest 200, or just what one person did or had done to them
+            std::string who;
+            if (!str("user").empty()) {
+                User* u = findPerson(str("user"));
+                if (!u) return fail("There's no account with that ID on this server.");
+                who = u->id;
+            }
+            json r = okay(); r["log"] = staffLogJson(who); return r;
+        }
         if (!to) return fail("There's no account with that ID on this server.");
         if (name == "admin.grant") {
             // The signed badge comes from the app (made with the staff member's own key).
@@ -635,7 +646,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (!Online::grantValid(Account::officialId(), key, to->id, sig)) return fail("That badge signature isn't valid.");
             to->grants[key] = sig;
             saveUsers();
-            log(me.name + " gave " + to->name + " the " + key + " badge");
+            staffDid(me, "badge", "Gave " + to->name + " the " + key + " badge", to->id);
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
         if (name == "admin.revoke") {
@@ -643,7 +654,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             if (key != "verified" && !isOfficial(me)) return fail("Only the official account can take that badge away.");
             to->grants.erase(key);
             saveUsers();
-            log(me.name + " took the " + key + " badge from " + to->name);
+            staffDid(me, "unbadge", "Took the " + key + " badge from " + to->name, to->id);
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
         if (!isOfficial(me)) return fail("Only the official Guts account can do that.");
@@ -653,7 +664,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             std::string why = Online::cleanText(str("reason"), 80);
             add(*to, amount, why.empty() ? (amount > 0 ? "Bolts from Guts&Bolts staff" : "Taken by staff") : why,
                 "gift:" + Account::randomHex(6));
-            log(me.name + " gave " + std::to_string(amount) + " Bolts to " + to->name);
+            staffDid(me, "bolts", (amount > 0 ? "Gave " + to->name + " " + std::to_string(amount) : "Took " + std::to_string(-amount) + " from " + to->name) +
+                     " Bolts" + (why.empty() ? "" : " (\"" + why + "\")"), to->id);
             json r = okay(); r["user"] = publicUser(*to); r["bolts"] = balance(*to); return r;
         }
         if (name == "admin.ban") {
@@ -673,7 +685,12 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
                 to->bannedAt = to->bannedUntil = 0;
             }
             to->banned = on;
-            log(me.name + (on ? " banned " + to->name + " (" + to->banReason + ")" : " unbanned " + to->name));
+            if (on) {
+                const char* why = Online::banReasonTitle(to->banReason);
+                staffDid(me, "ban", "Banned " + to->name + " (" + (why ? why : to->banReason) + ", " +
+                         (to->bannedUntil ? std::to_string(std::clamp(num("days"), 0LL, 3650LL)) + " days" : std::string("for good")) + ")" +
+                         (to->banNote.empty() ? "" : ": \"" + to->banNote + "\""), to->id);
+            } else staffDid(me, "unban", "Unbanned " + to->name, to->id);
             saveUsers();
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
@@ -685,7 +702,7 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
             to->warnings.push_back({{"id", Account::randomHex(4)}, {"reason", reason},
                                     {"note", Online::cleanText(str("note"), 200)}, {"at", Online::unixNow()}, {"seen", false}});
             while (to->warnings.size() > 30) to->warnings.erase(to->warnings.begin());
-            log(me.name + " warned " + to->name + " (" + reason + ")");
+            staffDid(me, "warn", "Warned " + to->name + " (" + Online::banReasonTitle(reason) + ")", to->id);
             saveUsers();
             json r = okay(); r["user"] = publicUser(*to); return r;
         }
@@ -1149,6 +1166,8 @@ json GbServer::op(const std::string& name, User& me, const json& args) {
         auto it = findAsset(str("id"));
         if (it == m_assets.end()) return fail("That doesn't exist (any more).");
         if (it->second.creator != me.id && !isStaff(me)) return fail("You can only delete your own things.");
+        if (it->second.creator != me.id)
+            staffDid(me, "delete", std::string("Deleted ") + Online::kindTitle(it->second.kind) + " \"" + it->second.name + "\"", it->second.creator);
         std::error_code ec;
         fs::remove(blobPath(it->first), ec);
         fs::remove(m_opts.data / "files" / ("thumb-" + it->first), ec);
@@ -1442,6 +1461,7 @@ void GbServer::load() {
     }
     loadGroups();
     loadReports();
+    loadStaffLog();
     loadIds();
     log("loaded " + std::to_string(m_users.size()) + " accounts, " + std::to_string(m_assets.size()) + " uploads and " +
         std::to_string(m_groups.size()) + " groups from " + m_opts.data.string());

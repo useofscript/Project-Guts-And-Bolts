@@ -2004,6 +2004,16 @@ lets you in, and when staff check something you uploaded. Each one takes you to 
 right page. The newest 50 are kept. Both servers do the same (`notify` in
 `worker/server.js` and `src/server/Server.cpp`).
 
+### The staff action log
+
+Everything staff do is written down: bans and unbans, warnings, badges (like
+Verified and Staff), Bolts given or taken, upload checks, closed reports, and
+games, items or comments they deleted that weren't theirs. The **Staff** page (on
+the website and in the Player) shows the newest 200; the **Log** button next to a
+person shows just what was done by or to them. The newest 3,000 are kept
+(`staffDid` in `worker/server.js` and `src/server/ServerSafety.cpp`, which saves
+`stafflog.json`).
+
 ### Comments under games
 
 Every game's page has comments (the website's game page, and the game window in the

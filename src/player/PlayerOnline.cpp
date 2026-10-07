@@ -1258,6 +1258,7 @@ void PlayerApp::drawOnlineBolts() {
 void PlayerApp::drawOnlineStaff() {
     drawUploadsBox();
     drawReportsBox();
+    drawStaffLog();
     ImGui::SeparatorText("People on the server");
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("Find someone by name or user number (#5) and verify them right here - "

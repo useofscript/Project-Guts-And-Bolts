@@ -235,6 +235,9 @@ private:
     void drawReportsBox();    // the Staff page
     void drawUploadsBox();    // the Staff page: new uploads waiting for a check
     nlohmann::json m_uploads = nlohmann::json::array();
+    void           drawStaffLog();   // PlayerSafety.cpp: what staff did lately (the website's Staff page has the same)
+    nlohmann::json m_staffLog = nlohmann::json::array();
+    double         m_staffLogAt = -100.0;
     double         m_uploadsAt = -100.0;
     std::string    m_reportKind, m_reportId, m_reportName, m_reportBlockUser, m_reportNote, m_reportMsg;
     int            m_reportReason = 0;

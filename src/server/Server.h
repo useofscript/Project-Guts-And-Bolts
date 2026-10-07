@@ -148,6 +148,10 @@ private:
     nlohmann::json closeReport(const User& staff, const std::string& id, const std::string& outcome);
     void saveReports();
     void loadReports();
+    // The staff action log (stafflog.json): what staff did, newest last. about: who it was done to.
+    void staffDid(const User& staff, const std::string& action, const std::string& text, const std::string& about = "");
+    nlohmann::json staffLogJson(const std::string& who) const;
+    void loadStaffLog();
     void rememberPlayed(User& me, const std::string& gameId);                                 // ServerSocial.cpp
     nlohmann::json playerBadgesOf(const User& u) const;                                       // ServerSocial.cpp
     static nlohmann::json allPlayerBadges();                                                  // ServerSocial.cpp
@@ -214,6 +218,7 @@ private:
     std::map<std::string, Group> m_groups;
     // What players reported (ServerSafety.cpp): {id, from, kind, target, about, reason, note, copy, at, status, ...}, newest last.
     nlohmann::json m_reports = nlohmann::json::array();
+    nlohmann::json m_staffLog = nlohmann::json::array();
     std::map<std::string, Session> m_sessions;
     // A server whose host left: its players get a while to move to a new one, which one of them hosts.
     struct Moved {
