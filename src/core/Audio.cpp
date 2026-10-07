@@ -3,6 +3,7 @@
 #include <miniaudio.h>
 
 #include "Audio.h"
+#include "Voice.h"
 #include "SoundJump.h"      // generated from assets/sounds
 #include "SoundRespawn.h"
 #include "SoundSpawn.h"
@@ -207,6 +208,7 @@ void init() {
 }
 
 void shutdown() {
+    Voice::shutdown();   // (its sounds use the engine)
     if (!g_ready) return;
     stopAll();
     ma_engine_uninit(&g_engine);
@@ -306,6 +308,8 @@ void setListener(const glm::vec3& p, const glm::vec3& f) {
     ma_engine_listener_set_position(&g_engine, 0, p.x, p.y, p.z);
     ma_engine_listener_set_direction(&g_engine, 0, f.x, f.y, f.z);
 }
+
+void* engineHandle() { return g_ready ? &g_engine : nullptr; }
 
 void setMasterVolume(float v) {
     if (g_ready) ma_engine_set_volume(&g_engine, std::clamp(v, 0.0f, 1.0f));

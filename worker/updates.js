@@ -10,6 +10,17 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'can-you-hear-me-now', name: 'Can You Hear Me Now?', time: 1791348000, tag: 'Player',
+    summary: 'Voice chat: hold V to talk to the players around you, and hear them from their characters.',
+    items: [
+      'Turn on Voice Chat in the in-game Settings, then hold V to talk (phones get a mic button, and there\'s an Open Mic option)',
+      'Voices come from each player\'s character: loud up close, fading away across the map',
+      'A speaker icon shows over whoever is talking and next to their name on the player list',
+      'Click someone on the player list to mute their voice, just for you',
+      'Game creators can turn voice chat off in Game Settings or with workspace.VoiceChatEnabled',
+    ],
+  },
+  {
     id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
     summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
     items: [

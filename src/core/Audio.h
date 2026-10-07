@@ -29,4 +29,7 @@ void setPosition(int handle, const glm::vec3& position);
 void setListener(const glm::vec3& position, const glm::vec3& forward);
 void setMasterVolume(float v);                   // 0..1
 
+// The sound engine itself (a ma_engine*), for voice chat. Null with no sound device.
+void* engineHandle();
+
 } // namespace Audio

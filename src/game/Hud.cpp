@@ -3,6 +3,7 @@
 #include "../scene/Player.h"
 #include "../scripting/ScriptEngine.h"
 #include "Badges.h"
+#include "../core/Voice.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -176,6 +177,37 @@ void drawHammer(ImDrawList* dl, ImVec2 c, float size) {
 }
 } // namespace
 
+void drawSpeaker(ImDrawList* dl, ImVec2 c, float size, bool talking, bool muted) {
+    const float u = size / 14.0f;
+    auto P = [&](float x, float y) { return ImVec2(c.x + x * u, c.y + y * u); };
+    const ImU32 body = muted ? IM_COL32(170, 170, 175, 255) : talking ? IM_COL32(120, 235, 140, 255) : IM_COL32(235, 235, 240, 255);
+    ImVec2 cone[] = {P(-6, -2.2f), P(-3, -2.2f), P(1, -6), P(1, 6), P(-3, 2.2f), P(-6, 2.2f)};
+    dl->AddConvexPolyFilled(cone, 6, IM_COL32(0, 0, 0, 120));   // (a soft shadow first, so it reads on bright skies)
+    for (ImVec2& v : cone) v.x -= 0.6f * u, v.y -= 0.6f * u;
+    dl->AddConvexPolyFilled(cone, 6, body);
+    if (talking && !muted) {   // waves that pulse while they talk
+        const float t = (float)ImGui::GetTime();
+        for (int i = 0; i < 2; ++i) {
+            const float a = 0.55f + 0.45f * std::sin(t * 9.0f - i * 1.3f);
+            dl->PathArcTo(P(1, 0), (3.5f + i * 3.0f) * u, -0.9f, 0.9f, 10);
+            dl->PathStroke(IM_COL32(120, 235, 140, (int)(255 * a)), 0, 1.6f * u);
+        }
+    }
+    if (muted) dl->AddLine(P(-7, 6), P(6, -6), IM_COL32(230, 70, 70, 255), 2.0f * u);
+}
+
+void drawVoiceTags(ImDrawList* dl, ImVec2 min, ImVec2 max, const glm::mat4& viewProj) {
+    Voice::eachSpeaking([&](const std::string&, const glm::vec3& head) {
+        glm::vec4 c = viewProj * glm::vec4(head + glm::vec3(0.0f, 2.0f, 0.0f), 1.0f);   // above the name tag
+        if (c.w <= 0.1f) return;
+        glm::vec2 ndc = glm::vec2(c) / c.w;
+        if (std::abs(ndc.x) > 1.1f || std::abs(ndc.y) > 1.1f) return;
+        ImVec2 sp(min.x + (ndc.x * 0.5f + 0.5f) * (max.x - min.x), min.y + (0.5f - ndc.y * 0.5f) * (max.y - min.y));
+        dl->AddCircleFilled(sp, 13.0f, IM_COL32(0, 0, 0, 110), 20);
+        drawSpeaker(dl, ImVec2(sp.x - 1, sp.y), 16.0f, true);
+    });
+}
+
 bool overHotbar(ImVec2 min, ImVec2 max, Scene& scene, ImVec2 p) {
     int n = hotbarCount(scene);
     if (!n) return false;
@@ -312,6 +344,11 @@ std::string drawPlayerList(ImDrawList* dl, ImVec2 min, ImVec2 max, const std::ve
                 dl->AddRectFilled(t0, ImVec2(t0.x + ts.x + 12, t0.y + ts.y + 6), IM_COL32(20, 22, 28, 230), 4.0f);
                 dl->AddText(ImVec2(t0.x + 6, t0.y + 3), IM_COL32(255, 255, 255, 255), tip);
             }
+            after += 18;
+        }
+        if (p.voice) {   // voice chat: talking now, or muted by us
+            drawSpeaker(dl, ImVec2(after + 10, y + ImGui::GetFontSize() * 0.5f + 1), 13.0f, p.voice == 1, p.voice == 2);
+            after += 18;
         }
         for (size_t c = 0; c < cols.size(); ++c)
             for (const auto& [k, v] : p.stats)

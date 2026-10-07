@@ -67,6 +67,7 @@ void GraphicsSettings::load() {
     rd("touchControls", touchControls); rd("touchSize", touchSize);
     rd("shiftLockSwitch", shiftLockSwitch); rd("mouseSensitivity", mouseSensitivity); rd("invertCamera", invertCamera);
     rd("volume", volume); rd("fullscreen", fullscreen);
+    rd("voiceChat", voiceChat); rd("voiceOpenMic", voiceOpenMic); rd("voiceVolume", voiceVolume);
     rd("waterQuality", waterQuality); rd("graphicsApi", graphicsApi); rd("renderDistance", renderDistance);
     renderDistance = std::clamp(renderDistance, 1, kMaxRenderDistance);
 }
@@ -106,6 +107,7 @@ void GraphicsSettings::save() const {
         {"touchControls", touchControls}, {"touchSize", touchSize},
         {"shiftLockSwitch", shiftLockSwitch}, {"mouseSensitivity", mouseSensitivity}, {"invertCamera", invertCamera},
         {"volume", volume}, {"fullscreen", fullscreen},
+        {"voiceChat", voiceChat}, {"voiceOpenMic", voiceOpenMic}, {"voiceVolume", voiceVolume},
         {"waterQuality", waterQuality}, {"graphicsApi", graphicsApi}, {"renderDistance", renderDistance},
     };
     std::ofstream f(settingsFile());
