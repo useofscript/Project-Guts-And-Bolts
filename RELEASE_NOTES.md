@@ -1,3 +1,55 @@
+# Guts&Bolts 0.7.0: We Outsourced the Update (October 7, 2026)
+
+An AI wrote most of this update. It taught other AIs to build your games, put
+a bouncer on the uploads, washed the chat's mouth out with soap, and hung a
+bell on the door.
+
+## New
+- **TeleportService**: games can send players to another game, and bring some
+  data along, like Roblox. `TeleportService:Teleport` and `TeleportAsync` send
+  one player or a group by game ID; `TeleportOptions:SetTeleportData` and
+  `player:GetJoinData()` carry the data. Players land in an open server, or a
+  new one if none is open.
+- **Play links on a Mac**: the website's Play and Join buttons (and "Edit in
+  Studio") open the Player on a Mac too. Open the Player once and it adds a
+  small Guts&Bolts Player app to Applications, which macOS needs for links.
+- **Text filter**: anything with slurs, links or personal info becomes
+  `[ Content Deleted ]`, like classic Roblox. It covers chat, messages,
+  profiles, group posts and the names and descriptions of things, and catches
+  slurs hidden with spaces, dots or look-alike letters. Links to
+  gutsandbolts.net are fine.
+- **Upload review**: new decals, sounds and T-shirts from creators who aren't
+  Verified wait for a staff check before anyone else sees them. Staff get an
+  "Uploads to check" list; turned-down uploads say why.
+- **Notification bell**: one place for friend requests, new friends and
+  followers, sales, trades, group requests and upload checks, on the website
+  and in the Player. Click one to go straight to it.
+- **AI helpers really understand Studio**: the Assistant tab and outside AI
+  apps connected through MCP (like Claude Desktop or Claude Code) get a full
+  guide to how Guts&Bolts works, and every tool says when to use it, what it
+  needs and what it gives back.
+- **Exact answers**: tools reply with clear data (object ids like `#42`,
+  positions, what really changed) and error codes that say what to try next.
+  If two objects share a name, the AI asks which one instead of guessing.
+- **Finding and fixing problems**: new `find_objects`, `get_errors`,
+  `diagnose_object` ("why won't my barrel fall?") and `validate_scene` tools.
+  Script edits are checked for Lua mistakes straight away.
+- **The engine reference**: AIs can read what the engine can and can't do, its
+  words for things, which way is up, and step-by-step recipes
+  (`get_engine_info` and the `gutsbolts://` MCP pages).
+- **Power tools**: make a physics object in one go, set off explosions, bake the
+  navmesh, find walking routes and send characters walking.
+- **Watching the game**: AIs can see the running playtest (frame rate, what's
+  moving, where characters are) and pause it or step it one frame at a time.
+- **Save points**: an AI can save the game, try something, and roll it back
+  (plus redo).
+- **Ready-made MCP prompts** for common jobs, like "make this physical" or
+  "why isn't this working?".
+
+## Changed
+- Deleting is marked as risky, so AIs only delete what you clearly asked for.
+- Usernames and guest names with slurs in them aren't allowed.
+
 # Guts&Bolts 0.6.9: Total Goblin Mode (October 6, 2026)
 
 ## New
