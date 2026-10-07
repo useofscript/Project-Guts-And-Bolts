@@ -109,6 +109,11 @@ private:
     void drawConnectScreen();
     void drawPauseMenu();
     std::vector<PlayerEntry> currentPlayers() const;   // everyone in the game (or just you, offline)
+    // Voice chat works here: a multiplayer game that allows it, and we turned it on.
+    bool voiceHere() const;
+    void updateVoice(bool acceptInput);
+    void askForMicrophone();   // phones ask "Allow Guts&Bolts to record audio?" (once)
+    void drawVoiceHud(ImDrawList* dl, ImVec2 min, ImVec2 max, bool touch);
     void drawCatalog();
     void drawItemDialog();
     void drawCreateItemDialog();
@@ -329,6 +334,8 @@ private:
     std::unique_ptr<ChatLog>       m_soloChat;     // chat when playing alone
     std::string m_chatInput;
     bool        m_chatOpen = false;
+    bool        m_talkOn = false;     // voice chat: the Talk button (phones) is switched on
+    bool        m_micAsked = false;   // asked the phone for the microphone already
     // Developer Console (PlayerDevConsole.cpp): F9 or /devconsole.
     bool        m_devConsole = false, m_devFollow = true;
     int         m_devTab = 0;
