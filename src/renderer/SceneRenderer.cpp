@@ -419,6 +419,10 @@ void SceneRenderer::renderShadowPass(Scene& scene, const glm::mat4& lightSpace, 
         m_depth->setMat4("uModel", m);
         node->mesh->draw();
     });
+    if (Mesh* tm = terrainMesh(scene)) {
+        m_depth->setMat4("uModel", glm::mat4(1.0f));
+        tm->draw();
+    }
 
     glDisable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(0.0f, 0.0f);
@@ -1048,6 +1052,36 @@ bool buildFloodMesh(const WaterSystem::Flood& f, std::vector<Vertex>& verts, std
 
 } // namespace
 
+Mesh* SceneRenderer::terrainMesh(Scene& scene) {
+    const Terrain& t = scene.terrain();
+    if (t.empty()) { m_terrainMesh.reset(); m_terrainVersion = 0; return nullptr; }
+    if (m_terrainMesh && m_terrainVersion == t.version()) return m_terrainMesh.get();
+    // Two triangles per grid square. Each corner says how much of each ground it
+    // is (one of them, fully), and the shader blends between corners.
+    const int n = t.cells(), np = n + 1;
+    std::vector<Vertex> verts((size_t)np * np);
+    std::vector<glm::vec4> blend(verts.size());
+    for (int k = 0; k < np; ++k)
+        for (int i = 0; i < np; ++i) {
+            const size_t p = (size_t)k * np + i;
+            const int m = (int)t.material(i, k);
+            verts[p] = {t.pointPos(i, k), t.pointNormal(i, k), glm::vec2(m == 4 ? 1.0f : 0.0f, m == 5 ? 1.0f : 0.0f)};
+            blend[p] = glm::vec4(m == 0, m == 1, m == 2, m == 3);
+        }
+    std::vector<uint32_t> idx;
+    idx.reserve((size_t)n * n * 6);
+    for (int k = 0; k < n; ++k)
+        for (int i = 0; i < n; ++i) {
+            const uint32_t a = (uint32_t)(k * np + i), b = a + 1, c = a + np, d = c + 1;
+            idx.insert(idx.end(), {a, d, b, a, c, d});   // (facing up)
+        }
+    if (!m_terrainMesh) m_terrainMesh = std::make_unique<Mesh>();
+    m_terrainMesh->update(verts, idx);
+    m_terrainMesh->setExtra(blend);
+    m_terrainVersion = t.version();
+    return m_terrainMesh.get();
+}
+
 void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editing) {
     const WaterSystem& waves = scene.water();
     if (!waves.active()) {
@@ -1155,6 +1189,16 @@ void SceneRenderer::drawGeometry(Scene& scene, const Camera& camera, bool editin
 
     glDisable(GL_BLEND);
     for (auto& it : opaque) draw(it);
+    if (Mesh* tm = terrainMesh(scene)) {
+        m_lit->setMat4("uModel", glm::mat4(1.0f));
+        m_lit->setMat3("uNormalMat", glm::mat3(1.0f));
+        m_lit->setVec3("uColor", glm::vec3(1.0f));
+        m_lit->setBool("uSelected", false);
+        m_lit->setInt("uMaterial", 9);
+        m_lit->setFloat("uAlpha", 1.0f);
+        m_lit->setFloat("uWetPart", 0.0f);
+        tm->draw();
+    }
     drawConstraints(scene, editing);
     if (!waters.empty()) {
         drawWater(scene, camera, waters);

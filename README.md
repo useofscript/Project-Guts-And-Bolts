@@ -964,6 +964,47 @@ underwater).
 In multiplayer the host works out what got hit, and everyone sees the same fire,
 smoke, waves and shaking.
 
+### Terrain
+
+Hills, valleys, beaches and mountains, like Roblox's Terrain. Open the **TERRAIN**
+tab in Studio:
+
+- **Generate** makes rolling hills (each click makes different ones). The **Hills**
+  slider is how bumpy (0 = gentle, 1 = mountains) and the box next to it is how big
+  (256, 512 or 1024 studs across). It paints itself: sand down low, rock on steep
+  slopes, snow on high tops, grass and dirt everywhere else.
+- **Raise**, **Lower**, **Smooth**, **Flatten** and **Paint** are brushes: pick one and
+  drag on the ground. **Size** and **Strength** are next to them, and so is the
+  material Paint uses (Grass, Dirt, Sand, Rock, Snow or Mud). Esc puts the brush
+  down. A whole stroke is one Ctrl+Z. No terrain yet? The first stroke makes a flat
+  512-stud square of grass.
+- **Clear** removes it all.
+
+Characters walk on it (slopes steeper than about 53 degrees are too steep to walk
+up), loose parts land and roll on it, raycasts and clicks hit it, it casts shadows,
+pathfinding walks over it, and it's saved with the place and sent to everyone who
+joins. It's a height map, so there are no caves or overhangs (build those with
+parts). For water, put a Water part where you want the lake.
+
+Scripts use `workspace.Terrain`:
+
+```lua
+local T = workspace.Terrain
+T:Generate(7, 0.6, 512)                                   -- seed, hills (0..1), size in studs
+T:FillBlock(CFrame.new(0, 0, 50), Vector3.new(20, 10, 20), Enum.Material.Rock)   -- a rock plateau
+T:FillBlock(CFrame.new(0, 0, -50), Vector3.new(16, 8, 16), Enum.Material.Air)    -- dig a pit
+T:FillBall(Vector3.new(40, 0, 0), 12, Enum.Material.Grass)  -- a round hill
+T:Sculpt("Smooth", Vector3.new(0, 0, 0), 20, 1)            -- brush, position, radius, strength, material
+print(T:GetHeight(10, 20), T:GetMaterial(Vector3.new(10, 0, 20)))
+T:Clear()
+```
+
+`workspace:Raycast` returns `workspace.Terrain` as the `Instance` when it hits the
+ground, with the terrain's `Material`. Changes made while the game runs are sent to
+every player (at most twice a second, since the terrain can be big). The terrain is
+in `Terrain.h` / `Terrain.cpp` (`src/scene`), drawn by `SceneRenderer::terrainMesh`,
+and sculpted in `ViewportTerrain.cpp`.
+
 ### Real water
 
 Water isn't just a see-through box you can swim in. While the game runs:

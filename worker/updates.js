@@ -19,6 +19,17 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
+    id: 'touch-grass', name: 'Touch Grass', time: 1791349000, tag: 'Studio',
+    summary: 'Terrain! Sculpt hills, valleys, beaches and mountains in Studio, then go outside (in the game).',
+    items: [
+      'New TERRAIN tab in Studio: Generate rolling hills, then Raise, Lower, Smooth, Flatten and Paint with brushes',
+      'Six grounds that blend into each other: grass, dirt, sand, rock, snow and mud',
+      'Characters walk up gentle slopes (not cliffs), loose parts roll down hills, and pathfinding works on it',
+      'Scripts can change it with workspace.Terrain (FillBlock, FillBall, Generate, Sculpt, GetHeight)',
+      'Saved with your place and sent to every player, even when a script changes it mid-game',
+    ],
+  },
+  {
     id: 'staff-picks', name: 'Staff Picks (No Bribes Accepted)', time: 1791346500, tag: 'Website',
     summary: 'Staff can now feature great games, and they show up first on the home page.',
     items: [
