@@ -110,6 +110,7 @@ void PlayerApp::drawBell(ImVec2 c) {
             if (kind == "friendRequest") { m_page = Page::Friends; m_friendsAt = -100.0; }
             else if (kind == "friend" || kind == "follow") openProfile(about);
             else if (kind == "group") openGroup(about);
+            else if (kind == "forum") openForum("", about, -1);
             else if (kind == "upload" || kind == "sale") openAsset(about);
             ImGui::CloseCurrentPopup();
         }

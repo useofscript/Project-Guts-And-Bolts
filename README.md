@@ -2162,6 +2162,32 @@ one every 15 seconds. The text filter applies, like everywhere else.
 - The newest 500 comments are kept (`comments.*` in `worker/server.js` and
   `src/server/ServerSocial.cpp`).
 
+### The Forum
+
+A classic forum, on the website (the **Forum** tab) and in the Player app. It's
+split into boards:
+
+| Board | What it's for |
+|---|---|
+| News & Announcements | Updates from the Guts&Bolts team (only staff can start threads here) |
+| Help | Stuck? Ask how to do something |
+| Scripting Helpers | Lua questions and scripts that won't work |
+| Building & Studio | Tips, tricks and things you built |
+| Game Ads | Show off a game you made |
+| Trading | Find people to trade Limiteds with |
+| Off Topic | Anything else |
+
+- Signed-up players can start a thread (a title up to 80 letters, a post up to
+  3000) once a minute, and reply once every 15 seconds. The text filter applies.
+- Threads show 20 posts a page. The newest reply bumps a thread to the top of
+  its board. A thread holds up to 500 posts, and each board keeps 1000 threads.
+- You can delete your own posts. Deleting the first post deletes the whole thread.
+- Every post has a **Report** link. Staff can delete any post, **pin** a thread to
+  the top of its board, or **lock** it so nobody can reply.
+- Whoever started a thread gets a notification when someone replies.
+- Blocked people's posts are hidden from you, and they can't reply to your threads.
+- The code is `forum.*` in `worker/server.js` and `src/server/ServerForum.cpp`.
+
 ### Creator stats (how your stuff is doing)
 
 **Create > Stats** (on the website and in the Player) shows how everything you made
