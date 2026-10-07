@@ -74,7 +74,7 @@ public:
     void run();
 
 private:
-    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends, Login, Messages };
+    enum class Page { Home, Games, Avatar, GameInfo, Game, Catalog, Staff, Bolts, Create, People, Profile, Groups, Group, Friends, Login, Messages, Forum };
     // How a game is started: alone, or as the host of a server.
     enum class HostMode { Solo, Lan, Public, Private };
     using Starter = std::function<void(HostMode)>;   // loads the game (downloading it if needed) and starts it
@@ -453,6 +453,15 @@ private:
     std::string    m_newGroupName, m_newGroupDesc, m_wallInput, m_shoutInput, m_editDesc;
     glm::vec3      m_newGroupColor{0.23f, 0.48f, 0.84f};
     bool           m_newGroupOpen = true, m_editingGroup = false;
+
+    // The Forum (PlayerForum.cpp)
+    void drawForum();
+    void drawForumThread();
+    void openForum(const std::string& board, const std::string& thread = "", int page = 0);
+    nlohmann::json m_forum = nlohmann::json::object();   // what the server sent for the page we're on
+    std::string    m_forumBoard, m_forumThread, m_forumTitle, m_forumText, m_forumReply, m_forumMsg;
+    int            m_forumPage = 0;
+    bool           m_forumWriting = false;                 // the New thread form is open
 
     // Sign up / log in
     int            m_loginTab = 0;                 // Sign Up / Log In
