@@ -610,3 +610,6 @@ html.gutstober .foot, html.gutstober .foot a { color: #cbb5dc; }
 /* Staff action log */
 .stafflog > div { display: flex; align-items: baseline; gap: 8px; }
 .stafflog .grow { min-width: 0; overflow-wrap: anywhere; }
+
+/* Featured games (picked by staff) */
+.featured-pill { background: linear-gradient(#ffe59a, #f5c542); border-color: #d49a0a; color: #3b2a00; }

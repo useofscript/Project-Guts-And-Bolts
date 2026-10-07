@@ -19,6 +19,16 @@ export const BUILT_IN_UPDATES = [
     ],
   },
   {
+    id: 'staff-picks', name: 'Staff Picks (No Bribes Accepted)', time: 1791346500, tag: 'Website',
+    summary: 'Staff can now feature great games, and they show up first on the home page.',
+    items: [
+      'New "Featured Games" row at the top of the home page, on the website and in the Player',
+      'Featured games get a gold Featured tag and a new Featured sort on the Games page',
+      'Staff get a Feature / Unfeature button on every public game',
+      'Creators get a notification when their game gets featured',
+    ],
+  },
+  {
     id: 'the-save-button-works-now', name: 'The Save Button Works Now', time: 1791346000, tag: 'Fix',
     summary: 'Saving an item\'s Edit box (like making it a timed item) works again, and the useless colour box is gone.',
     items: [
