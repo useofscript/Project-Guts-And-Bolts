@@ -10,6 +10,19 @@
 
 export const BUILT_IN_UPDATES = [
   {
+    id: 'phase-shift', name: 'Phase Shift', time: 1791864000, tag: 'Engine',
+    summary: 'Collision groups are real now: choose which parts bump into which, so players can walk through each other and team doors let only one team in.',
+    items: [
+      'PhysicsService collision groups work for real: register groups, then say which ones collide and which pass through each other (up to 32)',
+      'Every part has a CollisionGroup, and loose parts, walking characters and raycasts all follow the table',
+      'Players walk through each other but not through walls, and a door can let only one team through',
+      'A Collision Groups window in Studio (MODEL tab or the View menu): add, rename and delete groups and tick which pairs collide',
+      'Pick a part\'s group in the Properties panel',
+      'Groups are saved with your place, sent to everyone who joins, and brought in from imported places',
+      'RaycastParams.CollisionGroup and RespectCanCollide for rays that skip what they should',
+    ],
+  },
+  {
     id: 'push-the-big-red-button', name: 'Push the Big Red Button', time: 1791842400, tag: 'Engine',
     summary: 'ClickDetectors: put one in a part or model and players can click it to make things happen.',
     items: [
